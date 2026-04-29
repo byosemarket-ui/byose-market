@@ -10,11 +10,66 @@
 	<link rel="stylesheet" href="css/tokens.css">
 	<link rel="stylesheet" href="css/base.css">
 	<link rel="stylesheet" href="css/layout.css">
-	<link rel="stylesheet" href="css/pages/modules.css">
+	<link rel="stylesheet" href="css/pages/login.css">
 </head>
-<body class="admin-dashboard-page">
-	<div class="dashboard-shell"><div class="dashboard-orb dashboard-orb-primary" aria-hidden="true"></div><div class="dashboard-orb dashboard-orb-secondary" aria-hidden="true"></div><main class="dashboard-grid" style="max-width:56rem;margin:0 auto;padding:2rem 1rem;"><section class="dashboard-panel module-hero-panel"><div class="module-hero-copy"><p class="dashboard-eyebrow">Admin Session</p><h2>Open the admin workspace session</h2><p>This local admin login stores a browser-based admin session for the current device. It does not replace a server-backed authorization system, but it removes the dead placeholder page and gives the admin workspace a real entry point.</p></div><div class="module-summary-list"><li><span>Current Session</span><strong id="adminSessionName">Loading...</strong><small id="adminSessionEmail"></small></li></div></section><section class="dashboard-panel module-form-card"><div class="module-panel-heading"><div><p class="dashboard-eyebrow">Access</p><h2>Start Admin Session</h2></div><a class="module-link-button" href="dashboard.html">Go to dashboard</a></div><form id="adminLoginForm" class="module-form-grid"><label><span>Name</span><input name="name" type="text" placeholder="Admin name"></label><label><span>Email</span><input name="email" type="email" placeholder="admin@byosemarket.com" required></label><button class="module-primary-button" type="submit">Start Session</button></form><div class="module-actions-inline"><button class="module-secondary-button" id="adminLogoutButton" type="button" hidden>Clear Session</button></div><p id="adminSessionStatus" class="module-feedback"></p></section></main></div>
+<body class="admin-login-page">
+	<div class="dashboard-shell admin-login-shell">
+		<div class="dashboard-orb dashboard-orb-primary" aria-hidden="true"></div>
+		<div class="dashboard-orb dashboard-orb-secondary" aria-hidden="true"></div>
+		<main class="admin-login-layout" aria-labelledby="adminLoginTitle">
+			<section class="dashboard-panel admin-login-intro-panel">
+				<div class="admin-login-badge">Protected workspace</div>
+				<p class="dashboard-eyebrow">Byose Market Admin</p>
+				<h1 id="adminLoginTitle">Simple admin login that works locally and online</h1>
+				<p class="admin-login-intro-copy">This admin area uses a frontend-only session stored in localStorage, so it works on GitHub Pages, live server, and local files without any backend.</p>
+				<div class="admin-login-highlights" aria-label="Admin security summary">
+					<div class="admin-login-highlight-card">
+						<span>Auth model</span>
+						<strong>Single admin account</strong>
+					</div>
+					<div class="admin-login-highlight-card">
+						<span>Session</span>
+						<strong>localStorage route guard</strong>
+					</div>
+				</div>
+				<div class="admin-login-session-card">
+					<p class="admin-login-session-label">Current session</p>
+					<strong id="adminSessionName">Loading...</strong>
+					<small id="adminSessionEmail"></small>
+				</div>
+			</section>
+
+			<section class="dashboard-panel admin-login-form-panel" aria-label="Admin sign in form">
+				<div class="admin-login-form-header">
+					<div>
+						<p class="dashboard-eyebrow">Admin authentication</p>
+						<h2>Sign in</h2>
+						<p>Only the configured admin credentials can open this workspace.</p>
+					</div>
+					<a class="admin-login-dashboard-link" id="adminDashboardLink" href="dashboard.html" hidden>Open dashboard</a>
+				</div>
+				<form id="adminLoginForm" class="admin-login-form" novalidate>
+					<label class="admin-login-field">
+						<span>Email</span>
+						<input name="email" type="email" placeholder="Admin email" autocomplete="username" required>
+					</label>
+					<label class="admin-login-field">
+						<span>Password</span>
+						<input name="password" type="password" placeholder="Enter admin password" autocomplete="current-password" required>
+					</label>
+					<p class="admin-login-helper">Only one admin account is allowed. Any other credentials are rejected.</p>
+					<button class="admin-login-submit" type="submit">Sign in to admin</button>
+				</form>
+				<div class="admin-login-actions">
+					<button class="admin-login-logout" id="adminLogoutButton" type="button" hidden>Log out</button>
+				</div>
+				<p id="adminSessionStatus" class="login-feedback" aria-live="polite"></p>
+			</section>
+		</main>
+	</div>
+	<script src="js/core/config.js"></script>
 	<script src="js/core/auth.js"></script>
+	<script src="js/core/api-client.js"></script>
 	<script src="js/pages/login.page.js"></script>
 </body>
 </html>

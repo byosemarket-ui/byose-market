@@ -68,10 +68,11 @@
               <select id="ordersStatusFilter" aria-label="Filter orders by status">
                 <option value="all">All statuses</option>
                 <option value="Pending">Pending</option>
-                <option value="Processing">Processing</option>
-                <option value="Shipped">Shipped</option>
+                <option value="Confirmed">Confirmed</option>
+                <option value="Shipping">Shipping</option>
                 <option value="Delivered">Delivered</option>
                 <option value="Cancelled">Cancelled</option>
+                <option value="Returned">Returned</option>
               </select>
               <select id="ordersSortSelect" aria-label="Sort orders">
                 <option value="date-desc">Newest first</option>
@@ -108,6 +109,9 @@
       </div>
     </div>
   </div>
+  <script src="../js/core/config.js"></script>
+  <script src="../js/core/auth.js"></script>
+  <script src="../js/core/api-client.js"></script>
   <script src="../js/services/catalog.service.js"></script>
   <script src="../../js/products.js"></script>
   <script src="../js/services/orders.service.js"></script>

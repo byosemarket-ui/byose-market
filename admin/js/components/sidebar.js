@@ -250,6 +250,10 @@
 
 	function renderSidebar(root) {
 		const currentPath = getCurrentPath();
+		const session = window.AdminAuthService && typeof window.AdminAuthService.getSession === 'function'
+			? window.AdminAuthService.getSession()
+			: null;
+		const sessionEmail = session && session.email ? session.email : 'Admin access only';
 
 		root.innerHTML = `
 			<div class="admin-sidebar-brand">
@@ -271,15 +275,17 @@
 				`).join('')}
 			</nav>
 			<div class="admin-sidebar-footer">
-				<span class="admin-sidebar-footer-label">Navigation</span>
-				<strong>Real pages only</strong>
-				<small>Linked to the current admin file structure.</small>
+				<span class="admin-sidebar-footer-label">Admin session</span>
+				<strong>${sessionEmail}</strong>
+				<small>Protected with frontend-only route checks.</small>
+				<button class="admin-sidebar-logout" type="button" data-admin-logout>Log out</button>
 			</div>
 		`;
 	}
 
 	function bindSidebarInteractions(root) {
 		const buttons = Array.from(root.querySelectorAll('.admin-sidebar-expander'));
+		const logoutButton = root.querySelector('[data-admin-logout]');
 
 		function closeAllSections(exceptButton) {
 			buttons.forEach((button) => {
@@ -317,6 +323,12 @@
 				}
 			});
 		});
+
+		if (logoutButton && window.AdminAuthService && typeof window.AdminAuthService.logout === 'function') {
+			logoutButton.addEventListener('click', () => {
+				window.AdminAuthService.logout({ redirect: true });
+			});
+		}
 
 		const activeButton = buttons.find((button) => button.classList.contains('is-active'));
 		if (activeButton) {

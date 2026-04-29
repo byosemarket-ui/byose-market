@@ -10,6 +10,10 @@
 		return;
 	}
 
+	service.init?.().catch((error) => {
+		console.warn("Unable to initialize admin orders service.", error);
+	});
+
 	const elements = {
 		searchInput: document.getElementById("ordersSearchInput"),
 		statusFilter: document.getElementById("ordersStatusFilter"),
@@ -140,7 +144,7 @@
 		renderOrders();
 	}
 
-	function handleDelete(orderId) {
+	async function handleDelete(orderId) {
 		const order = service.getOrderById(orderId);
 		if (!order) {
 			rerender();
@@ -152,26 +156,26 @@
 			return;
 		}
 
-		service.deleteOrder(orderId);
+		await service.deleteOrder(orderId);
 		rerender();
 	}
 
-	function handleClick(event) {
+	async function handleClick(event) {
 		const button = event.target.closest("[data-action='delete'][data-order-id]");
 		if (!button) {
 			return;
 		}
 
-		handleDelete(button.dataset.orderId || "");
+		await handleDelete(button.dataset.orderId || "");
 	}
 
-	function handleChange(event) {
+	async function handleChange(event) {
 		const select = event.target.closest("select[data-action='status'][data-order-id]");
 		if (!select) {
 			return;
 		}
 
-		service.updateOrderStatus(select.dataset.orderId || "", select.value || "Pending");
+		await service.updateOrderStatus(select.dataset.orderId || "", select.value || "Pending");
 		rerender();
 	}
 

@@ -70,12 +70,41 @@
       // last-resort: write fallback keys
       try { localStorage.setItem('byose_market_user', JSON.stringify(user)); } catch (e) {}
       try { localStorage.setItem('bm_user', JSON.stringify(user)); } catch (e) {}
+      try { localStorage.setItem('bm_current_user', JSON.stringify(user)); } catch (e) {}
 
       // also set a simple user entry used in other places
       try { localStorage.setItem('user', JSON.stringify(user)); } catch (e) {}
 
+      const rawUsers = localStorage.getItem('bm_users') || localStorage.getItem('byose_market_users');
+      const users = rawUsers ? JSON.parse(rawUsers) : [];
+      const email = String(user && user.email || '').trim().toLowerCase();
+      const phone = String(user && user.phone || '').trim();
+      const index = Array.isArray(users)
+        ? users.findIndex((entry) => {
+            const entryEmail = String(entry && entry.email || '').trim().toLowerCase();
+            const entryPhone = String(entry && entry.phone || '').trim();
+            return (email && entryEmail === email)
+              || (phone && entryPhone === phone)
+              || (user && user.id && String(entry && entry.id || '') === String(user.id));
+          })
+        : -1;
+
+      const nextUsers = Array.isArray(users) ? users.slice() : [];
+      if (index === -1) {
+        nextUsers.push(user);
+      } else {
+        nextUsers[index] = {
+          ...nextUsers[index],
+          ...user
+        };
+      }
+
+      try { localStorage.setItem('bm_users', JSON.stringify(nextUsers)); } catch (e) {}
+      try { localStorage.setItem('byose_market_users', JSON.stringify(nextUsers)); } catch (e) {}
+
       // dispatch an app-level event so other modules can react
       window.dispatchEvent(new CustomEvent('userUpdated', { detail: user }));
+      window.dispatchEvent(new CustomEvent('byose:customers-changed', { detail: { action: 'profile-update', userId: user && user.id || '' } }));
     } catch (e) {
       console.error('writeUser failed', e);
     }

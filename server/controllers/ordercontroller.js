@@ -119,6 +119,31 @@ function buildOrderQuery(user) {
     return orConditions.length ? { $or: orConditions } : null;
 }
 
+function buildOrderLookupQuery(identifier) {
+    if (mongoose.Types.ObjectId.isValid(identifier)) {
+        return { $or: [{ _id: identifier }, { orderId: identifier }, { id: identifier }] };
+    }
+
+    return { $or: [{ orderId: identifier }, { id: identifier }] };
+}
+
+function appendStatusHistory(order, status) {
+    const normalizedStatus = normalizeText(status);
+    const timestamp = new Date().toISOString();
+    const nextHistory = Array.isArray(order.statusHistory) ? order.statusHistory.slice() : [];
+
+    nextHistory.push({
+        status: normalizedStatus.toLowerCase(),
+        label: normalizedStatus,
+        timestamp
+    });
+
+    order.status = normalizedStatus || order.status;
+    order.orderStatus = normalizedStatus.toLowerCase() || order.orderStatus;
+    order.updatedAt = new Date(timestamp);
+    order.statusHistory = nextHistory;
+}
+
 exports.createOrder = async (req, res) => {
     try {
         const user = await resolveUser(req);
@@ -172,20 +197,75 @@ exports.updateOrderStatus = async (req, res) => {
         const { status } = req.body || {};
         if (!status) return res.status(400).json({ success: false, message: 'status required' });
 
-        const query = mongoose.Types.ObjectId.isValid(req.params.id)
-            ? { $or: [{ _id: req.params.id }, { orderId: req.params.id }, { id: req.params.id }] }
-            : { $or: [{ orderId: req.params.id }, { id: req.params.id }] };
+        const query = buildOrderLookupQuery(req.params.id);
 
         const order = await Order.findOne(query);
         if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
-        order.status = status;
-        order.orderStatus = normalizeText(status).toLowerCase() || order.orderStatus;
-        order.updatedAt = new Date();
+        appendStatusHistory(order, status);
         await order.save();
         return res.json({ success: true, order });
     } catch (err) {
         console.error('updateOrderStatus error', err);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.getAdminOrders = async (req, res) => {
+    try {
+        const orders = await Order.find({}).sort({ createdAt: -1, updatedAt: -1 });
+        return res.json({ success: true, orders });
+    } catch (err) {
+        console.error('getAdminOrders error', err);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.getAdminOrderById = async (req, res) => {
+    try {
+        const order = await Order.findOne(buildOrderLookupQuery(req.params.id));
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+
+        return res.json({ success: true, order });
+    } catch (err) {
+        console.error('getAdminOrderById error', err);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.updateAdminOrderStatus = async (req, res) => {
+    try {
+        const { status } = req.body || {};
+        if (!status) {
+            return res.status(400).json({ success: false, message: 'status required' });
+        }
+
+        const order = await Order.findOne(buildOrderLookupQuery(req.params.id));
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+
+        appendStatusHistory(order, status);
+        await order.save();
+        return res.json({ success: true, order });
+    } catch (err) {
+        console.error('updateAdminOrderStatus error', err);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.deleteAdminOrder = async (req, res) => {
+    try {
+        const order = await Order.findOneAndDelete(buildOrderLookupQuery(req.params.id));
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+
+        return res.json({ success: true, orderId: order.orderId || order.id || req.params.id });
+    } catch (err) {
+        console.error('deleteAdminOrder error', err);
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };

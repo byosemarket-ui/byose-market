@@ -305,6 +305,7 @@
 .customer-mobile-meta,
 .customer-order-products,
 .customer-summary-metrics,
+.customer-profile-details,
 .customer-form-grid,
 .customer-orders-list,
 .customer-product-tags {
@@ -321,7 +322,12 @@
 	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
+.customer-profile-details {
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
 .customer-summary-metrics div,
+.customer-profile-details div,
 .customer-activity-stat,
 .customer-mobile-meta div {
 	display: grid;
@@ -399,6 +405,31 @@
 	background: rgba(0, 184, 148, 0.08);
 	color: var(--admin-text);
 	font-size: 0.82rem;
+	font-weight: 700;
+}
+
+.customer-detail-text {
+	display: inline-block;
+	max-width: 220px;
+	color: var(--admin-text);
+	line-height: 1.5;
+	word-break: break-word;
+}
+
+.customer-mobile-spend {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 14px 16px;
+	border-radius: 18px;
+	background: rgba(255, 255, 255, 0.7);
+	border: 1px solid rgba(22, 50, 45, 0.08);
+}
+
+.customer-mobile-spend span {
+	color: var(--admin-muted);
+	font-size: 0.88rem;
 	font-weight: 700;
 }
 

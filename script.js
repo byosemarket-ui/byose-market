@@ -62,6 +62,7 @@ function initializeHomePage() {
 
   window.addEventListener('storage', syncCatalog);
   window.addEventListener('byose:products-changed', syncCatalog);
+  window.addEventListener('byose:hero-slides-updated', setupHeroSlider);
 }
 
 function syncCatalog() {
@@ -404,22 +405,36 @@ function scrollToProducts() {
 }
 
 function setupHeroSlider() {
+  if (typeof window.__byoseHeroSliderCleanup === 'function') {
+    window.__byoseHeroSliderCleanup();
+    window.__byoseHeroSliderCleanup = null;
+  }
+
   const slides = Array.from(document.querySelectorAll('.hero-slide'));
   const dotsRoot = document.getElementById('heroDots');
   const nextBtn = document.getElementById('nextBtn');
   const prevBtn = document.getElementById('prevBtn');
   const hero = document.getElementById('heroSection');
+  const controls = hero ? hero.querySelector('.hero-controls') : null;
 
   if (!slides.length || !dotsRoot || !hero) {
+    if (dotsRoot) {
+      dotsRoot.innerHTML = '';
+    }
     return;
   }
 
   let index = 0;
   let timerId = 0;
   const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const canRotate = slides.length > 1;
+
+  if (controls) {
+    controls.hidden = !canRotate;
+  }
 
   dotsRoot.innerHTML = slides.map((_, dotIndex) => `
-    <button type="button" class="hero-dot${dotIndex === 0 ? ' is-active' : ''}" data-dot-index="${dotIndex}" aria-label="Show slide ${dotIndex + 1}"></button>
+    <button type="button" class="hero-dot${dotIndex === 0 ? ' is-active' : ''}" data-dot-index="${dotIndex}" aria-label="Show slide ${dotIndex + 1}: ${escapeHtml(slides[dotIndex].querySelector('h1')?.textContent || 'Hero slide')}"></button>
   `).join('');
 
   const dots = Array.from(dotsRoot.querySelectorAll('.hero-dot'));
@@ -428,6 +443,7 @@ function setupHeroSlider() {
     index = (nextIndex + slides.length) % slides.length;
     slides.forEach((slide, slideIndex) => {
       slide.classList.toggle('active', slideIndex === index);
+      slide.setAttribute('aria-hidden', slideIndex === index ? 'false' : 'true');
     });
     dots.forEach((dot, dotIndex) => {
       dot.classList.toggle('is-active', dotIndex === index);
@@ -442,7 +458,7 @@ function setupHeroSlider() {
   }
 
   function start() {
-    if (prefersReducedMotion || slides.length < 2 || document.hidden) {
+    if (prefersReducedMotion || !canRotate || document.hidden) {
       return;
     }
 
@@ -452,7 +468,7 @@ function setupHeroSlider() {
     }, HERO_INTERVAL_MS);
   }
 
-  dotsRoot.addEventListener('click', event => {
+  const handleDotsClick = event => {
     const dot = event.target.closest('.hero-dot');
     if (!dot) {
       return;
@@ -460,33 +476,59 @@ function setupHeroSlider() {
 
     show(Number(dot.dataset.dotIndex || 0));
     start();
-  });
+  };
 
+  dotsRoot.addEventListener('click', handleDotsClick);
+
+  const handleNextClick = () => {
+    show(index + 1);
+    start();
+  };
   if (nextBtn) {
-    nextBtn.addEventListener('click', () => {
-      show(index + 1);
-      start();
-    });
+    nextBtn.addEventListener('click', handleNextClick);
   }
 
+  const handlePrevClick = () => {
+    show(index - 1);
+    start();
+  };
   if (prevBtn) {
-    prevBtn.addEventListener('click', () => {
-      show(index - 1);
-      start();
-    });
+    prevBtn.addEventListener('click', handlePrevClick);
   }
 
-  hero.addEventListener('mouseenter', stop);
-  hero.addEventListener('mouseleave', start);
-  hero.addEventListener('touchstart', stop, { passive: true });
-  hero.addEventListener('touchend', start, { passive: true });
-  document.addEventListener('visibilitychange', () => {
+  const handleMouseEnter = () => stop();
+  const handleMouseLeave = () => start();
+  const handleTouchStart = () => stop();
+  const handleTouchEnd = () => start();
+  const handleVisibilityChange = () => {
     if (document.hidden) {
       stop();
       return;
     }
     start();
-  });
+  };
+
+  hero.addEventListener('mouseenter', handleMouseEnter);
+  hero.addEventListener('mouseleave', handleMouseLeave);
+  hero.addEventListener('touchstart', handleTouchStart, { passive: true });
+  hero.addEventListener('touchend', handleTouchEnd, { passive: true });
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+
+  window.__byoseHeroSliderCleanup = () => {
+    stop();
+    dotsRoot.removeEventListener('click', handleDotsClick);
+    if (nextBtn) {
+      nextBtn.removeEventListener('click', handleNextClick);
+    }
+    if (prevBtn) {
+      prevBtn.removeEventListener('click', handlePrevClick);
+    }
+    hero.removeEventListener('mouseenter', handleMouseEnter);
+    hero.removeEventListener('mouseleave', handleMouseLeave);
+    hero.removeEventListener('touchstart', handleTouchStart);
+    hero.removeEventListener('touchend', handleTouchEnd);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  };
 
   show(0);
   start();

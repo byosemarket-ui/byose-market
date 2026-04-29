@@ -111,16 +111,16 @@
                 <thead>
                   <tr>
                     <th>Customer</th>
+                <th>Email</th>
+                <th>Phone</th>
                     <th>Status</th>
-                    <th>Orders</th>
-                    <th>Spent</th>
                     <th>Date Joined</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody id="customersTableBody">
                   <tr>
-                    <td colspan="6" class="customers-empty-row">Loading customer records...</td>
+                <td colspan="6" class="customers-empty-row">Loading customer records...</td>
                   </tr>
                 </tbody>
               </table>
@@ -131,6 +131,9 @@
       </div>
     </div>
   </div>
+  <script src="../js/core/config.js"></script>
+  <script src="../js/core/auth.js"></script>
+  <script src="../js/core/api-client.js"></script>
   <script src="../js/services/customers.service.js"></script>
   <script src="../js/components/sidebar.js"></script>
   <script src="../js/pages/customers-list.page.js"></script>

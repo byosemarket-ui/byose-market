@@ -133,6 +133,10 @@
 		document.getElementById("customerAvatar").src = customer.avatar;
 		document.getElementById("customerNameHeading").textContent = customer.name;
 		document.getElementById("customerContactText").textContent = customer.email || customer.phone || "No contact available";
+		document.getElementById("customerIdLabel").textContent = customer.id || "-";
+		document.getElementById("customerEmailLabel").textContent = customer.email || "No email";
+		document.getElementById("customerPhoneLabel").textContent = customer.phone || "No phone";
+		document.getElementById("customerLastOrderLabel").textContent = customer.lastOrderDate ? service.formatDateTime(customer.lastOrderDate) : "No orders yet";
 		document.getElementById("customerStatusLabel").textContent = customer.status === "blocked" ? "Blocked" : "Active";
 		document.getElementById("customerVerifiedLabel").textContent = customer.verified ? "Verified" : "Not verified";
 		document.getElementById("customerJoinedLabel").textContent = service.formatDate(customer.joinedAt);

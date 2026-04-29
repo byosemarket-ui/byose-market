@@ -154,7 +154,7 @@
 
 	elements.searchInput.addEventListener('input', render);
 	elements.categoryFilter.addEventListener('change', render);
-	elements.tableBody.addEventListener('click', (event) => {
+	elements.tableBody.addEventListener('click', async (event) => {
 		const button = event.target.closest('[data-delete-id]');
 		if (!button) {
 			return;
@@ -172,8 +172,15 @@
 			return;
 		}
 
-		service.deleteProduct(productId);
-		render();
+		button.disabled = true;
+		try {
+			await service.deleteProduct(productId);
+			render();
+		} catch (error) {
+			window.alert(error?.message || 'The product could not be deleted right now.');
+		} finally {
+			button.disabled = false;
+		}
 	});
 
 	window.addEventListener('storage', render);

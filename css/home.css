@@ -397,13 +397,65 @@ button {
 .hero-slide {
   width: 100%;
   height: 100%;
-  object-fit: cover;
   opacity: 0;
   transition: opacity 0.45s ease;
+  pointer-events: none;
+}
+
+.hero-slide img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .hero-slide.active {
   opacity: 1;
+  pointer-events: auto;
+}
+
+.hero-slide-copy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  align-content: end;
+  gap: 10px;
+  height: 100%;
+  max-width: min(100%, 560px);
+  padding: 24px;
+}
+
+.hero-slide-eyebrow {
+  width: fit-content;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: rgba(233, 253, 247, 0.16);
+  color: #f4fff9;
+  border: 1px solid rgba(233, 253, 247, 0.22);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hero-slide-copy h1 {
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(1.7rem, 2.4vw + 0.9rem, 3rem);
+  line-height: 1.02;
+  letter-spacing: -0.05em;
+}
+
+.hero-slide-copy p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 0.98rem;
+  line-height: 1.7;
+}
+
+.hero-slide-cta {
+  width: fit-content;
 }
 
 .hero-media::after {
@@ -411,6 +463,8 @@ button {
   position: absolute;
   inset: 0;
   background: linear-gradient(180deg, rgba(3, 15, 12, 0.08), rgba(4, 21, 18, 0.32) 65%, rgba(4, 21, 18, 0.54));
+  z-index: 0;
+  pointer-events: none;
 }
 
 .hero-controls {

@@ -2,9 +2,18 @@
 	"use strict";
 
 	async function request(path, options) {
-		const response = await fetch(path, {
+		const authToken = global.AdminAuthService && typeof global.AdminAuthService.getToken === "function"
+			? global.AdminAuthService.getToken()
+			: "";
+		const baseUrl = String(global.AdminConfig?.apiBaseUrl || "").replace(/\/$/, "");
+		const url = /^https?:/i.test(String(path || "")) || String(path || "").startsWith("/")
+			? path
+			: `${baseUrl}/${String(path || "").replace(/^\/+/, "")}`;
+
+		const response = await fetch(url, {
 			headers: {
 				"Content-Type": "application/json",
+				...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
 				...(options?.headers || {})
 			},
 			...options
@@ -16,6 +25,9 @@
 			: await response.text().catch(() => null);
 
 		if (!response.ok) {
+			if (response.status === 401 && global.AdminAuthService && typeof global.AdminAuthService.logout === "function") {
+				global.AdminAuthService.logout({ redirect: true });
+			}
 			throw new Error((payload && payload.message) || `Request failed with status ${response.status}`);
 		}
 

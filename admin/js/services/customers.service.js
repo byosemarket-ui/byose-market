@@ -20,7 +20,7 @@
 
 	function readArrayFromKeys(keys) {
 		const merged = [];
-		const seen = new Set();
+		const seen = new Map();
 
 		for (const key of keys) {
 			const raw = global.localStorage.getItem(key);
@@ -43,10 +43,15 @@
 				).trim().toLowerCase();
 
 				if (seen.has(identifier)) {
+					const existingIndex = seen.get(identifier);
+					merged[existingIndex] = {
+						...merged[existingIndex],
+						...entry
+					};
 					return;
 				}
 
-				seen.add(identifier);
+				seen.set(identifier, merged.length);
 				merged.push(entry);
 			});
 		}
@@ -404,7 +409,16 @@
 	}
 
 	function getCustomerById(customerId) {
-		return getCustomers().find((customer) => String(customer.id) === String(customerId)) || null;
+		const normalizedId = String(customerId || "").trim().toLowerCase();
+		if (!normalizedId) {
+			return null;
+		}
+
+		return getCustomers().find((customer) => {
+			return String(customer.id) === String(customerId)
+				|| normalizeIdentifier(customer.email) === normalizedId
+				|| normalizeIdentifier(customer.phone) === normalizedId;
+		}) || null;
 	}
 
 	function matchesFilter(customer, filter) {
@@ -464,7 +478,12 @@
 
 	function updateStoredUser(customerId, updater) {
 		const users = getUsers();
-		const index = users.findIndex((user) => String(user.id) === String(customerId));
+		const normalizedCustomerId = String(customerId || "").trim().toLowerCase();
+		const index = users.findIndex((user) => {
+			return String(user.id) === String(customerId)
+				|| normalizeIdentifier(user.email) === normalizedCustomerId
+				|| normalizeIdentifier(user.phone) === normalizedCustomerId;
+		});
 		if (index === -1) {
 			return null;
 		}

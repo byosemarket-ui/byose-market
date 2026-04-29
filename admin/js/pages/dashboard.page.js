@@ -4,6 +4,7 @@
 	}
 
 	const dashboardService = window.AdminDashboardService;
+	const ordersService = window.AdminOrdersService;
 	const welcomeNode = document.getElementById('dashboardWelcomeText');
 	const dateNode = document.getElementById('dashboardCurrentDate');
 	const totalSalesNode = document.getElementById('dashboardTotalSales');
@@ -56,6 +57,17 @@
 		if (customersNoteNode) customersNoteNode.textContent = snapshot.stats.customersNote;
 		if (productsCountNode) productsCountNode.textContent = Number(snapshot.stats.productsCount || 0).toLocaleString('en-US');
 		if (productsNoteNode) productsNoteNode.textContent = snapshot.stats.productsNote;
+
+		if (ordersService && typeof ordersService.getOrderStats === 'function') {
+			const liveOrderStats = ordersService.getOrderStats();
+			const syncState = typeof ordersService.getSyncState === 'function' ? ordersService.getSyncState() : null;
+			if (ordersCountNode) ordersCountNode.textContent = Number(liveOrderStats.totalOrders || 0).toLocaleString('en-US');
+			if (ordersNoteNode) {
+				ordersNoteNode.textContent = syncState && syncState.source === 'api'
+					? 'Synced from admin order API with auto-refresh'
+					: 'Reading local checkout order storage';
+			}
+		}
 	}
 
 	function renderActivity(snapshot) {
@@ -111,10 +123,17 @@
 		renderSummary(snapshot);
 	}
 
+	ordersService?.init?.().catch((error) => {
+		console.warn('Unable to initialize admin orders service on the dashboard.', error);
+	});
+
 	refreshDashboard();
 
 	window.addEventListener('storage', refreshDashboard);
 	window.addEventListener('focus', refreshDashboard);
+	if (ordersService && ordersService.EVENT_NAME) {
+		window.addEventListener(ordersService.EVENT_NAME, refreshDashboard);
+	}
 	document.addEventListener('visibilitychange', () => {
 		if (!document.hidden) {
 			refreshDashboard();

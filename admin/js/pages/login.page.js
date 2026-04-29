@@ -5,50 +5,100 @@
 	const logoutButton = document.getElementById("adminLogoutButton");
 	const sessionName = document.getElementById("adminSessionName");
 	const sessionEmail = document.getElementById("adminSessionEmail");
+	const dashboardLink = document.getElementById("adminDashboardLink");
 
 	if (!auth || !form) {
 		return;
 	}
 
+	async function hydrateExistingSession() {
+		const session = auth.getSession();
+		if (!session) {
+			renderSession();
+			return;
+		}
+
+		const validatedSession = await auth.validateSession({ force: true });
+		if (!validatedSession) {
+			feedback.textContent = "Admin session not found. Sign in to continue.";
+			feedback.className = "login-feedback is-error";
+			renderSession();
+			return;
+		}
+
+		feedback.textContent = "Admin session active. Redirecting to dashboard...";
+		feedback.className = "login-feedback is-success";
+		renderSession();
+		window.setTimeout(() => {
+			window.location.replace(auth.getPostLoginRedirectUrl());
+		}, 200);
+	}
+
 	function renderSession() {
 		const session = auth.getSession();
 		if (!session) {
-			sessionName.textContent = "No admin session";
-			sessionEmail.textContent = "Use this local admin access form to open the dashboard workspace session.";
+			sessionName.textContent = "No active session";
+			sessionEmail.textContent = "Use the admin credentials to continue to the dashboard.";
 			logoutButton.hidden = true;
+			dashboardLink.hidden = true;
 			return;
 		}
 
-		sessionName.textContent = session.name || "Admin";
-		sessionEmail.textContent = session.email || "No email";
+		sessionName.textContent = session.admin?.name || session.name || "Admin";
+		sessionEmail.textContent = session.admin?.email || session.email || "No email";
 		logoutButton.hidden = false;
+		dashboardLink.hidden = false;
 	}
 
-	form.addEventListener("submit", (event) => {
+	form.addEventListener("submit", async (event) => {
 		event.preventDefault();
+		feedback.textContent = "Checking admin credentials...";
+		feedback.className = "login-feedback";
+		const submitButton = form.querySelector('button[type="submit"]');
+		if (submitButton) {
+			submitButton.disabled = true;
+		}
+
 		const data = new FormData(form);
 		const email = String(data.get("email") || "").trim();
-		const name = String(data.get("name") || "").trim();
-		if (!email) {
-			feedback.textContent = "Enter an email to create the local admin session.";
-			feedback.className = "module-feedback is-error";
+		const password = String(data.get("password") || "");
+		if (!email || !password) {
+			feedback.textContent = "Enter both the admin email and password.";
+			feedback.className = "login-feedback is-error";
+			if (submitButton) {
+				submitButton.disabled = false;
+			}
 			return;
 		}
-		auth.login({ email, name });
-		feedback.textContent = "Admin session started. Redirecting to the dashboard...";
-		feedback.className = "module-feedback is-success";
-		renderSession();
-		window.setTimeout(() => {
-			window.location.href = "dashboard.html";
-		}, 250);
+
+		try {
+			await auth.login({ email, password });
+			feedback.textContent = "Admin login successful. Redirecting to dashboard...";
+			feedback.className = "login-feedback is-success";
+			renderSession();
+			window.setTimeout(() => {
+				window.location.replace(auth.getPostLoginRedirectUrl());
+			}, 250);
+		} catch (error) {
+			feedback.textContent = error.message || "Invalid admin credentials";
+			feedback.className = "login-feedback is-error";
+		} finally {
+			if (submitButton) {
+				submitButton.disabled = false;
+			}
+		}
 	});
 
 	logoutButton?.addEventListener("click", () => {
 		auth.logout();
 		feedback.textContent = "Admin session cleared.";
-		feedback.className = "module-feedback";
+		feedback.className = "login-feedback";
 		renderSession();
 	});
 
-	renderSession();
+	hydrateExistingSession().catch(() => {
+		feedback.textContent = "Unable to load the admin session.";
+		feedback.className = "login-feedback is-error";
+		renderSession();
+	});
 })();

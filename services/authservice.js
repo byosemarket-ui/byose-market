@@ -4,28 +4,82 @@
 // and keeps legacy `bm_user` for backward compatibility.
 const authService = (function () {
     const USERS_KEY = 'bm_users';
+    const LEGACY_USERS_KEY = 'byose_market_users';
     const CURRENT_USER_KEY = 'bm_current_user';
     const LEGACY_USER_KEY = 'bm_user';
+    const STOREFRONT_USER_KEY = 'byose_market_user';
     const LOGGED_KEY = 'bm_logged_in';
+    const CUSTOMERS_EVENT = 'byose:customers-changed';
+
+    function _dispatch(name, detail) {
+        try {
+            window.dispatchEvent(new CustomEvent(name, { detail: detail || {} }));
+        } catch (e) {}
+    }
 
     function _getUsers() {
-        try { return JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch (e) { return []; }
+        try {
+            const raw = localStorage.getItem(USERS_KEY) || localStorage.getItem(LEGACY_USERS_KEY);
+            return raw ? JSON.parse(raw) || [] : [];
+        } catch (e) {
+            return [];
+        }
     }
 
     function _saveUsers(users) {
-        try { localStorage.setItem(USERS_KEY, JSON.stringify(users || [])); } catch (e) { console.error(e); }
+        const serialized = JSON.stringify(users || []);
+        try { localStorage.setItem(USERS_KEY, serialized); } catch (e) { console.error(e); }
+        try { localStorage.setItem(LEGACY_USERS_KEY, serialized); } catch (e) { console.error(e); }
+        _dispatch(CUSTOMERS_EVENT, { action: 'sync-users' });
     }
 
     function _setCurrent(user) {
-        try { localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user || {})); } catch (e) { console.error(e); }
-        try { localStorage.setItem(LEGACY_USER_KEY, JSON.stringify(user || {})); } catch (e) { console.error(e); }
+        const serialized = JSON.stringify(user || {});
+        try { localStorage.setItem(CURRENT_USER_KEY, serialized); } catch (e) { console.error(e); }
+        try { localStorage.setItem(LEGACY_USER_KEY, serialized); } catch (e) { console.error(e); }
+        try { localStorage.setItem(STOREFRONT_USER_KEY, serialized); } catch (e) { console.error(e); }
         try { localStorage.setItem(LOGGED_KEY, 'true'); } catch (e) { console.error(e); }
+        _dispatch('userUpdated', user || null);
     }
 
     function _clearSession() {
         try { localStorage.removeItem(CURRENT_USER_KEY); } catch (e) {}
         try { localStorage.removeItem(LEGACY_USER_KEY); } catch (e) {}
+        try { localStorage.removeItem(STOREFRONT_USER_KEY); } catch (e) {}
         try { localStorage.removeItem(LOGGED_KEY); } catch (e) {}
+        _dispatch('userUpdated', null);
+    }
+
+    function _findUserIndex(users, user) {
+        const email = String(user && user.email || '').trim().toLowerCase();
+        const phone = String(user && user.phone || '').trim();
+        return users.findIndex((entry) => {
+            const entryEmail = String(entry && entry.email || '').trim().toLowerCase();
+            const entryPhone = String(entry && entry.phone || '').trim();
+            return (email && entryEmail === email)
+                || (phone && entryPhone === phone)
+                || (user && user.id && String(entry && entry.id || '') === String(user.id));
+        });
+    }
+
+    function _syncUserRecord(user) {
+        if (!user || typeof user !== 'object') {
+            return;
+        }
+
+        const users = _getUsers();
+        const index = _findUserIndex(users, user);
+
+        if (index === -1) {
+            users.push(user);
+        } else {
+            users[index] = {
+                ...users[index],
+                ...user
+            };
+        }
+
+        _saveUsers(users);
     }
 
     function _createLetterAvatar(name) {

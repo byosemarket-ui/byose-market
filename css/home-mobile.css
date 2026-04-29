@@ -146,6 +146,33 @@
     border-radius: 16px;
   }
 
+  .hero-slide-copy {
+    gap: 8px;
+    max-width: 100%;
+    padding: 14px;
+  }
+
+  .hero-slide-eyebrow {
+    padding: 6px 9px;
+    font-size: 0.64rem;
+    letter-spacing: 0.06em;
+  }
+
+  .hero-slide-copy h1 {
+    font-size: 1.2rem;
+  }
+
+  .hero-slide-copy p {
+    font-size: 0.78rem;
+    line-height: 1.55;
+  }
+
+  .hero-slide-cta {
+    min-height: 38px;
+    padding: 0 14px;
+    font-size: 0.78rem;
+  }
+
   .hero-controls {
     left: 12px;
     right: 12px;

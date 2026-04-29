@@ -20,6 +20,10 @@ function sanitizeUserForClient(u) {
     };
 }
 
+function isAdminUser(user) {
+    return Boolean(user && user.role === 'admin');
+}
+
 async function generateUserId() {
     const users = await User.find({}, 'id').lean();
     if (!users || !users.length) return 'BM00001';
@@ -81,7 +85,8 @@ exports.login = async (req, res) => {
 
         const id = String(identifier).trim().toLowerCase();
         const user = await User.findOne({
-            $or: [ { email: id }, { phone: id } ]
+            $or: [ { email: id }, { phone: id } ],
+            role: { $ne: 'admin' }
         });
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
@@ -106,6 +111,7 @@ exports.me = async (req, res) => {
         if (!uid) return res.status(401).json({ success: false, message: 'Unauthorized' });
         const user = await User.findOne({ id: uid });
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+        if (isAdminUser(user)) return res.status(403).json({ success: false, message: 'Unauthorized' });
         return res.json({ success: true, user: sanitizeUserForClient(user) });
     } catch (err) {
         console.error('Me error', err);
@@ -119,6 +125,11 @@ exports.me = async (req, res) => {
 exports.forgotPassword = async (req, res) => {
     const { method, identifier } = req.body;
     if (!identifier) return res.status(400).json({ success: false, message: 'Identifier required' });
+    const normalizedIdentifier = String(identifier).trim().toLowerCase();
+    const user = await User.findOne({
+        $or: [ { email: normalizedIdentifier }, { phone: String(identifier).trim() } ]
+    });
+    if (isAdminUser(user)) return res.status(403).json({ success: false, message: 'Unauthorized' });
     const otp = generateOTP();
     saveOTP(identifier, otp);
     console.log('OTP:', otp);
@@ -141,7 +152,11 @@ exports.verifyCode = (req, res) => {
 exports.resetPassword = async (req, res) => {
     const { identifier, newPassword } = req.body;
     if (!identifier || !newPassword) return res.status(400).json({ success: false, message: 'Identifier and new password required' });
-    const user = await User.findOne({ $or: [ { email: identifier }, { phone: identifier } ] });
+    const normalizedIdentifier = String(identifier).trim().toLowerCase();
+    const user = await User.findOne({
+        $or: [ { email: normalizedIdentifier }, { phone: String(identifier).trim() } ],
+        role: { $ne: 'admin' }
+    });
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
     user.password = await hashPassword(String(newPassword));
     await user.save();

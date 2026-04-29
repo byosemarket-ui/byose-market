@@ -10,6 +10,10 @@
 		return;
 	}
 
+	service.init?.().catch((error) => {
+		console.warn("Unable to initialize admin orders service.", error);
+	});
+
 	const params = new URLSearchParams(window.location.search);
 	const orderId = params.get("id") || "";
 
@@ -109,6 +113,7 @@
 				<h3>${service.escapeHtml(order.customerName)}</h3>
 			</div>
 			<div class="orders-info-grid">
+				<div><span>Checkout type</span><strong>${service.escapeHtml(order.isGuest ? "Guest order" : "Account order")}</strong></div>
 				<div><span>Phone</span><strong>${service.escapeHtml(order.customerPhone || "No phone")}</strong></div>
 				<div><span>Email</span><strong>${service.escapeHtml(order.customerEmail || "Guest checkout")}</strong></div>
 				<div><span>Customer ID</span><strong>${service.escapeHtml(order.customerId || "Guest")}</strong></div>
@@ -124,6 +129,7 @@
 			<div class="orders-info-grid">
 				<div><span>Payment type</span><strong>${service.escapeHtml(order.paymentType || "pay_now")}</strong></div>
 				<div><span>Payment method</span><strong>${service.escapeHtml(order.paymentMethod || "Not set")}</strong></div>
+				<div><span>Payment status</span><strong>${service.escapeHtml(order.paymentStatusLabel || order.paymentStatus || "pending")}</strong></div>
 				<div><span>Payer phone</span><strong>${service.escapeHtml(order.payment?.payerPhone || order.customerPhone || "Not set")}</strong></div>
 				<div><span>Transaction ID</span><strong>${service.escapeHtml(order.payment?.transactionId || "Not provided")}</strong></div>
 			</div>
@@ -171,8 +177,8 @@
 		renderOrder(order);
 	}
 
-	elements.statusSelect?.addEventListener("change", () => {
-		const updated = service.updateOrderStatus(orderId, elements.statusSelect.value || "Pending");
+	elements.statusSelect?.addEventListener("change", async () => {
+		const updated = await service.updateOrderStatus(orderId, elements.statusSelect.value || "Pending");
 		if (!updated) {
 			elements.statusMessage.textContent = "The order status could not be updated.";
 			return;
@@ -182,7 +188,7 @@
 		reloadOrder();
 	});
 
-	elements.deleteButton?.addEventListener("click", () => {
+	elements.deleteButton?.addEventListener("click", async () => {
 		const order = service.getOrderById(orderId);
 		if (!order) {
 			renderNotFound();
@@ -194,7 +200,7 @@
 			return;
 		}
 
-		service.deleteOrder(orderId);
+		await service.deleteOrder(orderId);
 		window.location.href = "index.html";
 	});
 

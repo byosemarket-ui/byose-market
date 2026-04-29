@@ -4,16 +4,14 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>Redirecting | Byose Market Admin</title>
-	<meta http-equiv="refresh" content="0; url=dashboard.html">
 	<script>
 		(function () {
-			var target = 'dashboard.html';
 			var suffix = window.location.search || window.location.hash || '';
-			window.location.replace(target + suffix);
+			window.location.replace('login.html' + suffix);
 		})();
 	</script>
 </head>
 <body>
-	<p>Redirecting to the admin dashboard...</p>
+	<p>Redirecting to admin access...</p>
 </body>
 </html>

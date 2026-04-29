@@ -659,7 +659,7 @@
 	});
 
 	form.addEventListener('input', renderPreview);
-	form.addEventListener('submit', (event) => {
+	form.addEventListener('submit', async (event) => {
 		event.preventDefault();
 		const payload = buildPayload();
 
@@ -669,17 +669,24 @@
 			return;
 		}
 
-		const updated = service.updateProduct(product.id, payload);
-		if (!updated) {
-			status.textContent = 'The product details could not be saved.';
-			status.dataset.state = 'error';
-			return;
-		}
+		saveProductButton.disabled = true;
+		saveProductButton.textContent = 'Saving...';
+		status.textContent = 'Saving product changes to the live website catalog...';
+		status.dataset.state = '';
 
-		status.textContent = `${updated.name} details were saved across the website and product details system.`;
-		status.dataset.state = 'success';
-		if (openEditedProductButton) {
-			openEditedProductButton.href = `view.html?id=${encodeURIComponent(updated.id)}`;
+		try {
+			const updated = await service.updateProduct(product.id, payload);
+			status.textContent = `${updated.name} details were saved across the website and product details system.`;
+			status.dataset.state = 'success';
+			if (openEditedProductButton) {
+				openEditedProductButton.href = `view.html?id=${encodeURIComponent(updated.id)}`;
+			}
+		} catch (error) {
+			status.textContent = error?.message || 'The product details could not be saved.';
+			status.dataset.state = 'error';
+		} finally {
+			saveProductButton.disabled = false;
+			saveProductButton.textContent = 'Save changes';
 		}
 	});
 

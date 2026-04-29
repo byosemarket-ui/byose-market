@@ -47,7 +47,8 @@
 	}
 
 	function createCustomerRow(customer) {
-		const contact = customer.email || customer.phone || "No contact available";
+		const email = customer.email || "No email";
+		const phone = customer.phone || "No phone";
 		return `
 			<tr>
 				<td>
@@ -55,13 +56,13 @@
 						<img class="customer-avatar" src="${service.escapeHtml(customer.avatar)}" alt="${service.escapeHtml(customer.name)}">
 						<div>
 							<strong>${service.escapeHtml(customer.name)}</strong>
-							<small>${service.escapeHtml(contact)}</small>
+							<small>ID ${service.escapeHtml(customer.id)}</small>
 						</div>
 					</div>
 				</td>
+				<td><span class="customer-detail-text">${service.escapeHtml(email)}</span></td>
+				<td><span class="customer-detail-text">${service.escapeHtml(phone)}</span></td>
 				<td>${getStatusMarkup(customer)}</td>
-				<td>${customer.totalOrders}</td>
-				<td>${service.formatCurrency(customer.totalSpent)}</td>
 				<td>${service.formatDate(customer.joinedAt)}</td>
 				<td>
 					<div class="customer-actions-inline">
@@ -76,22 +77,24 @@
 	}
 
 	function createCustomerCard(customer) {
-		const contact = customer.email || customer.phone || "No contact available";
+		const email = customer.email || "No email";
+		const phone = customer.phone || "No phone";
 		return `
 			<article class="customer-mobile-card">
 				<div class="customer-mobile-head">
 					<img class="customer-avatar" src="${service.escapeHtml(customer.avatar)}" alt="${service.escapeHtml(customer.name)}">
 					<div>
 						<h3>${service.escapeHtml(customer.name)}</h3>
-						<small>${service.escapeHtml(contact)}</small>
+						<small>ID ${service.escapeHtml(customer.id)}</small>
 					</div>
 				</div>
 				<div class="customer-mobile-meta">
-					<div><span>Status</span><strong>${service.escapeHtml(customer.status)}</strong></div>
+					<div><span>Email</span><strong>${service.escapeHtml(email)}</strong></div>
+					<div><span>Phone</span><strong>${service.escapeHtml(phone)}</strong></div>
 					<div><span>Orders</span><strong>${customer.totalOrders}</strong></div>
-					<div><span>Spent</span><strong>${service.formatCurrency(customer.totalSpent)}</strong></div>
 					<div><span>Joined</span><strong>${service.formatDate(customer.joinedAt)}</strong></div>
 				</div>
+				<div class="customer-mobile-spend"><span>Total spent</span><strong>${service.formatCurrency(customer.totalSpent)}</strong></div>
 				<div>${getStatusMarkup(customer)}</div>
 				<div class="customer-action-row">
 					<a class="customers-secondary-link" href="profile.html?id=${encodeURIComponent(customer.id)}">View profile</a>

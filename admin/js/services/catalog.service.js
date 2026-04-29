@@ -3,8 +3,10 @@
 
 	const STORAGE_KEY = "byose_market_products_catalog_v1";
 	const EVENT_NAME = "byose:products-changed";
+	const PRODUCTS_API_PATH = "/products";
 	const FALLBACK_IMAGE = "img/logo.png";
 	const DEFAULT_DETAIL_PAGE = "product-details1.html";
+	const REMOTE_POLL_INTERVAL = 15000;
 	const CATEGORY_ALIASES = {
 		apparel: "fashion",
 		bag: "fashion",
@@ -23,6 +25,10 @@
 	};
 
 	let inMemoryCatalog = [];
+	let registeredSeedCatalog = [];
+	let remoteSyncPromise = null;
+	let pollingStarted = false;
+	let refreshTimerId = 0;
 
 	function clone(value) {
 		return JSON.parse(JSON.stringify(value));
@@ -34,6 +40,10 @@
 		} catch (error) {
 			return false;
 		}
+	}
+
+	function canUseFetch() {
+		return typeof global.fetch === "function";
 	}
 
 	function safeParse(value, fallbackValue) {
@@ -124,6 +134,19 @@
 		return `${DEFAULT_DETAIL_PAGE}?id=${encodeURIComponent(String(productId))}`;
 	}
 
+	function getApiBaseUrl() {
+		return String(global.AdminConfig?.apiBaseUrl || "/api").replace(/\/$/, "");
+	}
+
+	function getProductsApiUrl(pathSuffix) {
+		const suffix = String(pathSuffix || "").replace(/^\/+/, "");
+		return `${getApiBaseUrl()}${PRODUCTS_API_PATH}${suffix ? `/${suffix}` : ""}`;
+	}
+
+	function getAuthToken() {
+		return String(global.AdminAuthService?.getToken?.() || "").trim();
+	}
+
 	function normalizeSpecs(specs) {
 		if (!Array.isArray(specs)) {
 			return [];
@@ -131,13 +154,15 @@
 
 		return specs
 			.map((entry) => {
-				if (!Array.isArray(entry) || entry.length < 2) {
-					return null;
+				if (Array.isArray(entry) && entry.length >= 2) {
+					return [toTrimmedString(entry[0], "Detail"), toTrimmedString(entry[1], "Available")];
 				}
 
-				const label = toTrimmedString(entry[0], "Detail");
-				const value = toTrimmedString(entry[1], "Available");
-				return [label, value];
+				if (entry && typeof entry === "object") {
+					return [toTrimmedString(entry.label || entry.name, "Detail"), toTrimmedString(entry.value, "Available")];
+				}
+
+				return null;
 			})
 			.filter(Boolean);
 	}
@@ -169,16 +194,18 @@
 								normalizedOption.image = String(option.image).trim();
 							}
 
-							return normalizedOption;
+							return normalizedOption.value || normalizedOption.image ? normalizedOption : null;
 						})
 						.filter(Boolean)
 					: [];
 
-				return {
-					name: toTrimmedString(attribute.name, "Option"),
-					type: toTrimmedString(attribute.type, "text"),
-					options
-				};
+				return options.length
+					? {
+						name: toTrimmedString(attribute.name, "Option"),
+						type: toTrimmedString(attribute.type, "text") === "image" ? "image" : "text",
+						options
+					}
+					: null;
 			})
 			.filter(Boolean);
 	}
@@ -199,7 +226,7 @@
 		const rawProduct = product && typeof product === "object" ? product : {};
 		const name = toTrimmedString(rawProduct.name || rawProduct.title, `Product ${index + 1}`);
 		const category = normalizeCategory(rawProduct.category);
-		let id = Number(rawProduct.id);
+		let id = Number(rawProduct.id || rawProduct.catalogId);
 
 		if (!Number.isFinite(id) || id <= 0 || usedIds.has(id)) {
 			id = 1;
@@ -237,6 +264,7 @@
 		const normalized = {
 			...rawProduct,
 			id,
+			catalogId: id,
 			name,
 			title: name,
 			category,
@@ -276,6 +304,32 @@
 		return source.map((item, index) => normalizeProduct(item, index, usedIds));
 	}
 
+	function mergeCatalogWithSeed(items, seedItems) {
+		const catalog = normalizeCatalog(items);
+		const seedCatalog = normalizeCatalog(seedItems);
+		if (!seedCatalog.length) {
+			return catalog;
+		}
+
+		const seedById = new Map(seedCatalog.map((item) => [Number(item.id), item]));
+		return normalizeCatalog((catalog.length ? catalog : seedCatalog).map((item) => {
+			const seed = seedById.get(Number(item.id)) || {};
+			return {
+				...seed,
+				...item,
+				mainImage: item.mainImage || item.image || seed.mainImage || seed.image,
+				image: item.image || item.mainImage || seed.image || seed.mainImage,
+				gallery: Array.isArray(item.gallery) && item.gallery.length ? item.gallery : seed.gallery,
+				keywords: Array.isArray(item.keywords) && item.keywords.length ? item.keywords : seed.keywords,
+				longDescription: Array.isArray(item.longDescription) && item.longDescription.length ? item.longDescription : seed.longDescription,
+				highlights: Array.isArray(item.highlights) && item.highlights.length ? item.highlights : seed.highlights,
+				trust: Array.isArray(item.trust) && item.trust.length ? item.trust : seed.trust,
+				specs: Array.isArray(item.specs) && item.specs.length ? item.specs : seed.specs,
+				attributes: Array.isArray(item.attributes) && item.attributes.length ? item.attributes : seed.attributes
+			};
+		}));
+	}
+
 	function readPersistedCatalog() {
 		if (!canUseStorage()) {
 			return [];
@@ -309,7 +363,7 @@
 	}
 
 	function persistCatalog(catalog, metadata) {
-		inMemoryCatalog = normalizeCatalog(catalog);
+		inMemoryCatalog = mergeCatalogWithSeed(catalog, registeredSeedCatalog);
 
 		if (canUseStorage()) {
 			global.localStorage.setItem(STORAGE_KEY, JSON.stringify({
@@ -318,68 +372,173 @@
 			}));
 		}
 
-		dispatchChange(metadata || {});
+		if (!metadata?.silent) {
+			dispatchChange(metadata || {});
+		}
+
 		return clone(inMemoryCatalog);
 	}
 
-	function getCatalog() {
-		const persisted = readPersistedCatalog();
-		if (persisted.length) {
-			inMemoryCatalog = persisted;
+	async function requestRemote(pathSuffix, options) {
+		if (!canUseFetch()) {
+			throw new Error("Product sync is not available in this browser.");
+		}
+
+		const authToken = getAuthToken();
+		const response = await global.fetch(getProductsApiUrl(pathSuffix), {
+			method: options?.method || "GET",
+			headers: {
+				...(options?.body ? { "Content-Type": "application/json" } : {}),
+				...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+				...(options?.headers || {})
+			},
+			body: options?.body ? JSON.stringify(options.body) : undefined
+		});
+
+		const payload = await response.json().catch(() => null);
+		if (!response.ok) {
+			throw new Error((payload && payload.message) || "Unable to sync products with the server.");
+		}
+
+		return payload;
+	}
+
+	function hydrateLocalFallbackFromSeed() {
+		if (!inMemoryCatalog.length && registeredSeedCatalog.length) {
+			persistCatalog(registeredSeedCatalog, { action: "seed", silent: true });
+		}
+	}
+
+	async function bootstrapRemoteCatalog() {
+		if (!registeredSeedCatalog.length || !getAuthToken()) {
+			return [];
+		}
+
+		const payload = await requestRemote("bootstrap", {
+			method: "POST",
+			body: {
+				products: registeredSeedCatalog
+			}
+		});
+
+		const remoteProducts = Array.isArray(payload?.products) ? payload.products : [];
+		if (remoteProducts.length) {
+			persistCatalog(remoteProducts, { action: "bootstrap" });
+		}
+
+		return remoteProducts;
+	}
+
+	async function refreshCatalog(options) {
+		const config = options || {};
+		if (!canUseFetch()) {
+			hydrateLocalFallbackFromSeed();
 			return clone(inMemoryCatalog);
 		}
 
+		if (remoteSyncPromise && !config.force) {
+			return remoteSyncPromise;
+		}
+
+		remoteSyncPromise = (async () => {
+			try {
+				const payload = await requestRemote("", { method: "GET" });
+				let remoteProducts = Array.isArray(payload?.products) ? payload.products : [];
+
+				if (!remoteProducts.length && config.allowBootstrap !== false && registeredSeedCatalog.length && getAuthToken()) {
+					remoteProducts = await bootstrapRemoteCatalog();
+				}
+
+				if (remoteProducts.length) {
+					persistCatalog(remoteProducts, { action: config.action || "refresh" });
+					return clone(inMemoryCatalog);
+				}
+
+				hydrateLocalFallbackFromSeed();
+				return clone(inMemoryCatalog);
+			} catch (error) {
+				hydrateLocalFallbackFromSeed();
+				if (!config.silent) {
+					dispatchChange({ action: "refresh-error", error: error.message });
+				}
+				return clone(inMemoryCatalog);
+			} finally {
+				remoteSyncPromise = null;
+			}
+		})();
+
+		return remoteSyncPromise;
+	}
+
+	function queueRefresh(options) {
+		global.clearTimeout(refreshTimerId);
+		refreshTimerId = global.setTimeout(() => {
+			refreshCatalog(options).catch(() => {});
+		}, 40);
+	}
+
+	function startPolling() {
+		if (pollingStarted || !canUseFetch()) {
+			return;
+		}
+
+		pollingStarted = true;
+		global.setInterval(() => {
+			if (global.document?.hidden) {
+				return;
+			}
+
+			refreshCatalog({ silent: true, allowBootstrap: false }).catch(() => {});
+		}, REMOTE_POLL_INTERVAL);
+
+		global.addEventListener("focus", () => {
+			queueRefresh({ silent: true, allowBootstrap: false, force: true });
+		});
+
+		global.document?.addEventListener?.("visibilitychange", () => {
+			if (!global.document.hidden) {
+				queueRefresh({ silent: true, allowBootstrap: false, force: true });
+			}
+		});
+	}
+
+	function ensureInitialized() {
+		const persisted = readPersistedCatalog();
+		if (persisted.length) {
+			inMemoryCatalog = mergeCatalogWithSeed(persisted, registeredSeedCatalog);
+		}
+
+		startPolling();
+	}
+
+	function getCatalog() {
+		ensureInitialized();
+		const persisted = readPersistedCatalog();
+		if (persisted.length) {
+			inMemoryCatalog = mergeCatalogWithSeed(persisted, registeredSeedCatalog);
+			return clone(inMemoryCatalog);
+		}
+
+		hydrateLocalFallbackFromSeed();
 		return clone(inMemoryCatalog);
 	}
 
 	function registerSeed(seedItems) {
 		const normalizedSeed = normalizeCatalog(seedItems);
+		registeredSeedCatalog = mergeCatalogWithSeed(normalizedSeed, registeredSeedCatalog);
 		if (!normalizedSeed.length) {
+			queueRefresh({ silent: true, allowBootstrap: false });
 			return getCatalog();
 		}
 
-		const persisted = readPersistedCatalog();
-		if (persisted.length) {
-			const seedById = new Map(normalizedSeed.map((item) => [Number(item.id), item]));
-			inMemoryCatalog = normalizeCatalog(persisted.map((item) => ({
-				...(seedById.get(Number(item.id)) || {}),
-				...item,
-				mainImage: item.mainImage || item.image || (seedById.get(Number(item.id)) || {}).mainImage,
-				image: item.image || item.mainImage || (seedById.get(Number(item.id)) || {}).image,
-				gallery: Array.isArray(item.gallery) && item.gallery.length
-					? item.gallery
-					: (seedById.get(Number(item.id)) || {}).gallery,
-				keywords: Array.isArray(item.keywords) && item.keywords.length
-					? item.keywords
-					: (seedById.get(Number(item.id)) || {}).keywords,
-				longDescription: Array.isArray(item.longDescription) && item.longDescription.length
-					? item.longDescription
-					: (seedById.get(Number(item.id)) || {}).longDescription,
-				highlights: Array.isArray(item.highlights) && item.highlights.length
-					? item.highlights
-					: (seedById.get(Number(item.id)) || {}).highlights,
-				trust: Array.isArray(item.trust) && item.trust.length
-					? item.trust
-					: (seedById.get(Number(item.id)) || {}).trust,
-				specs: Array.isArray(item.specs) && item.specs.length
-					? item.specs
-					: (seedById.get(Number(item.id)) || {}).specs,
-				attributes: Array.isArray(item.attributes) && item.attributes.length
-					? item.attributes
-					: (seedById.get(Number(item.id)) || {}).attributes
-			})));
-			return clone(inMemoryCatalog);
+		const currentCatalog = getCatalog();
+		if (!currentCatalog.length) {
+			persistCatalog(registeredSeedCatalog, { action: "seed", silent: true });
+		} else {
+			inMemoryCatalog = mergeCatalogWithSeed(currentCatalog, registeredSeedCatalog);
 		}
 
-		if (!inMemoryCatalog.length) {
-			return persistCatalog(normalizedSeed, { action: "seed" });
-		}
-
-		const seedById = new Map(normalizedSeed.map((item) => [Number(item.id), item]));
-		inMemoryCatalog = normalizeCatalog(inMemoryCatalog.map((item) => ({
-			...(seedById.get(Number(item.id)) || {}),
-			...item
-		})));
+		queueRefresh({ silent: true, allowBootstrap: true });
 		return clone(inMemoryCatalog);
 	}
 
@@ -387,47 +546,55 @@
 		return getCatalog().find((item) => Number(item.id) === Number(productId)) || null;
 	}
 
-	function createProduct(payload) {
-		const catalog = getCatalog();
-		const nextId = catalog.reduce((maxValue, item) => Math.max(maxValue, Number(item.id) || 0), 0) + 1;
-		const createdProduct = normalizeCatalog([{
-			...payload,
-			id: nextId,
-			createdAt: new Date().toISOString(),
-			updatedAt: new Date().toISOString()
-		}])[0];
+	async function createProduct(payload) {
+		ensureInitialized();
+		const response = await requestRemote("", {
+			method: "POST",
+			body: payload || {}
+		});
 
+		const createdProduct = normalizeCatalog([response?.product || payload])[0] || null;
+		if (!createdProduct) {
+			throw new Error("The product could not be created.");
+		}
+
+		const catalog = getCatalog().filter((item) => Number(item.id) !== Number(createdProduct.id));
 		catalog.push(createdProduct);
 		persistCatalog(catalog, { action: "create", productId: createdProduct.id });
 		return clone(createdProduct);
 	}
 
-	function updateProduct(productId, updates) {
-		const catalog = getCatalog();
-		const index = catalog.findIndex((item) => Number(item.id) === Number(productId));
-		if (index === -1) {
-			return null;
+	async function updateProduct(productId, updates) {
+		ensureInitialized();
+		const response = await requestRemote(String(productId || ""), {
+			method: "PUT",
+			body: {
+				...(updates || {}),
+				id: Number(productId)
+			}
+		});
+
+		const updatedProduct = normalizeCatalog([response?.product || { ...(updates || {}), id: Number(productId) }])[0] || null;
+		if (!updatedProduct) {
+			throw new Error("The product could not be saved.");
 		}
 
-		const updatedProduct = normalizeCatalog([{
-			...catalog[index],
-			...updates,
-			id: Number(productId),
-			updatedAt: new Date().toISOString()
-		}])[0];
-
-		catalog.splice(index, 1, updatedProduct);
-		persistCatalog(catalog, { action: "update", productId: updatedProduct.id });
+		const catalog = getCatalog().filter((item) => Number(item.id) !== Number(updatedProduct.id));
+		catalog.push(updatedProduct);
+		persistCatalog(catalog, {
+			action: response?.created ? "create" : "update",
+			productId: updatedProduct.id
+		});
 		return clone(updatedProduct);
 	}
 
-	function deleteProduct(productId) {
-		const catalog = getCatalog();
-		const nextCatalog = catalog.filter((item) => Number(item.id) !== Number(productId));
-		if (nextCatalog.length === catalog.length) {
-			return false;
-		}
+	async function deleteProduct(productId) {
+		ensureInitialized();
+		await requestRemote(String(productId || ""), {
+			method: "DELETE"
+		});
 
+		const nextCatalog = getCatalog().filter((item) => Number(item.id) !== Number(productId));
 		persistCatalog(nextCatalog, { action: "delete", productId: Number(productId) });
 		return true;
 	}
@@ -455,7 +622,10 @@
 		getCatalog,
 		getProductById,
 		getStorefrontCatalog,
+		refreshCatalog,
 		registerSeed,
 		updateProduct
 	};
+
+	ensureInitialized();
 })(window);

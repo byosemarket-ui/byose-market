@@ -51,6 +51,53 @@
 		}
 	}
 
+	function escapeHtml(value) {
+		return String(value || "")
+			.replace(/&/g, "&amp;")
+			.replace(/</g, "&lt;")
+			.replace(/>/g, "&gt;")
+			.replace(/\"/g, "&quot;")
+			.replace(/'/g, "&#39;");
+	}
+
+	function isSafeLink(value) {
+		const link = String(value || "").trim();
+		return Boolean(link) && !/^javascript:/i.test(link);
+	}
+
+	function renderHeroSlides(hero) {
+		const slides = Array.isArray(hero?.slides)
+			? hero.slides.filter((slide) => slide?.image && slide?.active !== false && String(slide?.status || "active").toLowerCase() !== "inactive")
+			: [];
+
+		return slides.map((slide, index) => {
+			const buttonMarkup = slide?.buttonText && isSafeLink(slide?.buttonLink)
+				? `<a class="primary-cta hero-slide-cta" href="${escapeHtml(slide.buttonLink)}">${escapeHtml(slide.buttonText)}</a>`
+				: "";
+
+			return `
+				<div class="hero-slide${index === 0 ? ' active' : ''}" data-slide-id="${escapeHtml(slide.id || `hero-slide-${index + 1}`)}" aria-hidden="${index === 0 ? 'false' : 'true'}">
+					<img src="${escapeHtml(resolveAsset(slide.image))}" alt="${escapeHtml(slide.alt || slide.title || 'Homepage slide')}" loading="${index === 0 ? 'eager' : 'lazy'}" decoding="async">
+					<div class="hero-slide-copy">
+						<span class="hero-slide-eyebrow">${escapeHtml(hero?.title || 'Byose Market')}</span>
+						<h1>${escapeHtml(slide.title || 'Homepage spotlight')}</h1>
+						<p>${escapeHtml(slide.subtitle || '')}</p>
+						${buttonMarkup}
+					</div>
+				</div>
+			`;
+		}).join('');
+	}
+
+	function setSectionVisibility(target, enabled) {
+		if (!target) {
+			return;
+		}
+
+		target.hidden = enabled === false;
+		target.setAttribute('aria-hidden', enabled === false ? 'true' : 'false');
+	}
+
 	function applySettings() {
 		const settings = safeParse(localStorage.getItem(SETTINGS_KEY), null);
 		if (!settings || typeof settings !== "object") {
@@ -97,10 +144,29 @@
 			return;
 		}
 
-		const heroSlides = Array.isArray(homepage?.hero?.slides) ? homepage.hero.slides.filter((slide) => slide?.image) : [];
+		const visibility = {
+			hero: homepage?.visibility?.hero !== false,
+			featured: homepage?.visibility?.featured !== false,
+			banner: homepage?.visibility?.banner !== false
+		};
+
+		const heroSection = document.querySelector('.hero-section');
+		setSectionVisibility(document.getElementById('homeProducts'), visibility.featured);
+		setSectionVisibility(document.querySelector('.compact-banner'), visibility.banner);
+
+		const heroSlides = Array.isArray(homepage?.hero?.slides)
+			? homepage.hero.slides.filter((slide) => slide?.image && slide?.active !== false && String(slide?.status || 'active').toLowerCase() !== 'inactive')
+			: [];
+		setSectionVisibility(heroSection, visibility.hero && heroSlides.length > 0);
+
 		const slidesRoot = document.querySelector('.hero-slides');
-		if (slidesRoot && heroSlides.length) {
-			slidesRoot.innerHTML = heroSlides.map((slide, index) => `<img class="hero-slide${index === 0 ? ' active' : ''}" src="${resolveAsset(slide.image)}" alt="${String(slide.alt || 'Homepage slide').replace(/"/g, '&quot;')}" loading="${index === 0 ? 'eager' : 'lazy'}">`).join('');
+		if (slidesRoot) {
+			slidesRoot.innerHTML = renderHeroSlides(homepage.hero);
+			window.dispatchEvent(new CustomEvent('byose:hero-slides-updated', {
+				detail: {
+					count: heroSlides.length
+				}
+			}));
 		}
 
 		const featuredSection = document.getElementById('homeProducts');
@@ -140,6 +206,14 @@
 	function init() {
 		applySettings();
 		applyHomepageConfig();
+		window.addEventListener('storage', (event) => {
+			if (!event.key || event.key === SETTINGS_KEY) {
+				applySettings();
+			}
+			if (!event.key || event.key === HOMEPAGE_KEY) {
+				applyHomepageConfig();
+			}
+		});
 	}
 
 	if (document.readyState === "loading") {

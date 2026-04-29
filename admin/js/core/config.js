@@ -11,6 +11,7 @@
 
 	global.AdminConfig = {
 		apiBaseUrl: "/api",
+		adminApiBaseUrl: "/api/admin",
 		siteRootPrefix: getSiteRootPrefix(),
 		storageKeys: {
 			orders: ["byose_orders", "orders"],

@@ -25,6 +25,33 @@ function saveUser(user) {
     try { window.setCurrentUser(user); return; } catch (e) {}
   }
   localStorage.setItem("bm_user", JSON.stringify(user));
+  try { localStorage.setItem("bm_current_user", JSON.stringify(user)); } catch (e) {}
+  try { localStorage.setItem("byose_market_user", JSON.stringify(user)); } catch (e) {}
+
+  try {
+    const rawUsers = localStorage.getItem("bm_users") || localStorage.getItem("byose_market_users");
+    const users = rawUsers ? JSON.parse(rawUsers) : [];
+    const email = String(user?.email || "").trim().toLowerCase();
+    const phone = String(user?.phone || "").trim();
+    const index = Array.isArray(users)
+      ? users.findIndex((entry) => {
+          const entryEmail = String(entry?.email || "").trim().toLowerCase();
+          const entryPhone = String(entry?.phone || "").trim();
+          return (email && entryEmail === email)
+            || (phone && entryPhone === phone)
+            || (user?.id && String(entry?.id || "") === String(user.id));
+        })
+      : -1;
+
+    const nextUsers = Array.isArray(users) ? users.slice() : [];
+    if (index === -1) nextUsers.push(user);
+    else nextUsers[index] = { ...nextUsers[index], ...user };
+
+    localStorage.setItem("bm_users", JSON.stringify(nextUsers));
+    localStorage.setItem("byose_market_users", JSON.stringify(nextUsers));
+  } catch (e) {
+    console.error("Save User Sync Error:", e);
+  }
 }
 
 // ===============================

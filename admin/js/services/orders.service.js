@@ -6,6 +6,17 @@
 	const EVENT_NAME = "byose:admin-orders-changed";
 	const STATUS_OPTIONS = ["Pending", "Confirmed", "Shipping", "Delivered", "Cancelled", "Returned"];
 	const FALLBACK_PRODUCT_IMAGE = "../img/logo.png";
+	const POLL_INTERVAL_MS = 15000;
+
+	const cache = {
+		orders: [],
+		hydrated: false,
+		lastSyncedAt: 0,
+		source: "local",
+		refreshPromise: null,
+		pollTimerId: 0,
+		observersBound: false
+	};
 
 	function clone(value) {
 		return JSON.parse(JSON.stringify(value));
@@ -17,6 +28,22 @@
 		} catch (error) {
 			return fallbackValue;
 		}
+	}
+
+	function normalizeText(value) {
+		return String(value || "").toLowerCase().trim().replace(/\s+/g, " ");
+	}
+
+	function normalizeIdentifier(value) {
+		return normalizeText(value).replace(/\s+/g, "");
+	}
+
+	function normalizePhone(value) {
+		return String(value || "").replace(/\s+/g, "").trim();
+	}
+
+	function getOrderIdentifier(order, fallbackKey) {
+		return String(order?.orderId || order?.id || fallbackKey || "").trim();
 	}
 
 	function readArrayFromKeys(keys) {
@@ -35,16 +62,8 @@
 			}
 
 			parsed.forEach((entry, index) => {
-				const identifier = String(
-					entry?.orderId
-					|| entry?.id
-					|| entry?.customerId
-					|| entry?.email
-					|| entry?.phone
-					|| `${key}-${index}`
-				).trim().toLowerCase();
-
-				if (seen.has(identifier)) {
+				const identifier = getOrderIdentifier(entry, `${key}-${index}`).toLowerCase();
+				if (!identifier || seen.has(identifier)) {
 					return;
 				}
 
@@ -64,23 +83,9 @@
 	}
 
 	function dispatchChange(detail) {
-		global.dispatchEvent(new CustomEvent(EVENT_NAME, {
-			detail: detail || {}
-		}));
-		global.dispatchEvent(new CustomEvent("byose:orders-changed", {
-			detail: detail || {}
-		}));
-	}
-
-	function normalizeText(value) {
-		return String(value || "")
-			.toLowerCase()
-			.trim()
-			.replace(/\s+/g, " ");
-	}
-
-	function normalizeIdentifier(value) {
-		return normalizeText(value).replace(/\s+/g, "");
+		const payload = detail || {};
+		global.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: payload }));
+		global.dispatchEvent(new CustomEvent("byose:orders-changed", { detail: payload }));
 	}
 
 	function escapeHtml(value) {
@@ -130,10 +135,6 @@
 			hour: "numeric",
 			minute: "2-digit"
 		}).format(date);
-	}
-
-	function normalizePhone(value) {
-		return String(value || "").replace(/\s+/g, "").trim();
 	}
 
 	function getSiteRootHref() {
@@ -204,10 +205,7 @@
 
 	function getStatusTone(status) {
 		const normalized = normalizeStatus(status).toLowerCase();
-		if (normalized === "returned") {
-			return "cancelled";
-		}
-		if (normalized === "cancelled") {
+		if (normalized === "returned" || normalized === "cancelled") {
 			return "cancelled";
 		}
 		if (normalized === "delivered") {
@@ -235,16 +233,16 @@
 			lastName: String(source.lastName || "").trim(),
 			phone: normalizePhone(source.phone || record?.customerPhone || ""),
 			street: String(source.street || source.streetLandmark || source.line1 || "").trim(),
-			provinceCity: String(source.provinceCity || source.city || "").trim(),
-			city: String(source.city || source.provinceCity || "").trim(),
+			provinceCity: String(source.provinceCity || source.city || source.province || "").trim(),
+			city: String(source.city || source.provinceCity || source.province || "").trim(),
 			district: String(source.district || "").trim(),
 			sector: String(source.sector || "").trim(),
 			cell: String(source.cell || "").trim(),
 			village: String(source.village || "").trim(),
 			note: String(source.note || "").trim(),
-			latitude: String(source.latitude || "").trim(),
-			longitude: String(source.longitude || "").trim(),
-			mapLink: String(source.mapLink || "").trim(),
+			latitude: String(source.latitude || record?.gpsLocation?.latitude || "").trim(),
+			longitude: String(source.longitude || record?.gpsLocation?.longitude || "").trim(),
+			mapLink: String(source.mapLink || source.googleMapsLink || record?.gpsLocation?.googleMapsLink || "").trim(),
 			locationAccuracy: String(source.locationAccuracy || "").trim(),
 			locationCapturedAt: String(source.locationCapturedAt || "").trim()
 		};
@@ -302,7 +300,7 @@
 			}
 		}
 
-		const name = normalizeText(item?.name || "");
+		const name = normalizeText(item?.name || item?.productName || "");
 		if (!name) {
 			return null;
 		}
@@ -325,13 +323,13 @@
 		).trim());
 		const attributeSummary = Object.keys(attributes).length
 			? Object.entries(attributes).map(([key, value]) => `${key}: ${value}`).join(" | ")
-			: String(item?.attributeSummary || "Standard option").trim() || "Standard option";
+			: String(item?.attributeSummary || [item?.color ? `Color: ${item.color}` : "", item?.size ? `Size: ${item.size}` : ""].filter(Boolean).join(" | ") || "Standard option").trim() || "Standard option";
 
 		return {
 			id: String(catalogProduct?.id || item?.productId || item?.id || "").trim(),
-			name: String(item?.name || catalogProduct?.name || "Product").trim() || "Product",
+			name: String(item?.name || item?.productName || catalogProduct?.name || "Product").trim() || "Product",
 			price: Number(item?.price || catalogProduct?.price || 0) || 0,
-			qty: Math.max(1, Number(item?.qty || 1) || 1),
+			qty: Math.max(1, Number(item?.qty || item?.quantity || 1) || 1),
 			image,
 			attributes,
 			attributeSummary,
@@ -347,9 +345,9 @@
 	function normalizeOrder(order, index, customerLookup, catalog) {
 		const customerSeed = order?.customer && typeof order.customer === "object" ? order.customer : {};
 		const lookupKeys = [
-			String(order?.customerId || customerSeed?.id || "").trim() ? `id:${String(order?.customerId || customerSeed?.id || "").trim().toLowerCase()}` : "",
-			String(order?.customerEmail || customerSeed?.email || "").trim() ? `email:${normalizeIdentifier(order?.customerEmail || customerSeed?.email || "")}` : "",
-			String(order?.customerPhone || customerSeed?.phone || "").trim() ? `phone:${normalizeIdentifier(order?.customerPhone || customerSeed?.phone || "")}` : ""
+			String(order?.customerId || order?.userId || customerSeed?.id || "").trim() ? `id:${String(order?.customerId || order?.userId || customerSeed?.id || "").trim().toLowerCase()}` : "",
+			String(order?.customerEmail || order?.userEmail || customerSeed?.email || "").trim() ? `email:${normalizeIdentifier(order?.customerEmail || order?.userEmail || customerSeed?.email || "")}` : "",
+			String(order?.customerPhone || order?.phoneNumber || customerSeed?.phone || "").trim() ? `phone:${normalizeIdentifier(order?.customerPhone || order?.phoneNumber || customerSeed?.phone || "")}` : ""
 		].filter(Boolean);
 
 		const matchedCustomer = lookupKeys.map((key) => customerLookup.get(key)).find(Boolean) || null;
@@ -359,6 +357,7 @@
 			|| customerSeed?.name
 			|| matchedCustomer?.name
 			|| [shippingAddress.firstName, shippingAddress.lastName].filter(Boolean).join(" ")
+			|| shippingAddress.fullName
 			|| "Guest Customer"
 		).trim() || "Guest Customer";
 
@@ -373,27 +372,32 @@
 			: [];
 
 		const payment = order?.payment && typeof order.payment === "object" ? order.payment : {};
-		const status = normalizeStatus(order?.status);
+		const status = normalizeStatus(order?.status || order?.orderStatus);
+		const paymentStatus = normalizeText(order?.paymentStatus || payment?.status || "pending") || "pending";
 
 		return {
 			...order,
-			id: String(order?.id || `ORD-${index + 1}`).trim(),
+			id: getOrderIdentifier(order, `ORD-${index + 1}`),
+			orderId: getOrderIdentifier(order, `ORD-${index + 1}`),
 			date: toIsoDate(order?.date || order?.createdAt || order?.timestamp || Date.now()),
 			updatedAt: toIsoDate(order?.updatedAt || order?.date || order?.createdAt || Date.now()),
 			status,
 			statusTone: getStatusTone(status),
+			paymentStatus,
+			paymentStatusLabel: String(order?.paymentStatusLabel || payment?.status || paymentStatus).trim() || paymentStatus,
 			total: Number(order?.total ?? order?.totalAmount ?? order?.totalPrice ?? order?.subtotal ?? 0) || 0,
 			subtotal: Number(order?.subtotal || 0) || 0,
 			shippingFee: Number(order?.shippingFee ?? order?.deliveryFee ?? 0) || 0,
 			codFee: Number(order?.codFee || 0) || 0,
-			customerId: String(order?.customerId || matchedCustomer?.id || customerSeed?.id || "").trim(),
+			customerId: String(order?.customerId || order?.userId || matchedCustomer?.id || customerSeed?.id || "").trim(),
 			customerName,
-			customerEmail: String(order?.customerEmail || matchedCustomer?.email || customerSeed?.email || "").trim().toLowerCase(),
-			customerPhone: normalizePhone(order?.customerPhone || matchedCustomer?.phone || customerSeed?.phone || shippingAddress.phone || ""),
+			customerEmail: String(order?.customerEmail || order?.userEmail || matchedCustomer?.email || customerSeed?.email || "").trim().toLowerCase(),
+			customerPhone: normalizePhone(order?.customerPhone || order?.phoneNumber || matchedCustomer?.phone || customerSeed?.phone || shippingAddress.phone || ""),
 			customerImage: String(order?.customerImage || matchedCustomer?.avatar || customerSeed?.avatar || customerSeed?.image || "").trim(),
-			customerLink: String(order?.customerId || matchedCustomer?.id || customerSeed?.id || "").trim()
-				? `../customers/profile.html?id=${encodeURIComponent(String(order?.customerId || matchedCustomer?.id || customerSeed?.id || "").trim())}`
+			customerLink: String(order?.customerId || order?.userId || matchedCustomer?.id || customerSeed?.id || "").trim()
+				? `../customers/profile.html?id=${encodeURIComponent(String(order?.customerId || order?.userId || matchedCustomer?.id || customerSeed?.id || "").trim())}`
 				: "",
+			isGuest: order?.isGuest === true || !String(order?.customerId || order?.userId || matchedCustomer?.id || customerSeed?.id || "").trim(),
 			shippingAddress,
 			deliveryMethod: String(order?.deliveryMethod || "delivery").trim() || "delivery",
 			deliveryLabel: String(order?.deliveryLabel || "Delivery to address").trim() || "Delivery to address",
@@ -403,36 +407,191 @@
 				type: String(payment?.type || order?.paymentType || "pay_now").trim() || "pay_now",
 				method: String(payment?.method || order?.paymentMethod || "").trim(),
 				payerPhone: normalizePhone(payment?.payerPhone || order?.customerPhone || shippingAddress.phone || ""),
-				transactionId: String(payment?.transactionId || "").trim()
+				transactionId: String(payment?.transactionId || "").trim(),
+				status: paymentStatus
 			},
 			products,
 			itemsCount: products.reduce((sum, item) => sum + Number(item.qty || 0), 0),
 			searchableText: [
 				order?.id,
+				order?.orderId,
 				customerName,
 				order?.customerEmail,
 				order?.customerPhone,
 				status,
+				paymentStatus,
 				products.map((item) => item.name).join(" ")
 			].map(normalizeText).join(" ")
 		};
 	}
 
-	function getOrders() {
+	function normalizeOrders(rawOrders) {
 		const customerLookup = buildCustomerLookup();
 		const catalog = getCatalogProducts();
 		const unique = new Map();
 
-		readArrayFromKeys(ORDER_KEYS)
-			.map((order, index) => normalizeOrder(order, index, customerLookup, catalog))
-			.forEach((order) => {
-				if (!unique.has(order.id)) {
-					unique.set(order.id, order);
-				}
-			});
+		(rawOrders || []).map((order, index) => normalizeOrder(order, index, customerLookup, catalog)).forEach((order) => {
+			if (!unique.has(order.id)) {
+				unique.set(order.id, order);
+			}
+		});
 
-		return Array.from(unique.values())
-			.sort((left, right) => new Date(right.date || 0) - new Date(left.date || 0));
+		return Array.from(unique.values()).sort((left, right) => new Date(right.date || 0) - new Date(left.date || 0));
+	}
+
+	function setCacheFromRaw(rawOrders, source) {
+		cache.orders = normalizeOrders(rawOrders);
+		cache.hydrated = true;
+		cache.lastSyncedAt = Date.now();
+		cache.source = source || cache.source || "local";
+		return cache.orders;
+	}
+
+	function readLocalOrders() {
+		return readArrayFromKeys(ORDER_KEYS);
+	}
+
+	function hydrateCacheFromLocal() {
+		return setCacheFromRaw(readLocalOrders(), "local");
+	}
+
+	function mergeRawOrders(remoteOrders, localOrders) {
+		const merged = new Map();
+
+		(remoteOrders || []).forEach((order, index) => {
+			const identifier = getOrderIdentifier(order, `remote-${index}`);
+			if (identifier) {
+				merged.set(identifier, clone(order));
+			}
+		});
+
+		(localOrders || []).forEach((order, index) => {
+			const identifier = getOrderIdentifier(order, `local-${index}`);
+			if (identifier && !merged.has(identifier)) {
+				merged.set(identifier, clone(order));
+			}
+		});
+
+		return Array.from(merged.values());
+	}
+
+	function getAdminOrdersEndpoint(orderId) {
+		const base = String(global.AdminConfig?.adminApiBaseUrl || "/api/admin").replace(/\/$/, "");
+		return orderId ? `${base}/orders/${encodeURIComponent(String(orderId || "").trim())}` : `${base}/orders`;
+	}
+
+	function canUseApi() {
+		return Boolean(
+			global.AdminApiClient
+			&& typeof global.AdminApiClient.get === "function"
+			&& global.AdminAuthService
+			&& typeof global.AdminAuthService.getToken === "function"
+			&& String(global.AdminAuthService.getToken() || "").trim()
+		);
+	}
+
+	async function fetchOrdersFromApi() {
+		if (!canUseApi()) {
+			return [];
+		}
+
+		const payload = await global.AdminApiClient.get(getAdminOrdersEndpoint());
+		return Array.isArray(payload?.orders) ? payload.orders : [];
+	}
+
+	async function refreshOrders(options) {
+		if (cache.refreshPromise) {
+			return cache.refreshPromise;
+		}
+
+		cache.refreshPromise = (async () => {
+			const config = options || {};
+			const localOrders = readLocalOrders();
+			let nextOrders = localOrders;
+			let source = "local";
+
+			if (canUseApi()) {
+				try {
+					const remoteOrders = await fetchOrdersFromApi();
+					nextOrders = mergeRawOrders(remoteOrders, localOrders);
+					writeOrders(nextOrders);
+					source = "api";
+				} catch (error) {
+					console.warn("Admin orders API refresh failed. Using local checkout storage.", error);
+				}
+			}
+
+			const normalized = setCacheFromRaw(nextOrders, source);
+			if (!config.silent) {
+				dispatchChange({ action: "refresh", source, count: normalized.length });
+			}
+
+			return normalized;
+		})().finally(() => {
+			cache.refreshPromise = null;
+		});
+
+		return cache.refreshPromise;
+	}
+
+	function ensureObservers() {
+		if (cache.observersBound) {
+			return;
+		}
+
+		cache.observersBound = true;
+
+		global.addEventListener("storage", (event) => {
+			if (event && event.key && !ORDER_KEYS.includes(event.key)) {
+				return;
+			}
+
+			hydrateCacheFromLocal();
+			dispatchChange({ action: "storage-sync", source: "local", count: cache.orders.length });
+		});
+
+		global.addEventListener("byose:orders-changed", () => {
+			refreshOrders({ silent: false }).catch((error) => {
+				console.warn("Admin order refresh after checkout event failed.", error);
+			});
+		});
+
+		global.addEventListener("focus", () => {
+			refreshOrders({ silent: false }).catch(() => {});
+		});
+	}
+
+	function startPolling() {
+		if (cache.pollTimerId) {
+			return;
+		}
+
+		cache.pollTimerId = global.setInterval(() => {
+			if (global.document && global.document.hidden) {
+				return;
+			}
+
+			refreshOrders({ silent: false }).catch(() => {});
+		}, POLL_INTERVAL_MS);
+	}
+
+	function init() {
+		ensureObservers();
+		startPolling();
+
+		if (!cache.hydrated) {
+			hydrateCacheFromLocal();
+		}
+
+		return refreshOrders({ silent: true });
+	}
+
+	function getOrders() {
+		if (!cache.hydrated) {
+			hydrateCacheFromLocal();
+		}
+
+		return cache.orders.slice();
 	}
 
 	function getOrderById(orderId) {
@@ -480,46 +639,84 @@
 		return sortOrders(filtered, config.sortBy);
 	}
 
-	function updateStoredOrder(orderId, updater) {
-		const orders = readArrayFromKeys(ORDER_KEYS);
-		const index = orders.findIndex((order) => String(order?.id || "") === String(orderId || ""));
+	function updateLocalOrder(orderId, updater) {
+		const localOrders = readLocalOrders();
+		const index = localOrders.findIndex((order, position) => getOrderIdentifier(order, `local-${position}`) === String(orderId || ""));
 		if (index === -1) {
 			return null;
 		}
 
-		const updatedOrder = updater(clone(orders[index]));
-		orders.splice(index, 1, updatedOrder);
-		writeOrders(orders);
-		dispatchChange({ action: "update", orderId: String(orderId) });
+		const updatedOrder = updater(clone(localOrders[index]));
+		localOrders.splice(index, 1, updatedOrder);
+		writeOrders(localOrders);
+		setCacheFromRaw(localOrders, "local");
 		return getOrderById(orderId);
 	}
 
-	function updateOrderStatus(orderId, status) {
-		return updateStoredOrder(orderId, (order) => ({
+	async function updateOrderStatus(orderId, status) {
+		const normalizedStatus = normalizeStatus(status);
+
+		if (canUseApi()) {
+			try {
+				const payload = await global.AdminApiClient.put(`${getAdminOrdersEndpoint(orderId)}/status`, { status: normalizedStatus });
+				const remoteOrder = payload?.order;
+				if (remoteOrder) {
+					const merged = mergeRawOrders([remoteOrder], readLocalOrders().filter((entry) => getOrderIdentifier(entry) !== String(orderId || "")));
+					writeOrders(merged);
+					setCacheFromRaw(merged, "api");
+					dispatchChange({ action: "update", orderId: String(orderId || ""), source: "api" });
+					return getOrderById(orderId);
+				}
+			} catch (error) {
+				console.warn("Admin order status update failed against the API. Falling back to local storage.", error);
+			}
+		}
+
+		const updated = updateLocalOrder(orderId, (order) => ({
 			...order,
-			orderStatus: normalizeStatus(status).toLowerCase(),
-			status: normalizeStatus(status),
+			orderStatus: normalizedStatus.toLowerCase(),
+			status: normalizedStatus,
 			updatedAt: new Date().toISOString(),
 			statusHistory: [
 				...(Array.isArray(order?.statusHistory) ? order.statusHistory : []),
 				{
-					status: normalizeStatus(status).toLowerCase(),
-					label: normalizeStatus(status),
+					status: normalizedStatus.toLowerCase(),
+					label: normalizedStatus,
 					timestamp: new Date().toISOString()
 				}
 			]
 		}));
+
+		if (updated) {
+			dispatchChange({ action: "update", orderId: String(orderId || ""), source: "local" });
+		}
+
+		return updated;
 	}
 
-	function deleteOrder(orderId) {
-		const orders = readArrayFromKeys(ORDER_KEYS);
-		const nextOrders = orders.filter((order) => String(order?.id || "") !== String(orderId || ""));
+	async function deleteOrder(orderId) {
+		if (canUseApi()) {
+			try {
+				await global.AdminApiClient.delete(getAdminOrdersEndpoint(orderId));
+				const nextLocalOrders = readLocalOrders().filter((entry, index) => getOrderIdentifier(entry, `local-${index}`) !== String(orderId || ""));
+				writeOrders(nextLocalOrders);
+				setCacheFromRaw(nextLocalOrders, "api");
+				dispatchChange({ action: "delete", orderId: String(orderId || ""), source: "api" });
+				return true;
+			} catch (error) {
+				console.warn("Admin order delete failed against the API. Falling back to local storage.", error);
+			}
+		}
+
+		const orders = readLocalOrders();
+		const nextOrders = orders.filter((order, index) => getOrderIdentifier(order, `local-${index}`) !== String(orderId || ""));
 		if (nextOrders.length === orders.length) {
 			return false;
 		}
 
 		writeOrders(nextOrders);
-		dispatchChange({ action: "delete", orderId: String(orderId) });
+		setCacheFromRaw(nextOrders, "local");
+		dispatchChange({ action: "delete", orderId: String(orderId || ""), source: "local" });
 		return true;
 	}
 
@@ -527,9 +724,18 @@
 		const orders = getOrders();
 		return {
 			totalOrders: orders.length,
-			pendingOrders: orders.filter((order) => order.status === "Pending" || order.status === "Confirmed").length,
+			pendingOrders: orders.filter((order) => order.status === "Pending" || order.status === "Confirmed" || order.status === "Shipping").length,
 			deliveredOrders: orders.filter((order) => order.status === "Delivered").length,
 			totalRevenue: orders.reduce((sum, order) => sum + Number(order.total || 0), 0)
+		};
+	}
+
+	function getSyncState() {
+		return {
+			hydrated: cache.hydrated,
+			lastSyncedAt: cache.lastSyncedAt,
+			source: cache.source,
+			pollIntervalMs: POLL_INTERVAL_MS
 		};
 	}
 
@@ -543,9 +749,12 @@
 		formatDate,
 		formatDateTime,
 		getOrderById,
-		getOrderStats,
 		getOrders,
+		getOrderStats,
 		getStatusTone,
+		getSyncState,
+		init,
+		refresh: refreshOrders,
 		updateOrderStatus
 	};
 })(window);

@@ -19,15 +19,20 @@ function saveUser(user) {
     localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(user));
     // also mirror into standardized key
     try { localStorage.setItem('bm_user', JSON.stringify(user)); } catch (e) {}
+    try { localStorage.setItem('bm_current_user', JSON.stringify(user)); } catch (e) {}
     // Also ensure user exists in users list
     const users = getUsersList();
     const idx = users.findIndex(u => (u.email && u.email === user.email) || (u.phone && u.phone === user.phone));
     if (idx !== -1) {
-        users[idx] = user;
+        users[idx] = {
+            ...users[idx],
+            ...user
+        };
     } else {
         users.push(user);
     }
     localStorage.setItem("byose_market_users", JSON.stringify(users));
+    try { localStorage.setItem('bm_users', JSON.stringify(users)); } catch (e) {}
 }
 
 function getUser() {
@@ -79,6 +84,7 @@ function saveSession(user) {
     localStorage.setItem(STORAGE_KEYS.session, JSON.stringify({ loggedIn: true, user: user }));
     try { localStorage.setItem('bm_logged_in', 'true'); } catch (e) {}
     try { localStorage.setItem('bm_user', JSON.stringify(user)); } catch (e) {}
+    try { localStorage.setItem('bm_current_user', JSON.stringify(user)); } catch (e) {}
 }
 
 function getSession() {
@@ -88,6 +94,7 @@ function getSession() {
 function clearSession() {
     localStorage.removeItem(STORAGE_KEYS.session);
     try { localStorage.removeItem('bm_logged_in'); } catch (e) {}
+    try { localStorage.removeItem('bm_current_user'); } catch (e) {}
 }
 
 function isLoggedIn() {

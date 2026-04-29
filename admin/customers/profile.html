@@ -4,20 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Customer Profile | Byose Market Admin</title>
-</head>
-<body>
-  <main>
-    <h1>Customer Profile</h1>
-    <p>Admin structure placeholder.</p>
-  </main>
-</body>
-</html>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Customer Profile | Byose Market Admin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -68,6 +54,24 @@
                   <p class="dashboard-eyebrow">Basic Info</p>
                   <h2 id="customerNameHeading">Customer</h2>
                   <p id="customerContactText">No contact available</p>
+                </div>
+              </div>
+              <div class="customer-profile-details">
+                <div>
+                  <span>Customer ID</span>
+                  <strong id="customerIdLabel">-</strong>
+                </div>
+                <div>
+                  <span>Email</span>
+                  <strong id="customerEmailLabel">No email</strong>
+                </div>
+                <div>
+                  <span>Phone</span>
+                  <strong id="customerPhoneLabel">No phone</strong>
+                </div>
+                <div>
+                  <span>Last order</span>
+                  <strong id="customerLastOrderLabel">No orders yet</strong>
                 </div>
               </div>
               <div class="customer-summary-metrics">
@@ -162,6 +166,9 @@
       </div>
     </div>
   </div>
+  <script src="../js/core/config.js"></script>
+  <script src="../js/core/auth.js"></script>
+  <script src="../js/core/api-client.js"></script>
   <script src="../js/services/customers.service.js"></script>
   <script src="../js/components/sidebar.js"></script>
   <script src="../js/pages/customer-profile.page.js"></script>

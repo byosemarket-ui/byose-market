@@ -35,7 +35,7 @@
 	mount.innerHTML = `
 		<section class="product-view-grid">
 			<article class="dashboard-panel product-view-card">
-				<img class="product-view-image" src="${service.escapeHtml(product.mainImage || product.image || '../../img/logo.png')}" alt="${service.escapeHtml(product.name)}">
+				<img class="product-view-image" src="${service.escapeHtml(service.resolveStorefrontImagePath(product.mainImage || product.image || ''))}" alt="${service.escapeHtml(product.name)}">
 				<div class="product-view-copy">
 					<p class="product-view-eyebrow">${service.escapeHtml(service.normalizeCategoryLabel(product.category))}</p>
 					<h2>${service.escapeHtml(product.name)}</h2>
@@ -70,13 +70,19 @@
 		</section>
 	`;
 
-	deleteButton.addEventListener('click', () => {
+	deleteButton.addEventListener('click', async () => {
 		const confirmed = window.confirm(`Delete ${product.name} from the shared website catalog?`);
 		if (!confirmed) {
 			return;
 		}
 
-		service.deleteProduct(product.id);
-		window.location.href = 'index.html';
+		deleteButton.disabled = true;
+		try {
+			await service.deleteProduct(product.id);
+			window.location.href = 'index.html';
+		} catch (error) {
+			subtitle.textContent = error?.message || 'The product could not be deleted right now.';
+			deleteButton.disabled = false;
+		}
 	});
 })();

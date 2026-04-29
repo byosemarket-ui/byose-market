@@ -720,9 +720,10 @@
 	});
 
 	form.addEventListener('input', renderPreview);
-	form.addEventListener('submit', (event) => {
+	form.addEventListener('submit', async (event) => {
 		event.preventDefault();
 		const payload = buildPayload();
+		const idleLabel = state.productId ? 'Save Product Details' : 'Create Product';
 
 		if (!payload.name || !payload.mainImage || Number(payload.price) <= 0) {
 			status.textContent = 'Product name, main image, and a valid price are required.';
@@ -730,31 +731,34 @@
 			return;
 		}
 
-		if (!state.productId) {
-			const created = service.createProduct(payload);
-			if (!created) {
-				status.textContent = 'The product could not be created.';
-				status.dataset.state = 'error';
+		createSaveButton.disabled = true;
+		createSaveButton.textContent = 'Saving...';
+		status.textContent = state.productId
+			? 'Saving product details to the live website catalog...'
+			: 'Creating product in the live website catalog...';
+		status.dataset.state = '';
+
+		try {
+			if (!state.productId) {
+				const created = await service.createProduct(payload);
+				syncStateFromProduct(created);
+				unlockDetails(created);
+				status.textContent = `${created.name} was created and now appears in the shared website catalog. Continue with the full details below.`;
+				status.dataset.state = 'success';
 				return;
 			}
 
-			syncStateFromProduct(created);
-			unlockDetails(created);
-			status.textContent = `${created.name} was created and now appears in the shared website catalog. Continue with the full details below.`;
+			const updated = await service.updateProduct(state.productId, payload);
+			syncStateFromProduct(updated);
+			status.textContent = `${updated.name} details were saved across the website and product details system.`;
 			status.dataset.state = 'success';
-			return;
-		}
-
-		const updated = service.updateProduct(state.productId, payload);
-		if (!updated) {
-			status.textContent = 'The product details could not be saved.';
+		} catch (error) {
+			status.textContent = error?.message || (state.productId ? 'The product details could not be saved.' : 'The product could not be created.');
 			status.dataset.state = 'error';
-			return;
+		} finally {
+			createSaveButton.disabled = false;
+			createSaveButton.textContent = state.productId ? 'Save Product Details' : idleLabel;
 		}
-
-		syncStateFromProduct(updated);
-		status.textContent = `${updated.name} details were saved across the website and product details system.`;
-		status.dataset.state = 'success';
 	});
 
 	refreshEverything();
