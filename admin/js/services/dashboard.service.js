@@ -1,7 +1,5 @@
-(function () {
+ (function () {
 	const STORAGE_KEYS = {
-		orders: ['byose_orders', 'orders'],
-		users: ['bm_users', 'byose_market_users'],
 		visits: 'byose_market_visitors_v1',
 		messages: ['byose_market_messages', 'byose_messages']
 	};
@@ -54,22 +52,11 @@
 
 	function readProducts() {
 		const catalogService = window.ByoseProductCatalog;
-		const products = catalogService && typeof catalogService.getStorefrontCatalog === 'function'
+		return catalogService && typeof catalogService.getStorefrontCatalog === 'function'
 			? catalogService.getStorefrontCatalog()
 			: Array.isArray(window.products)
 				? window.products
 				: [];
-		const seen = new Set();
-
-		return products.filter((item) => {
-			const id = String(item && item.id ? item.id : '');
-			if (!id || seen.has(id)) {
-				return false;
-			}
-
-			seen.add(id);
-			return true;
-		});
 	}
 
 	function normalizeTimestamp(value) {
@@ -86,25 +73,10 @@
 		return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : null;
 	}
 
-	function normalizeUser(user, index) {
-		return {
-			id: user && user.id ? String(user.id) : `user-${index}`,
-			name: String((user && (user.name || user.email || user.phone)) || `User ${index + 1}`).trim(),
-			createdAt: normalizeTimestamp(user && user.createdAt)
-		};
-	}
-
 	function readUsers() {
-		const users = readStorageArray(STORAGE_KEYS.users).map(normalizeUser);
-		const unique = new Map();
-
-		users.forEach((user) => {
-			if (!unique.has(user.id)) {
-				unique.set(user.id, user);
-			}
-		});
-
-		return Array.from(unique.values());
+		return window.AdminCustomersService && typeof window.AdminCustomersService.getUsers === 'function'
+			? window.AdminCustomersService.getUsers()
+			: [];
 	}
 
 	function readVisits() {
@@ -138,40 +110,18 @@
 			.sort((left, right) => Number(right.createdAt || 0) - Number(left.createdAt || 0));
 	}
 
-	function normalizeOrder(order, index) {
-		const rawStatus = String(order && order.status ? order.status : 'pending').trim();
-		const total = Number(order && (order.totalPrice ?? order.total ?? order.subtotal)) || 0;
-		const createdAt = normalizeTimestamp(order && (order.createdAt || order.date || order.timestamp));
-		const customer = String(order && (order.customerName || order.name || order.userName || order.user || order.firstName || 'Guest customer')).trim() || 'Guest customer';
-		const items = Array.isArray(order && order.products)
-			? order.products
-			: Array.isArray(order && order.items)
-				? order.items
-				: [];
-
-		return {
-			id: String(order && order.id ? order.id : `order-${index}`),
-			status: rawStatus,
-			total,
-			createdAt,
-			customer,
-			itemsCount: items.length,
-			items,
-			source: 'orders'
-		};
-	}
-
 	function readOrders() {
-		const storageOrders = readStorageArray(STORAGE_KEYS.orders).map(normalizeOrder);
-		const unique = new Map();
-
-		storageOrders.forEach((order) => {
-			if (!unique.has(order.id)) {
-				unique.set(order.id, order);
-			}
-		});
-
-		return Array.from(unique.values()).sort((left, right) => new Date(right.createdAt || 0) - new Date(left.createdAt || 0));
+		return window.AdminOrdersService && typeof window.AdminOrdersService.getOrders === 'function'
+			? window.AdminOrdersService.getOrders().map((order) => ({
+				id: order.id,
+				status: order.status,
+				total: Number(order.total || 0),
+				createdAt: order.date,
+				customer: order.customerName,
+				itemsCount: order.itemsCount,
+				items: order.products || []
+			}))
+			: [];
 	}
 
 	function mapOrderStatus(status) {
@@ -297,7 +247,15 @@
 
 	function countRecentUsers(users, now) {
 		const weekAgo = now - (7 * 24 * 60 * 60 * 1000);
-		return users.filter((user) => Number(user.createdAt) && Number(user.createdAt) >= weekAgo).length;
+		return users.filter((user) => Number(new Date(user.createdAt || user.joinedAt || 0).getTime()) >= weekAgo).length;
+	}
+
+	async function init() {
+		await Promise.all([
+			window.AdminCustomersService?.init?.() || Promise.resolve(),
+			window.AdminOrdersService?.init?.() || Promise.resolve(),
+			window.ByoseProductCatalog?.refreshCatalog?.({ silent: true, allowBootstrap: false }) || Promise.resolve()
+		]);
 	}
 
 	function buildSummary(products, orders, users, visits, messages) {
@@ -372,6 +330,7 @@
 	window.AdminDashboardService = {
 		createSnapshot,
 		formatCurrency,
+		init,
 		mapOrderStatus,
 		mapMessageStatus
 	};

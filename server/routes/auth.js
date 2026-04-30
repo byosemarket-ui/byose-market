@@ -9,12 +9,13 @@ const {
     signup,
     login,
     me,
+    updateMe,
     forgotPassword,
     verifyCode,
     resetPassword
 } = require('../controllers/authcontroller');
 
-const authMiddleware = require('../middleware/authMiddleware');
+const authMiddleware = require('../middleware/authmiddleware');
 
 // ===============================
 // ROUTES
@@ -35,6 +36,7 @@ router.post('/reset-password', resetPassword);
 
 // Protected: current user
 router.get('/me', authMiddleware, me);
+router.put('/me', authMiddleware, updateMe);
 
 // ===============================
 // EXPORT

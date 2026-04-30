@@ -7,6 +7,35 @@ let codFee = 0;
 let capturedLocation = null;
 let selectedPaymentType = "pay_now";
 
+function getOrdersApiUrl() {
+  const configuredBase = String(window.__BYOSE_API_BASE__ || "").trim().replace(/\/$/, "");
+  if (configuredBase) {
+    return configuredBase.endsWith("/api") ? `${configuredBase}/orders` : `${configuredBase}/api/orders`;
+  }
+
+  if (/^https?:$/i.test(String(window.location.protocol || ""))) {
+    return `${window.location.origin}/api/orders`;
+  }
+
+  return "";
+}
+
+function getAuthToken() {
+  try {
+    if (window.authService && typeof window.authService.getToken === "function") {
+      return String(window.authService.getToken() || "").trim();
+    }
+  } catch (error) {
+    console.error(error);
+  }
+
+  try {
+    return String(localStorage.getItem("bm_auth_token") || "").trim();
+  } catch (error) {
+    return "";
+  }
+}
+
 function readItemAttributes(item) {
   if (item && item.attributes && typeof item.attributes === "object" && !Array.isArray(item.attributes)) {
     return Object.entries(item.attributes).filter(([, value]) => value !== undefined && value !== null && value !== "");
@@ -359,7 +388,7 @@ function placeOrder() {
   // SHOW LOADING
   document.getElementById("loadingOverlay").classList.remove("hidden");
 
-  setTimeout(() => {
+  setTimeout(async () => {
 
     const subtotal = calculateSubtotal();
     const total = subtotal + shippingFee + codFee;
@@ -394,14 +423,19 @@ function placeOrder() {
         : "Pending Payment Verification"
     };
 
-    saveOrder(orderData);
-    localStorage.setItem("byose_market_cart_v1", JSON.stringify([]));
+    try {
+      await saveOrder(orderData);
+      localStorage.setItem("byose_market_cart_v1", JSON.stringify([]));
 
-    // HIDE LOADING
-    document.getElementById("loadingOverlay").classList.add("hidden");
+      // HIDE LOADING
+      document.getElementById("loadingOverlay").classList.add("hidden");
 
-    // SHOW SUCCESS MODAL
-    document.getElementById("successModal").classList.remove("hidden");
+      // SHOW SUCCESS MODAL
+      document.getElementById("successModal").classList.remove("hidden");
+    } catch (error) {
+      document.getElementById("loadingOverlay").classList.add("hidden");
+      alert(error.message || "Unable to save your order to the central system. Please try again.");
+    }
 
   }, 1500);
 }
@@ -415,9 +449,32 @@ document.getElementById("continueBtn")
 /* ===============================
    SAVE ORDER
 ================================= */
-function saveOrder(order) {
+async function saveOrder(order) {
+  const endpoint = getOrdersApiUrl();
+  if (!endpoint) {
+    throw new Error("Order API is not available from this page.");
+  }
+
+  const token = getAuthToken();
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: JSON.stringify(order)
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.success) {
+    throw new Error((payload && payload.message) || `Order API request failed with status ${response.status}`);
+  }
+
+  const savedOrder = payload.order || order;
   let orders = JSON.parse(localStorage.getItem("byose_orders")) || [];
-  orders.push(order);
+  orders = orders.filter((entry) => String(entry?.id || entry?.orderId || "") !== String(savedOrder?.id || savedOrder?.orderId || ""));
+  orders.push(savedOrder);
   localStorage.setItem("byose_orders", JSON.stringify(orders));
-	window.dispatchEvent(new CustomEvent("byose:orders-changed", { detail: { order } }));
+	window.dispatchEvent(new CustomEvent("byose:orders-changed", { detail: { order: savedOrder, source: "api" } }));
+	return savedOrder;
 }

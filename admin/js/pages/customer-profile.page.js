@@ -10,6 +10,10 @@
 		return;
 	}
 
+	service.init?.().then(reloadCustomer).catch((error) => {
+		console.warn("Unable to initialize admin customers service.", error);
+	});
+
 	const params = new URLSearchParams(window.location.search);
 	const customerId = params.get("id") || "";
 	const initialEditMode = params.get("edit") === "1";
@@ -190,15 +194,15 @@
 		setEditMode(false);
 	});
 
-	toggleStatusButton?.addEventListener("click", () => {
+	toggleStatusButton?.addEventListener("click", async () => {
 		if (!state.customer) {
 			return;
 		}
-		service.setCustomerStatus(state.customer.id, state.customer.status === "blocked" ? "active" : "blocked");
+		await service.setCustomerStatus(state.customer.id, state.customer.status === "blocked" ? "active" : "blocked");
 		reloadCustomer();
 	});
 
-	deleteButton?.addEventListener("click", () => {
+	deleteButton?.addEventListener("click", async () => {
 		if (!state.customer) {
 			return;
 		}
@@ -206,17 +210,17 @@
 		if (!confirmed) {
 			return;
 		}
-		service.deleteCustomer(state.customer.id);
+		await service.deleteCustomer(state.customer.id);
 		window.location.href = "index.html";
 	});
 
-	form?.addEventListener("submit", (event) => {
+	form?.addEventListener("submit", async (event) => {
 		event.preventDefault();
 		if (!state.customer) {
 			return;
 		}
 
-		const updated = service.updateCustomer(state.customer.id, readFormPayload());
+		const updated = await service.updateCustomer(state.customer.id, readFormPayload());
 		if (!updated) {
 			profileStatus.textContent = "The customer could not be saved.";
 			return;

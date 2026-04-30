@@ -10,6 +10,10 @@
 		return;
 	}
 
+	service.init?.().then(rerender).catch((error) => {
+		console.warn("Unable to initialize admin customers service.", error);
+	});
+
 	const searchInput = document.getElementById("customersSearchInput");
 	const filterSelect = document.getElementById("customersFilterSelect");
 	const sortSelect = document.getElementById("customersSortSelect");
@@ -125,7 +129,7 @@
 		renderCustomers();
 	}
 
-	function handleAction(event) {
+	async function handleAction(event) {
 		const button = event.target.closest("[data-action][data-customer-id]");
 		if (!button) {
 			return;
@@ -140,7 +144,7 @@
 		}
 
 		if (action === "toggle-status") {
-			service.setCustomerStatus(customerId, customer.status === "blocked" ? "active" : "blocked");
+			await service.setCustomerStatus(customerId, customer.status === "blocked" ? "active" : "blocked");
 			rerender();
 			return;
 		}
@@ -151,7 +155,7 @@
 				return;
 			}
 
-			service.deleteCustomer(customerId);
+			await service.deleteCustomer(customerId);
 			rerender();
 		}
 	}

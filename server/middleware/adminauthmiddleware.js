@@ -1,9 +1,6 @@
 const { verifyToken } = require('../utils/token');
 const User = require('../models/user');
 
-const LEGACY_FRONTEND_TOKEN = 'frontend-admin-authenticated';
-const LEGACY_ADMIN_EMAIL = 'byosemarket@gmail.com';
-
 async function adminAuthMiddleware(req, res, next) {
     try {
         const auth = req.headers.authorization || req.headers.Authorization || '';
@@ -12,18 +9,6 @@ async function adminAuthMiddleware(req, res, next) {
         }
 
         const token = auth.slice(7).trim();
-
-        if (token === LEGACY_FRONTEND_TOKEN) {
-            const admin = await User.findOne({ email: LEGACY_ADMIN_EMAIL, role: 'admin' });
-            if (!admin) {
-                return res.status(401).json({ success: false, message: 'Unauthorized' });
-            }
-
-            req.user = { id: admin.id, email: admin.email, role: admin.role, legacy: true };
-            req.admin = admin;
-            next();
-            return;
-        }
 
         const result = verifyToken(token);
         if (!result.valid || !result.payload || result.payload.role !== 'admin') {

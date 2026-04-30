@@ -1,7 +1,7 @@
 (function (global) {
   'use strict';
 
-  const ORDER_API = global.__BYOSE_ORDER_API__ || '';
+  const ORDER_API = '/api/orders';
   const ORDER_KEYS = ['byose_orders', 'orders'];
   const USER_KEYS = ['bm_current_user', 'bm_user', 'byose_market_user', 'user'];
   const CHANGE_EVENTS = ['storage', 'byose:orders-changed', 'byose:admin-orders-changed'];
@@ -279,13 +279,30 @@
     return false;
   }
 
-  async function fetchApiOrders(userId) {
-    if (!ORDER_API || !userId) {
+  function getAuthToken() {
+    if (global.authService && typeof global.authService.getToken === 'function') {
+      return String(global.authService.getToken() || '').trim();
+    }
+
+    return String(global.localStorage.getItem('bm_auth_token') || '').trim();
+  }
+
+  async function fetchApiOrders() {
+    const token = getAuthToken();
+    if (!ORDER_API || !token) {
       return [];
     }
 
     try {
-      const response = await fetch(`${ORDER_API}/${encodeURIComponent(userId)}`);
+      const response = await fetch(ORDER_API, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (!response.ok) {
+        throw new Error(`Order API request failed with status ${response.status}`);
+      }
       const data = await response.json();
       return Array.isArray(data?.orders) ? data.orders : [];
     } catch (error) {
@@ -307,7 +324,7 @@
       return [];
     }
 
-    const apiOrders = resolvedUserId ? await fetchApiOrders(resolvedUserId) : [];
+    const apiOrders = await fetchApiOrders();
     const localOrders = readArrayFromKeys(ORDER_KEYS);
     const combined = [...apiOrders, ...localOrders]
       .map(normalizeOrder)

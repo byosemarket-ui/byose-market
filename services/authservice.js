@@ -1,15 +1,12 @@
-// Centralized auth service (browser-friendly, no external deps)
-// Implements full local auth using a persistent `bm_users` array,
-// current session keys `bm_current_user` and `bm_logged_in`,
-// and keeps legacy `bm_user` for backward compatibility.
 const authService = (function () {
-    const USERS_KEY = 'bm_users';
-    const LEGACY_USERS_KEY = 'byose_market_users';
+    const TOKEN_KEY = 'bm_auth_token';
     const CURRENT_USER_KEY = 'bm_current_user';
     const LEGACY_USER_KEY = 'bm_user';
     const STOREFRONT_USER_KEY = 'byose_market_user';
     const LOGGED_KEY = 'bm_logged_in';
-    const CUSTOMERS_EVENT = 'byose:customers-changed';
+    const SESSION_KEY = 'byose_market_session';
+    const USER_EVENT = 'userUpdated';
+    const API_BASE = '/api/auth';
 
     function _dispatch(name, detail) {
         try {
@@ -17,110 +14,108 @@ const authService = (function () {
         } catch (e) {}
     }
 
-    function _getUsers() {
+    function _safeParse(value, fallbackValue) {
         try {
-            const raw = localStorage.getItem(USERS_KEY) || localStorage.getItem(LEGACY_USERS_KEY);
-            return raw ? JSON.parse(raw) || [] : [];
+            return value ? JSON.parse(value) : fallbackValue;
         } catch (e) {
-            return [];
+            return fallbackValue;
         }
     }
 
-    function _saveUsers(users) {
-        const serialized = JSON.stringify(users || []);
-        try { localStorage.setItem(USERS_KEY, serialized); } catch (e) { console.error(e); }
-        try { localStorage.setItem(LEGACY_USERS_KEY, serialized); } catch (e) { console.error(e); }
-        _dispatch(CUSTOMERS_EVENT, { action: 'sync-users' });
+    function _normalizeUser(user) {
+        if (!user || typeof user !== 'object') {
+            return null;
+        }
+
+        return {
+            ...user,
+            id: String(user.id || user.userId || '').trim(),
+            name: String(user.name || '').trim(),
+            email: String(user.email || '').trim().toLowerCase(),
+            phone: String(user.phone || '').trim(),
+            avatar: String(user.avatar || '').trim(),
+            status: String(user.status || 'active').trim().toLowerCase() === 'blocked' ? 'blocked' : 'active',
+            verified: Boolean(user.verified),
+            address: user.address && typeof user.address === 'object' ? user.address : {}
+        };
     }
 
-    function _setCurrent(user) {
+    function _persistSession(user, token) {
+        const normalizedUser = _normalizeUser(user);
+        const normalizedToken = String(token || '').trim();
+        if (!normalizedUser || !normalizedToken) {
+            _clearSession();
+            return null;
+        }
+
         const serialized = JSON.stringify(user || {});
-        try { localStorage.setItem(CURRENT_USER_KEY, serialized); } catch (e) { console.error(e); }
-        try { localStorage.setItem(LEGACY_USER_KEY, serialized); } catch (e) { console.error(e); }
-        try { localStorage.setItem(STOREFRONT_USER_KEY, serialized); } catch (e) { console.error(e); }
+        try { localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(normalizedUser)); } catch (e) { console.error(e); }
+        try { localStorage.setItem(LEGACY_USER_KEY, JSON.stringify(normalizedUser)); } catch (e) { console.error(e); }
+        try { localStorage.setItem(STOREFRONT_USER_KEY, JSON.stringify(normalizedUser)); } catch (e) { console.error(e); }
+        try { localStorage.setItem(TOKEN_KEY, normalizedToken); } catch (e) { console.error(e); }
         try { localStorage.setItem(LOGGED_KEY, 'true'); } catch (e) { console.error(e); }
-        _dispatch('userUpdated', user || null);
+        try { localStorage.setItem(SESSION_KEY, JSON.stringify({ loggedIn: true, createdAt: Date.now(), token: normalizedToken })); } catch (e) { console.error(e); }
+        _dispatch(USER_EVENT, normalizedUser);
+        return normalizedUser;
     }
 
     function _clearSession() {
         try { localStorage.removeItem(CURRENT_USER_KEY); } catch (e) {}
         try { localStorage.removeItem(LEGACY_USER_KEY); } catch (e) {}
         try { localStorage.removeItem(STOREFRONT_USER_KEY); } catch (e) {}
+        try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+        try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
         try { localStorage.removeItem(LOGGED_KEY); } catch (e) {}
-        _dispatch('userUpdated', null);
+        _dispatch(USER_EVENT, null);
     }
 
-    function _findUserIndex(users, user) {
-        const email = String(user && user.email || '').trim().toLowerCase();
-        const phone = String(user && user.phone || '').trim();
-        return users.findIndex((entry) => {
-            const entryEmail = String(entry && entry.email || '').trim().toLowerCase();
-            const entryPhone = String(entry && entry.phone || '').trim();
-            return (email && entryEmail === email)
-                || (phone && entryPhone === phone)
-                || (user && user.id && String(entry && entry.id || '') === String(user.id));
+    async function _request(path, options) {
+        const response = await fetch(`${API_BASE}${path}`, {
+            method: options?.method || 'GET',
+            headers: {
+                ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
+                ...(options?.token ? { Authorization: `Bearer ${options.token}` } : {}),
+                ...(options?.headers || {})
+            },
+            body: options?.body ? JSON.stringify(options.body) : undefined
         });
-    }
 
-    function _syncUserRecord(user) {
-        if (!user || typeof user !== 'object') {
-            return;
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+            const message = String(payload?.message || '').trim();
+            const error = new Error(message || 'Request failed');
+            error.status = response.status;
+            error.payload = payload;
+            throw error;
         }
 
-        const users = _getUsers();
-        const index = _findUserIndex(users, user);
-
-        if (index === -1) {
-            users.push(user);
-        } else {
-            users[index] = {
-                ...users[index],
-                ...user
-            };
-        }
-
-        _saveUsers(users);
+        return payload;
     }
 
-    function _createLetterAvatar(name) {
-        const letter = (name || '?').trim()[0] || '?';
-        const hue = (letter.toUpperCase().charCodeAt(0) * 37) % 360;
-        const bg = `hsl(${hue} 65% 50%)`;
-        const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='256' height='256'><rect width='100%' height='100%' fill='${bg}'/><text x='50%' y='50%' font-family='Poppins, Arial, sans-serif' font-size='120' fill='white' dominant-baseline='middle' text-anchor='middle'>${letter.toUpperCase()}</text></svg>`;
-        return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+    function _mapError(error, fallback) {
+        const message = String(error?.payload?.message || error?.message || '').trim().toLowerCase();
+        if (message.includes('email exists')) return 'email_exists';
+        if (message.includes('phone exists')) return 'phone_exists';
+        if (message.includes('password too weak')) return 'weak_password';
+        if (message.includes('user not found')) return 'user_not_found';
+        if (message.includes('invalid credentials')) return 'invalid_password';
+        if (message.includes('account blocked')) return 'account_blocked';
+        if (message.includes('email or phone required')) return 'email_or_phone_required';
+        if (message.includes('name required')) return 'empty_name';
+        return fallback || 'request_failed';
     }
 
-    function _pad(num, size = 5) {
-        let s = String(num);
-        while (s.length < size) s = '0' + s;
-        return s;
-    }
-
-    function generateUserId() {
-        const users = _getUsers();
-        if (!users.length) return 'BM00001';
-        // find highest numeric suffix
-        const nums = users.map(u => {
-            try { return parseInt((u.id || '').replace(/^BM0*/, '') || '0', 10); } catch { return 0; }
-        });
-        const max = Math.max(...nums, 0);
-        return 'BM' + _pad(max + 1);
-    }
-
-    function register(user) {
+    async function register(user) {
         user = user || {};
         user.name = (user.name || '').trim();
         user.email = user.email ? (user.email || '').toLowerCase().trim() : '';
         user.phone = user.phone ? (user.phone || '').trim() : '';
         user.password = user.password || '';
 
-        // Basic validation
         if (!user.name) return { success: false, error: 'empty_name' };
         if (!user.email && !user.phone) return { success: false, error: 'email_or_phone_required' };
-        // use validation service if available
         if (user.email && typeof validation !== 'undefined' && !validation.isValidEmail(user.email)) return { success: false, error: 'invalid_email' };
         if (user.phone && typeof validation !== 'undefined' && !validation.isValidPhone(user.phone)) return { success: false, error: 'invalid_phone' };
-        // fallback basic checks when validation is unavailable
         if (user.email && (typeof validation === 'undefined') && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user.email)) return { success: false, error: 'invalid_email' };
         if (user.phone && (typeof validation === 'undefined')) {
             const cleaned = (user.phone || '').replace(/[^0-9+]/g, '');
@@ -128,63 +123,43 @@ const authService = (function () {
         }
         if (!user.password || String(user.password).length < 4) return { success: false, error: 'weak_password' };
 
-        const users = _getUsers();
-
-        // Duplicates
-        if (user.email && users.some(u => u.email && u.email.toLowerCase() === user.email.toLowerCase())) {
-            return { success: false, error: 'email_exists' };
-        }
-        if (user.phone && users.some(u => u.phone && u.phone === user.phone)) {
-            return { success: false, error: 'phone_exists' };
-        }
-
-        // create user object
-        const id = generateUserId();
-        const avatar = user.avatar || _createLetterAvatar(user.name || user.email || 'U');
-        const createdAt = Date.now();
-
-        const newUser = {
-            id,
-            name: user.name,
-            email: user.email || '',
-            phone: user.phone || '',
-            password: String(user.password),
-            avatar,
-                createdAt,
-                status: 'active',
-                verified: false,
-                address: {
-                    line1: '',
-                    city: '',
-                    district: '',
-                    sector: '',
-                    cell: '',
-                    village: ''
+        try {
+            const payload = await _request('/signup', {
+                method: 'POST',
+                body: {
+                    name: user.name,
+                    email: user.email || '',
+                    phone: user.phone || '',
+                    password: user.password,
+                    avatar: user.avatar || ''
                 }
-        };
+            });
 
-        users.push(newUser);
-        _saveUsers(users);
-
-        // set session
-        _setCurrent(newUser);
-
-        return { success: true, user: newUser };
+            const normalizedUser = _persistSession(payload?.user, payload?.token);
+            return { success: true, user: normalizedUser, token: String(payload?.token || '') };
+        } catch (error) {
+            return { success: false, error: _mapError(error, 'signup_failed') };
+        }
     }
 
-    function loginByIdentifier(identifier, password) {
+    async function loginByIdentifier(identifier, password) {
         const id = (identifier || '').toString().trim().toLowerCase();
         if (!id) return { success: false, error: 'empty_identifier' };
 
-        const users = _getUsers();
-        const user = users.find(u => (u.email && u.email.toLowerCase() === id) || (u.phone && u.phone === id));
+        try {
+            const payload = await _request('/login', {
+                method: 'POST',
+                body: {
+                    identifier: id,
+                    password: String(password || '')
+                }
+            });
 
-        if (!user) return { success: false, error: 'user_not_found' };
-	        if (String(user.status || 'active').toLowerCase() === 'blocked') return { success: false, error: 'account_blocked' };
-        if (user.password && user.password !== String(password)) return { success: false, error: 'invalid_password' };
-
-        _setCurrent(user);
-        return { success: true, user };
+            const normalizedUser = _persistSession(payload?.user, payload?.token);
+            return { success: true, user: normalizedUser, token: String(payload?.token || '') };
+        } catch (error) {
+            return { success: false, error: _mapError(error, 'login_failed') };
+        }
     }
 
     function logout() {
@@ -192,17 +167,69 @@ const authService = (function () {
     }
 
     function getCurrentUser() {
-        try {
-            const raw = localStorage.getItem(CURRENT_USER_KEY) || localStorage.getItem(LEGACY_USER_KEY);
-            return raw ? JSON.parse(raw) : null;
-        } catch (e) { return null; }
+        return _normalizeUser(
+            _safeParse(localStorage.getItem(CURRENT_USER_KEY), null)
+            || _safeParse(localStorage.getItem(LEGACY_USER_KEY), null)
+            || _safeParse(localStorage.getItem(STOREFRONT_USER_KEY), null)
+        );
+    }
+
+    function getToken() {
+        return String(localStorage.getItem(TOKEN_KEY) || '').trim();
     }
 
     function isLoggedIn() {
-        return localStorage.getItem(LOGGED_KEY) === 'true';
+        return Boolean(getToken()) && Boolean(getCurrentUser()) && localStorage.getItem(LOGGED_KEY) === 'true';
     }
 
-    // expose functions
+    function setCurrentUser(user) {
+        const currentToken = getToken();
+        return _persistSession(user, currentToken || '');
+    }
+
+    async function refreshCurrentUser() {
+        const token = getToken();
+        if (!token) {
+            _clearSession();
+            return null;
+        }
+
+        try {
+            const payload = await _request('/me', { method: 'GET', token });
+            return _persistSession(payload?.user, token);
+        } catch (error) {
+            _clearSession();
+            return null;
+        }
+    }
+
+    async function updateProfile(data) {
+        const token = getToken();
+        if (!token) {
+            throw new Error('not_authenticated');
+        }
+
+        const payload = await _request('/me', {
+            method: 'PUT',
+            token,
+            body: data || {}
+        });
+
+        const normalizedUser = _persistSession(payload?.user, token);
+        return normalizedUser;
+    }
+
+    function authFetch(url, options) {
+        const token = getToken();
+        return fetch(url, {
+            ...(options || {}),
+            headers: {
+                ...((options && options.headers) || {}),
+                ...(token ? { Authorization: `Bearer ${token}` } : {})
+            }
+        });
+    }
+
     const api = {
         register,
         loginByIdentifier,
@@ -210,13 +237,15 @@ const authService = (function () {
         logout,
         getCurrentUser,
         isLoggedIn,
-        generateUserId,
-        _internal: { _getUsers, _saveUsers }
+        getToken,
+        setCurrentUser,
+        refreshCurrentUser,
+        updateProfile,
+        authFetch
     };
 
-    // attach convenient globals for legacy code
     try { window.authService = api; } catch (e) {}
-    try { window.createUser = register; window.loginUser = loginByIdentifier; window.logoutUser = logout; window.generateUserId = generateUserId; window.isLoggedIn = isLoggedIn; window.getCurrentUser = getCurrentUser; } catch (e) {}
+    try { window.createUser = register; window.loginUser = loginByIdentifier; window.logoutUser = logout; window.isLoggedIn = isLoggedIn; window.getCurrentUser = getCurrentUser; window.setCurrentUser = setCurrentUser; } catch (e) {}
 
     return api;
 })();

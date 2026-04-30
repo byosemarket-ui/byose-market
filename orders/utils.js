@@ -269,6 +269,17 @@ export function persistUserAddress(address) {
 
     writeStorage(key, nextUsers);
   });
+
+  if (window.authService && typeof window.authService.updateProfile === 'function') {
+    window.authService.updateProfile({
+      name: nextUser.name || currentUser.name || '',
+      phone: nextUser.phone || currentUser.phone || '',
+      avatar: nextUser.avatar || currentUser.avatar || '',
+      address: nextUser.address || {}
+    }).catch((error) => {
+      console.warn('Unable to sync the customer address to the API.', error);
+    });
+  }
 }
 
 export function readOrders() {

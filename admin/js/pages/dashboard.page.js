@@ -126,6 +126,9 @@
 	ordersService?.init?.().catch((error) => {
 		console.warn('Unable to initialize admin orders service on the dashboard.', error);
 	});
+	dashboardService?.init?.().then(refreshDashboard).catch((error) => {
+		console.warn('Unable to initialize admin dashboard service.', error);
+	});
 
 	refreshDashboard();
 

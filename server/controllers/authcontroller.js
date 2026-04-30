@@ -16,6 +16,9 @@ function sanitizeUserForClient(u) {
         email: u.email || '',
         phone: u.phone || '',
         avatar: u.avatar || '',
+        status: u.status || 'active',
+        verified: Boolean(u.verified),
+        address: u.address || {},
         createdAt: u.createdAt || 0
     };
 }
@@ -68,7 +71,9 @@ exports.signup = async (req, res) => {
 
         await newUser.save();
 
-        return res.json({ success: true, user: sanitizeUserForClient(newUser) });
+        const token = generateToken({ id: newUser.id, email: newUser.email, phone: newUser.phone, role: newUser.role });
+
+        return res.json({ success: true, token, user: sanitizeUserForClient(newUser) });
     } catch (err) {
         console.error('Signup error', err);
         return res.status(500).json({ success: false, message: 'Server error' });
@@ -89,11 +94,14 @@ exports.login = async (req, res) => {
             role: { $ne: 'admin' }
         });
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+        if (String(user.status || 'active').toLowerCase() === 'blocked') {
+            return res.status(403).json({ success: false, message: 'Account blocked' });
+        }
 
         const ok = await comparePasswords(String(password), user.password);
         if (!ok) return res.status(401).json({ success: false, message: 'Invalid credentials' });
 
-        const token = generateToken({ id: user.id, email: user.email, phone: user.phone });
+        const token = generateToken({ id: user.id, email: user.email, phone: user.phone, role: user.role });
 
         return res.json({ success: true, token, user: sanitizeUserForClient(user) });
     } catch (err) {
@@ -115,6 +123,68 @@ exports.me = async (req, res) => {
         return res.json({ success: true, user: sanitizeUserForClient(user) });
     } catch (err) {
         console.error('Me error', err);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.updateMe = async (req, res) => {
+    try {
+        const uid = req.user && req.user.id;
+        if (!uid) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const user = await User.findOne({ id: uid, role: { $ne: 'admin' } });
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+        if (String(user.status || 'active').toLowerCase() === 'blocked') {
+            return res.status(403).json({ success: false, message: 'Account blocked' });
+        }
+
+        const nextName = String(req.body?.name || user.name || '').trim();
+        const nextAvatar = String(req.body?.avatar || user.avatar || '').trim();
+        const nextEmail = String(req.body?.email || user.email || '').trim().toLowerCase();
+        const nextPhone = String(req.body?.phone || user.phone || '').trim();
+
+        if (!nextName) {
+            return res.status(400).json({ success: false, message: 'Name required' });
+        }
+
+        if (nextEmail && nextEmail !== String(user.email || '').trim().toLowerCase()) {
+            const existingEmail = await User.findOne({ email: nextEmail, id: { $ne: user.id } }).select('id').lean();
+            if (existingEmail) {
+                return res.status(409).json({ success: false, message: 'Email exists' });
+            }
+            user.email = nextEmail;
+        }
+
+        if (nextPhone && nextPhone !== String(user.phone || '').trim()) {
+            const existingPhone = await User.findOne({ phone: nextPhone, id: { $ne: user.id } }).select('id').lean();
+            if (existingPhone) {
+                return res.status(409).json({ success: false, message: 'Phone exists' });
+            }
+            user.phone = nextPhone;
+        }
+
+        const address = req.body?.address && typeof req.body.address === 'object' ? req.body.address : {};
+        user.name = nextName;
+        user.avatar = nextAvatar;
+        user.address = {
+            ...(user.address?.toObject ? user.address.toObject() : (user.address || {})),
+            ...address,
+            line1: String(address.line1 || address.street || user.address?.line1 || '').trim(),
+            street: String(address.street || address.line1 || user.address?.street || '').trim(),
+            city: String(address.city || '').trim(),
+            district: String(address.district || '').trim(),
+            sector: String(address.sector || '').trim(),
+            cell: String(address.cell || '').trim(),
+            village: String(address.village || '').trim(),
+            firstName: String(address.firstName || '').trim(),
+            lastName: String(address.lastName || '').trim(),
+            phone: String(address.phone || nextPhone || user.phone || '').trim()
+        };
+
+        await user.save();
+        return res.json({ success: true, user: sanitizeUserForClient(user) });
+    } catch (err) {
+        console.error('Update me error', err);
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };

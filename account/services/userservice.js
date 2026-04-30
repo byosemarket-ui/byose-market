@@ -59,15 +59,21 @@ function saveUser(user) {
 // ===============================
 async function updateProfile(data) {
   try {
+    if (typeof authService !== 'undefined' && typeof authService.updateProfile === 'function') {
+      const user = await authService.updateProfile(data || {});
+      saveUser(user);
+      return user;
+    }
+
     const fetchFn = (typeof authService !== 'undefined' && typeof authService.authFetch === 'function') ? authService.authFetch : fetch;
-    const response = await fetchFn(`${API_URL}/update-profile`, {
-      method: "POST",
+    const response = await fetchFn(`${API_URL}/auth/me`, {
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data)
     });
     const result = await response.json();
     if (result.success) { saveUser(result.user); return result.user; }
-    else throw new Error(result.message || 'update_failed');
+    throw new Error(result.message || 'update_failed');
   } catch (error) {
     console.error("Update Error:", error);
   }

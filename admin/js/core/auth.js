@@ -2,11 +2,6 @@
 	"use strict";
 
 	const STORAGE_KEY = "byose_admin_session_v1";
-	const LOGIN_FLAG_KEY = "isAdminLoggedIn";
-	const ADMIN_EMAIL = "byosemarket@gmail.com";
-	const ADMIN_PASSWORD = "byosemarket266";
-	const ADMIN_NAME = "Byose Market Admin";
-	const SESSION_TOKEN = "frontend-admin-authenticated";
 
 	function safeParse(value) {
 		try {
@@ -41,6 +36,25 @@
 		return String(global.AdminConfig?.adminApiBaseUrl || `${getApiBaseUrl()}/admin`).replace(/\/$/, "");
 	}
 
+	async function requestAdmin(path, options) {
+		const response = await global.fetch(`${getAdminApiBaseUrl()}${path}`, {
+			method: options?.method || "GET",
+			headers: {
+				...(options?.body ? { "Content-Type": "application/json" } : {}),
+				...(options?.token ? { Authorization: `Bearer ${options.token}` } : {}),
+				...(options?.headers || {})
+			},
+			body: options?.body ? JSON.stringify(options.body) : undefined
+		});
+
+		const payload = await response.json().catch(() => null);
+		if (!response.ok) {
+			throw new Error((payload && payload.message) || "Admin request failed.");
+		}
+
+		return payload;
+	}
+
 	function getSessionRedirectPath() {
 		const path = String(global.location?.pathname || "").replace(/\\/g, "/");
 		const marker = "/admin/";
@@ -67,25 +81,27 @@
 			return null;
 		}
 
-		const email = String(value.email || value.admin?.email || "").trim().toLowerCase();
-		const loggedIn = value.loggedIn === true || String(value.isAdminLoggedIn || "").toLowerCase() === "true";
-		if (!loggedIn || email !== ADMIN_EMAIL) {
+		const token = String(value.token || "").trim();
+		const admin = value.admin && typeof value.admin === "object" ? value.admin : null;
+		const email = String(value.email || admin?.email || "").trim().toLowerCase();
+		const role = String(value.role || admin?.role || "").trim().toLowerCase();
+		if (!token || !admin || role !== "admin" || !email) {
 			return null;
 		}
 
-		const admin = value.admin && typeof value.admin === "object" ? value.admin : null;
-		const name = String(value.name || admin?.name || ADMIN_NAME).trim() || ADMIN_NAME;
+		const name = String(value.name || admin?.name || "Admin").trim() || "Admin";
 
 		return {
-			token: String(value.token || SESSION_TOKEN).trim() || SESSION_TOKEN,
+			token,
 			admin: {
 				name,
-				email: ADMIN_EMAIL,
+				email,
+				role: "admin",
 				...(admin || {})
 			},
 			email,
 			name,
-			loggedIn: true,
+			role: "admin",
 			loggedInAt: value.loggedInAt || new Date().toISOString()
 		};
 	}
@@ -102,28 +118,24 @@
 		}
 
 		global.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-		global.localStorage.setItem(LOGIN_FLAG_KEY, "true");
 		return session;
 	}
 
 	async function login(credentials) {
-		const email = String(credentials?.email || "").trim().toLowerCase();
-		const password = String(credentials?.password || "");
-
-		if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
-			throw new Error("Invalid admin credentials");
-		}
+		const payload = await requestAdmin("/login", {
+			method: "POST",
+			body: {
+				email: String(credentials?.email || "").trim(),
+				password: String(credentials?.password || "")
+			}
+		});
 
 		const session = persistSession({
-			token: SESSION_TOKEN,
-			admin: {
-				name: ADMIN_NAME,
-				email: ADMIN_EMAIL
-			},
-			name: ADMIN_NAME,
-			email: ADMIN_EMAIL,
-			isAdminLoggedIn: true,
-			loggedIn: true,
+			token: payload?.token,
+			admin: payload?.admin,
+			email: payload?.admin?.email,
+			name: payload?.admin?.name,
+			role: payload?.admin?.role || "admin",
 			loggedInAt: new Date().toISOString()
 		});
 
@@ -136,7 +148,6 @@
 
 	function logout(options) {
 		global.localStorage.removeItem(STORAGE_KEY);
-		global.localStorage.removeItem(LOGIN_FLAG_KEY);
 		if (options?.redirect !== false && !isLoginPage()) {
 			global.location.replace(getLoginUrl());
 		}
@@ -147,7 +158,7 @@
 	}
 
 	function isLoggedIn() {
-		return Boolean(getSession()) && global.localStorage.getItem(LOGIN_FLAG_KEY) === "true";
+		return Boolean(getSession()?.token);
 	}
 
 	function getPostLoginRedirectUrl() {
@@ -171,17 +182,33 @@
 	}
 
 	async function validateSession(options) {
-		if (options && options.force) {
-			return getSession();
-		}
-
 		const session = getSession();
-		if (!session || global.localStorage.getItem(LOGIN_FLAG_KEY) !== "true") {
+		if (!session || !session.token) {
 			logout({ redirect: false });
 			return null;
 		}
 
-		return persistSession(session);
+		try {
+			const payload = await requestAdmin("/session", {
+				method: "GET",
+				token: session.token
+			});
+
+			return persistSession({
+				token: session.token,
+				admin: payload?.admin,
+				email: payload?.admin?.email,
+				name: payload?.admin?.name,
+				role: payload?.admin?.role || "admin",
+				loggedInAt: session.loggedInAt
+			});
+		} catch (error) {
+			logout({ redirect: false });
+			if (options?.silent) {
+				return null;
+			}
+			throw error;
+		}
 	}
 
 	async function requireAuth() {
