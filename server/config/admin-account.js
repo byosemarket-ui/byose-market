@@ -2,7 +2,7 @@ const ADMIN_ACCOUNT = {
     id: 'BMADMIN001',
     name: 'Byose Market Admin',
     email: 'byosemarket@gmail.com',
-    passwordHash: '$2a$10$556SqQJtkKET4kEi279iwuJFTjdm/ejzQ9pROfE4pIuud4.7tfIXK',
+    passwordHash: '$2a$10$m15dfk4l/uYktYXlLHJhP.DX4q70tD/BrZfVgEtgFsu12c/a9ovuS',
     role: 'admin'
 };
 

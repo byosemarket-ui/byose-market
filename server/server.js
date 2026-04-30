@@ -17,7 +17,28 @@ const orderRoutes = require('./routes/orders');
 const app = express();
 const projectRoot = path.resolve(__dirname, '..');
 
-app.use(cors());
+function getCorsOptions() {
+    const configuredOrigins = String(process.env.CORS_ORIGINS || '')
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean);
+
+    if (!configuredOrigins.length) {
+        return {};
+    }
+
+    return {
+        origin(origin, callback) {
+            if (!origin || configuredOrigins.includes(origin)) {
+                return callback(null, true);
+            }
+
+            return callback(new Error('Origin not allowed by CORS'));
+        }
+    };
+}
+
+app.use(cors(getCorsOptions()));
 app.use(bodyParser.json());
 
 // Connect to database

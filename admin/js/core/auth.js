@@ -37,9 +37,14 @@
 	}
 
 	async function requestAdmin(path, options) {
+		const adminApiBaseUrl = getAdminApiBaseUrl();
+		if (!adminApiBaseUrl) {
+			throw new Error("Admin API is not configured for this deployment. Set the deployed backend /api URL before signing in.");
+		}
+
 		let response;
 		try {
-			response = await global.fetch(`${getAdminApiBaseUrl()}${path}`, {
+			response = await global.fetch(`${adminApiBaseUrl}${path}`, {
 				method: options?.method || "GET",
 				headers: {
 					...(options?.body ? { "Content-Type": "application/json" } : {}),
@@ -49,7 +54,11 @@
 				body: options?.body ? JSON.stringify(options.body) : undefined
 			});
 		} catch (error) {
-			throw new Error("Unable to reach the admin server. Start the backend and try again.");
+			if (global.AdminConfig?.requiresExternalApiBaseUrl && !global.AdminConfig?.apiBaseConfigured) {
+				throw new Error("Admin API is not configured for this deployment. Set BYOSE_API_BASE_URL or the byose-api-base-url meta tag to your deployed backend /api URL.");
+			}
+
+			throw new Error("Unable to reach the admin server. Check the deployed backend URL and server status.");
 		}
 
 		const contentType = response.headers.get("content-type") || "";
