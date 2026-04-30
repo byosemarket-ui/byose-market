@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const path = require('path');
 
 const connectDB = require('./config/db');
 const { ensureAdminAccount } = require('./controllers/adminauthcontroller');
@@ -14,6 +15,7 @@ const cartRoutes = require('./routes/cart');
 const orderRoutes = require('./routes/orders');
 
 const app = express();
+const projectRoot = path.resolve(__dirname, '..');
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -27,6 +29,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/orders', orderRoutes);
+app.use(express.static(projectRoot));
 
 // TEST
 app.get('/', (req, res) => {

@@ -1,4 +1,5 @@
 const { verifyToken } = require('../utils/token');
+const { ADMIN_ACCOUNT, normalizeEmail, isConfiguredAdminRecord } = require('../config/admin-account');
 const User = require('../models/user');
 
 async function adminAuthMiddleware(req, res, next) {
@@ -11,12 +12,22 @@ async function adminAuthMiddleware(req, res, next) {
         const token = auth.slice(7).trim();
 
         const result = verifyToken(token);
-        if (!result.valid || !result.payload || result.payload.role !== 'admin') {
+        if (
+            !result.valid
+            || !result.payload
+            || result.payload.role !== 'admin'
+            || String(result.payload.id || '').trim() !== ADMIN_ACCOUNT.id
+            || normalizeEmail(result.payload.email) !== normalizeEmail(ADMIN_ACCOUNT.email)
+        ) {
             return res.status(401).json({ success: false, message: 'Unauthorized' });
         }
 
-        const admin = await User.findOne({ id: result.payload.id, email: result.payload.email, role: 'admin' });
-        if (!admin) {
+        const admin = await User.findOne({
+            id: ADMIN_ACCOUNT.id,
+            email: normalizeEmail(ADMIN_ACCOUNT.email),
+            role: 'admin'
+        });
+        if (!isConfiguredAdminRecord(admin)) {
             return res.status(401).json({ success: false, message: 'Unauthorized' });
         }
 

@@ -1,6 +1,33 @@
 (function (global) {
 	"use strict";
 
+	function readApiBaseOverride() {
+		const metaTag = global.document && typeof global.document.querySelector === "function"
+			? global.document.querySelector('meta[name="byose-api-base-url"]')
+			: null;
+		const metaValue = metaTag ? String(metaTag.getAttribute("content") || "").trim() : "";
+		const runtimeValue = String(global.BYOSE_API_BASE_URL || "").trim();
+		return (runtimeValue || metaValue).replace(/\/+$/, "");
+	}
+
+	function getDefaultApiBaseUrl() {
+		const protocol = String(global.location?.protocol || "").toLowerCase();
+		const hostname = String(global.location?.hostname || "").trim();
+		const port = String(global.location?.port || "").trim();
+
+		if (protocol === "file:") {
+			return "http://localhost:3000/api";
+		}
+
+		if ((protocol === "http:" || protocol === "https:") && hostname && port && port !== "3000") {
+			return `${protocol}//${hostname}:3000/api`;
+		}
+
+		return "/api";
+	}
+
+	const apiBaseUrl = readApiBaseOverride() || getDefaultApiBaseUrl();
+
 	function getSiteRootPrefix() {
 		const path = String(global.location?.pathname || "");
 		if (path.includes("/admin/")) {
@@ -10,8 +37,8 @@
 	}
 
 	global.AdminConfig = {
-		apiBaseUrl: "/api",
-		adminApiBaseUrl: "/api/admin",
+		apiBaseUrl,
+		adminApiBaseUrl: `${apiBaseUrl.replace(/\/+$/, "")}/admin`,
 		siteRootPrefix: getSiteRootPrefix(),
 		storageKeys: {
 			orders: ["byose_orders", "orders"],

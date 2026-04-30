@@ -277,7 +277,7 @@
 			<div class="admin-sidebar-footer">
 				<span class="admin-sidebar-footer-label">Admin session</span>
 				<strong>${sessionEmail}</strong>
-				<small>Protected with frontend-only route checks.</small>
+				<small>Protected with backend token validation.</small>
 				<button class="admin-sidebar-logout" type="button" data-admin-logout>Log out</button>
 			</div>
 		`;

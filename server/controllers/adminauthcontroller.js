@@ -1,14 +1,7 @@
 const { comparePasswords } = require('../utils/hash');
 const { generateToken } = require('../utils/token');
+const { ADMIN_ACCOUNT, normalizeEmail, isConfiguredAdminRecord } = require('../config/admin-account');
 const User = require('../models/user');
-
-const ADMIN_ACCOUNT = {
-    id: 'BMADMIN001',
-    name: 'Byose Market Admin',
-    email: 'byosemarket@gmail.com',
-    passwordHash: '$2a$10$556SqQJtkKET4kEi279iwuJFTjdm/ejzQ9pROfE4pIuud4.7tfIXK',
-    role: 'admin'
-};
 
 function sanitizeAdmin(user) {
     if (!user) return null;
@@ -23,13 +16,31 @@ function sanitizeAdmin(user) {
 }
 
 async function ensureAdminAccount() {
-    const existingAdmin = await User.findOne({ email: ADMIN_ACCOUNT.email.toLowerCase() });
+    await User.updateMany(
+        {
+            role: 'admin',
+            $or: [
+                { email: { $ne: normalizeEmail(ADMIN_ACCOUNT.email) } },
+                { id: { $ne: ADMIN_ACCOUNT.id } }
+            ]
+        },
+        {
+            $set: { role: 'user' }
+        }
+    );
+
+    const existingAdmin = await User.findOne({
+        $or: [
+            { email: normalizeEmail(ADMIN_ACCOUNT.email) },
+            { id: ADMIN_ACCOUNT.id }
+        ]
+    });
 
     if (!existingAdmin) {
         await User.create({
             id: ADMIN_ACCOUNT.id,
             name: ADMIN_ACCOUNT.name,
-            email: ADMIN_ACCOUNT.email.toLowerCase(),
+            email: normalizeEmail(ADMIN_ACCOUNT.email),
             password: ADMIN_ACCOUNT.passwordHash,
             role: ADMIN_ACCOUNT.role
         });
@@ -45,6 +56,11 @@ async function ensureAdminAccount() {
 
     if (existingAdmin.name !== ADMIN_ACCOUNT.name) {
         existingAdmin.name = ADMIN_ACCOUNT.name;
+        shouldSave = true;
+    }
+
+    if (existingAdmin.email !== normalizeEmail(ADMIN_ACCOUNT.email)) {
+        existingAdmin.email = normalizeEmail(ADMIN_ACCOUNT.email);
         shouldSave = true;
     }
 
@@ -71,16 +87,24 @@ async function login(req, res) {
             return res.status(400).json({ success: false, message: 'Email and password are required' });
         }
 
-        const normalizedEmail = String(email).trim().toLowerCase();
-        const admin = await User.findOne({ email: normalizedEmail, role: 'admin' });
+        const normalizedEmail = normalizeEmail(email);
+        if (normalizedEmail !== normalizeEmail(ADMIN_ACCOUNT.email)) {
+            return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        }
 
-        if (!admin) {
-            return res.status(401).json({ success: false, message: 'Invalid admin credentials' });
+        const admin = await User.findOne({
+            id: ADMIN_ACCOUNT.id,
+            email: normalizeEmail(ADMIN_ACCOUNT.email),
+            role: 'admin'
+        });
+
+        if (!isConfiguredAdminRecord(admin)) {
+            return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
 
         const passwordMatches = await comparePasswords(String(password), admin.password);
         if (!passwordMatches) {
-            return res.status(401).json({ success: false, message: 'Invalid admin credentials' });
+            return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
 
         const token = generateToken({

@@ -37,19 +37,27 @@
 	}
 
 	async function requestAdmin(path, options) {
-		const response = await global.fetch(`${getAdminApiBaseUrl()}${path}`, {
-			method: options?.method || "GET",
-			headers: {
-				...(options?.body ? { "Content-Type": "application/json" } : {}),
-				...(options?.token ? { Authorization: `Bearer ${options.token}` } : {}),
-				...(options?.headers || {})
-			},
-			body: options?.body ? JSON.stringify(options.body) : undefined
-		});
+		let response;
+		try {
+			response = await global.fetch(`${getAdminApiBaseUrl()}${path}`, {
+				method: options?.method || "GET",
+				headers: {
+					...(options?.body ? { "Content-Type": "application/json" } : {}),
+					...(options?.token ? { Authorization: `Bearer ${options.token}` } : {}),
+					...(options?.headers || {})
+				},
+				body: options?.body ? JSON.stringify(options.body) : undefined
+			});
+		} catch (error) {
+			throw new Error("Unable to reach the admin server. Start the backend and try again.");
+		}
 
-		const payload = await response.json().catch(() => null);
+		const contentType = response.headers.get("content-type") || "";
+		const payload = contentType.includes("application/json")
+			? await response.json().catch(() => null)
+			: await response.text().catch(() => null);
 		if (!response.ok) {
-			throw new Error((payload && payload.message) || "Admin request failed.");
+			throw new Error((payload && payload.message) || (typeof payload === "string" && payload) || "Admin request failed.");
 		}
 
 		return payload;

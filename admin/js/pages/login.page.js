@@ -38,7 +38,7 @@
 		const session = auth.getSession();
 		if (!session) {
 			sessionName.textContent = "No active session";
-			sessionEmail.textContent = "Use the admin credentials to continue to the dashboard.";
+			sessionEmail.textContent = "Sign in with the configured admin account to continue.";
 			logoutButton.hidden = true;
 			dashboardLink.hidden = true;
 			return;
@@ -52,7 +52,7 @@
 
 	form.addEventListener("submit", async (event) => {
 		event.preventDefault();
-		feedback.textContent = "Checking admin credentials...";
+		feedback.textContent = "Signing in to the admin server...";
 		feedback.className = "login-feedback";
 		const submitButton = form.querySelector('button[type="submit"]');
 		if (submitButton) {
@@ -97,7 +97,7 @@
 	});
 
 	hydrateExistingSession().catch(() => {
-		feedback.textContent = "Unable to load the admin session.";
+		feedback.textContent = "Unable to verify the admin session with the backend.";
 		feedback.className = "login-feedback is-error";
 		renderSession();
 	});

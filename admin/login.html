@@ -20,8 +20,8 @@
 			<section class="dashboard-panel admin-login-intro-panel">
 				<div class="admin-login-badge">Protected workspace</div>
 				<p class="dashboard-eyebrow">Byose Market Admin</p>
-				<h1 id="adminLoginTitle">Simple admin login that works locally and online</h1>
-				<p class="admin-login-intro-copy">This admin area uses a frontend-only session stored in localStorage, so it works on GitHub Pages, live server, and local files without any backend.</p>
+				<h1 id="adminLoginTitle">Secure admin login for the Byose Market control center</h1>
+				<p class="admin-login-intro-copy">This admin area now signs in through the backend API, issues a JWT token after successful login, and validates that token before protected admin pages can stay open.</p>
 				<div class="admin-login-highlights" aria-label="Admin security summary">
 					<div class="admin-login-highlight-card">
 						<span>Auth model</span>
@@ -29,7 +29,7 @@
 					</div>
 					<div class="admin-login-highlight-card">
 						<span>Session</span>
-						<strong>localStorage route guard</strong>
+						<strong>JWT-backed admin session</strong>
 					</div>
 				</div>
 				<div class="admin-login-session-card">
@@ -44,7 +44,7 @@
 					<div>
 						<p class="dashboard-eyebrow">Admin authentication</p>
 						<h2>Sign in</h2>
-						<p>Only the configured admin credentials can open this workspace.</p>
+						<p>Only the configured backend admin credentials can open this workspace.</p>
 					</div>
 					<a class="admin-login-dashboard-link" id="adminDashboardLink" href="dashboard.html" hidden>Open dashboard</a>
 				</div>
@@ -57,7 +57,7 @@
 						<span>Password</span>
 						<input name="password" type="password" placeholder="Enter admin password" autocomplete="current-password" required>
 					</label>
-					<p class="admin-login-helper">Only one admin account is allowed. Any other credentials are rejected.</p>
+					<p class="admin-login-helper">Only one admin account is allowed. Any other credentials are rejected by the backend.</p>
 					<button class="admin-login-submit" type="submit">Sign in to admin</button>
 				</form>
 				<div class="admin-login-actions">
