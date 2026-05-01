@@ -30,7 +30,7 @@ async function login(req, res) {
 
         if (normalizedEmail !== adminCredentials.email) {
             return res.status(401).json(
-                createApiResponse({ success: false, message: 'Invalid credentials' })
+                createApiResponse({ success: false, message: 'Invalid email or password' })
             );
         }
 
@@ -38,7 +38,7 @@ async function login(req, res) {
 
         if (!isPasswordValid) {
             return res.status(401).json(
-                createApiResponse({ success: false, message: 'Invalid credentials' })
+                createApiResponse({ success: false, message: 'Invalid email or password' })
             );
         }
 

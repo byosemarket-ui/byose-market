@@ -33,6 +33,24 @@
 
 	function humanizeError(error) {
 		const message = error && error.message ? String(error.message) : "";
+		const code = error && error.code ? String(error.code) : "";
+		const status = error && typeof error.status === "number" ? error.status : 0;
+
+		if (code === "INVALID_CREDENTIALS" || status === 401) {
+			return "Invalid email or password.";
+		}
+
+		if (code === "NETWORK_UNREACHABLE") {
+			return "Unable to reach the admin server. Check that the backend is running and publicly accessible.";
+		}
+
+		if (code === "API_ROUTE_NOT_FOUND" || status === 404) {
+			return "Admin login API is not available at /api/admin/login.";
+		}
+
+		if (code === "SERVER_ERROR" || status >= 500) {
+			return "Server error. Please try again later.";
+		}
 
 		if (!message || /failed to fetch|networkerror|load failed|network request failed|cors|origin not allowed/i.test(message)) {
 			return "Unable to reach the admin server. Check that the backend is running and publicly accessible.";

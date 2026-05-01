@@ -135,25 +135,73 @@
 		return true;
 	}
 
+	function createAuthError(message, options) {
+		const error = new Error(String(message || "Authentication request failed."));
+		if (options && options.code) {
+			error.code = String(options.code);
+		}
+		if (options && typeof options.status === "number") {
+			error.status = options.status;
+		}
+		return error;
+	}
+
 	async function login(credentials) {
 		const adminApiBaseUrl = String(global.AdminConfig?.adminApiBaseUrl || "").replace(/\/+$/, "");
 		if (!adminApiBaseUrl) {
-			throw new Error("Admin API base URL is not configured.");
+			throw createAuthError("Admin API base URL is not configured.", { code: "API_BASE_MISSING" });
 		}
-		const response = await global.fetch(`${adminApiBaseUrl}/login`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(credentials)
-		});
+
+		let response;
+		try {
+			response = await global.fetch(`${adminApiBaseUrl}/login`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(credentials)
+			});
+		} catch (_error) {
+			throw createAuthError(
+				"Unable to reach the admin server. Check that the backend is running and publicly accessible.",
+				{ code: "NETWORK_UNREACHABLE" }
+			);
+		}
 
 		const payload = await response.json().catch(function () { return null; });
 
 		if (!response.ok) {
-			throw new Error(payload && payload.message ? payload.message : "Invalid credentials");
+			if (response.status === 401) {
+				throw createAuthError("Invalid email or password.", {
+					code: "INVALID_CREDENTIALS",
+					status: response.status
+				});
+			}
+
+			if (response.status === 404) {
+				throw createAuthError("Admin login endpoint is unavailable at /api/admin/login.", {
+					code: "API_ROUTE_NOT_FOUND",
+					status: response.status
+				});
+			}
+
+			if (response.status >= 500) {
+				throw createAuthError("Admin server error. Please try again later.", {
+					code: "SERVER_ERROR",
+					status: response.status
+				});
+			}
+
+			throw createAuthError(payload && payload.message ? payload.message : `Admin login failed (${response.status}).`, {
+				code: "AUTH_REQUEST_FAILED",
+				status: response.status
+			});
 		}
 
 		const token = String(payload && payload.data && payload.data.token || "").trim();
-		if (!token) throw new Error("Login succeeded but no token was returned.");
+		if (!token) {
+			throw createAuthError("Login succeeded but no token was returned.", {
+				code: "TOKEN_MISSING"
+			});
+		}
 
 		storeToken(token);
 		const admin = getAdminFromToken(token) || payload.data.admin || null;
@@ -199,6 +247,9 @@
 		if (options?.forceRemote) {
 			try {
 				const adminApiBaseUrl = String(global.AdminConfig?.adminApiBaseUrl || "").replace(/\/$/, "");
+				if (!adminApiBaseUrl) {
+					return sessionCache;
+				}
 				const res = await global.fetch(`${adminApiBaseUrl}/profile`, {
 					method: "GET",
 					headers: { Authorization: `Bearer ${token}` }

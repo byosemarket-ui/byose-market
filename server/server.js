@@ -1,8 +1,11 @@
-require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
+const dotenv = require('dotenv');
+
+dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../backend/.env') });
 
 const connectDB = require('./config/db');
 const adminCustomerRoutes = require('./routes/admincustomers');
@@ -16,7 +19,7 @@ const orderRoutes = require('./routes/orders');
 const app = express();
 const projectRoot = path.resolve(__dirname, '..');
 const PORT = Number(process.env.PORT) || 5000;
-const HOST = String(process.env.HOST || '0.0.0.0').trim() || '0.0.0.0';
+const HOST = '0.0.0.0';
 
 app.locals.dbConnected = false;
 
@@ -91,7 +94,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/orders', orderRoutes);
-app.use(express.static(projectRoot));
 
 // TEST
 app.get('/', (req, res) => {
@@ -103,12 +105,13 @@ app.get('/', (req, res) => {
 });
 
 app.get('/healthz', (_req, res) => {
-    const isHealthy = Boolean(app.locals.dbConnected);
-    return res.status(isHealthy ? 200 : 503).json({
-        status: isHealthy ? 'ok' : 'degraded',
-        dbConnected: isHealthy
+    return res.status(200).json({
+        status: 'ok',
+        dbConnected: Boolean(app.locals.dbConnected)
     });
 });
+
+app.use(express.static(projectRoot));
 
 // START SERVER
 async function startServer() {

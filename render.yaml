@@ -18,9 +18,9 @@ services:
       - key: JWT_SECRET
         sync: false
       - key: ADMIN_EMAIL
-        sync: false
+        value: byosemarket@gmail.com
       - key: ADMIN_PASSWORD_HASH
-        sync: false
+        value: $2a$10$Ei61K7tnrobboqgMMQL7TuF.m2N71NycCSGC2KoImdkKfDYK4nL.O
       - key: JWT_EXPIRES_IN
         value: 7d
       - key: CORS_ORIGINS

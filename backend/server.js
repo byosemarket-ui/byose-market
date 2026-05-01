@@ -9,7 +9,7 @@ const adminRoutes = require('./routes/adminRoutes');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
-const HOST = String(process.env.HOST || '0.0.0.0').trim() || '0.0.0.0';
+const HOST = '0.0.0.0';
 
 // CORS: allow all origins in development; restrict when CORS_ORIGINS is set
 function getCorsOptions() {

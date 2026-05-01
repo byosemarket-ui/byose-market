@@ -49,7 +49,11 @@
 			return PRODUCTION_API_BASE_URL;
 		}
 
-		return "/api";
+		if (protocol === "http:" || protocol === "https:") {
+			return PRODUCTION_API_BASE_URL;
+		}
+
+		return PRODUCTION_API_BASE_URL;
 	}
 
 	const protocol = String(global.location?.protocol || "").toLowerCase();
