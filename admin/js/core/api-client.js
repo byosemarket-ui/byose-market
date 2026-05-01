@@ -3,9 +3,6 @@
 
 	async function request(path, options) {
 		const baseUrl = String(global.AdminConfig?.apiBaseUrl || "").replace(/\/$/, "");
-		const authToken = global.AdminAuthService && typeof global.AdminAuthService.getToken === "function"
-			? String(global.AdminAuthService.getToken() || "").trim()
-			: "";
 		const url = /^https?:/i.test(String(path || "")) || String(path || "").startsWith("/")
 			? path
 			: `${baseUrl}/${String(path || "").replace(/^\/+/, "")}`;
@@ -13,7 +10,6 @@
 		const response = await fetch(url, {
 			headers: {
 				"Content-Type": "application/json",
-				...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
 				...(options?.headers || {})
 			},
 			...options
@@ -25,9 +21,6 @@
 			: await response.text().catch(() => null);
 
 		if (!response.ok) {
-			if (response.status === 401 && global.AdminAuthService && typeof global.AdminAuthService.logout === "function") {
-				global.AdminAuthService.logout();
-			}
 			throw new Error((payload && payload.message) || `Request failed with status ${response.status}`);
 		}
 

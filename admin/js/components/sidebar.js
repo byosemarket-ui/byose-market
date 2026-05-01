@@ -135,13 +135,7 @@
 						{ label: 'SEO', href: 'settings/seo.html' }
 					]
 				},
-				{
-					label: 'Access Reset',
-					description: 'Clean placeholder for the next auth rebuild',
-					href: 'login.html',
-					icon: icon.auth
-				}
-			]
+		]
 		}
 	];
 
@@ -250,12 +244,6 @@
 
 	function renderSidebar(root) {
 		const currentPath = getCurrentPath();
-		const session = window.AdminAuthService && typeof window.AdminAuthService.getSession === 'function'
-			? window.AdminAuthService.getSession()
-			: null;
-		const adminEmail = session && session.admin && session.admin.email
-			? session.admin.email
-			: 'Authenticated admin';
 
 		root.innerHTML = `
 			<div class="admin-sidebar-brand">
@@ -277,17 +265,13 @@
 				`).join('')}
 			</nav>
 			<div class="admin-sidebar-footer">
-				<span class="admin-sidebar-footer-label">Admin access</span>
-				<strong>${adminEmail}</strong>
-				<small>Protected admin session is active.</small>
-				<button class="admin-sidebar-logout" type="button" data-admin-logout>Log out</button>
+				<span class="admin-sidebar-footer-label">Byose Market Admin</span>
 			</div>
 		`;
 	}
 
 	function bindSidebarInteractions(root) {
 		const buttons = Array.from(root.querySelectorAll('.admin-sidebar-expander'));
-		const logoutButton = root.querySelector('[data-admin-logout]');
 
 		function closeAllSections(exceptButton) {
 			buttons.forEach((button) => {
@@ -325,12 +309,6 @@
 				}
 			});
 		});
-
-		if (logoutButton && window.AdminAuthService && typeof window.AdminAuthService.logout === 'function') {
-			logoutButton.addEventListener('click', () => {
-				window.AdminAuthService.logout();
-			});
-		}
 
 		const activeButton = buttons.find((button) => button.classList.contains('is-active'));
 		if (activeButton) {

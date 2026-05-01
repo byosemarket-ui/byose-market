@@ -5,8 +5,6 @@ const dotenv = require('dotenv');
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
-const adminRoutes = require('./routes/adminRoutes');
-
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
 const HOST = '0.0.0.0';
@@ -66,14 +64,11 @@ app.get('/healthz', (_req, res) => {
     res.json({ status: 'ok' });
 });
 
-app.use('/api/admin', adminRoutes);
-
-// Start the HTTP server immediately — no database required for admin login
+// Start the HTTP server
 if (require.main === module) {
     app.listen(PORT, HOST, () => {
         console.log(`Admin API server running on http://${HOST}:${PORT}`);
         console.log(`Health endpoint: http://${HOST}:${PORT}/healthz`);
-        console.log(`Login endpoint: POST http://${HOST}:${PORT}/api/admin/login`);
     });
 }
 

@@ -144,10 +144,9 @@
 	}
 
 	function getAuthToken() {
-		return String(global.AdminAuthService?.getToken?.() || "").trim();
+		return "";
 	}
-
-	function normalizeSpecs(specs) {
+function normalizeSpecs(specs) {
 		if (!Array.isArray(specs)) {
 			return [];
 		}

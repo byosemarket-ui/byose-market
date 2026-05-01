@@ -484,9 +484,6 @@
 		return Boolean(
 			global.AdminApiClient
 			&& typeof global.AdminApiClient.get === "function"
-			&& global.AdminAuthService
-			&& typeof global.AdminAuthService.getToken === "function"
-			&& String(global.AdminAuthService.getToken() || "").trim()
 		);
 	}
 
