@@ -136,8 +136,8 @@
 					]
 				},
 				{
-					label: 'Admin Login',
-					description: 'Authentication entry page',
+					label: 'Access Reset',
+					description: 'Clean placeholder for the next auth rebuild',
 					href: 'login.html',
 					icon: icon.auth
 				}
@@ -253,7 +253,9 @@
 		const session = window.AdminAuthService && typeof window.AdminAuthService.getSession === 'function'
 			? window.AdminAuthService.getSession()
 			: null;
-		const sessionEmail = session && session.email ? session.email : 'Admin access only';
+		const adminEmail = session && session.admin && session.admin.email
+			? session.admin.email
+			: 'Authenticated admin';
 
 		root.innerHTML = `
 			<div class="admin-sidebar-brand">
@@ -275,9 +277,9 @@
 				`).join('')}
 			</nav>
 			<div class="admin-sidebar-footer">
-				<span class="admin-sidebar-footer-label">Admin session</span>
-				<strong>${sessionEmail}</strong>
-				<small>Protected with backend token validation.</small>
+				<span class="admin-sidebar-footer-label">Admin access</span>
+				<strong>${adminEmail}</strong>
+				<small>Protected admin session is active.</small>
 				<button class="admin-sidebar-logout" type="button" data-admin-logout>Log out</button>
 			</div>
 		`;
@@ -326,7 +328,7 @@
 
 		if (logoutButton && window.AdminAuthService && typeof window.AdminAuthService.logout === 'function') {
 			logoutButton.addEventListener('click', () => {
-				window.AdminAuthService.logout({ redirect: true });
+				window.AdminAuthService.logout();
 			});
 		}
 

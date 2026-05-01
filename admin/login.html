@@ -6,70 +6,62 @@
 	<title>Admin Login | Byose Market</title>
 	<link rel="preconnect" href="https://fonts.googleapis.com">
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-	<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-	<link rel="stylesheet" href="css/tokens.css">
-	<link rel="stylesheet" href="css/base.css">
-	<link rel="stylesheet" href="css/layout.css">
-	<link rel="stylesheet" href="css/pages/login.css">
+	<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="style.css">
 </head>
-<body class="admin-login-page">
-	<div class="dashboard-shell admin-login-shell">
-		<div class="dashboard-orb dashboard-orb-primary" aria-hidden="true"></div>
-		<div class="dashboard-orb dashboard-orb-secondary" aria-hidden="true"></div>
-		<main class="admin-login-layout" aria-labelledby="adminLoginTitle">
-			<section class="dashboard-panel admin-login-intro-panel">
-				<div class="admin-login-badge">Protected workspace</div>
-				<p class="dashboard-eyebrow">Byose Market Admin</p>
-				<h1 id="adminLoginTitle">Secure admin login for the Byose Market control center</h1>
-				<p class="admin-login-intro-copy">This admin area now signs in through the backend API, issues a JWT token after successful login, and validates that token before protected admin pages can stay open.</p>
-				<div class="admin-login-highlights" aria-label="Admin security summary">
-					<div class="admin-login-highlight-card">
-						<span>Auth model</span>
-						<strong>Single admin account</strong>
-					</div>
-					<div class="admin-login-highlight-card">
-						<span>Session</span>
-						<strong>JWT-backed admin session</strong>
-					</div>
-				</div>
-				<div class="admin-login-session-card">
-					<p class="admin-login-session-label">Current session</p>
-					<strong id="adminSessionName">Loading...</strong>
-					<small id="adminSessionEmail"></small>
+<body>
+	<div class="login-shell">
+		<div class="login-background login-background-left" aria-hidden="true"></div>
+		<div class="login-background login-background-right" aria-hidden="true"></div>
+		<main class="login-layout" aria-labelledby="adminLoginTitle">
+			<section class="login-brand-panel">
+				<div class="login-badge">Admin Portal</div>
+				<p class="login-eyebrow">Byose Market Control Center</p>
+				<h1 id="adminLoginTitle">Secure admin sign-in for the Byose Market dashboard</h1>
+				<p class="login-copy">Sign in with the configured admin account to access the protected dashboard and admin workspace. Your session token is validated before protected pages can stay open.</p>
+				<div class="login-feature-grid" aria-label="Login page highlights">
+					<article class="login-feature-card">
+						<span>Structure</span>
+						<strong>Dedicated HTML, CSS, and JS</strong>
+					</article>
+					<article class="login-feature-card">
+						<span>Status</span>
+						<strong>Backend-connected login</strong>
+					</article>
 				</div>
 			</section>
 
-			<section class="dashboard-panel admin-login-form-panel" aria-label="Admin sign in form">
-				<div class="admin-login-form-header">
-					<div>
-						<p class="dashboard-eyebrow">Admin authentication</p>
-						<h2>Sign in</h2>
-						<p>Only the configured backend admin credentials can open this workspace.</p>
-					</div>
-					<a class="admin-login-dashboard-link" id="adminDashboardLink" href="dashboard.html" hidden>Open dashboard</a>
+			<section class="login-form-panel" aria-label="Admin login form">
+				<div class="login-form-header">
+					<p class="login-eyebrow">Secure Access</p>
+					<h2>Sign in</h2>
+					<p>Enter your admin email and password to open the protected admin dashboard.</p>
 				</div>
-				<form id="adminLoginForm" class="admin-login-form" novalidate>
-					<label class="admin-login-field">
+
+				<form id="adminLoginForm" class="login-form" novalidate>
+					<label class="login-field" for="adminEmail">
 						<span>Email</span>
-						<input name="email" type="email" placeholder="Admin email" autocomplete="username" required>
+						<input id="adminEmail" name="email" type="email" placeholder="admin@byosemarket.com" autocomplete="username" required>
 					</label>
-					<label class="admin-login-field">
+
+					<label class="login-field" for="adminPassword">
 						<span>Password</span>
-						<input name="password" type="password" placeholder="Enter admin password" autocomplete="current-password" required>
+						<input id="adminPassword" name="password" type="password" placeholder="Enter your password" autocomplete="current-password" required>
 					</label>
-					<p class="admin-login-helper">Only one admin account is allowed. Any other credentials are rejected by the backend.</p>
-					<button class="admin-login-submit" type="submit">Sign in to admin</button>
+
+					<p id="loginErrorMessage" class="login-message" aria-live="polite"></p>
+
+					<button id="loginButton" class="login-submit" type="submit">Sign In</button>
 				</form>
-				<div class="admin-login-actions">
-					<button class="admin-login-logout" id="adminLogoutButton" type="button" hidden>Log out</button>
+
+				<div class="login-footer-note">
+					<p>After successful login, your token is stored locally and used to protect admin pages until you log out.</p>
 				</div>
-				<p id="adminSessionStatus" class="login-feedback" aria-live="polite"></p>
 			</section>
 		</main>
 	</div>
 	<script src="js/core/config.js"></script>
 	<script src="js/core/auth.js"></script>
-	<script src="js/core/api-client.js"></script>
-	<script src="js/pages/login.page.js"></script>
+	<script src="script.js"></script>
 </body>
 </html>

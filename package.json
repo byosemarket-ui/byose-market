@@ -5,7 +5,9 @@
   "main": "server/server.js",
   "scripts": {
     "start": "node server/server.js",
-    "dev": "nodemon server/server.js"
+    "dev": "nodemon server/server.js",
+    "backend:start": "node backend/server.js",
+    "backend:dev": "nodemon backend/server.js"
   },
   "author": "Kwizera Evode",
   "license": "ISC",

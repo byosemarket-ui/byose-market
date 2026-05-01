@@ -5,8 +5,6 @@ const bodyParser = require('body-parser');
 const path = require('path');
 
 const connectDB = require('./config/db');
-const { ensureAdminAccount } = require('./controllers/adminauthcontroller');
-const adminAuthRoutes = require('./routes/adminauth');
 const adminCustomerRoutes = require('./routes/admincustomers');
 const adminOrderRoutes = require('./routes/adminorders');
 const authRoutes = require('./routes/auth');
@@ -43,7 +41,6 @@ app.use(bodyParser.json());
 
 // Connect to database
 // ROUTES
-app.use('/api/admin', adminAuthRoutes);
 app.use('/api/admin/customers', adminCustomerRoutes);
 app.use('/api/admin/orders', adminOrderRoutes);
 app.use('/api/auth', authRoutes);
@@ -62,7 +59,6 @@ const PORT = process.env.PORT || 3000;
 
 async function startServer() {
     await connectDB();
-    await ensureAdminAccount();
 
     app.listen(PORT, () => {
         console.log(`Server running on http://localhost:${PORT}`);

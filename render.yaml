@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: byosemarket-admin-api
+    runtime: node
+    rootDir: .
+    buildCommand: npm install
+    startCommand: npm run backend:start
+    plan: free
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CORS_ORIGINS
+        value: https://byosemarket.com,https://www.byosemarket.com

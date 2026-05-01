@@ -1,11 +1,11 @@
 const express = require('express');
 
-const adminAuthMiddleware = require('../middleware/adminauthmiddleware');
+const adminAccessDisabled = require('../middleware/adminaccessdisabled');
 const adminCustomersController = require('../controllers/admincustomerscontroller');
 
 const router = express.Router();
 
-router.use(adminAuthMiddleware);
+router.use(adminAccessDisabled);
 
 router.get('/', adminCustomersController.listCustomers);
 router.get('/:id', adminCustomersController.getCustomerById);

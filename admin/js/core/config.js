@@ -1,38 +1,10 @@
 (function (global) {
 	"use strict";
 
-	const API_BASE_STORAGE_KEY = "byose_api_base_url";
+	const PRODUCTION_API_BASE_URL = "https://byosemarket-admin-api.onrender.com/api";
 
 	function normalizeApiBaseUrl(value) {
 		return String(value || "").trim().replace(/\/+$/, "");
-	}
-
-	function readStoredApiBaseUrl() {
-		try {
-			return normalizeApiBaseUrl(global.localStorage?.getItem(API_BASE_STORAGE_KEY) || "");
-		} catch (error) {
-			return "";
-		}
-	}
-
-	function persistApiBaseUrl(value) {
-		const normalizedValue = normalizeApiBaseUrl(value);
-
-		try {
-			if (!global.localStorage) {
-				return normalizedValue;
-			}
-
-			if (normalizedValue) {
-				global.localStorage.setItem(API_BASE_STORAGE_KEY, normalizedValue);
-			} else {
-				global.localStorage.removeItem(API_BASE_STORAGE_KEY);
-			}
-		} catch (error) {
-			return normalizedValue;
-		}
-
-		return normalizedValue;
 	}
 
 	function readApiBaseOverride() {
@@ -41,14 +13,8 @@
 			: null;
 		const metaValue = metaTag ? normalizeApiBaseUrl(metaTag.getAttribute("content") || "") : "";
 		const runtimeValue = normalizeApiBaseUrl(global.BYOSE_API_BASE_URL || "");
-		const storedValue = readStoredApiBaseUrl();
-		const overrideValue = runtimeValue || metaValue || storedValue;
 
-		if (overrideValue && overrideValue !== storedValue) {
-			persistApiBaseUrl(overrideValue);
-		}
-
-		return overrideValue;
+		return runtimeValue || metaValue;
 	}
 
 	function isLocalHost(hostname) {
@@ -59,7 +25,7 @@
 
 	function requiresExternalApiBaseUrl(protocol, hostname) {
 		return (protocol === "http:" || protocol === "https:")
-			&& /(^|\.)github\.io$/i.test(hostname);
+			&& /(^|\.)(github\.io|byosemarket\.com|www\.byosemarket\.com)$/i.test(hostname);
 	}
 
 	function getDefaultApiBaseUrl() {
@@ -68,28 +34,44 @@
 		const port = String(global.location?.port || "").trim();
 
 		if (protocol === "file:") {
-			return "http://localhost:3000/api";
+			return "http://localhost:5000/api";
 		}
 
-		if (isLocalHost(hostname) && port && port !== "3000") {
-			return `${protocol}//${hostname}:3000/api`;
+		if (isLocalHost(hostname) && port && port !== "5000") {
+			return `${protocol}//${hostname}:5000/api`;
 		}
 
 		if (isLocalHost(hostname)) {
-			return `${protocol}//${hostname}${port ? `:${port}` : ":3000"}/api`;
+			return `${protocol}//${hostname}${port ? `:${port}` : ":5000"}/api`;
 		}
 
 		if (requiresExternalApiBaseUrl(protocol, hostname)) {
-			return "";
+			return PRODUCTION_API_BASE_URL;
 		}
 
 		return "/api";
 	}
 
-	const apiBaseOverride = readApiBaseOverride();
-	const apiBaseUrl = apiBaseOverride || getDefaultApiBaseUrl();
 	const protocol = String(global.location?.protocol || "").toLowerCase();
 	const hostname = String(global.location?.hostname || "").trim();
+	const apiConfigState = {
+		apiBaseUrl: "",
+		adminApiBaseUrl: "",
+		apiBaseConfigured: false,
+		requiresExternalApiBaseUrl: false
+	};
+
+	function syncApiBaseConfig(overrideValue) {
+		const normalizedOverride = normalizeApiBaseUrl(overrideValue);
+		const resolvedApiBaseUrl = normalizedOverride || getDefaultApiBaseUrl();
+
+		apiConfigState.apiBaseUrl = resolvedApiBaseUrl;
+		apiConfigState.adminApiBaseUrl = resolvedApiBaseUrl ? `${resolvedApiBaseUrl.replace(/\/+$/, "")}/admin` : "";
+		apiConfigState.apiBaseConfigured = Boolean(resolvedApiBaseUrl);
+		apiConfigState.requiresExternalApiBaseUrl = !normalizedOverride && requiresExternalApiBaseUrl(protocol, hostname);
+	}
+
+	syncApiBaseConfig(readApiBaseOverride());
 
 	function getSiteRootPrefix() {
 		const path = String(global.location?.pathname || "");
@@ -100,16 +82,27 @@
 	}
 
 	global.AdminConfig = {
-		apiBaseUrl,
-		adminApiBaseUrl: apiBaseUrl ? `${apiBaseUrl.replace(/\/+$/, "")}/admin` : "",
-		apiBaseConfigured: Boolean(apiBaseUrl),
-		requiresExternalApiBaseUrl: !apiBaseOverride && requiresExternalApiBaseUrl(protocol, hostname),
+		get apiBaseUrl() {
+			return apiConfigState.apiBaseUrl;
+		},
+		get adminApiBaseUrl() {
+			return apiConfigState.adminApiBaseUrl;
+		},
+		get apiBaseConfigured() {
+			return apiConfigState.apiBaseConfigured;
+		},
+		get requiresExternalApiBaseUrl() {
+			return apiConfigState.requiresExternalApiBaseUrl;
+		},
 		setApiBaseUrl(value) {
-			return persistApiBaseUrl(value);
+			const normalizedValue = normalizeApiBaseUrl(value);
+			syncApiBaseConfig(normalizedValue);
+			return apiConfigState.apiBaseUrl;
 		},
 		clearApiBaseUrl() {
-			persistApiBaseUrl("");
+			syncApiBaseConfig("");
 		},
+		productionApiBaseUrl: PRODUCTION_API_BASE_URL,
 		siteRootPrefix: getSiteRootPrefix(),
 		storageKeys: {
 			orders: ["byose_orders", "orders"],

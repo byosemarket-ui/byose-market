@@ -2,10 +2,10 @@
 	"use strict";
 
 	async function request(path, options) {
-		const authToken = global.AdminAuthService && typeof global.AdminAuthService.getToken === "function"
-			? global.AdminAuthService.getToken()
-			: "";
 		const baseUrl = String(global.AdminConfig?.apiBaseUrl || "").replace(/\/$/, "");
+		const authToken = global.AdminAuthService && typeof global.AdminAuthService.getToken === "function"
+			? String(global.AdminAuthService.getToken() || "").trim()
+			: "";
 		const url = /^https?:/i.test(String(path || "")) || String(path || "").startsWith("/")
 			? path
 			: `${baseUrl}/${String(path || "").replace(/^\/+/, "")}`;
@@ -26,7 +26,7 @@
 
 		if (!response.ok) {
 			if (response.status === 401 && global.AdminAuthService && typeof global.AdminAuthService.logout === "function") {
-				global.AdminAuthService.logout({ redirect: true });
+				global.AdminAuthService.logout();
 			}
 			throw new Error((payload && payload.message) || `Request failed with status ${response.status}`);
 		}
