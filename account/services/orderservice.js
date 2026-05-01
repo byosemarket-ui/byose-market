@@ -1,10 +1,47 @@
 (function (global) {
   'use strict';
 
-  const ORDER_API = '/api/orders';
+  const PRODUCTION_API_ORIGIN = 'https://byosemarket-admin-api.onrender.com';
   const ORDER_KEYS = ['byose_orders', 'orders'];
   const USER_KEYS = ['bm_current_user', 'bm_user', 'byose_market_user', 'user'];
   const CHANGE_EVENTS = ['storage', 'byose:orders-changed', 'byose:admin-orders-changed'];
+
+  function normalizeBase(value) {
+    return String(value || '').trim().replace(/\/+$/, '');
+  }
+
+  function isLocalHost(hostname) {
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
+  }
+
+  function shouldUseProductionApi(hostname) {
+    return /(^|\.)(github\.io|byosemarket\.com)$/i.test(String(hostname || ''));
+  }
+
+  function resolveApiOrigin() {
+    const explicit = normalizeBase(global.BYOSE_API_BASE_URL || global.__BYOSE_API_BASE__ || '');
+    if (explicit) {
+      return explicit;
+    }
+
+    const protocol = String(global.location?.protocol || '').toLowerCase();
+    const hostname = String(global.location?.hostname || '').trim();
+
+    if (protocol === 'file:' || isLocalHost(hostname)) {
+      return `http://${hostname || 'localhost'}:5000`;
+    }
+
+    if (shouldUseProductionApi(hostname)) {
+      return PRODUCTION_API_ORIGIN;
+    }
+
+    return normalizeBase(global.location?.origin || '');
+  }
+
+  function getOrdersApiUrl() {
+    const base = resolveApiOrigin();
+    return `${base}/api/orders`;
+  }
 
   function safeParse(value, fallbackValue) {
     try {
@@ -288,13 +325,14 @@
   }
 
   async function fetchApiOrders() {
+    const orderApi = getOrdersApiUrl();
     const token = getAuthToken();
-    if (!ORDER_API || !token) {
+    if (!orderApi || !token) {
       return [];
     }
 
     try {
-      const response = await fetch(ORDER_API, {
+      const response = await fetch(orderApi, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${token}`

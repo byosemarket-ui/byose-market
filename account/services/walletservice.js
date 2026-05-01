@@ -5,7 +5,41 @@
 // ===============================
 // 📦 BASE API URL
 // ===============================
-const WALLET_API = window.__BYOSE_WALLET_API__ || "";
+const PRODUCTION_API_ORIGIN = "https://byosemarket-admin-api.onrender.com";
+
+function normalizeBase(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function isLocalHost(hostname) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0";
+}
+
+function shouldUseProductionApi(hostname) {
+  return /(^|\.)(github\.io|byosemarket\.com)$/i.test(String(hostname || ""));
+}
+
+function resolveApiOrigin() {
+  const explicit = normalizeBase(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || "");
+  if (explicit) {
+    return explicit;
+  }
+
+  const protocol = String(window.location?.protocol || "").toLowerCase();
+  const hostname = String(window.location?.hostname || "").trim();
+
+  if (protocol === "file:" || isLocalHost(hostname)) {
+    return `http://${hostname || "localhost"}:5000`;
+  }
+
+  if (shouldUseProductionApi(hostname)) {
+    return PRODUCTION_API_ORIGIN;
+  }
+
+  return normalizeBase(window.location?.origin || "");
+}
+
+const WALLET_API = window.__BYOSE_WALLET_API__ || `${resolveApiOrigin()}/api/wallet`;
 
 // ===============================
 // 💰 GET BALANCE

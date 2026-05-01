@@ -35,7 +35,7 @@
 		const message = error && error.message ? String(error.message) : "";
 
 		if (!message || message === "Failed to fetch") {
-			return "Unable to reach the admin server. Make sure the backend is running on port 5000.";
+			return "Unable to reach the admin server. Check that the backend is running and publicly accessible.";
 		}
 
 		if (/invalid.*credential|invalid.*email|invalid.*password/i.test(message)) {

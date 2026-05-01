@@ -17,13 +17,35 @@ function getCorsOptions() {
         .map((o) => o.trim())
         .filter(Boolean);
 
+    function matchesConfiguredOrigin(configuredOrigin, requestOrigin) {
+        const expected = String(configuredOrigin || '').trim();
+        const incoming = String(requestOrigin || '').trim();
+
+        if (!expected || !incoming) {
+            return false;
+        }
+
+        if (expected === '*') {
+            return true;
+        }
+
+        if (expected.includes('*')) {
+            const escaped = expected
+                .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+                .replace(/\*/g, '.*');
+            return new RegExp(`^${escaped}$`, 'i').test(incoming);
+        }
+
+        return incoming.toLowerCase() === expected.toLowerCase();
+    }
+
     if (!configuredOrigins.length) {
         return { origin: true, credentials: false };
     }
 
     return {
         origin(origin, callback) {
-            if (!origin || configuredOrigins.includes(origin)) {
+            if (!origin || configuredOrigins.some((configuredOrigin) => matchesConfiguredOrigin(configuredOrigin, origin))) {
                 return callback(null, true);
             }
             return callback(new Error('Origin not allowed by CORS'));
