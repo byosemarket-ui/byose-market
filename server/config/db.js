@@ -6,10 +6,10 @@ async function connectDB() {
     try {
         await mongoose.connect(MONGO_URI);
         console.log('MongoDB connected:', MONGO_URI);
+        return true;
     } catch (err) {
         console.error('MongoDB connection error:', err);
-        // Exit process if DB is required
-        process.exit(1);
+        throw err;
     }
 }
 

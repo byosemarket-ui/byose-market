@@ -9,6 +9,7 @@ const adminRoutes = require('./routes/adminRoutes');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
+const HOST = String(process.env.HOST || '0.0.0.0').trim() || '0.0.0.0';
 
 // CORS: allow all origins in development; restrict when CORS_ORIGINS is set
 function getCorsOptions() {
@@ -61,13 +62,18 @@ app.get('/', (_req, res) => {
     res.json({ status: 'ok', message: 'Byose Market Admin API is running' });
 });
 
+app.get('/healthz', (_req, res) => {
+    res.json({ status: 'ok' });
+});
+
 app.use('/api/admin', adminRoutes);
 
 // Start the HTTP server immediately — no database required for admin login
 if (require.main === module) {
-    app.listen(PORT, () => {
-        console.log(`Admin API server running on http://localhost:${PORT}`);
-        console.log(`Login endpoint: POST http://localhost:${PORT}/api/admin/login`);
+    app.listen(PORT, HOST, () => {
+        console.log(`Admin API server running on http://${HOST}:${PORT}`);
+        console.log(`Health endpoint: http://${HOST}:${PORT}/healthz`);
+        console.log(`Login endpoint: POST http://${HOST}:${PORT}/api/admin/login`);
     });
 }
 

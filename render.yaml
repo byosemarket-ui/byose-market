@@ -4,7 +4,8 @@ services:
     runtime: node
     rootDir: .
     buildCommand: npm install
-    startCommand: npm start
+    startCommand: node server/server.js
+    healthCheckPath: /healthz
     plan: free
     autoDeploy: true
     envVars:

@@ -34,7 +34,7 @@
 	function humanizeError(error) {
 		const message = error && error.message ? String(error.message) : "";
 
-		if (!message || message === "Failed to fetch") {
+		if (!message || /failed to fetch|networkerror|load failed|network request failed|cors|origin not allowed/i.test(message)) {
 			return "Unable to reach the admin server. Check that the backend is running and publicly accessible.";
 		}
 

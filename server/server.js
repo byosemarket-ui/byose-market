@@ -15,12 +15,24 @@ const orderRoutes = require('./routes/orders');
 
 const app = express();
 const projectRoot = path.resolve(__dirname, '..');
+const PORT = Number(process.env.PORT) || 5000;
+const HOST = String(process.env.HOST || '0.0.0.0').trim() || '0.0.0.0';
+
+app.locals.dbConnected = false;
 
 function getCorsOptions() {
-    const configuredOrigins = String(process.env.CORS_ORIGINS || '')
+    const envOrigins = String(process.env.CORS_ORIGINS || '')
         .split(',')
         .map((origin) => origin.trim())
         .filter(Boolean);
+    const fallbackProductionOrigins = [
+        'https://byosemarket.com',
+        'https://www.byosemarket.com',
+        'https://*.github.io'
+    ];
+    const configuredOrigins = envOrigins.length
+        ? envOrigins
+        : (process.env.NODE_ENV === 'production' ? fallbackProductionOrigins : []);
 
     function matchesConfiguredOrigin(configuredOrigin, requestOrigin) {
         const expected = String(configuredOrigin || '').trim();
@@ -45,7 +57,12 @@ function getCorsOptions() {
     }
 
     if (!configuredOrigins.length) {
-        return {};
+        return {
+            origin: true,
+            methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+            allowedHeaders: ['Content-Type', 'Authorization'],
+            credentials: false
+        };
     }
 
     return {
@@ -55,7 +72,10 @@ function getCorsOptions() {
             }
 
             return callback(new Error('Origin not allowed by CORS'));
-        }
+        },
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization'],
+        credentials: false
     };
 }
 
@@ -75,18 +95,36 @@ app.use(express.static(projectRoot));
 
 // TEST
 app.get('/', (req, res) => {
-    res.send('API Running...');
+    res.json({
+        status: 'ok',
+        message: 'Byose Market API is running',
+        dbConnected: Boolean(app.locals.dbConnected)
+    });
+});
+
+app.get('/healthz', (_req, res) => {
+    const isHealthy = Boolean(app.locals.dbConnected);
+    return res.status(isHealthy ? 200 : 503).json({
+        status: isHealthy ? 'ok' : 'degraded',
+        dbConnected: isHealthy
+    });
 });
 
 // START SERVER
-const PORT = process.env.PORT || 5000;
-
 async function startServer() {
-    await connectDB();
-
-    app.listen(PORT, () => {
-        console.log(`Server running on http://localhost:${PORT}`);
+    app.listen(PORT, HOST, () => {
+        console.log(`Server running on http://${HOST}:${PORT}`);
+        console.log(`Health endpoint: http://${HOST}:${PORT}/healthz`);
+        console.log(`Admin login endpoint: POST http://${HOST}:${PORT}/api/admin/login`);
     });
+
+    try {
+        await connectDB();
+        app.locals.dbConnected = true;
+    } catch (error) {
+        app.locals.dbConnected = false;
+        console.error('Server started without MongoDB connectivity. DB-backed routes may fail until MongoDB is reachable.');
+    }
 }
 
 startServer().catch((error) => {

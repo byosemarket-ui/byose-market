@@ -137,6 +137,9 @@
 
 	async function login(credentials) {
 		const adminApiBaseUrl = String(global.AdminConfig?.adminApiBaseUrl || "").replace(/\/+$/, "");
+		if (!adminApiBaseUrl) {
+			throw new Error("Admin API base URL is not configured.");
+		}
 		const response = await global.fetch(`${adminApiBaseUrl}/login`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
