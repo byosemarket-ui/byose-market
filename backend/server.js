@@ -11,11 +11,11 @@ const HOST = '0.0.0.0';
 const fallbackProductionOrigins = [
     'https://byosemarket.com',
     'https://www.byosemarket.com',
-    'https://kwize250.github.io',
-    'https://*.github.io'
+    
+    'https://github.com/kwizeraevode266-star.github.io'
 ];
 
-// CORS: allow all origins in development; restrict when CORS_ORIGINS is set
+// CORS: allow local development plus explicit production frontends.
 function getCorsOptions() {
     const envOrigins = String(process.env.CORS_ORIGINS || '')
         .split(',')
@@ -25,8 +25,9 @@ function getCorsOptions() {
         ? envOrigins
         : (process.env.NODE_ENV === 'production' ? fallbackProductionOrigins : []);
 
-    // Always allow localhost and 127.0.0.1 in development
+    // Always allow local dev and the active GitHub Pages frontend.
     const alwaysAllowed = [
+        'https://github.com/kwizeraevode266-star.github.io',
         'http://localhost:5500',
         'http://127.0.0.1:5500',
         'http://localhost:3000',

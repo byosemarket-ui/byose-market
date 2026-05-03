@@ -1,5 +1,5 @@
 const LOCAL_BASE_URL = "http://localhost:5000";
-const PRODUCTION_BASE_URL = "https://byosemarket-backend.onrender.com";
+const PRODUCTION_BASE_URL = "https://byosemarket-api.onrender.com";
 const LOCAL_FALLBACK_BASE_URL = "http://127.0.0.1:5000";
 
 function isLocalEnvironment() {
@@ -98,7 +98,7 @@ form.addEventListener("submit", async (e) => {
     }
     else if (res.status === 404) {
       showMessage("Login service is not available right now. Please try again shortly.", "error");
-      console.error("Admin login endpoint not found:", API_URL, data);
+      console.error("Admin login endpoint not found.", data);
       setFormLoading(false);
     }
     else if (res.status === 403) {
