@@ -8,13 +8,22 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
 const HOST = '0.0.0.0';
+const fallbackProductionOrigins = [
+    'https://byosemarket.com',
+    'https://www.byosemarket.com',
+    'https://kwize250.github.io',
+    'https://*.github.io'
+];
 
 // CORS: allow all origins in development; restrict when CORS_ORIGINS is set
 function getCorsOptions() {
-    const configuredOrigins = String(process.env.CORS_ORIGINS || '')
+    const envOrigins = String(process.env.CORS_ORIGINS || '')
         .split(',')
         .map((o) => o.trim())
         .filter(Boolean);
+    const configuredOrigins = envOrigins.length
+        ? envOrigins
+        : (process.env.NODE_ENV === 'production' ? fallbackProductionOrigins : []);
 
     // Always allow localhost and 127.0.0.1 in development
     const alwaysAllowed = [
@@ -85,7 +94,7 @@ app.get('/', (_req, res) => {
 });
 
 app.get('/healthz', (_req, res) => {
-    res.json({ status: 'ok' });
+    res.status(200).json({ status: 'ok' });
 });
 
 // 🔐 Mount admin routes

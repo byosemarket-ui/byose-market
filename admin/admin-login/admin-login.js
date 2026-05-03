@@ -1,13 +1,18 @@
 const LOCAL_BASE_URL = "http://localhost:5000";
 const PRODUCTION_BASE_URL = "https://byosemarket-backend.onrender.com";
+const LOCAL_FALLBACK_BASE_URL = "http://127.0.0.1:5000";
 
 function isLocalEnvironment() {
-  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+  return (
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1" ||
+    window.location.protocol === "file:"
+  );
 }
 
 const BASE_URL = isLocalEnvironment() ? LOCAL_BASE_URL : PRODUCTION_BASE_URL;
 const API_URL = `${BASE_URL}/api/admin/login`;
-const FALLBACK_LOCAL_API_URL = "http://127.0.0.1:5000/api/admin/login";
+const FALLBACK_LOCAL_API_URL = `${LOCAL_FALLBACK_BASE_URL}/api/admin/login`;
 
 // 🎯 Get DOM elements
 const form = document.getElementById("loginForm");
@@ -91,6 +96,15 @@ form.addEventListener("submit", async (e) => {
       console.error("Server error:", data);
       setFormLoading(false);
     }
+    else if (res.status === 404) {
+      showMessage("Login service is not available right now. Please try again shortly.", "error");
+      console.error("Admin login endpoint not found:", API_URL, data);
+      setFormLoading(false);
+    }
+    else if (res.status === 403) {
+      showMessage(data.message || "This origin is not allowed by the server.", "error");
+      setFormLoading(false);
+    }
     // ❌ OTHER ERROR
     else {
       showMessage(data.message || "An unexpected error occurred", "error");
@@ -98,12 +112,10 @@ form.addEventListener("submit", async (e) => {
     }
 
   } catch (error) {
-    // The fetch failed completely (backend unreachable / network blocked).
-    const unreachableMessage = isLocalEnvironment()
-      ? "Cannot reach server. Please make sure backend is running on port 5000."
-      : "Cannot reach server. Please try again in a moment.";
+    const unreachableMessage = getNetworkErrorMessage(error);
 
     showMessage(unreachableMessage, "error");
+    console.error("Admin login request failed:", error);
     setFormLoading(false);
   }
 });
@@ -135,6 +147,20 @@ async function parseJsonSafe(response) {
   } catch (_error) {
     return {};
   }
+}
+
+function getNetworkErrorMessage(error) {
+  const detail = String(error && error.message ? error.message : "").toLowerCase();
+
+  if (isLocalEnvironment()) {
+    return "Cannot reach server. Please make sure backend is running on port 5000.";
+  }
+
+  if (detail.includes("failed to fetch") || detail.includes("networkerror") || detail.includes("load failed")) {
+    return "Cannot reach server. Please try again in a moment.";
+  }
+
+  return "Login could not be completed right now. Please try again in a moment.";
 }
 
 // 🔒 Form loading state manager
