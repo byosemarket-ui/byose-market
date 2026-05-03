@@ -1,18 +1,9 @@
-const LOCAL_BASE_URL = "http://localhost:5000";
-const PRODUCTION_BASE_URL = "https://byosemarket-api.onrender.com";
-const LOCAL_FALLBACK_BASE_URL = "http://127.0.0.1:5000";
+const BASE_URL =
+window.location.hostname === "localhost"
+? "http://localhost:5000"
+: "https://byosemarket-api.onrender.com";
 
-function isLocalEnvironment() {
-  return (
-    window.location.hostname === "localhost" ||
-    window.location.hostname === "127.0.0.1" ||
-    window.location.protocol === "file:"
-  );
-}
-
-const BASE_URL = isLocalEnvironment() ? LOCAL_BASE_URL : PRODUCTION_BASE_URL;
 const API_URL = `${BASE_URL}/api/admin/login`;
-const FALLBACK_LOCAL_API_URL = `${LOCAL_FALLBACK_BASE_URL}/api/admin/login`;
 
 // 🎯 Get DOM elements
 const form = document.getElementById("loginForm");
@@ -61,8 +52,13 @@ form.addEventListener("submit", async (e) => {
   setFormLoading(true);
 
   try {
-    const payload = { email, password };
-    const res = await requestLogin(payload);
+    const res = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ email, password })
+    });
     const data = await parseJsonSafe(res);
 
     // ✔ SUCCESS (200)
@@ -120,27 +116,6 @@ form.addEventListener("submit", async (e) => {
   }
 });
 
-async function requestLogin(payload) {
-  const requestOptions = {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  };
-
-  try {
-    return await fetch(API_URL, requestOptions);
-  } catch (primaryError) {
-    const isLocal = isLocalEnvironment();
-    if (!isLocal || API_URL === FALLBACK_LOCAL_API_URL) {
-      throw primaryError;
-    }
-
-    return fetch(FALLBACK_LOCAL_API_URL, requestOptions);
-  }
-}
-
 async function parseJsonSafe(response) {
   try {
     return await response.json();
@@ -152,7 +127,7 @@ async function parseJsonSafe(response) {
 function getNetworkErrorMessage(error) {
   const detail = String(error && error.message ? error.message : "").toLowerCase();
 
-  if (isLocalEnvironment()) {
+  if (window.location.hostname === "localhost") {
     return "Cannot reach server. Please make sure backend is running on port 5000.";
   }
 
