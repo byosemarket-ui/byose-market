@@ -1,9 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Message Details | Byose Market Admin</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="../admin-login/js/admin-security.js"></script>
+<title>Message Details | Byose Market Admin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -13,7 +14,8 @@
   <link rel="stylesheet" href="../css/pages/modules.css">
 </head>
 <body class="admin-dashboard-page">
-  <div class="dashboard-shell"><div class="dashboard-orb dashboard-orb-primary" aria-hidden="true"></div><div class="dashboard-orb dashboard-orb-secondary" aria-hidden="true"></div><div class="admin-app-shell"><div class="admin-sidebar-backdrop" data-sidebar-backdrop hidden></div><aside class="admin-sidebar" id="adminSidebar" aria-label="Admin navigation" data-sidebar-root></aside><div class="admin-main-shell"><header class="admin-topbar dashboard-panel"><div class="admin-topbar-leading"><button class="sidebar-toggle-button" type="button" aria-label="Open navigation" aria-controls="adminSidebar" aria-expanded="false" data-sidebar-toggle><span></span><span></span><span></span></button><div><p class="dashboard-eyebrow">Admin Messages</p><h1 class="admin-topbar-title">Message Details</h1></div></div><div class="admin-topbar-meta"><span class="admin-status-dot"></span><span>Inspect and resolve a captured message</span></div></header><main class="dashboard-grid module-dashboard-grid"><section class="dashboard-panel module-detail-card" id="messageDetailCard"></section><section class="dashboard-panel module-form-card"><div class="module-panel-heading"><div><p class="dashboard-eyebrow">Actions</p><h2>Update Message</h2></div><a class="module-link-button" href="index.html">Back to inbox</a></div><form class="module-form-grid"><label><span>Status</span><select id="messageStatusSelect"></select></label></form><div class="module-actions-inline"><button class="module-secondary-button" id="messageDeleteButton" type="button">Delete Message</button></div><p id="messageDetailFeedback" class="module-feedback"></p></section></main></div></div></div></div>
+  <div class="dashboard-shell"><div class="dashboard-orb dashboard-orb-primary" aria-hidden="true"></div><div class="dashboard-orb dashboard-orb-secondary" aria-hidden="true"></div><div class="admin-app-shell"><div class="admin-sidebar-backdrop" data-sidebar-backdrop hidden></div><aside class="admin-sidebar" id="adminSidebar" aria-label="Admin navigation" data-sidebar-root></aside><div class="admin-main-shell">
+<div class="admin-topbar-leading"><button class="sidebar-toggle-button" type="button" aria-label="Open navigation" aria-controls="adminSidebar" aria-expanded="false" data-sidebar-toggle><span></span><span></span><span></span></button><div><p class="dashboard-eyebrow">Admin Messages</p><h1 class="admin-topbar-title">Message Details</h1></div></div><div class="admin-topbar-meta"><span class="admin-status-dot"></span><span>Inspect and resolve a captured message</span></div></header><main class="dashboard-grid module-dashboard-grid"><section class="dashboard-panel module-detail-card" id="messageDetailCard"></section><section class="dashboard-panel module-form-card"><div class="module-panel-heading"><div><p class="dashboard-eyebrow">Actions</p><h2>Update Message</h2></div><a class="module-link-button" href="index.html">Back to inbox</a></div><form class="module-form-grid"><label><span>Status</span><select id="messageStatusSelect"></select></label></form><div class="module-actions-inline"><button class="module-secondary-button" id="messageDeleteButton" type="button">Delete Message</button></div><p id="messageDetailFeedback" class="module-feedback"></p></section></main></div></div></div></div>
   <script src="../js/core/config.js"></script>
   <script src="../js/core/api-client.js"></script>
   <script src="../js/services/messages.service.js"></script>
@@ -21,3 +23,9 @@
   <script src="../js/pages/message-details.page.js"></script>
 </body>
 </html>
+
+
+
+
+
+

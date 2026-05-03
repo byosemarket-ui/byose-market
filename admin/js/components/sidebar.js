@@ -10,7 +10,8 @@
 		media: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5v-11Z" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="9" cy="9" r="1.6" fill="currentColor"/><path d="m6.5 17 4.2-4.2 2.8 2.8 2-2 2.5 3.4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"/></svg>',
 		homepage: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"/><path d="M6 10.5v8.5h12v-8.5" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="1.7"/><path d="M10 19v-5h4v5" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="1.7"/></svg>',
 		settings: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m4 13.2 1.4.8.2 1.6-1 1.3 1.8 3 1.6-.3 1.2 1 1.7-.3.8 1.5h3.6l.8-1.5 1.7.3 1.2-1 1.6.3 1.8-3-1-1.3.2-1.6 1.4-.8v-2.4l-1.4-.8-.2-1.6 1-1.3-1.8-3-1.6.3-1.2-1-1.7.3-.8-1.5h-3.6l-.8 1.5-1.7-.3-1.2 1-1.6-.3-1.8 3 1 1.3-.2 1.6-1.4.8v2.4Z" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="1.4"/></svg>',
-		auth: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 8V6.5A3.5 3.5 0 0 0 11.5 3 3.5 3.5 0 0 0 8 6.5V8" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.7"/><rect x="5" y="8" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 13v2.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.7"/></svg>'
+		auth: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 8V6.5A3.5 3.5 0 0 0 11.5 3 3.5 3.5 0 0 0 8 6.5V8" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.7"/><rect x="5" y="8" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 13v2.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.7"/></svg>',
+		logout: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17H7a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"/><path d="m14 8 5 4-5 4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"/><path d="M19 12H9" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.7"/></svg>'
 	};
 
 	const navigation = [
@@ -266,6 +267,10 @@
 			</nav>
 			<div class="admin-sidebar-footer">
 				<span class="admin-sidebar-footer-label">Byose Market Admin</span>
+				<button class="admin-sidebar-logout" type="button" data-admin-logout>
+					<span class="admin-sidebar-logout-icon" aria-hidden="true">${icon.logout}</span>
+					<span>Logout</span>
+				</button>
 			</div>
 		`;
 	}
@@ -384,7 +389,12 @@
 		}
 
 		root.querySelectorAll('a').forEach((link) => {
-			link.addEventListener('click', () => {
+			link.addEventListener('click', (event) => {
+				if (window.AdminSecurity && !window.AdminSecurity.requireAuth()) {
+					event.preventDefault();
+					return;
+				}
+
 				if (!desktopQuery.matches) {
 					closeSidebar();
 				}

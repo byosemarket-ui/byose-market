@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Login | Byose Market</title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="admin-login.css">
+</head>
+
+<body>
+
+  <main class="login">
+    
+    <!-- Login Card -->
+    <section class="login__card">
+
+      <!-- Title -->
+      <header class="login__header">
+        <h1 class="login__title">Admin Login</h1>
+        <p class="login__subtitle">Sign in to manage your store</p>
+      </header>
+
+      <!-- Form -->
+      <form id="loginForm" class="login__form">
+
+        <!-- Email -->
+        <div class="form__group">
+          <label for="email">Email</label>
+          <input 
+            type="email" 
+            id="email" 
+            name="email" 
+            placeholder="Enter your email"
+            required
+            autocomplete="email"
+          >
+        </div>
+
+        <!-- Password -->
+        <div class="form__group">
+          <label for="password">Password</label>
+          <input 
+            type="password" 
+            id="password" 
+            name="password" 
+            placeholder="Enter your password"
+            required
+            autocomplete="current-password"
+          >
+        </div>
+
+        <!-- Button -->
+        <button type="submit" class="btn btn--primary" aria-busy="false">
+          <span class="btn-text">Login</span>
+          <span class="btn-loader" style="display: none;">
+            <span class="spinner"></span>
+          </span>
+        </button>
+
+      </form>
+
+      <!-- Message -->
+      <div class="form__message-container">
+        <p id="message" class="form__message" role="alert" aria-live="polite"></p>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- JS -->
+  <script src="admin-login.js"></script>
+
+</body>
+</html>

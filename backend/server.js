@@ -16,6 +16,16 @@ function getCorsOptions() {
         .map((o) => o.trim())
         .filter(Boolean);
 
+    // Always allow localhost and 127.0.0.1 in development
+    const alwaysAllowed = [
+        'http://localhost:5500',
+        'http://127.0.0.1:5500',
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'http://localhost:5000',
+        'http://127.0.0.1:5000'
+    ];
+
     function matchesConfiguredOrigin(configuredOrigin, requestOrigin) {
         const expected = String(configuredOrigin || '').trim();
         const incoming = String(requestOrigin || '').trim();
@@ -38,18 +48,32 @@ function getCorsOptions() {
         return incoming.toLowerCase() === expected.toLowerCase();
     }
 
-    if (!configuredOrigins.length) {
-        return { origin: true, credentials: false };
-    }
-
     return {
         origin(origin, callback) {
-            if (!origin || configuredOrigins.some((configuredOrigin) => matchesConfiguredOrigin(configuredOrigin, origin))) {
+            // Allow requests with no origin (e.g., Postman, curl, or mobile apps)
+            if (!origin) {
+                console.log('✔ CORS: No origin header (allowed for Postman/curl)');
                 return callback(null, true);
             }
+
+            // Check if origin is in always-allowed list
+            if (alwaysAllowed.some(allowed => allowed.toLowerCase() === origin.toLowerCase())) {
+                return callback(null, true);
+            }
+
+            // Check if origin matches configured origins
+            if (configuredOrigins.length > 0) {
+                if (configuredOrigins.some((configuredOrigin) => matchesConfiguredOrigin(configuredOrigin, origin))) {
+                    return callback(null, true);
+                }
+            }
+
+            console.warn(`⚠ CORS rejected origin: ${origin}`);
             return callback(new Error('Origin not allowed by CORS'));
         },
-        credentials: false
+        credentials: false,
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization']
     };
 }
 
@@ -64,11 +88,21 @@ app.get('/healthz', (_req, res) => {
     res.json({ status: 'ok' });
 });
 
+// 🔐 Mount admin routes
+try {
+    const adminRoutes = require('../admin/admin-login/admin.routes');
+    app.use('/api/admin', adminRoutes);
+    console.log('✔ Admin routes mounted at /api/admin');
+} catch (error) {
+    console.error('❌ CRITICAL: Admin routes not available:', error.message);
+    console.error('Stack:', error.stack);
+}
+
 // Start the HTTP server
 if (require.main === module) {
     app.listen(PORT, HOST, () => {
-        console.log(`Admin API server running on http://${HOST}:${PORT}`);
-        console.log(`Health endpoint: http://${HOST}:${PORT}/healthz`);
+        console.log(`🚀 Server running on http://${HOST}:${PORT}`);
+        console.log(`📊 Health check: http://${HOST}:${PORT}/healthz`);
     });
 }
 
