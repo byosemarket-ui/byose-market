@@ -10,6 +10,10 @@ const MAX_LOGIN_ATTEMPTS = 5;
 let inMemoryAdmin = null;
 const loginAttempts = new Map();
 
+// Cache for hashing plaintext ADMIN_PASSWORD once at runtime
+let _cachedPlainPassword = null;
+let _cachedPasswordHash = null;
+
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
@@ -22,10 +26,39 @@ function looksLikeBcryptHash(value) {
   return /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(String(value || ""));
 }
 
+/**
+ * Resolve admin password hash from env.
+ * Prefers ADMIN_PASSWORD_HASH (bcrypt). Falls back to ADMIN_PASSWORD (plaintext),
+ * which is hashed with bcrypt once and cached for the process lifetime.
+ */
+function resolvePasswordHash() {
+  const stored = String(process.env.ADMIN_PASSWORD_HASH || "").trim();
+  if (looksLikeBcryptHash(stored)) return stored;
+
+  const plain = String(process.env.ADMIN_PASSWORD || "").trim();
+  if (!plain) return "";
+
+  if (_cachedPlainPassword !== plain || !_cachedPasswordHash) {
+    _cachedPasswordHash = bcrypt.hashSync(plain, 10);
+    _cachedPlainPassword = plain;
+    console.log("[ADMIN] Password hash computed from ADMIN_PASSWORD env var");
+  }
+  return _cachedPasswordHash;
+}
+
 function getAdminConfig() {
   const adminEmail = normalizeEmail(process.env.ADMIN_EMAIL);
-  const adminPasswordHash = String(process.env.ADMIN_PASSWORD_HASH || "").trim();
-  const jwtSecret = String(process.env.JWT_SECRET || "").trim();
+  const adminPasswordHash = resolvePasswordHash();
+  const jwtSecret = String(
+    process.env.JWT_SECRET || "byose_market_default_jwt_secret_change_me_in_production"
+  ).trim();
+
+  if (!process.env.JWT_SECRET) {
+    console.warn("[ADMIN] WARNING: JWT_SECRET env var is not set. Using fallback. Set JWT_SECRET in Render dashboard for production security.");
+  }
+  if (!process.env.ADMIN_PASSWORD_HASH && process.env.ADMIN_PASSWORD) {
+    console.log("[ADMIN] Using ADMIN_PASSWORD (plaintext) — consider switching to ADMIN_PASSWORD_HASH in production.");
+  }
 
   return {
     adminEmail,

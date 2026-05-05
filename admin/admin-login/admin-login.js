@@ -95,20 +95,20 @@ form.addEventListener("submit", async (e) => {
     } 
     // ❌ SERVER ERROR (500)
     else if (res.status === 500) {
-      showMessage("Server is unavailable. Please try again later.", "error");
+      showMessage(data.message || "Server error. Please try again later.", "error");
       setFormLoading(false);
     }
     else if (res.status === 404) {
-      showMessage("Server is unavailable. Please try again later.", "error");
+      showMessage("Login endpoint not found. Contact support.", "error");
       setFormLoading(false);
     }
     else if (res.status === 403) {
-      showMessage("Server is unavailable. Please try again later.", "error");
+      showMessage(data.message || "Access denied.", "error");
       setFormLoading(false);
     }
     // ❌ OTHER ERROR
     else {
-      showMessage(data.message || "Server is unavailable. Please try again later.", "error");
+      showMessage(data.message || "An unexpected error occurred. Please try again.", "error");
       setFormLoading(false);
     }
 
@@ -131,12 +131,13 @@ async function parseJsonSafe(response) {
 
 function getNetworkErrorMessage(error) {
   const detail = String(error && error.message ? error.message : "").toLowerCase();
+  console.error("[AdminLogin] Network/fetch error:", error.message || error);
 
   if (detail.includes("failed to fetch") || detail.includes("networkerror") || detail.includes("load failed")) {
-    return "Server is unavailable. Please try again later.";
+    return "Unable to connect to server. Check your internet connection and try again.";
   }
 
-  return "Server is unavailable. Please try again later.";
+  return "Connection error. Please try again.";
 }
 
 // 🔒 Form loading state manager
