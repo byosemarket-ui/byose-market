@@ -2,10 +2,10 @@
   "name": "byosemarket-backend",
   "version": "1.0.0",
   "description": "Backend ya Byose Market (byosemarket.com)",
-  "main": "server/server.js",
+  "main": "backend/server.js",
   "scripts": {
-    "start": "node server/server.js",
-    "dev": "nodemon server/server.js",
+    "start": "node backend/server.js",
+    "dev": "nodemon backend/server.js",
     "backend:start": "node backend/server.js",
     "backend:dev": "nodemon backend/server.js"
   },

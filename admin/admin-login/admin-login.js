@@ -1,9 +1,6 @@
-const BASE_URL =
-window.location.hostname === "localhost"
-? "http://localhost:5000"
-: "https://byosemarket-api.onrender.com";
+import API_BASE_URL from "./js/config.js";
 
-const API_URL = `${BASE_URL}/api/admin/login`;
+const API_URL = `${API_BASE_URL}/api/admin/login`;
 
 // 🎯 Get DOM elements
 const form = document.getElementById("loginForm");
@@ -68,7 +65,11 @@ form.addEventListener("submit", async (e) => {
       localStorage.setItem("adminLoginTime", new Date().toISOString());
       localStorage.setItem("adminEmail", email);
 
-      showMessage("✔ Login successful! Redirecting...", "success");
+      if (data.token) {
+        localStorage.setItem("adminToken", data.token);
+      }
+
+      showMessage("Login successful. Redirecting...", "success");
 
       // Redirect to dashboard after 1 second
       setTimeout(() => {
@@ -78,7 +79,7 @@ form.addEventListener("submit", async (e) => {
     } 
     // ❌ WRONG CREDENTIALS (401)
     else if (res.status === 401) {
-      showMessage("Invalid email or password. Please try again.", "error");
+      showMessage("Invalid email or password", "error");
       setFormLoading(false);
     } 
     // ❌ BAD INPUT (400)
@@ -88,22 +89,20 @@ form.addEventListener("submit", async (e) => {
     } 
     // ❌ SERVER ERROR (500)
     else if (res.status === 500) {
-      showMessage(data.message || "Server error. Please try again later.", "error");
-      console.error("Server error:", data);
+      showMessage("Server is unavailable. Please try again later.", "error");
       setFormLoading(false);
     }
     else if (res.status === 404) {
-      showMessage("Login service is not available right now. Please try again shortly.", "error");
-      console.error("Admin login endpoint not found.", data);
+      showMessage("Server is unavailable. Please try again later.", "error");
       setFormLoading(false);
     }
     else if (res.status === 403) {
-      showMessage(data.message || "This origin is not allowed by the server.", "error");
+      showMessage("Server is unavailable. Please try again later.", "error");
       setFormLoading(false);
     }
     // ❌ OTHER ERROR
     else {
-      showMessage(data.message || "An unexpected error occurred", "error");
+      showMessage(data.message || "Server is unavailable. Please try again later.", "error");
       setFormLoading(false);
     }
 
@@ -127,15 +126,11 @@ async function parseJsonSafe(response) {
 function getNetworkErrorMessage(error) {
   const detail = String(error && error.message ? error.message : "").toLowerCase();
 
-  if (window.location.hostname === "localhost") {
-    return "Cannot reach server. Please make sure backend is running on port 5000.";
-  }
-
   if (detail.includes("failed to fetch") || detail.includes("networkerror") || detail.includes("load failed")) {
-    return "Cannot reach server. Please try again in a moment.";
+    return "Server is unavailable. Please try again later.";
   }
 
-  return "Login could not be completed right now. Please try again in a moment.";
+  return "Server is unavailable. Please try again later.";
 }
 
 // 🔒 Form loading state manager

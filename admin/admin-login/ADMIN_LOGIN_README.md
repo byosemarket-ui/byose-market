@@ -7,8 +7,8 @@ This is a professional, secure admin login system for Byose Market. It provides 
 
 ## 🔐 Credentials
 
-**Email:** byosemarket@gmail.com  
-**Password:** byosemarket266
+Admin credentials must be configured only on the backend through environment variables.
+Do not store or document live email/password values in this public admin folder.
 
 ---
 
@@ -24,7 +24,6 @@ admin/admin-login/
 ├── auth.middleware.js         # Input validation
 ├── app.js                     # Express app setup
 ├── server.js                  # Server entry point
-├── .env                       # Environment variables
 └── ADMIN_LOGIN_README.md     # This file
 ```
 
@@ -43,8 +42,8 @@ admin/admin-login/
 2. **Check .env file** (`backend/.env`):
    ```
    PORT=5000
-   ADMIN_EMAIL=byosemarket@gmail.com
-   ADMIN_PASSWORD=byosemarket266
+  ADMIN_EMAIL=<set-on-server>
+  ADMIN_PASSWORD=<set-on-server>
    CORS_ORIGINS=http://localhost:5500,http://127.0.0.1:5500,http://localhost:3000,http://127.0.0.1:3000,https://byosemarket.com,https://www.byosemarket.com
    ```
 
@@ -99,8 +98,8 @@ admin/admin-login/
 **Request:**
 ```json
 {
-  "email": "byosemarket@gmail.com",
-  "password": "byosemarket266"
+  "email": "<admin email>",
+  "password": "<admin password>"
 }
 ```
 
@@ -153,7 +152,7 @@ admin/admin-login/
 # Test the API directly
 curl -X POST http://localhost:5000/api/admin/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"byosemarket@gmail.com","password":"byosemarket266"}'
+  -d '{"email":"<admin email>","password":"<admin password>"}'
 
 # Expected response:
 # {"success":true,"message":"Login successful"}
@@ -193,7 +192,7 @@ curl -X POST http://localhost:5000/api/admin/login \
 ```javascript
 localStorage.setItem("adminAuth", "true");
 localStorage.setItem("adminLoginTime", "2026-05-03T12:34:56.789Z");
-localStorage.setItem("adminEmail", "byosemarket@gmail.com");
+localStorage.setItem("adminEmail", "<submitted admin email>");
 ```
 
 **On Dashboard (authentication check):**
@@ -224,8 +223,8 @@ Set these on your hosting platform:
 
 ```
 PORT=5000
-ADMIN_EMAIL=byosemarket@gmail.com
-ADMIN_PASSWORD=byosemarket266
+ADMIN_EMAIL=<set-on-server>
+ADMIN_PASSWORD=<set-on-server>
 CORS_ORIGINS=http://localhost:5500,http://127.0.0.1:5500,https://byosemarket.com,https://www.byosemarket.com
 ```
 
@@ -252,7 +251,7 @@ const BASE_URL = window.location.hostname === "localhost"
 | **auth.middleware.js** | Middleware: validates email/password format |
 | **app.js** | Express setup: CORS, middleware, error handling |
 | **server.js** | Entry point: loads env, mounts app, starts server |
-| **.env** | Credentials and config (should not be in git) |
+| **backend/.env** | Credentials and config (must stay outside public assets) |
 
 ---
 

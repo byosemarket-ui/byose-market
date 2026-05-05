@@ -17,42 +17,12 @@
 		return runtimeValue || metaValue;
 	}
 
-	function isLocalHost(hostname) {
-		return hostname === "localhost"
-			|| hostname === "127.0.0.1"
-			|| hostname === "0.0.0.0";
-	}
-
 	function requiresExternalApiBaseUrl(protocol, hostname) {
 		return (protocol === "http:" || protocol === "https:")
 			&& /(^|\.)(github\.io|byosemarket\.com|www\.byosemarket\.com)$/i.test(hostname);
 	}
 
 	function getDefaultApiBaseUrl() {
-		const protocol = String(global.location?.protocol || "").toLowerCase();
-		const hostname = String(global.location?.hostname || "").trim();
-		const port = String(global.location?.port || "").trim();
-
-		if (protocol === "file:") {
-			return "http://localhost:5000/api";
-		}
-
-		if (isLocalHost(hostname) && port && port !== "5000") {
-			return `${protocol}//${hostname}:5000/api`;
-		}
-
-		if (isLocalHost(hostname)) {
-			return `${protocol}//${hostname}${port ? `:${port}` : ":5000"}/api`;
-		}
-
-		if (requiresExternalApiBaseUrl(protocol, hostname)) {
-			return PRODUCTION_API_BASE_URL;
-		}
-
-		if (protocol === "http:" || protocol === "https:") {
-			return PRODUCTION_API_BASE_URL;
-		}
-
 		return PRODUCTION_API_BASE_URL;
 	}
 

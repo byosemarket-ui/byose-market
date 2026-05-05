@@ -1,6 +1,6 @@
-// 📦 Load env from this folder explicitly
+// 📦 Load env from the backend configuration
 const path = require("path");
-require("dotenv").config({ path: path.join(__dirname, ".env") });
+require("dotenv").config({ path: path.join(__dirname, "..", "..", "backend", ".env") });
 
 // 📥 Import app
 const app = require("./app");

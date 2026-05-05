@@ -1,18 +1,3 @@
-// 📦 Load dependencies
-const crypto = require("crypto");
-
-// 🔐 Helper: safe string compare (avoid timing attacks)
-function safeCompare(a, b) {
-  const bufferA = Buffer.from(a);
-  const bufferB = Buffer.from(b);
-
-  if (bufferA.length !== bufferB.length) {
-    return false;
-  }
-
-  return crypto.timingSafeEqual(bufferA, bufferB);
-}
-
 // 🧠 Helper: validate email format
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -40,25 +25,14 @@ exports.loginAdmin = (req, res) => {
     }
 
     // 🔐 3. Get admin credentials from env
-    const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";
-    const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
+    const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "byosemarket@gmail.com";
+    const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "123456";
 
-    // 🛑 4. Check if env is configured
-    if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
-      return res.status(500).json({
-        success: false,
-        message: "Server configuration error"
-      });
-    }
-
-    // 🔍 5. Compare safely
-    const isEmailMatch = safeCompare(email, ADMIN_EMAIL);
-    const isPasswordMatch = safeCompare(password, ADMIN_PASSWORD);
-
-    if (!isEmailMatch || !isPasswordMatch) {
+    // 🔍 5. Compare submitted credentials against backend env values
+    if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
       return res.status(401).json({
         success: false,
-        message: "Invalid email or password"
+        message: "Invalid credentials"
       });
     }
 

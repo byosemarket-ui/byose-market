@@ -4,7 +4,7 @@
 
 **Date:** May 3, 2026  
 **System:** Admin Login for Byose Market  
-**Credentials:** byosemarket@gmail.com / byosemarket266
+**Credentials:** Stored on the backend only and intentionally omitted from this public folder.
 
 ---
 
@@ -29,8 +29,8 @@
 - ✅ Responsive design for mobile and desktop
 
 ### 4. Configuration (Synchronized)
-- ✅ `backend/.env` - Credentials match frontend
-- ✅ `admin/admin-login/.env` - Plain password for comparison
+- ✅ `backend/.env` - Backend-only credential source
+- ✅ `admin/admin-login/server.js` - Loads backend environment configuration
 - ✅ CORS properly configured for local and production
 
 ### 5. Security (Implemented)
@@ -59,7 +59,7 @@ curl http://localhost:5000/healthz
 ```bash
 curl -X POST http://localhost:5000/api/admin/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"byosemarket@gmail.com","password":"byosemarket266"}'
+  -d '{"email":"<admin email>","password":"<admin password>"}'
 ```
 ✅ Expected: Status 200, `{"success":true,"message":"Login successful"}`
 
@@ -67,7 +67,7 @@ curl -X POST http://localhost:5000/api/admin/login \
 ```bash
 curl -X POST http://localhost:5000/api/admin/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"byosemarket@gmail.com","password":"wrong"}'
+  -d '{"email":"<admin email>","password":"wrong"}'
 ```
 ✅ Expected: Status 401, `{"success":false,"message":"Invalid email or password"}`
 
@@ -75,7 +75,7 @@ curl -X POST http://localhost:5000/api/admin/login \
 ```bash
 curl -X POST http://localhost:5000/api/admin/login \
   -H "Content-Type: application/json" \
-  -d '{"password":"byosemarket266"}'
+  -d '{"password":"<admin password>"}'
 ```
 ✅ Expected: Status 400, `{"success":false,"message":"Email and password are required"}`
 
@@ -83,13 +83,13 @@ curl -X POST http://localhost:5000/api/admin/login \
 ```bash
 curl -X POST http://localhost:5000/api/admin/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"invalid-email","password":"byosemarket266"}'
+  -d '{"email":"invalid-email","password":"<admin password>"}'
 ```
 ✅ Expected: Status 400, `{"success":false,"message":"Invalid email format"}`
 
 ### Test 6: Frontend Form Submission
 - Navigate to: `http://localhost:5500/admin/admin-login/admin-login.html`
-- Enter: `byosemarket@gmail.com` / `byosemarket266`
+- Enter the backend-configured admin email and password
 - Click: Login button
 ✅ Expected: 
   - Button shows spinner during request
@@ -98,7 +98,7 @@ curl -X POST http://localhost:5000/api/admin/login \
   - localStorage contains: `adminAuth`, `adminLoginTime`, `adminEmail`
 
 ### Test 7: Frontend Error Handling
-- Enter: `byosemarket@gmail.com` / `wrong`
+- Enter the backend-configured admin email and a wrong password
 - Click: Login button
 ✅ Expected:
   - Button shows spinner
@@ -135,14 +135,13 @@ admin/admin-login/
 ├── auth.middleware.js             ✅ Input validation middleware
 ├── app.js                         ✅ Express setup + error handler
 ├── server.js                      ✅ Server entry point
-├── .env                           ✅ Credentials (ADMIN_EMAIL, ADMIN_PASSWORD)
 ├── ADMIN_LOGIN_README.md         ✅ Full documentation
 ├── QUICK_REFERENCE.md            ✅ Quick start guide
 └── VALIDATION_REPORT.md          ✅ This file
 
 backend/
 ├── server.js                      ✅ UPDATED - Now mounts admin routes
-└── .env                           ✅ UPDATED - Synchronized credentials
+└── .env                           ✅ UPDATED - Backend-only credentials
 ```
 
 ---
@@ -173,8 +172,8 @@ Backend:   https://your-backend-url/api/admin/login
 
 ```
 PORT=5000
-ADMIN_EMAIL=byosemarket@gmail.com
-ADMIN_PASSWORD=byosemarket266
+ADMIN_EMAIL=<set-on-server>
+ADMIN_PASSWORD=<set-on-server>
 CORS_ORIGINS=https://byosemarket.com,https://www.byosemarket.com,https://other-domain.com
 ```
 
@@ -198,7 +197,7 @@ CORS_ORIGINS=https://byosemarket.com,https://www.byosemarket.com,https://other-d
 ### ✅ Passed
 
 - [x] No credentials in frontend code
-- [x] No credentials in git repository
+- [x] No live credentials in public admin-login files
 - [x] Timing-safe password comparison
 - [x] Email format validation
 - [x] CORS properly configured

@@ -10,10 +10,8 @@ node server.js
 
 ## 🔑 Login Credentials
 
-```
-Email:    byosemarket@gmail.com
-Password: byosemarket266
-```
+Use the admin email and password configured on the backend server.
+Do not place live credentials in this public admin folder.
 
 ## 📍 Login Page URL
 
@@ -32,7 +30,7 @@ curl http://localhost:5000/healthz
 ```bash
 curl -X POST http://localhost:5000/api/admin/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"byosemarket@gmail.com","password":"byosemarket266"}'
+  -d '{"email":"<admin email>","password":"<admin password>"}'
 
 # Expected: {"success":true,"message":"Login successful"}
 ```
@@ -41,7 +39,7 @@ curl -X POST http://localhost:5000/api/admin/login \
 ```bash
 curl -X POST http://localhost:5000/api/admin/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"byosemarket@gmail.com","password":"wrong"}'
+  -d '{"email":"<admin email>","password":"wrong"}'
 
 # Expected: {"success":false,"message":"Invalid email or password"} (401)
 ```
@@ -58,11 +56,10 @@ admin/admin-login/
 ├── auth.middleware.js    ← Validation
 ├── app.js                ← Express setup
 ├── server.js             ← Server entry
-└── .env                  ← Credentials
 
 backend/
 ├── server.js             ← MAIN SERVER (imports admin routes)
-└── .env                  ← Credentials match admin-login/.env
+└── .env                  ← Backend-only credentials
 ```
 
 ## ✅ Status Codes
@@ -115,7 +112,7 @@ tail -f backend/server.js
 ## 🎯 What Was Fixed
 
 ✅ Backend server.js now mounts admin routes  
-✅ Credentials synchronized between backend/.env and admin-login/.env  
+✅ Credentials now stay in backend/.env only  
 ✅ Frontend redirect path fixed (../dashboard.html)  
 ✅ Auth state management with localStorage  
 ✅ Comprehensive error handling for all scenarios  
