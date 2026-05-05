@@ -10,31 +10,10 @@ const app = express();
 
 // 🌐 MIDDLEWARES
 
-// 🔐 CORS - Allow local and production domains
+// 🔐 CORS - Allow all origins for production compatibility
 const corsOptions = {
-  origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or Postman)
-    if (!origin) return callback(null, true);
-    
-    const allowedOrigins = [
-      'http://localhost:5500',
-      'http://127.0.0.1:5500',
-      'http://localhost:3000',
-      'http://127.0.0.1:3000',
-      'http://localhost:5000',
-      'http://127.0.0.1:5000',
-      'https://byosemarket.com',
-      'https://www.byosemarket.com'
-    ];
-    
-    if (allowedOrigins.indexOf(origin) !== -1 || origin.includes('localhost') || origin.includes('127.0.0.1')) {
-      callback(null, true);
-    } else {
-      console.warn(`❌ CORS blocked origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
+  origin: "*",
+  credentials: false,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 };

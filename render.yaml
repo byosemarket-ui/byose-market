@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: byosemarket-api
+    name: byosesemarket4
     runtime: node
     rootDir: .
     buildCommand: npm install

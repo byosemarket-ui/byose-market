@@ -1,7 +1,7 @@
 (function (global) {
 	"use strict";
 
-	const PRODUCTION_API_BASE_URL = "https://byosemarket-api.onrender.com/api";
+	const PRODUCTION_API_BASE_URL = "https://byosesemarket4.onrender.com/api";
 
 	function normalizeApiBaseUrl(value) {
 		return String(value || "").trim().replace(/\/+$/, "");

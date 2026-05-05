@@ -2,6 +2,9 @@ import API_BASE_URL from "./js/config.js";
 
 const API_URL = `${API_BASE_URL}/api/admin/login`;
 
+console.log("[AdminLogin] API_BASE_URL:", API_BASE_URL);
+console.log("[AdminLogin] Login endpoint:", API_URL);
+
 // 🎯 Get DOM elements
 const form = document.getElementById("loginForm");
 const message = document.getElementById("message");
@@ -57,6 +60,9 @@ form.addEventListener("submit", async (e) => {
       body: JSON.stringify({ email, password })
     });
     const data = await parseJsonSafe(res);
+
+    console.log("[AdminLogin] Response status:", res.status);
+    console.log("[AdminLogin] Response data:", data);
 
     // ✔ SUCCESS (200)
     if (res.status === 200 && data.success) {
