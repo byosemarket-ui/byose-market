@@ -14,24 +14,18 @@ const submitButton = form.querySelector('button[type="submit"]');
 const btnText = submitButton.querySelector('.btn-text');
 const btnLoader = submitButton.querySelector('.btn-loader');
 
-// 🧠 Check if already logged in (redirect to dashboard if true)
-function checkAuthState() {
-  if (window.AdminSecurity && typeof window.AdminSecurity.protectPage === "function") {
-    return;
-  }
-
-  const authToken = localStorage.getItem("adminAuth");
-  const authTime = localStorage.getItem("adminLoginTime");
-  
-  if (authToken && authTime) {
-    window.location.href = "../dashboard.html";
-  }
-}
-
 function persistAdminSession(payload) {
+  if (window.AdminSecurity && typeof window.AdminSecurity.persistSession === "function") {
+    return window.AdminSecurity.persistSession(payload, {
+      apiBaseUrl: `${API_BASE_URL}/api`,
+      loginEmail: String(payload?.admin?.email || emailInput.value.trim() || "")
+    });
+  }
+
   localStorage.setItem("adminAuth", "true");
   localStorage.setItem("adminLoginTime", new Date().toISOString());
   localStorage.setItem("adminEmail", String(payload?.admin?.email || emailInput.value.trim() || ""));
+  localStorage.setItem("adminApiBaseUrl", `${API_BASE_URL}/api`);
 
   if (payload?.token) {
     localStorage.setItem("adminToken", payload.token);
@@ -46,10 +40,26 @@ function persistAdminSession(payload) {
   if (payload?.admin) {
     localStorage.setItem("adminProfile", JSON.stringify(payload.admin));
   }
+
+  return true;
 }
 
-// Run check on page load
-checkAuthState();
+async function validateSessionAfterLogin() {
+  if (!window.AdminSecurity || typeof window.AdminSecurity.validateSession !== "function") {
+    return true;
+  }
+
+  return window.AdminSecurity.validateSession(true);
+}
+
+function redirectToDashboard() {
+  if (window.AdminSecurity && typeof window.AdminSecurity.redirectToDashboard === "function") {
+    window.AdminSecurity.redirectToDashboard();
+    return;
+  }
+
+  window.location.href = "../dashboard.html";
+}
 
 // 🎯 Form submit handler
 form.addEventListener("submit", async (e) => {
@@ -90,14 +100,26 @@ form.addEventListener("submit", async (e) => {
 
     // ✔ SUCCESS (200)
     if (res.status === 200 && data.success) {
-      persistAdminSession(data);
+      const persisted = persistAdminSession(data);
+      if (!persisted) {
+        showMessage("Login succeeded but the admin session could not be stored.", "error");
+        setFormLoading(false);
+        return;
+      }
+
+      const sessionIsValid = await validateSessionAfterLogin();
+      if (!sessionIsValid) {
+        showMessage("Login succeeded but session validation failed. Please try again.", "error");
+        setFormLoading(false);
+        return;
+      }
 
       showMessage("Login successful. Redirecting...", "success");
 
-      // Redirect to dashboard after 1 second
+      // Redirect after validation confirms the persisted session is usable.
       setTimeout(() => {
-        window.location.href = "../dashboard.html";
-      }, 1000);
+        redirectToDashboard();
+      }, 300);
 
     } 
     // ❌ WRONG CREDENTIALS (401)

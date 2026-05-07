@@ -3,9 +3,18 @@
 	"use strict";
 
 	const PRODUCTION_API_BASE_URL = "https://byosesemarket4.onrender.com/api";
+	const ADMIN_API_BASE_URL_STORAGE_KEY = "adminApiBaseUrl";
 
 	function normalizeApiBaseUrl(value) {
 		return String(value || "").trim().replace(/\/+$/, "");
+	}
+
+	function readStoredAdminApiBaseUrl() {
+		try {
+			return normalizeApiBaseUrl(global.localStorage.getItem(ADMIN_API_BASE_URL_STORAGE_KEY) || "");
+		} catch (error) {
+			return "";
+		}
 	}
 
 	function isLocalHost(hostname) {
@@ -13,13 +22,15 @@
 	}
 
 	function readApiBaseOverride() {
+		const securityValue = normalizeApiBaseUrl(global.AdminSecurity?.getApiBaseUrl?.() || "");
 		const metaTag = global.document && typeof global.document.querySelector === "function"
 			? global.document.querySelector('meta[name="byose-api-base-url"]')
 			: null;
 		const metaValue = metaTag ? normalizeApiBaseUrl(metaTag.getAttribute("content") || "") : "";
 		const runtimeValue = normalizeApiBaseUrl(global.BYOSE_API_BASE_URL || global.__BYOSE_API_BASE__ || "");
+		const storedValue = readStoredAdminApiBaseUrl();
 
-		return runtimeValue || metaValue;
+		return runtimeValue || securityValue || metaValue || storedValue;
 	}
 
 	function requiresExternalApiBaseUrl(protocol, hostname) {

@@ -5,6 +5,7 @@
   var ADMIN_TOKEN_KEY = "adminToken";
   var ADMIN_TOKEN_EXPIRY_KEY = "adminTokenExpiresAt";
   var ADMIN_PROFILE_KEY = "adminProfile";
+  var ADMIN_API_BASE_URL_KEY = "adminApiBaseUrl";
   var DEFAULT_SESSION_MS = 8 * 60 * 60 * 1000;
   var PRODUCTION_API_BASE_URL = "https://byosesemarket4.onrender.com/api";
   var validationPromise = null;
@@ -46,6 +47,15 @@
     return String(value || "").trim().replace(/\/+$/, "");
   }
 
+  function normalizeApiBaseUrl(value) {
+    var normalized = normalizeBaseUrl(value);
+    if (!normalized) {
+      return "";
+    }
+
+    return /\/api$/i.test(normalized) ? normalized : `${normalized}/api`;
+  }
+
   function isLocalHost(hostname) {
     return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0";
   }
@@ -56,13 +66,18 @@
   }
 
   function resolveApiBaseUrl() {
-    var override = normalizeBaseUrl(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || "");
+    var override = normalizeApiBaseUrl(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || "");
     if (override) {
-      return /\/api$/i.test(override) ? override : `${override}/api`;
+      return override;
+    }
+
+    var persistedApiBaseUrl = normalizeApiBaseUrl(safeStorageGet(ADMIN_API_BASE_URL_KEY));
+    if (persistedApiBaseUrl) {
+      return persistedApiBaseUrl;
     }
 
     if (window.AdminConfig && window.AdminConfig.apiBaseUrl) {
-      return normalizeBaseUrl(window.AdminConfig.apiBaseUrl);
+      return normalizeApiBaseUrl(window.AdminConfig.apiBaseUrl);
     }
 
     var protocol = String(window.location.protocol || "").toLowerCase();
@@ -82,6 +97,58 @@
 
   function getAdminSessionUrl() {
     return `${resolveApiBaseUrl()}/admin/session`;
+  }
+
+  function persistSession(payload, options) {
+    var admin = payload && payload.admin && typeof payload.admin === "object" ? payload.admin : null;
+    var token = String(payload && payload.token ? payload.token : "").trim();
+    var apiBaseUrl = normalizeApiBaseUrl(
+      (options && options.apiBaseUrl)
+      || (payload && payload.apiBaseUrl)
+      || resolveApiBaseUrl()
+    );
+
+    if (!admin || !token) {
+      clearAuth();
+      return false;
+    }
+
+    safeStorageSet(AUTH_KEY, "true");
+    safeStorageSet(LOGIN_TIME_KEY, new Date().toISOString());
+    safeStorageSet(ADMIN_EMAIL_KEY, String((options && options.loginEmail) || admin.email || ""));
+    safeStorageSet(ADMIN_TOKEN_KEY, token);
+
+    if (payload && payload.expiresAt) {
+      safeStorageSet(ADMIN_TOKEN_EXPIRY_KEY, payload.expiresAt);
+    } else {
+      safeStorageRemove(ADMIN_TOKEN_EXPIRY_KEY);
+    }
+
+    safeStorageSet(ADMIN_PROFILE_KEY, JSON.stringify(admin));
+
+    if (apiBaseUrl) {
+      safeStorageSet(ADMIN_API_BASE_URL_KEY, apiBaseUrl);
+    }
+
+    return true;
+  }
+
+  function getSessionSnapshot() {
+    return {
+      authenticated: safeStorageGet(AUTH_KEY) === "true",
+      loginTime: safeStorageGet(LOGIN_TIME_KEY),
+      email: safeStorageGet(ADMIN_EMAIL_KEY),
+      token: getStoredToken(),
+      expiresAt: safeStorageGet(ADMIN_TOKEN_EXPIRY_KEY),
+      apiBaseUrl: normalizeApiBaseUrl(safeStorageGet(ADMIN_API_BASE_URL_KEY)),
+      profile: (function () {
+        try {
+          return JSON.parse(safeStorageGet(ADMIN_PROFILE_KEY) || "null");
+        } catch (_error) {
+          return null;
+        }
+      })()
+    };
   }
 
   function getStoredToken() {
@@ -155,6 +222,7 @@
     safeStorageRemove(ADMIN_TOKEN_KEY);
     safeStorageRemove(ADMIN_TOKEN_EXPIRY_KEY);
     safeStorageRemove(ADMIN_PROFILE_KEY);
+    safeStorageRemove(ADMIN_API_BASE_URL_KEY);
 
     try {
       window.sessionStorage.clear();
@@ -261,6 +329,7 @@
         safeStorageSet(LOGIN_TIME_KEY, new Date().toISOString());
         safeStorageSet(ADMIN_EMAIL_KEY, String(payload.admin.email || ""));
         safeStorageSet(ADMIN_PROFILE_KEY, JSON.stringify(payload.admin));
+        safeStorageSet(ADMIN_API_BASE_URL_KEY, resolveApiBaseUrl());
         return true;
       })
       .catch(function () {
@@ -341,12 +410,16 @@
     validateSession: validateSession,
     requireAuth: requireAuth,
     clearAuth: clearAuth,
+    persistSession: persistSession,
     handleUnauthorized: handleUnauthorized,
     logout: logout,
     redirectToLogin: redirectToLogin,
     redirectToDashboard: redirectToDashboard,
     getLoginUrl: getLoginUrl,
     getDashboardUrl: getDashboardUrl,
+    getToken: getStoredToken,
+    getApiBaseUrl: resolveApiBaseUrl,
+    getSessionSnapshot: getSessionSnapshot,
     protectPage: protectPage
   };
 
