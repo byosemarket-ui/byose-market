@@ -6,6 +6,7 @@
   var ADMIN_TOKEN_EXPIRY_KEY = "adminTokenExpiresAt";
   var ADMIN_PROFILE_KEY = "adminProfile";
   var ADMIN_API_BASE_URL_KEY = "adminApiBaseUrl";
+  var ADMIN_VALIDATED_API_BASE_URL_KEY = "adminValidatedApiBaseUrl";
   var DEFAULT_SESSION_MS = 8 * 60 * 60 * 1000;
   var PRODUCTION_API_BASE_URL = "https://byosesemarket4.onrender.com/api";
   var validationPromise = null;
@@ -34,6 +35,40 @@
     }
   }
 
+  function logAuthDebug(level, event, detail) {
+    var payload = detail || {};
+
+    try {
+      if (window.ByoseDiagnostics) {
+        if (level === "error" && typeof window.ByoseDiagnostics.logError === "function") {
+          window.ByoseDiagnostics.logError(event, payload);
+          return;
+        }
+
+        if (level === "warn" && typeof window.ByoseDiagnostics.logWarn === "function") {
+          window.ByoseDiagnostics.logWarn(event, payload);
+          return;
+        }
+
+        if (typeof window.ByoseDiagnostics.logInfo === "function") {
+          window.ByoseDiagnostics.logInfo(event, payload);
+          return;
+        }
+      }
+    } catch (_error) {
+      // Fall back to the console below.
+    }
+
+    if (window.console && typeof window.console[level] === "function") {
+      window.console[level]("[AdminSecurity] " + event, payload);
+      return;
+    }
+
+    if (window.console && typeof window.console.log === "function") {
+      window.console.log("[AdminSecurity] " + event, payload);
+    }
+  }
+
   function getSessionDurationMs() {
     var raw = (window.ADMIN_SESSION_DURATION_MS || "").toString().trim();
     var parsed = Number(raw);
@@ -56,6 +91,21 @@
     return /\/api$/i.test(normalized) ? normalized : `${normalized}/api`;
   }
 
+  function readValidatedApiBaseUrl() {
+    return normalizeApiBaseUrl(safeStorageGet(ADMIN_VALIDATED_API_BASE_URL_KEY));
+  }
+
+  function persistResolvedApiBaseUrl(value) {
+    var normalized = normalizeApiBaseUrl(value);
+    if (!normalized) {
+      return "";
+    }
+
+    safeStorageSet(ADMIN_API_BASE_URL_KEY, normalized);
+    safeStorageSet(ADMIN_VALIDATED_API_BASE_URL_KEY, normalized);
+    return normalized;
+  }
+
   function isLocalHost(hostname) {
     return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0";
   }
@@ -69,6 +119,11 @@
     var override = normalizeApiBaseUrl(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || "");
     if (override) {
       return override;
+    }
+
+    var validatedApiBaseUrl = readValidatedApiBaseUrl();
+    if (validatedApiBaseUrl) {
+      return validatedApiBaseUrl;
     }
 
     var persistedApiBaseUrl = normalizeApiBaseUrl(safeStorageGet(ADMIN_API_BASE_URL_KEY));
@@ -99,6 +154,35 @@
     return `${resolveApiBaseUrl()}/admin/session`;
   }
 
+  function collectSessionValidationCandidates(preferredApiBaseUrl) {
+    var seen = Object.create(null);
+    var candidates = [];
+
+    function addCandidate(value) {
+      var normalized = normalizeApiBaseUrl(value);
+      if (!normalized || seen[normalized]) {
+        return;
+      }
+
+      seen[normalized] = true;
+      candidates.push(normalized);
+    }
+
+    addCandidate(preferredApiBaseUrl);
+    addCandidate(readValidatedApiBaseUrl());
+    addCandidate(safeStorageGet(ADMIN_API_BASE_URL_KEY));
+    addCandidate(window.AdminConfig && window.AdminConfig.apiBaseUrl);
+
+    var protocol = String(window.location.protocol || "").toLowerCase();
+    var origin = normalizeBaseUrl(window.location.origin || "");
+    if (protocol === "http:" || protocol === "https:") {
+      addCandidate(`${origin}/api`);
+    }
+
+    addCandidate(PRODUCTION_API_BASE_URL);
+    return candidates;
+  }
+
   function persistSession(payload, options) {
     var admin = payload && payload.admin && typeof payload.admin === "object" ? payload.admin : null;
     var token = String(payload && payload.token ? payload.token : "").trim();
@@ -127,8 +211,15 @@
     safeStorageSet(ADMIN_PROFILE_KEY, JSON.stringify(admin));
 
     if (apiBaseUrl) {
-      safeStorageSet(ADMIN_API_BASE_URL_KEY, apiBaseUrl);
+      persistResolvedApiBaseUrl(apiBaseUrl);
     }
+
+    logAuthDebug("info", "auth.session.persisted", {
+      adminEmail: String(admin.email || ""),
+      hasToken: Boolean(token),
+      expiresAt: payload && payload.expiresAt ? payload.expiresAt : "",
+      apiBaseUrl: apiBaseUrl || resolveApiBaseUrl()
+    });
 
     return true;
   }
@@ -141,6 +232,7 @@
       token: getStoredToken(),
       expiresAt: safeStorageGet(ADMIN_TOKEN_EXPIRY_KEY),
       apiBaseUrl: normalizeApiBaseUrl(safeStorageGet(ADMIN_API_BASE_URL_KEY)),
+      validatedApiBaseUrl: readValidatedApiBaseUrl(),
       profile: (function () {
         try {
           return JSON.parse(safeStorageGet(ADMIN_PROFILE_KEY) || "null");
@@ -223,6 +315,7 @@
     safeStorageRemove(ADMIN_TOKEN_EXPIRY_KEY);
     safeStorageRemove(ADMIN_PROFILE_KEY);
     safeStorageRemove(ADMIN_API_BASE_URL_KEY);
+    safeStorageRemove(ADMIN_VALIDATED_API_BASE_URL_KEY);
 
     try {
       window.sessionStorage.clear();
@@ -300,7 +393,12 @@
   }
 
   async function validateSession(force) {
+    var options = arguments.length > 1 && arguments[1] ? arguments[1] : {};
     if (!hasValidSession()) {
+      logAuthDebug("warn", "auth.session.local_state_invalid", {
+        source: options.source || "guard",
+        snapshot: getSessionSnapshot()
+      });
       return false;
     }
 
@@ -308,34 +406,97 @@
       return validationPromise;
     }
 
-    validationPromise = fetch(getAdminSessionUrl(), {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${getStoredToken()}`
-      }
-    })
-      .then(async function (response) {
-        var payload = await response.json().catch(function () {
-          return null;
+    validationPromise = (async function () {
+      var authToken = getStoredToken();
+      var candidates = collectSessionValidationCandidates(options.preferredApiBaseUrl);
+      var recoverableFailure = false;
+
+      for (var index = 0; index < candidates.length; index += 1) {
+        var apiBaseUrl = candidates[index];
+        var sessionUrl = `${apiBaseUrl}/admin/session`;
+
+        logAuthDebug("info", "auth.session.validation_attempt", {
+          source: options.source || "guard",
+          force: Boolean(force),
+          apiBaseUrl: apiBaseUrl,
+          sessionUrl: sessionUrl,
+          hasToken: Boolean(authToken)
         });
 
-        if (!response.ok || !payload || payload.success !== true || !payload.admin || payload.admin.role !== "admin") {
-          clearAuth();
-          return false;
-        }
+        try {
+          var response = await fetch(sessionUrl, {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+              Authorization: `Bearer ${authToken}`
+            }
+          });
 
-        safeStorageSet(AUTH_KEY, "true");
-        safeStorageSet(LOGIN_TIME_KEY, new Date().toISOString());
-        safeStorageSet(ADMIN_EMAIL_KEY, String(payload.admin.email || ""));
-        safeStorageSet(ADMIN_PROFILE_KEY, JSON.stringify(payload.admin));
-        safeStorageSet(ADMIN_API_BASE_URL_KEY, resolveApiBaseUrl());
+          var payload = await response.json().catch(function () {
+            return null;
+          });
+
+          if (response.ok && payload && payload.success === true && payload.admin && payload.admin.role === "admin") {
+            safeStorageSet(AUTH_KEY, "true");
+            safeStorageSet(LOGIN_TIME_KEY, new Date().toISOString());
+            safeStorageSet(ADMIN_EMAIL_KEY, String(payload.admin.email || ""));
+            safeStorageSet(ADMIN_PROFILE_KEY, JSON.stringify(payload.admin));
+            persistResolvedApiBaseUrl(apiBaseUrl);
+
+            logAuthDebug("info", "auth.session.validation_succeeded", {
+              source: options.source || "guard",
+              apiBaseUrl: apiBaseUrl,
+              adminEmail: String(payload.admin.email || ""),
+              adminId: String(payload.admin.id || "")
+            });
+
+            return true;
+          }
+
+          var responseCode = String(payload && payload.code ? payload.code : "").trim();
+          var authFailure = response.status === 401 || response.status === 403
+            || responseCode === "ADMIN_TOKEN_MISSING"
+            || responseCode === "ADMIN_TOKEN_EXPIRED"
+            || responseCode === "ADMIN_TOKEN_INVALID"
+            || responseCode === "ADMIN_ROLE_REQUIRED";
+
+          logAuthDebug(authFailure ? "warn" : "info", "auth.session.validation_response", {
+            source: options.source || "guard",
+            apiBaseUrl: apiBaseUrl,
+            status: response.status,
+            code: responseCode,
+            success: Boolean(payload && payload.success),
+            message: String(payload && payload.message ? payload.message : "")
+          });
+
+          if (authFailure) {
+            clearAuth();
+            return false;
+          }
+
+          recoverableFailure = true;
+        } catch (error) {
+          recoverableFailure = true;
+          logAuthDebug("warn", "auth.session.validation_transport_failure", {
+            source: options.source || "guard",
+            apiBaseUrl: apiBaseUrl,
+            message: String(error && error.message ? error.message : error)
+          });
+        }
+      }
+
+      if (recoverableFailure) {
+        logAuthDebug("warn", "auth.session.validation_deferred", {
+          source: options.source || "guard",
+          candidates: candidates,
+          snapshot: getSessionSnapshot()
+        });
         return true;
-      })
-      .catch(function () {
-        clearAuth();
-        return false;
-      })
+      }
+
+      clearAuth();
+      return false;
+    })()
       .finally(function () {
         validationPromise = null;
       });

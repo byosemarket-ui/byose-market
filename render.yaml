@@ -15,9 +15,11 @@ services:
         value: 10000
       - key: ADMIN_EMAIL
         value: byosemarket@gmail.com
-      - key: ADMIN_PASSWORD
+      - key: ADMIN_PASSWORD_HASH
         sync: false
       - key: JWT_SECRET
         sync: false
+      - key: JWT_EXPIRES_IN
+        value: 7d
       - key: CORS_ORIGINS
         value: "https://byosemarket.com,https://www.byosemarket.com"

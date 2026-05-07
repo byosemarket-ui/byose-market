@@ -13,6 +13,12 @@ function extractBearerToken(req) {
 function requireAdminAuth(req, res, next) {
     const token = extractBearerToken(req);
     const logger = req.log || appLogger;
+    logger.debug('auth.admin.validation_started', {
+        path: req.originalUrl || req.url,
+        hasAuthorizationHeader: Boolean(req.headers.authorization || req.headers.Authorization),
+        hasBearerToken: Boolean(token)
+    });
+
     if (!token) {
         logger.warn('auth.admin.missing_token');
         return res.status(401).json({
@@ -25,7 +31,8 @@ function requireAdminAuth(req, res, next) {
     const result = verifyToken(token);
     if (!result.valid) {
         logger.warn('auth.admin.invalid_token', {
-            expired: Boolean(result.expired)
+            expired: Boolean(result.expired),
+            secretSource: result.secretSource || 'unknown'
         });
         return res.status(401).json({
             success: false,
@@ -51,7 +58,9 @@ function requireAdminAuth(req, res, next) {
     req.adminToken = token;
     logger.debug('auth.admin.authorized', {
         adminId: payload.id,
-        adminEmail: payload.email
+        adminEmail: payload.email,
+        role: payload.role,
+        secretSource: result.secretSource || 'unknown'
     });
     return next();
 }

@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 const connectDB = require("../../backend/config/db");
 const Admin = require("../../backend/models/Admin");
 const requireAdminAuth = require("../../server/middleware/requireadminauth");
-const { generateToken } = require("../../server/utils/token");
+const { generateToken, getJwtConfig } = require("../../server/utils/token");
 const { appLogger, monitorAsyncOperation } = require("../../server/utils/logger");
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -27,13 +27,19 @@ function looksLikeBcryptHash(value) {
 function getAdminConfig() {
   const adminEmail = normalizeEmail(process.env.ADMIN_EMAIL);
   const adminPasswordHash = String(process.env.ADMIN_PASSWORD_HASH || "").trim();
-  const jwtSecret = String(process.env.JWT_SECRET || "").trim();
+  let jwtConfig = null;
+
+  try {
+    jwtConfig = getJwtConfig();
+  } catch (_error) {
+    jwtConfig = null;
+  }
 
   return {
     adminEmail,
     adminPasswordHash,
-    jwtSecret,
-    isConfigured: Boolean(adminEmail && looksLikeBcryptHash(adminPasswordHash) && jwtSecret)
+    jwtConfig,
+    isConfigured: Boolean(adminEmail && looksLikeBcryptHash(adminPasswordHash) && jwtConfig && jwtConfig.secret)
   };
 }
 
@@ -150,9 +156,14 @@ exports.loginAdmin = async (req, res) => {
       });
     }
 
-    const { adminEmail, adminPasswordHash, isConfigured } = getAdminConfig();
+    const { adminEmail, adminPasswordHash, isConfigured, jwtConfig } = getAdminConfig();
     if (!isConfigured) {
-      logger.error('auth.admin.login_misconfigured', { adminEmail: enteredEmail });
+      logger.error('auth.admin.login_misconfigured', {
+        adminEmail: enteredEmail,
+        hasAdminEmail: Boolean(adminEmail),
+        hasPasswordHash: Boolean(adminPasswordHash),
+        jwtSecretSource: jwtConfig ? jwtConfig.secretSource : 'missing'
+      });
       return res.status(500).json({
         success: false,
         message: "Server auth misconfigured. Missing ADMIN_EMAIL, ADMIN_PASSWORD_HASH, or JWT_SECRET."
@@ -223,6 +234,13 @@ exports.loginAdmin = async (req, res) => {
       }
     } catch (_error) {}
 
+    logger.info('auth.admin.login_token_issued', {
+      adminId: tokenPayload.id,
+      adminEmail: tokenPayload.email,
+      expiresAt: expiresAt || '',
+      jwtSecretSource: jwtConfig ? jwtConfig.secretSource : 'unknown'
+    });
+
     return res.status(200).json({
       success: true,
       message: "Login successful",
@@ -247,9 +265,10 @@ exports.loginAdmin = async (req, res) => {
 exports.requireAdminAuth = requireAdminAuth;
 
 exports.getAdminSession = (req, res) => {
-  (req.log || appLogger).debug('auth.admin.session_valid', {
+  (req.log || appLogger).info('auth.admin.session_valid', {
     adminId: req.admin.id,
-    adminEmail: req.admin.email
+    adminEmail: req.admin.email,
+    role: req.admin.role
   });
   return res.status(200).json({
     success: true,

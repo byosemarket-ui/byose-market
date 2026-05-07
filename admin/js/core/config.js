@@ -4,6 +4,7 @@
 
 	const PRODUCTION_API_BASE_URL = "https://byosesemarket4.onrender.com/api";
 	const ADMIN_API_BASE_URL_STORAGE_KEY = "adminApiBaseUrl";
+	const ADMIN_VALIDATED_API_BASE_URL_STORAGE_KEY = "adminValidatedApiBaseUrl";
 
 	function normalizeApiBaseUrl(value) {
 		return String(value || "").trim().replace(/\/+$/, "");
@@ -12,6 +13,14 @@
 	function readStoredAdminApiBaseUrl() {
 		try {
 			return normalizeApiBaseUrl(global.localStorage.getItem(ADMIN_API_BASE_URL_STORAGE_KEY) || "");
+		} catch (error) {
+			return "";
+		}
+	}
+
+	function readStoredValidatedAdminApiBaseUrl() {
+		try {
+			return normalizeApiBaseUrl(global.localStorage.getItem(ADMIN_VALIDATED_API_BASE_URL_STORAGE_KEY) || "");
 		} catch (error) {
 			return "";
 		}
@@ -28,9 +37,10 @@
 			: null;
 		const metaValue = metaTag ? normalizeApiBaseUrl(metaTag.getAttribute("content") || "") : "";
 		const runtimeValue = normalizeApiBaseUrl(global.BYOSE_API_BASE_URL || global.__BYOSE_API_BASE__ || "");
+		const validatedValue = readStoredValidatedAdminApiBaseUrl();
 		const storedValue = readStoredAdminApiBaseUrl();
 
-		return runtimeValue || securityValue || metaValue || storedValue;
+		return runtimeValue || securityValue || metaValue || validatedValue || storedValue;
 	}
 
 	function requiresExternalApiBaseUrl(protocol, hostname) {

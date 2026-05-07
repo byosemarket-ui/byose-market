@@ -49,7 +49,10 @@ async function validateSessionAfterLogin() {
     return true;
   }
 
-  return window.AdminSecurity.validateSession(true);
+  return window.AdminSecurity.validateSession(true, {
+    source: "login-submit",
+    preferredApiBaseUrl: `${API_BASE_URL}/api`
+  });
 }
 
 function redirectToDashboard() {
