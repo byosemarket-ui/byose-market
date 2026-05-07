@@ -139,8 +139,8 @@ function bindForm() {
   });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  initializeOrderFlow('payment');
+document.addEventListener('DOMContentLoaded', async () => {
+  await initializeOrderFlow('payment');
   const access = resolveStageAccess('payment');
   if (!access.valid) {
     window.location.assign(access.redirectUrl);

@@ -5,6 +5,57 @@ document.addEventListener('DOMContentLoaded', () => {
 
 const CONTACT_MESSAGES_KEY = 'byose_market_messages';
 
+function normalizeApiBase(value) {
+  return String(value || '').trim().replace(/\/+$/, '');
+}
+
+function resolveMessagesApiUrl() {
+  const runtimeBase = normalizeApiBase(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || '');
+  if (runtimeBase) {
+    return runtimeBase.endsWith('/api') ? `${runtimeBase}/messages` : `${runtimeBase}/api/messages`;
+  }
+
+  const protocol = String(window.location?.protocol || '').toLowerCase();
+  const hostname = String(window.location?.hostname || '').trim();
+  if (protocol === 'file:' || hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') {
+    return `http://${hostname || 'localhost'}:5000/api/messages`;
+  }
+
+  const origin = normalizeApiBase(window.location?.origin || '');
+  return origin ? `${origin}/api/messages` : '';
+}
+
+async function persistContactMessage(entry) {
+  const endpoint = resolveMessagesApiUrl();
+  if (!endpoint) {
+    saveContactMessage(entry);
+    return entry;
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(entry)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Message API failed with status ${response.status}`);
+    }
+
+    const payload = await response.json().catch(() => null);
+    const saved = payload?.message || entry;
+    saveContactMessage(saved);
+    return saved;
+  } catch (error) {
+    console.warn('Unable to persist contact message to the API. Falling back to local storage.', error);
+    saveContactMessage(entry);
+    return entry;
+  }
+}
+
 function setupContactForm() {
   const form = document.getElementById('form-message');
   const feedback = document.getElementById('formFeedback');
@@ -13,7 +64,7 @@ function setupContactForm() {
     return;
   }
 
-  form.addEventListener('submit', event => {
+  form.addEventListener('submit', async event => {
     event.preventDefault();
 
     const name = document.getElementById('name')?.value.trim() || '';
@@ -49,7 +100,7 @@ function setupContactForm() {
     const emailSubject = `Ubutumwa bushya buvuye kuri ${name}`;
     const mailtoUrl = `mailto:kwizeraevode266@gmail.com?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(textMessage)}`;
 
-    saveContactMessage({
+    await persistContactMessage({
       id: `msg-${Date.now()}`,
       createdAt: new Date().toISOString(),
       name,

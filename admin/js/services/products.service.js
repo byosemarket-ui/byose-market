@@ -31,6 +31,20 @@
 			: [];
 	}
 
+	function init() {
+		const catalogService = getCatalogService();
+		return catalogService && typeof catalogService.refreshCatalog === 'function'
+			? catalogService.refreshCatalog({ silent: true, allowBootstrap: false })
+			: Promise.resolve(getProducts());
+	}
+
+	function refresh(options) {
+		const catalogService = getCatalogService();
+		return catalogService && typeof catalogService.refreshCatalog === 'function'
+			? catalogService.refreshCatalog(options || {})
+			: Promise.resolve(getProducts());
+	}
+
 	function getProductById(productId) {
 		const catalogService = getCatalogService();
 		return catalogService && typeof catalogService.getProductById === "function"
@@ -378,6 +392,7 @@
 
 	global.AdminProductsService = {
 		CATEGORY_OPTIONS: DEFAULT_CATEGORY_OPTIONS,
+		EVENT_NAME: global.ByoseProductCatalog?.EVENT_NAME || 'byose:products-changed',
 		createAttributeTemplate,
 		createProduct,
 		deleteProduct,
@@ -390,10 +405,12 @@
 		getProductIdFromLocation,
 		getProducts,
 		getStats,
+		init,
 		normalizeEditorAttributes,
 		normalizeCategoryLabel,
 		parseParagraphs,
 		populateProductForm,
+		refresh,
 		readProductForm,
 		resolveStorefrontImagePath,
 		serializeSpecs,

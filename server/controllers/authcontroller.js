@@ -6,7 +6,10 @@ const { hashPassword, comparePasswords } = require('../utils/hash');
 const { generateToken } = require('../utils/token');
 const { generateOTP, saveOTP, verifyOTP } = require('../utils/otp');
 const { sendSMS } = require('../utils/sms');
+const { appLogger } = require('../utils/logger');
 const User = require('../models/user');
+
+const authLogger = appLogger.child({ scope: 'auth' });
 
 function sanitizeUserForClient(u) {
     if (!u) return null;
@@ -75,7 +78,7 @@ exports.signup = async (req, res) => {
 
         return res.json({ success: true, token, user: sanitizeUserForClient(newUser) });
     } catch (err) {
-        console.error('Signup error', err);
+        authLogger.error('auth.signup_failed', { error: err });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
@@ -105,7 +108,7 @@ exports.login = async (req, res) => {
 
         return res.json({ success: true, token, user: sanitizeUserForClient(user) });
     } catch (err) {
-        console.error('Login error', err);
+        authLogger.error('auth.login_failed', { error: err });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
@@ -122,7 +125,7 @@ exports.me = async (req, res) => {
         if (isAdminUser(user)) return res.status(403).json({ success: false, message: 'Unauthorized' });
         return res.json({ success: true, user: sanitizeUserForClient(user) });
     } catch (err) {
-        console.error('Me error', err);
+        authLogger.error('auth.me_failed', { error: err });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
@@ -184,7 +187,7 @@ exports.updateMe = async (req, res) => {
         await user.save();
         return res.json({ success: true, user: sanitizeUserForClient(user) });
     } catch (err) {
-        console.error('Update me error', err);
+        authLogger.error('auth.update_me_failed', { error: err });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
@@ -193,23 +196,38 @@ exports.updateMe = async (req, res) => {
 // FORGOT / VERIFY / RESET (keeps previous OTP behavior)
 // ===============================
 exports.forgotPassword = async (req, res) => {
-    const { method, identifier } = req.body;
-    if (!identifier) return res.status(400).json({ success: false, message: 'Identifier required' });
-    const normalizedIdentifier = String(identifier).trim().toLowerCase();
-    const user = await User.findOne({
-        $or: [ { email: normalizedIdentifier }, { phone: String(identifier).trim() } ]
-    });
-    if (isAdminUser(user)) return res.status(403).json({ success: false, message: 'Unauthorized' });
-    const otp = generateOTP();
-    saveOTP(identifier, otp);
-    console.log('OTP:', otp);
-    if (method === 'phone') {
-        const result = await sendSMS(identifier, `Your OTP code is ${otp}`);
-        if (!result.success) return res.status(500).json({ success: false, message: 'SMS failed' });
-    } else {
-        console.log(`Email OTP for ${identifier}: ${otp}`);
+    try {
+        const { method, identifier } = req.body;
+        if (!identifier) return res.status(400).json({ success: false, message: 'Identifier required' });
+        const normalizedIdentifier = String(identifier).trim().toLowerCase();
+        const user = await User.findOne({
+            $or: [ { email: normalizedIdentifier }, { phone: String(identifier).trim() } ]
+        });
+        if (isAdminUser(user)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+
+        const otp = generateOTP();
+        saveOTP(identifier, otp);
+
+        if (method === 'phone') {
+            const result = await sendSMS(identifier, `Your OTP code is ${otp}`);
+            if (!result.success) {
+                authLogger.error('auth.forgot_password.sms_failed', {
+                    identifier: normalizedIdentifier,
+                    error: result.error
+                });
+                return res.status(500).json({ success: false, message: 'SMS failed' });
+            }
+        }
+
+        authLogger.info('auth.forgot_password_requested', {
+            identifier: normalizedIdentifier,
+            deliveryMethod: method === 'phone' ? 'phone' : 'email'
+        });
+        return res.json({ success: true });
+    } catch (error) {
+        authLogger.error('auth.forgot_password_failed', { error });
+        return res.status(500).json({ success: false, message: 'Server error' });
     }
-    return res.json({ success: true });
 };
 
 exports.verifyCode = (req, res) => {
@@ -220,15 +238,21 @@ exports.verifyCode = (req, res) => {
 };
 
 exports.resetPassword = async (req, res) => {
-    const { identifier, newPassword } = req.body;
-    if (!identifier || !newPassword) return res.status(400).json({ success: false, message: 'Identifier and new password required' });
-    const normalizedIdentifier = String(identifier).trim().toLowerCase();
-    const user = await User.findOne({
-        $or: [ { email: normalizedIdentifier }, { phone: String(identifier).trim() } ],
-        role: { $ne: 'admin' }
-    });
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-    user.password = await hashPassword(String(newPassword));
-    await user.save();
-    return res.json({ success: true });
+    try {
+        const { identifier, newPassword } = req.body;
+        if (!identifier || !newPassword) return res.status(400).json({ success: false, message: 'Identifier and new password required' });
+        const normalizedIdentifier = String(identifier).trim().toLowerCase();
+        const user = await User.findOne({
+            $or: [ { email: normalizedIdentifier }, { phone: String(identifier).trim() } ],
+            role: { $ne: 'admin' }
+        });
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+        user.password = await hashPassword(String(newPassword));
+        await user.save();
+        authLogger.info('auth.password_reset_completed', { identifier: normalizedIdentifier, userId: user.id });
+        return res.json({ success: true });
+    } catch (error) {
+        authLogger.error('auth.password_reset_failed', { error });
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
 };

@@ -6,7 +6,7 @@ const inputs = document.querySelectorAll(".otp-input");
 const verifyBtn = document.getElementById("verifyBtn");
 const resendBtn = document.getElementById("resendBtn");
 const countdownEl = document.getElementById("countdown");
-const PRODUCTION_API_ORIGIN = 'https://byosemarket-admin-api.onrender.com';
+const PRODUCTION_API_ORIGIN = 'https://byosesemarket4.onrender.com';
 
 function normalizeBase(value) {
     return String(value || '').trim().replace(/\/+$/, '');
@@ -82,12 +82,18 @@ async function verifyResetCode(method, identifier, otp) {
         const response = await fetch(endpoint, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                Accept: 'application/json'
             },
             body: JSON.stringify({ method, identifier, otp })
         });
 
-        return response.json();
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+            return { success: false, message: payload?.message || `Verify request failed with status ${response.status}` };
+        }
+
+        return payload || { success: false, message: 'Invalid API response.' };
     }
 
     return { success: otp === getStoredResetCode() };
@@ -100,12 +106,18 @@ async function resendResetCode(method, identifier) {
         const response = await fetch(endpoint, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                Accept: 'application/json'
             },
             body: JSON.stringify({ method, identifier })
         });
 
-        return response.json();
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+            return { success: false, message: payload?.message || `Resend request failed with status ${response.status}` };
+        }
+
+        return payload || { success: false, message: 'Invalid API response.' };
     }
 
     const code = String(Math.floor(100000 + Math.random() * 900000));

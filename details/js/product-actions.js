@@ -64,6 +64,7 @@ function fallbackAddItemsToCart(items) {
     });
 
     localStorage.setItem(CART_KEY, JSON.stringify(cart));
+    window.ByoseStorefrontSync?.syncStorageKey?.(CART_KEY, cart);
     dispatchCartEvents();
   } catch (error) {
     console.error('Unable to write cart data', error);
@@ -95,6 +96,11 @@ function startDirectCheckout(item) {
     localStorage.setItem(DIRECT_CHECKOUT_KEY, JSON.stringify(item));
     localStorage.removeItem(CHECKOUT_DRAFT_KEY);
     localStorage.removeItem(CHECKOUT_CONFIRMATION_KEY);
+    window.ByoseStorefrontSync?.syncPatch?.({
+      directCheckout: item,
+      checkoutDraft: null,
+      checkoutConfirmation: null
+    });
   } catch (error) {
     console.error('Unable to start direct checkout', error);
   }

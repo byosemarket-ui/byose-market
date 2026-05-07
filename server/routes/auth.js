@@ -16,27 +16,28 @@ const {
 } = require('../controllers/authcontroller');
 
 const authMiddleware = require('../middleware/authmiddleware');
+const requireDatabase = require('../middleware/requiredatabase');
 
 // ===============================
 // ROUTES
 // ===============================
 
 // Public auth endpoints
-router.post('/signup', signup);
-router.post('/login', login);
+router.post('/signup', requireDatabase, signup);
+router.post('/login', requireDatabase, login);
 
 // Send OTP (SMS / Email)
-router.post('/forgot-password', forgotPassword);
+router.post('/forgot-password', requireDatabase, forgotPassword);
 
 // Verify OTP
 router.post('/verify-code', verifyCode);
 
 // Reset Password
-router.post('/reset-password', resetPassword);
+router.post('/reset-password', requireDatabase, resetPassword);
 
 // Protected: current user
-router.get('/me', authMiddleware, me);
-router.put('/me', authMiddleware, updateMe);
+router.get('/me', authMiddleware, requireDatabase, me);
+router.put('/me', authMiddleware, requireDatabase, updateMe);
 
 // ===============================
 // EXPORT

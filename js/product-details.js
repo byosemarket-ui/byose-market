@@ -28,8 +28,8 @@ const ProductDetail = {
     };
 
     Util.setToStorage('byose_direct_checkout', directItem);
-    localStorage.removeItem('byose_checkout_draft_v1');
-    localStorage.removeItem('byose_checkout_confirmation_v1');
+    Util.removeFromStorage('byose_checkout_draft_v1');
+    Util.removeFromStorage('byose_checkout_confirmation_v1');
     window.location.href = 'orders/shipping.html';
   },
 

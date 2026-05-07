@@ -2,17 +2,35 @@
 // SMS SERVICE (AFRICA'S TALKING)
 // ===============================
 
-const africastalking = require('africastalking')({
-    apiKey: "atsk_3baa58eb843f2d5c38669db67d6d7d8e702fa3c1f7cbf8b14df4e1bcb93a314f5b77a3fb",
-    username: "sandbox"
-});
+const { appLogger } = require('./logger');
 
-const sms = africastalking.SMS;
+function getSmsClient() {
+    const apiKey = String(process.env.AFRICASTALKING_API_KEY || '').trim();
+    const username = String(process.env.AFRICASTALKING_USERNAME || 'sandbox').trim();
+
+    if (!apiKey) {
+        return null;
+    }
+
+    return require('africastalking')({
+        apiKey,
+        username
+    }).SMS;
+}
 
 // ===============================
 // SEND SMS FUNCTION
 // ===============================
 async function sendSMS(to, message) {
+
+    const sms = getSmsClient();
+    if (!sms) {
+        appLogger.warn('sms.not_configured', { recipient: String(to || '').trim() });
+        return {
+            success: false,
+            error: new Error('SMS service is not configured')
+        };
+    }
 
     try {
         const response = await sms.send({
@@ -20,12 +38,20 @@ async function sendSMS(to, message) {
             message: message
         });
 
-        console.log("SMS SENT:", response);
+        appLogger.info('sms.sent', {
+            recipient: String(to || '').trim(),
+            messageCount: Array.isArray(response?.SMSMessageData?.Recipients)
+                ? response.SMSMessageData.Recipients.length
+                : 0
+        });
 
         return { success: true };
 
     } catch (error) {
-        console.error("SMS ERROR:", error);
+        appLogger.error('sms.send_failed', {
+            recipient: String(to || '').trim(),
+            error
+        });
 
         return { success: false, error };
     }

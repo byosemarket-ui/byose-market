@@ -22,7 +22,11 @@ function verifyToken(token) {
     try {
         return { valid: true, payload: jwt.verify(token, getSecret()) };
     } catch (e) {
-        return { valid: false, error: e };
+        return {
+            valid: false,
+            expired: e && e.name === 'TokenExpiredError',
+            error: e
+        };
     }
 }
 

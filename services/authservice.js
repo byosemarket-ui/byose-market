@@ -6,7 +6,7 @@ const authService = (function () {
     const LOGGED_KEY = 'bm_logged_in';
     const SESSION_KEY = 'byose_market_session';
     const USER_EVENT = 'userUpdated';
-    const PRODUCTION_API_ORIGIN = 'https://byosemarket-admin-api.onrender.com';
+    const PRODUCTION_API_ORIGIN = 'https://byosesemarket4.onrender.com';
 
     function normalizeBase(value) {
         return String(value || '').trim().replace(/\/+$/, '');
@@ -47,6 +47,55 @@ const authService = (function () {
             window.__BYOSE_API_BASE__ = resolveApiOrigin();
         }
     } catch (error) {}
+
+    function ensureDiagnostics() {
+        if (window.ByoseDiagnostics) {
+            return window.ByoseDiagnostics;
+        }
+
+        const entries = [];
+        const MAX_ENTRIES = 200;
+
+        function push(level, event, detail) {
+            const entry = {
+                timestamp: new Date().toISOString(),
+                level,
+                event,
+                detail: detail || {}
+            };
+
+            entries.push(entry);
+            if (entries.length > MAX_ENTRIES) {
+                entries.shift();
+            }
+
+            if (window.console && typeof window.console[level] === 'function') {
+                window.console[level](`[ByoseDiagnostics] ${event}`, detail || {});
+            }
+
+            return entry;
+        }
+
+        window.ByoseDiagnostics = {
+            logInfo(event, detail) { return push('info', event, detail); },
+            logWarn(event, detail) { return push('warn', event, detail); },
+            logError(event, detail) { return push('error', event, detail); },
+            logApiFailure(scope, error, detail) {
+                return push('warn', 'api.failure', {
+                    scope,
+                    message: String(error?.message || ''),
+                    status: Number(error?.status || 0) || undefined,
+                    ...(detail || {})
+                });
+            },
+            logSyncIssue(scope, detail) { return push('warn', 'sync.issue', { scope, ...(detail || {}) }); },
+            getEntries() { return entries.slice(); }
+        };
+
+        return window.ByoseDiagnostics;
+    }
+
+    const diagnostics = ensureDiagnostics();
 
     function _dispatch(name, detail) {
         try {
@@ -115,17 +164,24 @@ const authService = (function () {
             headers: {
                 ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
                 ...(options?.token ? { Authorization: `Bearer ${options.token}` } : {}),
-                ...(options?.headers || {})
+                ...(options?.headers || {}),
+                Accept: 'application/json'
             },
             body: options?.body ? JSON.stringify(options.body) : undefined
         });
 
-        const payload = await response.json().catch(() => null);
+        const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+        const payload = contentType.includes('application/json')
+            ? await response.json().catch(() => null)
+            : await response.text().catch(() => null);
         if (!response.ok) {
-            const message = String(payload?.message || '').trim();
+            const message = typeof payload === 'string'
+                ? payload.trim()
+                : String(payload?.message || '').trim();
             const error = new Error(message || 'Request failed');
             error.status = response.status;
             error.payload = payload;
+            diagnostics.logApiFailure('authservice.request', error, { path });
             throw error;
         }
 
@@ -178,6 +234,7 @@ const authService = (function () {
             const normalizedUser = _persistSession(payload?.user, payload?.token);
             return { success: true, user: normalizedUser, token: String(payload?.token || '') };
         } catch (error) {
+            diagnostics.logApiFailure('authservice.register', error, { identifier: user.email || user.phone || '' });
             return { success: false, error: _mapError(error, 'signup_failed') };
         }
     }
@@ -198,6 +255,7 @@ const authService = (function () {
             const normalizedUser = _persistSession(payload?.user, payload?.token);
             return { success: true, user: normalizedUser, token: String(payload?.token || '') };
         } catch (error) {
+            diagnostics.logApiFailure('authservice.login', error, { identifier: id });
             return { success: false, error: _mapError(error, 'login_failed') };
         }
     }

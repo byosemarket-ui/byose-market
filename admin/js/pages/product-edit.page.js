@@ -1,4 +1,4 @@
-(function () {
+(async function () {
 	const sidebar = window.AdminSidebar;
 	const service = window.AdminProductsService;
 	const imagePicker = window.AdminImagePicker;
@@ -10,6 +10,16 @@
 
 	if (!service || !imagePicker || !repeaterApi) {
 		return;
+	}
+
+	try {
+		await service.init?.();
+	} catch (error) {
+		const statusNode = document.getElementById('productEditorStatus');
+		if (statusNode) {
+			statusNode.textContent = error?.message || 'Unable to load the centralized catalog right now.';
+			statusNode.dataset.state = 'error';
+		}
 	}
 
 	const productId = service.getProductIdFromLocation();

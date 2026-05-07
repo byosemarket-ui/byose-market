@@ -4,12 +4,27 @@ export const STORAGE_KEYS = {
   orders: 'byose_orders',
   draft: 'byose_checkout_draft_v1',
   confirmation: 'byose_checkout_confirmation_v1',
+  pendingOrderSubmission: 'byose_pending_order_submission_v1',
   currentUser: 'bm_current_user',
   legacyUser: 'bm_user',
   storefrontUser: 'byose_market_user',
   users: 'bm_users',
   legacyUsers: 'byose_market_users'
 };
+
+const PRODUCTION_API_ORIGIN = 'https://byosesemarket4.onrender.com';
+const STOREFRONT_STATE_FIELDS = {
+  [STORAGE_KEYS.cart]: 'cartItems',
+  [STORAGE_KEYS.directCheckout]: 'directCheckout',
+  [STORAGE_KEYS.draft]: 'checkoutDraft',
+  [STORAGE_KEYS.confirmation]: 'checkoutConfirmation'
+};
+
+let suppressStorefrontSync = false;
+let storefrontHydrationPromise = null;
+let storefrontSyncQueue = Promise.resolve({ skipped: true });
+let pendingStorefrontPatch = null;
+const STOREFRONT_REQUEST_TIMEOUT_MS = 10000;
 
 export const PAYMENT_ACCOUNTS = [
   {
@@ -34,6 +49,222 @@ export function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function normalizeBase(value) {
+  return String(value || '').trim().replace(/\/+$/, '');
+}
+
+function isLocalHost(hostname) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
+}
+
+function shouldUseProductionApi(hostname) {
+  return /(^|\.)(github\.io|byosemarket\.com)$/i.test(String(hostname || ''));
+}
+
+export function resolveApiOrigin() {
+  const explicit = normalizeBase(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || '');
+  if (explicit) {
+    return explicit;
+  }
+
+  const protocol = String(window.location?.protocol || '').toLowerCase();
+  const hostname = String(window.location?.hostname || '').trim();
+
+  if (protocol === 'file:' || isLocalHost(hostname)) {
+    return `http://${hostname || 'localhost'}:5000`;
+  }
+
+  if (shouldUseProductionApi(hostname)) {
+    return PRODUCTION_API_ORIGIN;
+  }
+
+  return normalizeBase(window.location?.origin || '');
+}
+
+function getStorefrontStateUrl() {
+  const base = resolveApiOrigin();
+  if (!base) {
+    return '';
+  }
+
+  return base.endsWith('/api') ? `${base}/storefront/state` : `${base}/api/storefront/state`;
+}
+
+function getAuthToken() {
+  try {
+    if (window.authService && typeof window.authService.getToken === 'function') {
+      return String(window.authService.getToken() || '').trim();
+    }
+  } catch (error) {
+    console.error(error);
+  }
+
+  return String(window.localStorage.getItem('bm_auth_token') || '').trim();
+}
+
+async function requestStorefrontState(method, body) {
+  const endpoint = getStorefrontStateUrl();
+  const token = getAuthToken();
+
+  if (!endpoint || !token) {
+    return { skipped: true };
+  }
+
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timeoutId = controller
+    ? window.setTimeout(() => controller.abort(new Error('Storefront state request timeout')), STOREFRONT_REQUEST_TIMEOUT_MS)
+    : 0;
+
+  try {
+    const response = await fetch(endpoint, {
+      method,
+      headers: {
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      ...(controller ? { signal: controller.signal } : {})
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      return {
+        success: false,
+        status: response.status,
+        message: payload?.message || `Storefront state request failed with status ${response.status}`
+      };
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return {
+        success: false,
+        message: 'Storefront state API returned an invalid response.'
+      };
+    }
+
+    return payload;
+  } catch (error) {
+    return {
+      success: false,
+      timeout: error?.name === 'AbortError',
+      error,
+      message: error?.name === 'AbortError'
+        ? 'Storefront state request timed out.'
+        : 'Unable to reach the storefront state service.'
+    };
+  } finally {
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+    }
+  }
+}
+
+function applyRemoteStorefrontState(state) {
+  suppressStorefrontSync = true;
+
+  try {
+    if (Array.isArray(state?.cartItems)) {
+      writeStorage(STORAGE_KEYS.cart, state.cartItems.map(normalizeCartItem));
+    }
+
+    if (Object.prototype.hasOwnProperty.call(state || {}, 'directCheckout')) {
+      if (state.directCheckout) {
+        writeStorage(STORAGE_KEYS.directCheckout, normalizeCartItem(state.directCheckout));
+      } else {
+        removeStorage(STORAGE_KEYS.directCheckout);
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(state || {}, 'checkoutDraft')) {
+      if (state.checkoutDraft) {
+        writeStorage(STORAGE_KEYS.draft, clone(state.checkoutDraft));
+      } else {
+        removeStorage(STORAGE_KEYS.draft);
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(state || {}, 'checkoutConfirmation')) {
+      if (state.checkoutConfirmation) {
+        writeStorage(STORAGE_KEYS.confirmation, clone(state.checkoutConfirmation));
+      } else {
+        removeStorage(STORAGE_KEYS.confirmation);
+      }
+    }
+  } finally {
+    suppressStorefrontSync = false;
+  }
+}
+
+export async function syncStorefrontState(patch = {}) {
+  if (!patch || !Object.keys(patch).length) {
+    return { skipped: true };
+  }
+
+  pendingStorefrontPatch = {
+    ...(pendingStorefrontPatch || {}),
+    ...clone(patch)
+  };
+
+  storefrontSyncQueue = storefrontSyncQueue.then(async () => {
+    const nextPatch = pendingStorefrontPatch;
+    pendingStorefrontPatch = null;
+
+    if (!nextPatch || !Object.keys(nextPatch).length) {
+      return { skipped: true };
+    }
+
+    const payload = await requestStorefrontState('PUT', nextPatch);
+    if (payload?.state) {
+      applyRemoteStorefrontState(payload.state);
+    } else if (payload?.success === false) {
+      console.warn('Unable to sync storefront state to the API.', payload.message || payload.error || payload);
+    }
+
+    return payload;
+  });
+
+  return storefrontSyncQueue;
+}
+
+function syncStorefrontStorageKey(key, value) {
+  if (suppressStorefrontSync) {
+    return;
+  }
+
+  const field = STOREFRONT_STATE_FIELDS[key];
+  if (!field) {
+    return;
+  }
+
+  void syncStorefrontState({ [field]: clone(value) });
+}
+
+export async function hydrateStorefrontState(force = false) {
+  if (storefrontHydrationPromise && !force) {
+    return storefrontHydrationPromise;
+  }
+
+  storefrontHydrationPromise = requestStorefrontState('GET')
+    .then((payload) => {
+      if (payload?.state) {
+        applyRemoteStorefrontState(payload.state);
+        return payload.state;
+      }
+
+      if (payload?.success === false) {
+        console.warn('Unable to hydrate storefront state from the API.', payload.message || payload.error || payload);
+      }
+
+      return null;
+    })
+    .finally(() => {
+      storefrontHydrationPromise = null;
+    });
+
+  return storefrontHydrationPromise;
+}
+
 export function readStorage(key, fallback) {
   try {
     const raw = window.localStorage.getItem(key);
@@ -48,11 +279,21 @@ export function readStorage(key, fallback) {
 }
 
 export function writeStorage(key, value) {
-  window.localStorage.setItem(key, JSON.stringify(value));
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn(`Unable to persist ${key} in local storage.`, error);
+  }
+  syncStorefrontStorageKey(key, value);
 }
 
 export function removeStorage(key) {
-  window.localStorage.removeItem(key);
+  try {
+    window.localStorage.removeItem(key);
+  } catch (error) {
+    console.warn(`Unable to remove ${key} from local storage.`, error);
+  }
+  syncStorefrontStorageKey(key, null);
 }
 
 export function delay(ms) {
@@ -333,6 +574,18 @@ export function saveCheckoutConfirmation(payload) {
 
 export function readCheckoutConfirmation() {
   return readStorage(STORAGE_KEYS.confirmation, null);
+}
+
+export function savePendingOrderSubmission(payload) {
+  writeStorage(STORAGE_KEYS.pendingOrderSubmission, payload || null);
+}
+
+export function readPendingOrderSubmission() {
+  return readStorage(STORAGE_KEYS.pendingOrderSubmission, null);
+}
+
+export function clearPendingOrderSubmission() {
+  removeStorage(STORAGE_KEYS.pendingOrderSubmission);
 }
 
 export function emitCartUpdated() {

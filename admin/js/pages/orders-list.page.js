@@ -10,8 +10,9 @@
 		return;
 	}
 
-	service.init?.().catch((error) => {
+	service.init?.().then(rerender).catch((error) => {
 		console.warn("Unable to initialize admin orders service.", error);
+		elements.resultsText.textContent = error?.message || 'Unable to load centralized orders right now.';
 	});
 
 	const elements = {
@@ -156,8 +157,13 @@
 			return;
 		}
 
-		await service.deleteOrder(orderId);
-		rerender();
+		try {
+			await service.deleteOrder(orderId);
+			elements.resultsText.textContent = `Order ${order.id} deleted.`;
+			rerender();
+		} catch (error) {
+			elements.resultsText.textContent = error?.message || 'Unable to delete the selected order right now.';
+		}
 	}
 
 	async function handleClick(event) {
@@ -175,8 +181,14 @@
 			return;
 		}
 
-		await service.updateOrderStatus(select.dataset.orderId || "", select.value || "Pending");
-		rerender();
+		try {
+			await service.updateOrderStatus(select.dataset.orderId || "", select.value || "Pending");
+			elements.resultsText.textContent = `Order ${select.dataset.orderId || ''} updated to ${select.value || 'Pending'}.`;
+			rerender();
+		} catch (error) {
+			elements.resultsText.textContent = error?.message || 'Unable to update order status right now.';
+			rerender();
+		}
 	}
 
 	elements.searchInput?.addEventListener("input", () => {
@@ -203,5 +215,6 @@
 	window.addEventListener(service.EVENT_NAME, rerender);
 	window.addEventListener("byose:orders-changed", rerender);
 
+	elements.resultsText.textContent = 'Loading centralized orders...';
 	rerender();
 })();

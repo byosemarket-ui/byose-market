@@ -1,4 +1,4 @@
-(function () {
+(async function () {
 	const sidebar = window.AdminSidebar;
 	const service = window.AdminMessagesService;
 
@@ -8,6 +8,13 @@
 
 	if (!service) {
 		return;
+	}
+
+	try {
+		elements.resultsText.textContent = 'Loading shared inbox...';
+		await service.init?.();
+	} catch (error) {
+		elements.resultsText.textContent = error?.message || 'Unable to load the shared inbox right now.';
 	}
 
 	const elements = {
@@ -114,8 +121,12 @@
 			return;
 		}
 
-		service.deleteMessage(button.dataset.id || "");
-		rerender();
+		service.deleteMessage(button.dataset.id || "").then(() => {
+			elements.resultsText.textContent = 'Message deleted.';
+			rerender();
+		}).catch((error) => {
+			elements.resultsText.textContent = error?.message || 'Unable to delete the selected message right now.';
+		});
 	}
 
 	function handleChange(event) {
@@ -124,8 +135,12 @@
 			return;
 		}
 
-		service.updateMessageStatus(select.dataset.id || "", select.value || "New");
-		rerender();
+		service.updateMessageStatus(select.dataset.id || "", select.value || "New").then(() => {
+			elements.resultsText.textContent = `Message ${select.dataset.id || ''} updated to ${select.value || 'New'}.`;
+			rerender();
+		}).catch((error) => {
+			elements.resultsText.textContent = error?.message || 'Unable to update message status right now.';
+		});
 	}
 
 	elements.searchInput?.addEventListener("input", () => {

@@ -1,4 +1,4 @@
-(function () {
+(async function () {
 	const sidebar = window.AdminSidebar;
 	const service = window.AdminProductsService;
 	const imagePicker = window.AdminImagePicker;
@@ -10,6 +10,13 @@
 
 	if (!service || !imagePicker || !repeaterApi) {
 		return;
+	}
+
+	try {
+		await service.init?.();
+	} catch (error) {
+		status.textContent = error?.message || 'Unable to load the centralized catalog right now.';
+		status.dataset.state = 'error';
 	}
 
 	const form = document.getElementById('productEditorForm');

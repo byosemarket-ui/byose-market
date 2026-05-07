@@ -5,7 +5,7 @@
 // ===============================
 // 📦 BASE URL (Render Backend)
 // ===============================
-const PRODUCTION_API_ORIGIN = "https://byosemarket-admin-api.onrender.com";
+const PRODUCTION_API_ORIGIN = "https://byosesemarket4.onrender.com";
 
 function normalizeBase(value) {
   return String(value || "").trim().replace(/\/+$/, "");
@@ -61,7 +61,8 @@ async function request(endpoint, method = "GET", data = null) {
     const options = {
       method,
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        Accept: "application/json"
       }
     };
 
@@ -71,11 +72,18 @@ async function request(endpoint, method = "GET", data = null) {
 
     const response = await fetch(`${BASE_URL}${endpoint}`, options);
 
+    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+    const result = contentType.includes("application/json")
+      ? await response.json().catch(() => null)
+      : null;
+
     if (!response.ok) {
-      throw new Error("Server Error");
+      throw new Error(result?.message || `Request failed with status ${response.status}`);
     }
 
-    const result = await response.json();
+    if (result === null) {
+      throw new Error("Invalid API response");
+    }
 
     return result;
 
@@ -113,3 +121,9 @@ function apiPut(endpoint, data) {
 function apiDelete(endpoint) {
   return request(endpoint, "DELETE");
 }
+
+try {
+  if (!window.__BYOSE_API_BASE__) {
+    window.__BYOSE_API_BASE__ = BASE_URL;
+  }
+} catch (error) {}

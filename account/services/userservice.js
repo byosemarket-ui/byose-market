@@ -5,7 +5,7 @@
 // ===============================
 // 📦 BASE API URL (environment aware)
 // ===============================
-const PRODUCTION_API_ORIGIN = "https://byosemarket-admin-api.onrender.com";
+const PRODUCTION_API_ORIGIN = "https://byosesemarket4.onrender.com";
 
 function normalizeBase(value) {
   return String(value || "").trim().replace(/\/+$/, "");
@@ -102,14 +102,27 @@ async function updateProfile(data) {
     const fetchFn = (typeof authService !== 'undefined' && typeof authService.authFetch === 'function') ? authService.authFetch : fetch;
     const response = await fetchFn(`${API_URL}/auth/me`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
       body: JSON.stringify(data)
     });
-    const result = await response.json();
-    if (result.success) { saveUser(result.user); return result.user; }
-    throw new Error(result.message || 'update_failed');
+
+    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+    const result = contentType.includes("application/json")
+      ? await response.json().catch(() => null)
+      : null;
+
+    if (!response.ok) {
+      throw new Error(result?.message || `Profile update failed with status ${response.status}`);
+    }
+
+    if (result?.success && result.user) { saveUser(result.user); return result.user; }
+    throw new Error(result?.message || 'update_failed');
   } catch (error) {
     console.error("Update Error:", error);
+    throw error;
   }
 }
 

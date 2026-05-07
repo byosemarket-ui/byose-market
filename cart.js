@@ -4,15 +4,42 @@
 
   const $ = (sel, root = document) => root.querySelector(sel);
 
+  function safeGetStorage(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch (error) {
+      console.warn(`Unable to read ${key} from local storage.`, error);
+      return null;
+    }
+  }
+
+  function safeSetStorage(key, value) {
+    try {
+      localStorage.setItem(key, value);
+      return true;
+    } catch (error) {
+      console.warn(`Unable to write ${key} to local storage.`, error);
+      return false;
+    }
+  }
+
+  function safeRemoveStorage(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch (error) {
+      console.warn(`Unable to remove ${key} from local storage.`, error);
+    }
+  }
+
   function migrateOldKey() {
     const oldKey = 'kwizeraCart_v1';
     try {
       if (oldKey !== KEY) {
         const oldData = localStorage.getItem(oldKey);
-        const newData = localStorage.getItem(KEY);
+        const newData = safeGetStorage(KEY);
         if (oldData && !newData) {
-          localStorage.setItem(KEY, oldData);
-          localStorage.removeItem(oldKey);
+          safeSetStorage(KEY, oldData);
+          safeRemoveStorage(oldKey);
         }
       }
     } catch (error) {
@@ -86,7 +113,7 @@
   function load() {
     migrateOldKey();
     try {
-      const cart = JSON.parse(localStorage.getItem(KEY)) || [];
+      const cart = JSON.parse(safeGetStorage(KEY)) || [];
       cart.forEach(item => {
         if (item.img && !item.image) item.image = item.img;
         const attributes = normalizeAttributes(item);
@@ -104,7 +131,12 @@
   }
 
   function save(cart) {
-    localStorage.setItem(KEY, JSON.stringify(cart));
+    if (!safeSetStorage(KEY, JSON.stringify(cart))) {
+      return false;
+    }
+
+    window.ByoseStorefrontSync?.syncStorageKey?.(KEY, cart);
+    return true;
   }
 
   function count(cart) {
@@ -204,7 +236,11 @@
       });
     }
 
-    save(cart);
+    if (!save(cart)) {
+      alert('Unable to update your cart right now. Please check storage permissions and try again.');
+      return;
+    }
+
     renderCount();
     emitCartEvents();
   }
@@ -212,7 +248,11 @@
   function remove(id, attributesOrColor, size) {
     const variantKey = buildVariantKey(resolveAttributesArg(attributesOrColor, size));
     const cart = load().filter(item => !(String(item.id) === String(id) && getItemVariantKey(item) === variantKey));
-    save(cart);
+    if (!save(cart)) {
+      alert('Unable to update your cart right now. Please check storage permissions and try again.');
+      return;
+    }
+
     render();
     renderCount();
     emitCartEvents();
@@ -375,14 +415,26 @@
     });
   }
 
-  function init() {
+  async function hydrateFromServer() {
+    const hydrated = await window.ByoseStorefrontSync?.hydrate?.();
+    if (hydrated) {
+      render();
+      renderCount();
+      emitCartEvents();
+    }
+  }
+
+  async function init() {
     ensureUI();
     renderCount();
     bindAddToCart();
     document.addEventListener('cart:updated', renderCount);
+    await hydrateFromServer();
   }
 
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', () => {
+    void init();
+  });
 
   window.KCart = {
     add,

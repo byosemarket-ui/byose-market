@@ -5,7 +5,7 @@
 // ===============================
 // 📦 BASE API URL
 // ===============================
-const PRODUCTION_API_ORIGIN = "https://byosemarket-admin-api.onrender.com";
+const PRODUCTION_API_ORIGIN = "https://byosesemarket4.onrender.com";
 
 function normalizeBase(value) {
   return String(value || "").trim().replace(/\/+$/, "");
@@ -41,17 +41,30 @@ function resolveApiOrigin() {
 
 const WALLET_API = window.__BYOSE_WALLET_API__ || `${resolveApiOrigin()}/api/wallet`;
 
+async function readJsonResponse(response, fallbackValue, failureMessage) {
+  const contentType = String(response?.headers?.get("content-type") || "").toLowerCase();
+  const payload = contentType.includes("application/json")
+    ? await response.json().catch(() => null)
+    : null;
+
+  if (!response.ok) {
+    throw new Error(payload?.message || failureMessage || `Wallet API failed with status ${response.status}`);
+  }
+
+  return payload ?? fallbackValue;
+}
+
 // ===============================
 // 💰 GET BALANCE
 // ===============================
 async function getBalance(userId) {
-  if (!WALLET_API) {
+  if (!WALLET_API || !userId) {
     return 0;
   }
 
   try {
     const res = await fetch(`${WALLET_API}/balance/${userId}`);
-    const data = await res.json();
+    const data = await readJsonResponse(res, { balance: 0 }, 'Unable to load wallet balance.');
 
     return data.balance || 0;
 
@@ -65,13 +78,13 @@ async function getBalance(userId) {
 // 📜 GET TRANSACTIONS
 // ===============================
 async function getTransactions(userId) {
-  if (!WALLET_API) {
+  if (!WALLET_API || !userId) {
     return [];
   }
 
   try {
     const res = await fetch(`${WALLET_API}/transactions/${userId}`);
-    const data = await res.json();
+    const data = await readJsonResponse(res, { transactions: [] }, 'Unable to load wallet transactions.');
 
     return data.transactions || [];
 
@@ -85,7 +98,7 @@ async function getTransactions(userId) {
 // ➕ TOP UP
 // ===============================
 async function topUp(userId, amount) {
-  if (!WALLET_API) {
+  if (!WALLET_API || !userId) {
     return { success: false, message: 'Static hosting mode: wallet API unavailable.' };
   }
 
@@ -98,11 +111,12 @@ async function topUp(userId, amount) {
       body: JSON.stringify({ userId, amount })
     });
 
-    const data = await res.json();
+    const data = await readJsonResponse(res, { success: false }, 'Unable to top up wallet right now.');
     return data;
 
   } catch (error) {
     console.error("TopUp Error:", error);
+    return { success: false, message: error?.message || 'Unable to top up wallet right now.' };
   }
 }
 
@@ -110,7 +124,7 @@ async function topUp(userId, amount) {
 // ➖ WITHDRAW
 // ===============================
 async function withdraw(userId, amount) {
-  if (!WALLET_API) {
+  if (!WALLET_API || !userId) {
     return { success: false, message: 'Static hosting mode: wallet API unavailable.' };
   }
 
@@ -123,10 +137,11 @@ async function withdraw(userId, amount) {
       body: JSON.stringify({ userId, amount })
     });
 
-    const data = await res.json();
+    const data = await readJsonResponse(res, { success: false }, 'Unable to withdraw from wallet right now.');
     return data;
 
   } catch (error) {
     console.error("Withdraw Error:", error);
+    return { success: false, message: error?.message || 'Unable to withdraw from wallet right now.' };
   }
 }

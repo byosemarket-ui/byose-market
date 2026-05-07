@@ -60,12 +60,15 @@
 
 		if (ordersService && typeof ordersService.getOrderStats === 'function') {
 			const liveOrderStats = ordersService.getOrderStats();
-			const syncState = typeof ordersService.getSyncState === 'function' ? ordersService.getSyncState() : null;
+			const syncState = typeof dashboardService.getSyncState === 'function' ? dashboardService.getSyncState() : null;
 			if (ordersCountNode) ordersCountNode.textContent = Number(liveOrderStats.totalOrders || 0).toLocaleString('en-US');
 			if (ordersNoteNode) {
 				ordersNoteNode.textContent = syncState && syncState.source === 'api'
-					? 'Synced from admin order API with auto-refresh'
-					: 'Reading local checkout order storage';
+					? 'Synced from centralized backend analytics with auto-refresh'
+					: 'Showing fallback admin snapshot from local cache';
+			}
+			if (salesNoteNode && syncState?.error) {
+				salesNoteNode.textContent = `${snapshot.stats.salesNote} • ${syncState.error}`;
 			}
 		}
 	}
@@ -112,9 +115,20 @@
 			.replace(/'/g, '&#39;');
 	}
 
-	function refreshDashboard() {
+	async function refreshDashboard() {
 		if (!dashboardService || typeof dashboardService.createSnapshot !== 'function') {
 			return;
+		}
+
+		activityTableBody.innerHTML = '<tr><td colspan="4" class="activity-empty-cell">Loading centralized dashboard data...</td></tr>';
+		if (summaryList) {
+			summaryList.innerHTML = '<li><span>Loading</span><strong>Refreshing backend analytics...</strong></li>';
+		}
+
+		if (typeof dashboardService.refresh === 'function') {
+			await dashboardService.refresh({ silent: true }).catch((error) => {
+				console.warn('Unable to refresh admin dashboard snapshot.', error);
+			});
 		}
 
 		const snapshot = dashboardService.createSnapshot();
@@ -126,7 +140,7 @@
 	ordersService?.init?.().catch((error) => {
 		console.warn('Unable to initialize admin orders service on the dashboard.', error);
 	});
-	dashboardService?.init?.().then(refreshDashboard).catch((error) => {
+	dashboardService?.init?.().then(() => refreshDashboard()).catch((error) => {
 		console.warn('Unable to initialize admin dashboard service.', error);
 	});
 
@@ -149,7 +163,7 @@
 
 	refreshTimerId = window.setInterval(() => {
 		if (!document.hidden) {
-			refreshDashboard();
+			void refreshDashboard();
 		}
 	}, 15000);
 })();

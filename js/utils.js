@@ -36,6 +36,7 @@ const Util = {
   setToStorage: (key, value) => {
     try {
       localStorage.setItem(key, JSON.stringify(value));
+      try { window.ByoseStorefrontSync?.syncStorageKey?.(key, value); } catch (syncError) { console.warn(syncError); }
       return true;
     } catch (e) {
       console.error('Storage write error:', e);
@@ -46,6 +47,7 @@ const Util = {
   removeFromStorage: (key) => {
     try {
       localStorage.removeItem(key);
+      try { window.ByoseStorefrontSync?.syncStorageKey?.(key, null); } catch (syncError) { console.warn(syncError); }
       return true;
     } catch (e) {
       console.error('Storage remove error:', e);
@@ -211,6 +213,248 @@ const Util = {
         setTimeout(() => inThrottle = false, limit);
       }
     };
+
+    (function initializeByoseStorefrontSync(global) {
+      if (!global || global.ByoseStorefrontSync) {
+        return;
+      }
+
+      const PRODUCTION_API_ORIGIN = 'https://byosesemarket4.onrender.com';
+      const STOREFRONT_KEYS = {
+        byose_market_cart_v1: 'cartItems',
+        byose_direct_checkout: 'directCheckout',
+        byose_checkout_draft_v1: 'checkoutDraft',
+        byose_checkout_confirmation_v1: 'checkoutConfirmation'
+      };
+      let suppressSync = false;
+      let hydrationPromise = null;
+      let syncQueue = Promise.resolve({ skipped: true });
+      let pendingPatch = null;
+      const REQUEST_TIMEOUT_MS = 10000;
+
+      function normalizeBase(value) {
+        return String(value || '').trim().replace(/\/+$/, '');
+      }
+
+      function isLocalHost(hostname) {
+        return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
+      }
+
+      function shouldUseProductionApi(hostname) {
+        return /(^|\.)(github\.io|byosemarket\.com)$/i.test(String(hostname || ''));
+      }
+
+      function resolveApiOrigin() {
+        const explicit = normalizeBase(global.BYOSE_API_BASE_URL || global.__BYOSE_API_BASE__ || '');
+        if (explicit) {
+          return explicit;
+        }
+
+        const protocol = String(global.location?.protocol || '').toLowerCase();
+        const hostname = String(global.location?.hostname || '').trim();
+
+        if (protocol === 'file:' || isLocalHost(hostname)) {
+          return `http://${hostname || 'localhost'}:5000`;
+        }
+
+        if (shouldUseProductionApi(hostname)) {
+          return PRODUCTION_API_ORIGIN;
+        }
+
+        return normalizeBase(global.location?.origin || '');
+      }
+
+      function getStorefrontStateUrl() {
+        const base = resolveApiOrigin();
+        if (!base) {
+          return '';
+        }
+
+        return base.endsWith('/api') ? `${base}/storefront/state` : `${base}/api/storefront/state`;
+      }
+
+      function getToken() {
+        try {
+          if (global.authService && typeof global.authService.getToken === 'function') {
+            return String(global.authService.getToken() || '').trim();
+          }
+        } catch (error) {
+          console.error(error);
+        }
+
+        return String(global.localStorage.getItem('bm_auth_token') || '').trim();
+      }
+
+      async function requestStorefrontState(method, body) {
+        const endpoint = getStorefrontStateUrl();
+        const token = getToken();
+
+        if (!endpoint || !token) {
+          return { skipped: true };
+        }
+
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        const timeoutId = controller
+          ? global.setTimeout(() => controller.abort(new Error('Storefront state request timeout')), REQUEST_TIMEOUT_MS)
+          : 0;
+
+        try {
+          const response = await global.fetch(endpoint, {
+            method,
+            headers: {
+              ...(body ? { 'Content-Type': 'application/json' } : {}),
+              Accept: 'application/json',
+              Authorization: `Bearer ${token}`
+            },
+            ...(body ? { body: JSON.stringify(body) } : {}),
+            ...(controller ? { signal: controller.signal } : {})
+          });
+
+          const payload = await response.json().catch(() => null);
+          if (!response.ok) {
+            return {
+              success: false,
+              status: response.status,
+              message: payload?.message || `Storefront state request failed with status ${response.status}`
+            };
+          }
+
+          if (!payload || typeof payload !== 'object') {
+            return { success: false, message: 'Storefront state API returned an invalid response.' };
+          }
+
+          return payload;
+        } catch (error) {
+          return {
+            success: false,
+            timeout: error?.name === 'AbortError',
+            error,
+            message: error?.name === 'AbortError'
+              ? 'Storefront state request timed out.'
+              : 'Unable to reach the storefront state service.'
+          };
+        } finally {
+          if (timeoutId) {
+            global.clearTimeout(timeoutId);
+          }
+        }
+      }
+
+      function applyRemoteState(state) {
+        suppressSync = true;
+
+        try {
+          if (Array.isArray(state?.cartItems)) {
+            global.localStorage.setItem('byose_market_cart_v1', JSON.stringify(state.cartItems));
+          }
+
+          if (Object.prototype.hasOwnProperty.call(state || {}, 'directCheckout')) {
+            if (state.directCheckout) {
+              global.localStorage.setItem('byose_direct_checkout', JSON.stringify(state.directCheckout));
+            } else {
+              global.localStorage.removeItem('byose_direct_checkout');
+            }
+          }
+
+          if (Object.prototype.hasOwnProperty.call(state || {}, 'checkoutDraft')) {
+            if (state.checkoutDraft) {
+              global.localStorage.setItem('byose_checkout_draft_v1', JSON.stringify(state.checkoutDraft));
+            } else {
+              global.localStorage.removeItem('byose_checkout_draft_v1');
+            }
+          }
+
+          if (Object.prototype.hasOwnProperty.call(state || {}, 'checkoutConfirmation')) {
+            if (state.checkoutConfirmation) {
+              global.localStorage.setItem('byose_checkout_confirmation_v1', JSON.stringify(state.checkoutConfirmation));
+            } else {
+              global.localStorage.removeItem('byose_checkout_confirmation_v1');
+            }
+          }
+        } catch (error) {
+          console.warn('Unable to apply remote storefront state locally.', error);
+        } finally {
+          suppressSync = false;
+        }
+      }
+
+      async function syncPatch(patch) {
+        if (!patch || !Object.keys(patch).length) {
+          return { skipped: true };
+        }
+
+        pendingPatch = {
+          ...(pendingPatch || {}),
+          ...(patch || {})
+        };
+
+        syncQueue = syncQueue.then(async () => {
+          const nextPatch = pendingPatch;
+          pendingPatch = null;
+
+          if (!nextPatch || !Object.keys(nextPatch).length) {
+            return { skipped: true };
+          }
+
+          const payload = await requestStorefrontState('PUT', nextPatch);
+          if (payload?.state) {
+            applyRemoteState(payload.state);
+          } else if (payload?.success === false) {
+            console.warn('Unable to sync storefront state to the API.', payload.message || payload.error || payload);
+          }
+
+          return payload;
+        });
+
+        return syncQueue;
+      }
+
+      function syncStorageKey(key, value) {
+        if (suppressSync) {
+          return;
+        }
+
+        const field = STOREFRONT_KEYS[key];
+        if (!field) {
+          return;
+        }
+
+        void syncPatch({ [field]: value === undefined ? null : value });
+      }
+
+      async function hydrate(force = false) {
+        if (hydrationPromise && !force) {
+          return hydrationPromise;
+        }
+
+        hydrationPromise = requestStorefrontState('GET')
+          .then((payload) => {
+            if (payload?.state) {
+              applyRemoteState(payload.state);
+              return payload.state;
+            }
+
+            if (payload?.success === false) {
+              console.warn('Unable to hydrate storefront state from the API.', payload.message || payload.error || payload);
+            }
+
+            return null;
+          })
+          .finally(() => {
+            hydrationPromise = null;
+          });
+
+        return hydrationPromise;
+      }
+
+      global.ByoseStorefrontSync = {
+        getToken,
+        hydrate,
+        resolveApiOrigin,
+        syncPatch,
+        syncStorageKey
+      };
+    })(window);
   },
 
   // SCROLL

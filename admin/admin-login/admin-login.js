@@ -16,11 +16,35 @@ const btnLoader = submitButton.querySelector('.btn-loader');
 
 // 🧠 Check if already logged in (redirect to dashboard if true)
 function checkAuthState() {
+  if (window.AdminSecurity && typeof window.AdminSecurity.protectPage === "function") {
+    return;
+  }
+
   const authToken = localStorage.getItem("adminAuth");
   const authTime = localStorage.getItem("adminLoginTime");
   
   if (authToken && authTime) {
     window.location.href = "../dashboard.html";
+  }
+}
+
+function persistAdminSession(payload) {
+  localStorage.setItem("adminAuth", "true");
+  localStorage.setItem("adminLoginTime", new Date().toISOString());
+  localStorage.setItem("adminEmail", String(payload?.admin?.email || emailInput.value.trim() || ""));
+
+  if (payload?.token) {
+    localStorage.setItem("adminToken", payload.token);
+  }
+
+  if (payload?.expiresAt) {
+    localStorage.setItem("adminTokenExpiresAt", payload.expiresAt);
+  } else {
+    localStorage.removeItem("adminTokenExpiresAt");
+  }
+
+  if (payload?.admin) {
+    localStorage.setItem("adminProfile", JSON.stringify(payload.admin));
   }
 }
 
@@ -66,14 +90,7 @@ form.addEventListener("submit", async (e) => {
 
     // ✔ SUCCESS (200)
     if (res.status === 200 && data.success) {
-      // Store auth state
-      localStorage.setItem("adminAuth", "true");
-      localStorage.setItem("adminLoginTime", new Date().toISOString());
-      localStorage.setItem("adminEmail", email);
-
-      if (data.token) {
-        localStorage.setItem("adminToken", data.token);
-      }
+      persistAdminSession(data);
 
       showMessage("Login successful. Redirecting...", "success");
 

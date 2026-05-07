@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Product = require('../models/product');
+const { appLogger, monitorAsyncOperation } = require('../utils/logger');
 
 const DEFAULT_DETAIL_PAGE = 'product-details1.html';
 
@@ -218,6 +219,7 @@ function buildSort() {
 }
 
 exports.bootstrapCatalog = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'inventory' });
     try {
         const source = Array.isArray(req.body?.products) ? req.body.products : [];
         if (!source.length) {
@@ -236,7 +238,7 @@ exports.bootstrapCatalog = async (req, res) => {
 
             usedIds.add(catalogId);
             const normalized = normalizePayload(item);
-            await Product.findOneAndUpdate(
+            await monitorAsyncOperation(logger, 'database.product.bootstrap_upsert', { catalogId, adminId: req.admin?.id || '' }, () => Product.findOneAndUpdate(
                 { catalogId },
                 {
                     $set: {
@@ -246,18 +248,20 @@ exports.bootstrapCatalog = async (req, res) => {
                     }
                 },
                 { new: true, upsert: true, setDefaultsOnInsert: true }
-            );
+            ), { slowThresholdMs: 700 });
         }
 
-        const products = await Product.find({}).sort(buildSort());
+        const products = await monitorAsyncOperation(logger, 'database.product.list_after_bootstrap', { adminId: req.admin?.id || '' }, () => Product.find({}).sort(buildSort()), { slowThresholdMs: 900 });
+        logger.info('inventory.bootstrap_completed', { adminId: req.admin?.id || '', count: products.length });
         return res.json({ success: true, products: products.map(serializeProduct) });
     } catch (error) {
-        console.error('bootstrapCatalog error', error);
+        logger.error('inventory.bootstrap_failed', { error });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.createProduct = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'inventory' });
     try {
         const normalized = normalizePayload(req.body || {});
         if (!normalized.name || typeof req.body?.price === 'undefined') {
@@ -265,91 +269,111 @@ exports.createProduct = async (req, res) => {
         }
 
         const catalogId = await buildCatalogIdFromPayload(req.body, null);
-        const product = await Product.create({
+        const product = await monitorAsyncOperation(logger, 'database.product.create', { catalogId, adminId: req.admin?.id || '', productName: normalized.name, stock: normalized.stock }, () => Product.create({
             ...normalized,
             catalogId,
             url: buildProductUrl(catalogId)
-        });
+        }), { slowThresholdMs: 700 });
+
+        logger.info('inventory.product_created', { adminId: req.admin?.id || '', catalogId, productName: normalized.name, stock: normalized.stock, price: normalized.price });
 
         return res.status(201).json({ success: true, product: serializeProduct(product) });
     } catch (error) {
-        console.error('createProduct error', error);
+        logger.error('inventory.product_create_failed', { error });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.getAllProducts = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'inventory' });
     try {
         const filter = {};
         if (req.query.category) {
             filter.category = String(req.query.category).trim().toLowerCase();
         }
 
-        const products = await Product.find(filter).sort(buildSort());
+        const products = await monitorAsyncOperation(logger, 'database.product.list', { category: filter.category || '' }, () => Product.find(filter).sort(buildSort()), { slowThresholdMs: 900 });
         return res.json({ success: true, products: products.map(serializeProduct) });
     } catch (error) {
-        console.error('getAllProducts error', error);
+        logger.error('inventory.product_list_failed', { error, category: req.query?.category || '' });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.getProductById = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'inventory' });
     try {
-        const product = await findProductByIdentifier(req.params.id);
+        const product = await monitorAsyncOperation(logger, 'database.product.find', { requestedProductId: req.params.id }, () => findProductByIdentifier(req.params.id), { slowThresholdMs: 700 });
         if (!product) {
             return res.status(404).json({ success: false, message: 'Product not found' });
         }
 
         return res.json({ success: true, product: serializeProduct(product) });
     } catch (error) {
-        console.error('getProductById error', error);
+        logger.error('inventory.product_lookup_failed', { error, requestedProductId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.updateProduct = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'inventory' });
     try {
         const normalized = normalizePayload(req.body || {});
         if (!normalized.name || typeof req.body?.price === 'undefined') {
             return res.status(400).json({ success: false, message: 'Product name and price are required' });
         }
 
-        let product = await findProductByIdentifier(req.params.id);
+        let product = await monitorAsyncOperation(logger, 'database.product.find_for_update', { requestedProductId: req.params.id, adminId: req.admin?.id || '' }, () => findProductByIdentifier(req.params.id), { slowThresholdMs: 700 });
         if (!product) {
             const catalogId = parseCatalogId(req.params.id) || await buildCatalogIdFromPayload(req.body, null);
-            product = await Product.create({
+            product = await monitorAsyncOperation(logger, 'database.product.create_on_update_fallback', { catalogId, adminId: req.admin?.id || '', productName: normalized.name }, () => Product.create({
                 ...normalized,
                 catalogId,
                 url: buildProductUrl(catalogId)
-            });
+            }), { slowThresholdMs: 700 });
+
+            logger.info('inventory.product_created_via_update', { adminId: req.admin?.id || '', catalogId, productName: normalized.name });
 
             return res.status(201).json({ success: true, created: true, product: serializeProduct(product) });
         }
+
+        const previousStock = Number(product.stock || 0);
 
         Object.assign(product, normalized, {
             title: normalized.name,
             url: buildProductUrl(product.catalogId)
         });
-        await product.save();
+        await monitorAsyncOperation(logger, 'database.product.save_update', { catalogId: product.catalogId, adminId: req.admin?.id || '', productName: normalized.name }, () => product.save(), { slowThresholdMs: 700 });
+
+        logger.info('inventory.product_updated', {
+            adminId: req.admin?.id || '',
+            catalogId: product.catalogId,
+            productName: normalized.name,
+            previousStock,
+            nextStock: Number(product.stock || 0),
+            price: Number(product.price || 0)
+        });
 
         return res.json({ success: true, product: serializeProduct(product) });
     } catch (error) {
-        console.error('updateProduct error', error);
+        logger.error('inventory.product_update_failed', { error, requestedProductId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.deleteProduct = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'inventory' });
     try {
-        const product = await findProductByIdentifier(req.params.id);
+        const product = await monitorAsyncOperation(logger, 'database.product.find_for_delete', { requestedProductId: req.params.id, adminId: req.admin?.id || '' }, () => findProductByIdentifier(req.params.id), { slowThresholdMs: 700 });
         if (!product) {
             return res.status(404).json({ success: false, message: 'Product not found' });
         }
 
-        await Product.deleteOne({ _id: product._id });
+        await monitorAsyncOperation(logger, 'database.product.delete', { catalogId: product.catalogId, adminId: req.admin?.id || '' }, () => Product.deleteOne({ _id: product._id }), { slowThresholdMs: 700 });
+        logger.info('inventory.product_deleted', { adminId: req.admin?.id || '', catalogId: product.catalogId, productName: product.name || product.title || '' });
         return res.json({ success: true, id: product.catalogId });
     } catch (error) {
-        console.error('deleteProduct error', error);
+        logger.error('inventory.product_delete_failed', { error, requestedProductId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };

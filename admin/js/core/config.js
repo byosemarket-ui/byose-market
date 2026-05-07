@@ -1,3 +1,4 @@
+
 (function (global) {
 	"use strict";
 
@@ -7,12 +8,16 @@
 		return String(value || "").trim().replace(/\/+$/, "");
 	}
 
+	function isLocalHost(hostname) {
+		return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0";
+	}
+
 	function readApiBaseOverride() {
 		const metaTag = global.document && typeof global.document.querySelector === "function"
 			? global.document.querySelector('meta[name="byose-api-base-url"]')
 			: null;
 		const metaValue = metaTag ? normalizeApiBaseUrl(metaTag.getAttribute("content") || "") : "";
-		const runtimeValue = normalizeApiBaseUrl(global.BYOSE_API_BASE_URL || "");
+		const runtimeValue = normalizeApiBaseUrl(global.BYOSE_API_BASE_URL || global.__BYOSE_API_BASE__ || "");
 
 		return runtimeValue || metaValue;
 	}
@@ -23,7 +28,19 @@
 	}
 
 	function getDefaultApiBaseUrl() {
-		return PRODUCTION_API_BASE_URL;
+		const protocol = String(global.location?.protocol || "").toLowerCase();
+		const hostname = String(global.location?.hostname || "").trim();
+		const origin = normalizeApiBaseUrl(global.location?.origin || "");
+
+		if (protocol === "file:" || isLocalHost(hostname)) {
+			return `http://${hostname || "localhost"}:5000/api`;
+		}
+
+		if (requiresExternalApiBaseUrl(protocol, hostname)) {
+			return PRODUCTION_API_BASE_URL;
+		}
+
+		return origin ? `${origin}/api` : PRODUCTION_API_BASE_URL;
 	}
 
 	const protocol = String(global.location?.protocol || "").toLowerCase();

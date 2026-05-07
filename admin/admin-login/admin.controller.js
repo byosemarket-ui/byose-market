@@ -1,18 +1,16 @@
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose");
 const connectDB = require("../../backend/config/db");
 const Admin = require("../../backend/models/Admin");
+const requireAdminAuth = require("../../server/middleware/requireadminauth");
+const { generateToken } = require("../../server/utils/token");
+const { appLogger, monitorAsyncOperation } = require("../../server/utils/logger");
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const MAX_LOGIN_ATTEMPTS = 5;
 
 let inMemoryAdmin = null;
 const loginAttempts = new Map();
-
-// Cache for hashing plaintext ADMIN_PASSWORD once at runtime
-let _cachedPlainPassword = null;
-let _cachedPasswordHash = null;
 
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -26,39 +24,10 @@ function looksLikeBcryptHash(value) {
   return /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(String(value || ""));
 }
 
-/**
- * Resolve admin password hash from env.
- * Prefers ADMIN_PASSWORD_HASH (bcrypt). Falls back to ADMIN_PASSWORD (plaintext),
- * which is hashed with bcrypt once and cached for the process lifetime.
- */
-function resolvePasswordHash() {
-  const stored = String(process.env.ADMIN_PASSWORD_HASH || "").trim();
-  if (looksLikeBcryptHash(stored)) return stored;
-
-  const plain = String(process.env.ADMIN_PASSWORD || "").trim();
-  if (!plain) return "";
-
-  if (_cachedPlainPassword !== plain || !_cachedPasswordHash) {
-    _cachedPasswordHash = bcrypt.hashSync(plain, 10);
-    _cachedPlainPassword = plain;
-    console.log("[ADMIN] Password hash computed from ADMIN_PASSWORD env var");
-  }
-  return _cachedPasswordHash;
-}
-
 function getAdminConfig() {
   const adminEmail = normalizeEmail(process.env.ADMIN_EMAIL);
-  const adminPasswordHash = resolvePasswordHash();
-  const jwtSecret = String(
-    process.env.JWT_SECRET || "byose_market_default_jwt_secret_change_me_in_production"
-  ).trim();
-
-  if (!process.env.JWT_SECRET) {
-    console.warn("[ADMIN] WARNING: JWT_SECRET env var is not set. Using fallback. Set JWT_SECRET in Render dashboard for production security.");
-  }
-  if (!process.env.ADMIN_PASSWORD_HASH && process.env.ADMIN_PASSWORD) {
-    console.log("[ADMIN] Using ADMIN_PASSWORD (plaintext) — consider switching to ADMIN_PASSWORD_HASH in production.");
-  }
+  const adminPasswordHash = String(process.env.ADMIN_PASSWORD_HASH || "").trim();
+  const jwtSecret = String(process.env.JWT_SECRET || "").trim();
 
   return {
     adminEmail,
@@ -109,7 +78,7 @@ async function ensureDatabaseConnection() {
     await connectDB();
     return true;
   } catch (error) {
-    console.warn("Admin auth DB connection unavailable, using in-memory fallback:", error.message);
+    appLogger.warn("auth.admin.db_unavailable", { message: error.message });
     return false;
   }
 }
@@ -123,35 +92,38 @@ async function ensureAdminUser(adminEmail, adminPasswordHash) {
 
   const dbConnected = await ensureDatabaseConnection();
   if (!dbConnected) {
+    appLogger.warn('auth.admin.bootstrap_memory_fallback', { adminEmail });
     return { source: "memory", admin: inMemoryAdmin };
   }
 
-  let admin = await Admin.findOne({ email: adminEmail });
+  let admin = await monitorAsyncOperation(appLogger, 'database.admin.find_one', { adminEmail }, () => Admin.findOne({ email: adminEmail }), { slowThresholdMs: 500 });
 
   if (!admin) {
     admin = new Admin({
       email: adminEmail,
       password: adminPasswordHash
     });
-    await admin.save();
-    console.log("Admin bootstrap: created admin user in database");
+    await monitorAsyncOperation(appLogger, 'database.admin.create', { adminEmail }, () => admin.save(), { slowThresholdMs: 500 });
+    appLogger.info("auth.admin.bootstrap_created", { adminEmail });
     return { source: "database", admin };
   }
 
   if (String(admin.password || "") !== adminPasswordHash) {
     admin.password = adminPasswordHash;
-    await admin.save();
-    console.log("Admin bootstrap: updated admin password hash in database");
+    await monitorAsyncOperation(appLogger, 'database.admin.update_password_hash', { adminEmail }, () => admin.save(), { slowThresholdMs: 500 });
+    appLogger.info("auth.admin.bootstrap_password_hash_updated", { adminEmail });
   }
 
   return { source: "database", admin };
 }
 
 exports.loginAdmin = async (req, res) => {
+  const logger = (req.log || appLogger).child({ scope: 'admin_login' });
   try {
     const { email, password } = req.body || {};
 
     if (!email || !password) {
+      logger.warn('auth.admin.login_input_missing');
       return res.status(400).json({
         success: false,
         message: "Email and password are required"
@@ -160,8 +132,10 @@ exports.loginAdmin = async (req, res) => {
 
     const enteredEmail = normalizeEmail(email);
     const clientId = getClientIdentifier(req, enteredEmail);
+    logger.info('auth.admin.login_attempt', { adminEmail: enteredEmail });
 
     if (isRateLimited(clientId)) {
+      logger.warn('auth.admin.login_rate_limited', { adminEmail: enteredEmail, clientId });
       return res.status(429).json({
         success: false,
         message: "Too many login attempts. Please try again later."
@@ -169,16 +143,16 @@ exports.loginAdmin = async (req, res) => {
     }
 
     if (!isValidEmail(enteredEmail)) {
+      logger.warn('auth.admin.login_invalid_email', { adminEmail: enteredEmail });
       return res.status(400).json({
         success: false,
         message: "Invalid email format"
       });
     }
 
-    console.log("[ADMIN LOGIN DEBUG] enteredEmail:", enteredEmail);
-
-    const { adminEmail, adminPasswordHash, jwtSecret, isConfigured } = getAdminConfig();
+    const { adminEmail, adminPasswordHash, isConfigured } = getAdminConfig();
     if (!isConfigured) {
+      logger.error('auth.admin.login_misconfigured', { adminEmail: enteredEmail });
       return res.status(500).json({
         success: false,
         message: "Server auth misconfigured. Missing ADMIN_EMAIL, ADMIN_PASSWORD_HASH, or JWT_SECRET."
@@ -192,7 +166,7 @@ exports.loginAdmin = async (req, res) => {
     let tokenPayload = null;
 
     if (bootstrapResult.source === "database") {
-      const admin = await Admin.findOne({ email: adminEmail });
+      const admin = await monitorAsyncOperation(logger, 'database.admin.login_lookup', { adminEmail }, () => Admin.findOne({ email: adminEmail }), { slowThresholdMs: 500 });
       userFound = enteredEmail === adminEmail && Boolean(admin);
       if (admin) {
         tokenPayload = {
@@ -212,11 +186,13 @@ exports.loginAdmin = async (req, res) => {
       }
     }
 
-    console.log("[ADMIN LOGIN DEBUG] userFound:", userFound);
-    console.log("[ADMIN LOGIN DEBUG] passwordMatch:", passwordMatch);
-
     if (!userFound || !passwordMatch) {
       recordFailedAttempt(clientId);
+      logger.warn('auth.admin.login_failed', {
+        adminEmail: enteredEmail,
+        attemptCount: loginAttempts.get(clientId)?.count || 0,
+        reason: !userFound ? 'user_not_found' : 'password_mismatch'
+      });
       return res.status(401).json({
         success: false,
         message: "Invalid email or password"
@@ -224,8 +200,28 @@ exports.loginAdmin = async (req, res) => {
     }
 
     clearFailedAttempts(clientId);
+    logger.info('auth.admin.login_succeeded', {
+      adminId: tokenPayload.id,
+      adminEmail: tokenPayload.email,
+      authSource: bootstrapResult.source
+    });
 
-    const token = jwt.sign({ role: "admin" }, jwtSecret, { expiresIn: "1d" });
+    const token = generateToken({
+      id: tokenPayload.id,
+      email: tokenPayload.email,
+      role: tokenPayload.role
+    });
+
+    const encodedPayload = String(token).split('.')[1] || '';
+    const decodedToken = Buffer.from(encodedPayload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+    let expiresAt = null;
+
+    try {
+      const parsed = JSON.parse(decodedToken);
+      if (parsed && Number.isFinite(parsed.exp)) {
+        expiresAt = new Date(parsed.exp * 1000).toISOString();
+      }
+    } catch (_error) {}
 
     return res.status(200).json({
       success: true,
@@ -235,14 +231,32 @@ exports.loginAdmin = async (req, res) => {
         id: tokenPayload.id,
         email: tokenPayload.email,
         role: tokenPayload.role
-      }
+      },
+      expiresAt
     });
   } catch (error) {
-    console.error("Login error:", error);
+    logger.error('auth.admin.login_error', { error });
 
     return res.status(500).json({
       success: false,
       message: "Internal server error"
     });
   }
+};
+
+exports.requireAdminAuth = requireAdminAuth;
+
+exports.getAdminSession = (req, res) => {
+  (req.log || appLogger).debug('auth.admin.session_valid', {
+    adminId: req.admin.id,
+    adminEmail: req.admin.email
+  });
+  return res.status(200).json({
+    success: true,
+    admin: {
+      id: req.admin.id,
+      email: req.admin.email,
+      role: req.admin.role
+    }
+  });
 };

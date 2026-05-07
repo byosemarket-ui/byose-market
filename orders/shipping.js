@@ -275,8 +275,8 @@ function bindForm() {
   });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  initializeOrderFlow('shipping');
+document.addEventListener('DOMContentLoaded', async () => {
+  await initializeOrderFlow('shipping');
   const access = resolveStageAccess('shipping');
   if (!access.valid) {
     window.location.assign(access.redirectUrl);

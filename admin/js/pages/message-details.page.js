@@ -1,4 +1,4 @@
-(function () {
+(async function () {
 	const sidebar = window.AdminSidebar;
 	const service = window.AdminMessagesService;
 
@@ -8,6 +8,13 @@
 
 	if (!service) {
 		return;
+	}
+
+	try {
+		await service.init?.();
+	} catch (error) {
+		feedback.textContent = error?.message || 'Unable to load this message right now.';
+		feedback.className = 'module-feedback is-error';
 	}
 
 	const params = new URLSearchParams(window.location.search);
@@ -57,13 +64,21 @@
 	`;
 
 	statusSelect?.addEventListener("change", () => {
-		service.updateMessageStatus(message.id, statusSelect.value || "New");
-		feedback.textContent = "Message status updated.";
-		feedback.className = "module-feedback is-success";
+		service.updateMessageStatus(message.id, statusSelect.value || "New").then(() => {
+			feedback.textContent = "Message status updated.";
+			feedback.className = "module-feedback is-success";
+		}).catch((error) => {
+			feedback.textContent = error?.message || 'Unable to update the message status right now.';
+			feedback.className = 'module-feedback is-error';
+		});
 	});
 
 	deleteButton?.addEventListener("click", () => {
-		service.deleteMessage(message.id);
-		window.location.href = "index.html";
+		service.deleteMessage(message.id).then(() => {
+			window.location.href = "index.html";
+		}).catch((error) => {
+			feedback.textContent = error?.message || 'Unable to delete the message right now.';
+			feedback.className = 'module-feedback is-error';
+		});
 	});
 })();

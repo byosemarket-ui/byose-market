@@ -1,8 +1,17 @@
- (function () {
+
+(function () {
 	const STORAGE_KEYS = {
 		visits: 'byose_market_visitors_v1',
 		messages: ['byose_market_messages', 'byose_messages']
 	};
+	const cache = {
+		snapshot: null,
+		source: 'local',
+		lastSyncedAt: 0,
+		error: '',
+		refreshPromise: null
+	};
+	let remoteVisits = [];
 
 	function safeParse(value, fallback) {
 		try {
@@ -79,10 +88,48 @@
 			: [];
 	}
 
+	function readCentralMessages() {
+		return window.AdminMessagesService && typeof window.AdminMessagesService.getMessages === 'function'
+			? window.AdminMessagesService.getMessages()
+			: [];
+	}
+
 	function readVisits() {
+		if (Array.isArray(remoteVisits) && remoteVisits.length) {
+			return remoteVisits
+				.filter((visit) => visit && (visit.startedAt || visit.createdAt || visit.timestamp))
+				.sort((left, right) => Number(normalizeTimestamp(right.startedAt || right.createdAt || right.timestamp) || 0) - Number(normalizeTimestamp(left.startedAt || left.createdAt || left.timestamp) || 0));
+		}
+
 		return readStorageArray(STORAGE_KEYS.visits)
 			.filter((visit) => visit && visit.timestamp)
 			.sort((left, right) => new Date(right.timestamp) - new Date(left.timestamp));
+	}
+
+	function getActivityEndpoint() {
+		const apiClient = window.AdminApiClient;
+		if (!apiClient || typeof apiClient.getBaseUrl !== 'function') {
+			return '';
+		}
+
+		return `${apiClient.getBaseUrl()}/admin/activity?eventType=visit&limit=100`;
+	}
+
+	async function refreshVisits() {
+		const endpoint = getActivityEndpoint();
+		if (!endpoint) {
+			return [];
+		}
+
+		try {
+			const response = await window.AdminApiClient.request(endpoint, { method: 'GET' });
+			remoteVisits = Array.isArray(response?.activity) ? response.activity : [];
+			return remoteVisits;
+		} catch (error) {
+			console.warn('Unable to load centralized site activity.', error);
+			remoteVisits = [];
+			return [];
+		}
 	}
 
 	function normalizeMessage(message, index) {
@@ -104,6 +151,11 @@
 	}
 
 	function readMessages() {
+		const centralized = readCentralMessages();
+		if (centralized.length) {
+			return centralized;
+		}
+
 		return readStorageArray(STORAGE_KEYS.messages)
 			.map(normalizeMessage)
 			.filter((message) => message && message.id)
@@ -122,6 +174,15 @@
 				items: order.products || []
 			}))
 			: [];
+	}
+
+	function getEndpoint() {
+		const base = String(window.AdminConfig?.adminApiBaseUrl || '/api/admin').replace(/\/$/, '');
+		return `${base}/dashboard`;
+	}
+
+	function clone(value) {
+		return JSON.parse(JSON.stringify(value));
 	}
 
 	function mapOrderStatus(status) {
@@ -254,8 +315,12 @@
 		await Promise.all([
 			window.AdminCustomersService?.init?.() || Promise.resolve(),
 			window.AdminOrdersService?.init?.() || Promise.resolve(),
-			window.ByoseProductCatalog?.refreshCatalog?.({ silent: true, allowBootstrap: false }) || Promise.resolve()
+			window.AdminMessagesService?.init?.() || Promise.resolve(),
+			window.ByoseProductCatalog?.refreshCatalog?.({ silent: true, allowBootstrap: false }) || Promise.resolve(),
+			refreshVisits()
 		]);
+
+		return refresh({ silent: true });
 	}
 
 	function buildSummary(products, orders, users, visits, messages) {
@@ -291,7 +356,7 @@
 		];
 	}
 
-	function createSnapshot() {
+	function buildLocalSnapshot() {
 		const products = readProducts();
 		const orders = readOrders();
 		const users = readUsers();
@@ -327,11 +392,68 @@
 		};
 	}
 
+	async function refresh(options) {
+		if (cache.refreshPromise && !options?.force) {
+			return cache.refreshPromise;
+		}
+
+		cache.refreshPromise = (async () => {
+			try {
+				if (window.AdminApiClient && typeof window.AdminApiClient.get === 'function') {
+					const payload = await window.AdminApiClient.get(getEndpoint());
+					if (payload?.snapshot) {
+						cache.snapshot = payload.snapshot;
+						cache.source = 'api';
+						cache.lastSyncedAt = Date.now();
+						cache.error = '';
+						return clone(cache.snapshot);
+					}
+				}
+			} catch (error) {
+				cache.error = error?.message || 'Unable to sync admin dashboard analytics from the API.';
+				window.ByoseDiagnostics?.logSyncIssue?.('admin.dashboard.refresh', {
+					message: cache.error,
+					source: 'api'
+				});
+				console.warn('Admin dashboard API refresh failed. Falling back to local admin services.', error);
+			}
+
+			cache.snapshot = buildLocalSnapshot();
+			cache.source = 'local';
+			cache.lastSyncedAt = Date.now();
+			return clone(cache.snapshot);
+		})().finally(() => {
+			cache.refreshPromise = null;
+		});
+
+		return cache.refreshPromise;
+	}
+
+	function createSnapshot() {
+		if (cache.snapshot) {
+			return clone(cache.snapshot);
+		}
+
+		cache.snapshot = buildLocalSnapshot();
+		cache.source = 'local';
+		return clone(cache.snapshot);
+	}
+
+	function getSyncState() {
+		return {
+			source: cache.source,
+			lastSyncedAt: cache.lastSyncedAt,
+			error: cache.error
+		};
+	}
+
 	window.AdminDashboardService = {
 		createSnapshot,
 		formatCurrency,
+		getSyncState,
 		init,
 		mapOrderStatus,
-		mapMessageStatus
+		mapMessageStatus,
+		refresh
 	};
 })();

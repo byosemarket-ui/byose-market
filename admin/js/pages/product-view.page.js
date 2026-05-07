@@ -1,4 +1,4 @@
-(function () {
+(async function () {
 	const sidebar = window.AdminSidebar;
 	const service = window.AdminProductsService;
 
@@ -8,6 +8,15 @@
 
 	if (!service) {
 		return;
+	}
+
+	try {
+		await service.init?.();
+	} catch (error) {
+		const subtitleNode = document.getElementById('productViewSubtitle');
+		if (subtitleNode) {
+			subtitleNode.textContent = error?.message || 'Unable to load the centralized catalog right now.';
+		}
 	}
 
 	const productId = service.getProductIdFromLocation();

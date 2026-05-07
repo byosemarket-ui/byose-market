@@ -9,7 +9,7 @@ const toggleNew = document.getElementById("toggleNew");
 const toggleConfirm = document.getElementById("toggleConfirm");
 
 const resetBtn = document.getElementById("resetBtn");
-const PRODUCTION_API_ORIGIN = 'https://byosemarket-admin-api.onrender.com';
+const PRODUCTION_API_ORIGIN = 'https://byosesemarket4.onrender.com';
 
 function normalizeBase(value) {
     return String(value || '').trim().replace(/\/+$/, '');
@@ -73,6 +73,7 @@ function getStoredUsers() {
 
 function saveStoredUsers(users) {
     localStorage.setItem('bm_users', JSON.stringify(users));
+    localStorage.setItem('byose_market_users', JSON.stringify(users));
 }
 
 async function updatePassword(method, identifier, newPassword) {
@@ -82,12 +83,18 @@ async function updatePassword(method, identifier, newPassword) {
         const response = await fetch(endpoint, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                Accept: 'application/json'
             },
             body: JSON.stringify({ method, identifier, newPassword })
         });
 
-        return response.json();
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+            return { success: false, message: payload?.message || `Password reset failed with status ${response.status}` };
+        }
+
+        return payload || { success: false, message: 'Invalid API response.' };
     }
 
     const users = getStoredUsers();

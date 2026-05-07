@@ -307,8 +307,8 @@ function render(state) {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  initializeOrderFlow('checkout');
+document.addEventListener('DOMContentLoaded', async () => {
+  await initializeOrderFlow('checkout');
   const access = resolveStageAccess('checkout');
   if (!access.valid) {
     window.location.assign(access.redirectUrl);

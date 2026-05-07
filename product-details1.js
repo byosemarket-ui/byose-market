@@ -203,6 +203,7 @@
   function writeCart(cart) {
     try {
       localStorage.setItem(SELECTORS.cartStorageKey, JSON.stringify(cart));
+      window.ByoseStorefrontSync?.syncStorageKey?.(SELECTORS.cartStorageKey, cart);
       window.dispatchEvent(new CustomEvent('kcart:updated'));
     } catch (e) {
       console.error('writeCart error', e);
@@ -787,6 +788,11 @@
     );
     localStorage.removeItem('byose_checkout_draft_v1');
     localStorage.removeItem('byose_checkout_confirmation_v1');
+    window.ByoseStorefrontSync?.syncPatch?.({
+      directCheckout: directItem,
+      checkoutDraft: null,
+      checkoutConfirmation: null
+    });
 
     closeModal();
 

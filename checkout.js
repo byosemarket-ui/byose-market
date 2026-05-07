@@ -6,7 +6,7 @@ let shippingFee = 0;
 let codFee = 0;
 let capturedLocation = null;
 let selectedPaymentType = "pay_now";
-const PRODUCTION_API_ORIGIN = "https://byosemarket-admin-api.onrender.com";
+const PRODUCTION_API_ORIGIN = "https://byosesemarket4.onrender.com";
 
 function normalizeBase(value) {
   return String(value || "").trim().replace(/\/+$/, "");

@@ -144,7 +144,11 @@
 	}
 
 	function getAuthToken() {
-		return "";
+		try {
+			return String(global.localStorage.getItem("adminToken") || "").trim();
+		} catch (error) {
+			return "";
+		}
 	}
 function normalizeSpecs(specs) {
 		if (!Array.isArray(specs)) {
@@ -388,6 +392,7 @@ function normalizeSpecs(specs) {
 			method: options?.method || "GET",
 			headers: {
 				...(options?.body ? { "Content-Type": "application/json" } : {}),
+				Accept: "application/json",
 				...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
 				...(options?.headers || {})
 			},
@@ -396,6 +401,12 @@ function normalizeSpecs(specs) {
 
 		const payload = await response.json().catch(() => null);
 		if (!response.ok) {
+			if (response.status === 401 || response.status === 403) {
+				if (global.AdminSecurity && typeof global.AdminSecurity.handleUnauthorized === "function") {
+					global.AdminSecurity.handleUnauthorized();
+				}
+			}
+
 			throw new Error((payload && payload.message) || "Unable to sync products with the server.");
 		}
 

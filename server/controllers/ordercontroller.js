@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Order = require('../models/order');
 const User = require('../models/user');
+const { appLogger, monitorAsyncOperation } = require('../utils/logger');
 
 async function resolveUser(req) {
     if (!req.user || !req.user.id) return null;
@@ -145,8 +146,9 @@ function appendStatusHistory(order, status) {
 }
 
 exports.createOrder = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'orders' });
     try {
-        const user = await resolveUser(req);
+        const user = await monitorAsyncOperation(logger, 'database.user.resolve_for_order', {}, () => resolveUser(req), { slowThresholdMs: 500 });
         const normalizedOrder = normalizeStorefrontOrder(req.body, user);
 
         if (!normalizedOrder.orderId) {
@@ -161,111 +163,165 @@ exports.createOrder = async (req, res) => {
             return res.status(400).json({ success: false, message: 'customer details required' });
         }
 
-        const existingOrder = await Order.findOne({ orderId: normalizedOrder.orderId });
+        const existingOrder = await monitorAsyncOperation(logger, 'database.order.find_by_order_id', { orderId: normalizedOrder.orderId }, () => Order.findOne({ orderId: normalizedOrder.orderId }), { slowThresholdMs: 700 });
         if (existingOrder) {
-            return res.status(409).json({ success: false, message: 'Order already exists', order: existingOrder });
+            logger.warn('order.duplicate_submission', {
+                orderId: normalizedOrder.orderId,
+                customerId: normalizedOrder.customerId,
+                paymentMethod: normalizedOrder.paymentMethod,
+                paymentType: normalizedOrder.paymentType
+            });
+            return res.json({ success: true, existing: true, order: existingOrder });
         }
 
         const order = new Order(normalizedOrder);
-        await order.save();
+        await monitorAsyncOperation(logger, 'database.order.create', {
+            orderId: normalizedOrder.orderId,
+            customerId: normalizedOrder.customerId,
+            paymentMethod: normalizedOrder.paymentMethod,
+            paymentType: normalizedOrder.paymentType,
+            totalAmount: normalizedOrder.totalAmount
+        }, () => order.save(), { slowThresholdMs: 700 });
+
+        logger.info('order.created', {
+            orderId: normalizedOrder.orderId,
+            customerId: normalizedOrder.customerId,
+            paymentMethod: normalizedOrder.paymentMethod,
+            paymentType: normalizedOrder.paymentType,
+            paymentStatus: normalizedOrder.paymentStatus,
+            totalAmount: normalizedOrder.totalAmount,
+            itemCount: normalizedOrder.items.length
+        });
 
         return res.json({ success: true, order });
     } catch (err) {
-        console.error('createOrder error', err);
+        logger.error('order.create_failed', { error: err });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 // Get orders for logged-in user
 exports.getUserOrders = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'orders' });
     try {
         const user = await resolveUser(req);
         if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
         const query = buildOrderQuery(user);
         if (!query) return res.json({ success: true, orders: [] });
-        const orders = await Order.find(query).sort({ createdAt: -1 });
+        const orders = await monitorAsyncOperation(logger, 'database.order.list_for_user', { userId: user.id }, () => Order.find(query).sort({ createdAt: -1 }), { slowThresholdMs: 700 });
         return res.json({ success: true, orders });
     } catch (err) {
-        console.error('getUserOrders error', err);
+        logger.error('order.list_for_user_failed', { error: err });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 // Update order status (admin or owner)
 exports.updateOrderStatus = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'orders' });
     try {
         const { status } = req.body || {};
         if (!status) return res.status(400).json({ success: false, message: 'status required' });
 
-        const query = buildOrderLookupQuery(req.params.id);
+        const user = await resolveUser(req);
+        if (!user) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
 
+        const query = buildOrderLookupQuery(req.params.id);
         const order = await Order.findOne(query);
         if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
+        const ownershipQuery = buildOrderQuery(user);
+        const ownsOrder = ownershipQuery
+            ? await Order.exists({
+                $and: [
+                    query,
+                    ownershipQuery
+                ]
+            })
+            : false;
+
+        if (!ownsOrder) {
+            logger.warn('order.status_update_forbidden', {
+                requestedOrderId: req.params.id,
+                userId: user.id,
+                status
+            });
+            return res.status(403).json({ success: false, message: 'Unauthorized to update this order' });
+        }
+
         appendStatusHistory(order, status);
-        await order.save();
+        await monitorAsyncOperation(logger, 'database.order.save_status_user', { orderId: order.orderId || order.id, status }, () => order.save(), { slowThresholdMs: 700 });
+        logger.info('order.status_updated_by_customer', { orderId: order.orderId || order.id, userId: user.id, status });
         return res.json({ success: true, order });
     } catch (err) {
-        console.error('updateOrderStatus error', err);
+        logger.error('order.status_update_by_customer_failed', { error: err, requestedOrderId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.getAdminOrders = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'admin_orders' });
     try {
-        const orders = await Order.find({}).sort({ createdAt: -1, updatedAt: -1 });
+        const orders = await monitorAsyncOperation(logger, 'database.order.list_admin', { adminId: req.admin?.id || '' }, () => Order.find({}).sort({ createdAt: -1, updatedAt: -1 }), { slowThresholdMs: 900 });
         return res.json({ success: true, orders });
     } catch (err) {
-        console.error('getAdminOrders error', err);
+        logger.error('admin.order_list_failed', { error: err });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.getAdminOrderById = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'admin_orders' });
     try {
-        const order = await Order.findOne(buildOrderLookupQuery(req.params.id));
+        const order = await monitorAsyncOperation(logger, 'database.order.find_admin', { requestedOrderId: req.params.id }, () => Order.findOne(buildOrderLookupQuery(req.params.id)), { slowThresholdMs: 700 });
         if (!order) {
             return res.status(404).json({ success: false, message: 'Order not found' });
         }
 
         return res.json({ success: true, order });
     } catch (err) {
-        console.error('getAdminOrderById error', err);
+        logger.error('admin.order_lookup_failed', { error: err, requestedOrderId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.updateAdminOrderStatus = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'admin_orders' });
     try {
         const { status } = req.body || {};
         if (!status) {
             return res.status(400).json({ success: false, message: 'status required' });
         }
 
-        const order = await Order.findOne(buildOrderLookupQuery(req.params.id));
+        const order = await monitorAsyncOperation(logger, 'database.order.find_for_admin_status_update', { requestedOrderId: req.params.id }, () => Order.findOne(buildOrderLookupQuery(req.params.id)), { slowThresholdMs: 700 });
         if (!order) {
             return res.status(404).json({ success: false, message: 'Order not found' });
         }
 
         appendStatusHistory(order, status);
-        await order.save();
+        await monitorAsyncOperation(logger, 'database.order.save_status_admin', { orderId: order.orderId || order.id, status, adminId: req.admin?.id || '' }, () => order.save(), { slowThresholdMs: 700 });
+        logger.info('admin.order_status_updated', { orderId: order.orderId || order.id, status, adminId: req.admin?.id || '' });
         return res.json({ success: true, order });
     } catch (err) {
-        console.error('updateAdminOrderStatus error', err);
+        logger.error('admin.order_status_update_failed', { error: err, requestedOrderId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.deleteAdminOrder = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'admin_orders' });
     try {
-        const order = await Order.findOneAndDelete(buildOrderLookupQuery(req.params.id));
+        const order = await monitorAsyncOperation(logger, 'database.order.delete_admin', { requestedOrderId: req.params.id, adminId: req.admin?.id || '' }, () => Order.findOneAndDelete(buildOrderLookupQuery(req.params.id)), { slowThresholdMs: 700 });
         if (!order) {
             return res.status(404).json({ success: false, message: 'Order not found' });
         }
 
+        logger.info('admin.order_deleted', { orderId: order.orderId || order.id || req.params.id, adminId: req.admin?.id || '' });
         return res.json({ success: true, orderId: order.orderId || order.id || req.params.id });
     } catch (err) {
-        console.error('deleteAdminOrder error', err);
+        logger.error('admin.order_delete_failed', { error: err, requestedOrderId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };

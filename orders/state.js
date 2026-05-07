@@ -2,10 +2,12 @@ import {
   STORAGE_KEYS,
   clone,
   createOrderId,
+  clearPendingOrderSubmission,
   delay,
   emitCartUpdated,
   formatCurrency,
   getUserAddress,
+  hydrateStorefrontState,
   isValidPhone,
   normalizePhone,
   persistUserAddress,
@@ -14,9 +16,12 @@ import {
   readCurrentUser,
   readOrderById,
   readDirectCheckout,
+  readPendingOrderSubmission,
   readStorage,
   removeStorage,
+  resolveApiOrigin,
   resolveOrderItemImage,
+  savePendingOrderSubmission,
   saveCheckoutConfirmation,
   saveOrder,
   writeCartItems,
@@ -82,41 +87,11 @@ const DEFAULT_PAYMENT = {
 const SUPPORTED_PAY_NOW_METHODS = ['mtn', 'airtel', 'bank', 'card'];
 const COD_FEE = 2000;
 const SUBMISSION_DELAY_MS = 900;
+const ORDER_REQUEST_TIMEOUT_MS = 12000;
+const ORDER_REQUEST_MAX_ATTEMPTS = 2;
+const PENDING_ORDER_MAX_AGE_MS = 15 * 60 * 1000;
 const INACTIVE_PAYMENT_MESSAGE = 'This payment method is not available yet. Ubu buryo bwo kwishyura ntiburakora.';
 const listeners = new Set();
-const PRODUCTION_API_ORIGIN = 'https://byosemarket-admin-api.onrender.com';
-
-function normalizeBase(value) {
-  return String(value || '').trim().replace(/\/+$/, '');
-}
-
-function isLocalHost(hostname) {
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
-}
-
-function shouldUseProductionApi(hostname) {
-  return /(^|\.)(github\.io|byosemarket\.com)$/i.test(String(hostname || ''));
-}
-
-function resolveApiOrigin() {
-  const explicit = normalizeBase(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || '');
-  if (explicit) {
-    return explicit;
-  }
-
-  const protocol = String(window.location?.protocol || '').toLowerCase();
-  const hostname = String(window.location?.hostname || '').trim();
-
-  if (protocol === 'file:' || isLocalHost(hostname)) {
-    return `http://${hostname || 'localhost'}:5000`;
-  }
-
-  if (shouldUseProductionApi(hostname)) {
-    return PRODUCTION_API_ORIGIN;
-  }
-
-  return normalizeBase(window.location?.origin || '');
-}
 
 const state = {
   initialized: false,
@@ -163,24 +138,104 @@ async function persistOrderToServer(order) {
     return { skipped: true };
   }
 
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(order)
-    });
+  for (let attempt = 1; attempt <= ORDER_REQUEST_MAX_ATTEMPTS; attempt += 1) {
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timeoutId = controller
+      ? window.setTimeout(() => controller.abort(new Error('Order request timeout')), ORDER_REQUEST_TIMEOUT_MS)
+      : 0;
 
-    if (!response.ok) {
-      throw new Error(`Order API request failed with status ${response.status}`);
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        },
+        body: JSON.stringify(order),
+        ...(controller ? { signal: controller.signal } : {})
+      });
+
+      const payload = await response.json().catch(() => null);
+
+      if (response.ok) {
+        return payload && typeof payload === 'object' ? payload : { success: true, order };
+      }
+
+      const message = String(payload?.message || '').trim();
+      const isDuplicateOrder = response.status === 409 && payload?.order && String(payload.order.orderId || payload.order.id || '') === String(order.orderId || order.id || '');
+      if (isDuplicateOrder) {
+        return {
+          success: true,
+          existing: true,
+          order: payload.order
+        };
+      }
+
+      const shouldRetry = response.status >= 500 && attempt < ORDER_REQUEST_MAX_ATTEMPTS;
+      if (shouldRetry) {
+        await delay(300 * attempt);
+        continue;
+      }
+
+      return { success: false, status: response.status, message: message || `Order API request failed with status ${response.status}` };
+    } catch (error) {
+      const isAbort = error?.name === 'AbortError';
+      const shouldRetry = attempt < ORDER_REQUEST_MAX_ATTEMPTS;
+      if (shouldRetry) {
+        await delay(300 * attempt);
+        continue;
+      }
+
+      console.warn('Unable to persist order to the API. Falling back to local checkout storage.', error);
+      return {
+        success: false,
+        timeout: isAbort,
+        error,
+        message: isAbort ? 'Order request timed out. Please retry.' : 'Unable to reach the order service right now.'
+      };
+    } finally {
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
     }
-
-    return await response.json().catch(() => ({ success: true }));
-  } catch (error) {
-    console.warn('Unable to persist order to the API. Falling back to local checkout storage.', error);
-    return { success: false, error };
   }
+
+  return { success: false, message: 'Unable to save your order right now.' };
+}
+
+function buildOrderFingerprint() {
+  return JSON.stringify({
+    source: state.source,
+    customerId: String(state.customer.id || '').trim(),
+    customerEmail: String(state.customer.email || '').trim().toLowerCase(),
+    customerPhone: normalizePhone(state.shippingAddress.phone || state.customer.phone),
+    deliveryId: state.delivery.id,
+    paymentMethod: String(state.payment.method || '').trim().toLowerCase(),
+    total: Number(state.totals.total || 0),
+    items: state.products.map((product) => ({
+      id: String(product?.id || '').trim(),
+      variantKey: String(product?.variantKey || '').trim(),
+      qty: Math.max(1, Number(product?.qty || 1) || 1),
+      price: Number(product?.price || 0) || 0
+    }))
+  });
+}
+
+function getReusablePendingOrder() {
+  const pending = readPendingOrderSubmission();
+  if (!pending || typeof pending !== 'object') {
+    return null;
+  }
+
+  const createdAtMs = Number(pending.createdAtMs || 0);
+  const isFresh = createdAtMs > 0 && (Date.now() - createdAtMs) <= PENDING_ORDER_MAX_AGE_MS;
+  const sameFingerprint = String(pending.fingerprint || '') === buildOrderFingerprint();
+
+  if (!isFresh || !sameFingerprint || !String(pending.orderId || '').trim()) {
+    return null;
+  }
+
+  return pending;
 }
 
 function getStageIndex(stage) {
@@ -469,12 +524,20 @@ function buildPaymentValidation() {
   return { valid: true };
 }
 
-export function initializeCheckoutState() {
+export async function initializeCheckoutState() {
   initializeBaseState('shipping');
+  const hydrated = await hydrateStorefrontState();
+  if (hydrated) {
+    initializeBaseState('shipping');
+  }
 }
 
-export function initializeOrderFlow(preferredStage) {
+export async function initializeOrderFlow(preferredStage) {
   initializeBaseState(preferredStage);
+  const hydrated = await hydrateStorefrontState();
+  if (hydrated) {
+    initializeBaseState(preferredStage);
+  }
 }
 
 export function subscribe(listener) {
@@ -666,8 +729,10 @@ export function buildOrderPayload() {
   const payerPhone = normalizePhone(state.payment.phone || state.payment.payerPhone || state.shippingAddress.phone || state.customer.phone);
   const usesCod = isCodMethod(state.payment.method);
   const hasAccount = Boolean(String(state.customer.id || '').trim());
-  const orderId = createOrderId();
-  const createdAtIso = new Date().toISOString();
+  const pendingOrder = getReusablePendingOrder();
+  const createdAtMs = Number(pendingOrder?.createdAtMs || Date.now());
+  const orderId = String(pendingOrder?.orderId || createOrderId()).trim();
+  const createdAtIso = new Date(createdAtMs).toISOString();
   const products = state.products.map((product) => {
     const image = resolveOrderItemImage(product);
     return {
@@ -780,6 +845,12 @@ export function buildOrderPayload() {
     ]
   };
 
+  savePendingOrderSubmission({
+    orderId,
+    createdAtMs,
+    fingerprint: buildOrderFingerprint()
+  });
+
   return { valid: true, order, customerName };
 }
 
@@ -799,7 +870,27 @@ export async function submitOrder() {
     state.isSubmitting = true;
     emit('submitting-changed');
 
-    saveOrder(order);
+    const persistenceResult = await persistOrderToServer(order);
+    if (persistenceResult?.success === false && !persistenceResult?.skipped) {
+      return {
+        valid: false,
+        message: persistenceResult?.message || 'Unable to save your order to the server right now. Please try again.'
+      };
+    }
+
+    const persistedOrder = persistenceResult?.order && typeof persistenceResult.order === 'object'
+      ? { ...order, ...clone(persistenceResult.order) }
+      : order;
+
+    try {
+      saveOrder(persistedOrder);
+    } catch (error) {
+      const alreadySaved = String(error?.message || '').includes('already been saved');
+      if (!alreadySaved) {
+        throw error;
+      }
+    }
+
     persistUserAddress(order.shippingAddress);
 
     if (state.source === 'cart') {
@@ -812,46 +903,45 @@ export async function submitOrder() {
     emitCartUpdated();
 
     const confirmation = {
-      orderId: order.id,
+      orderId: persistedOrder.id,
       customerName,
-      customerPhone: order.customerPhone,
-      total: order.total,
-      subtotal: order.subtotal,
-      shippingFee: order.shippingFee,
-      codFee: order.codFee,
-      placedAt: order.date,
-      status: order.status,
-      products: clone(order.products),
-      shippingAddress: clone(order.shippingAddress),
-      deliveryLabel: order.deliveryLabel,
-      paymentLabel: order.paymentType === 'cod' || isCodMethod(order.paymentMethod)
+      customerPhone: persistedOrder.customerPhone,
+      total: persistedOrder.total,
+      subtotal: persistedOrder.subtotal,
+      shippingFee: persistedOrder.shippingFee,
+      codFee: persistedOrder.codFee,
+      placedAt: persistedOrder.date,
+      status: persistedOrder.status,
+      products: clone(persistedOrder.products),
+      shippingAddress: clone(persistedOrder.shippingAddress),
+      deliveryLabel: persistedOrder.deliveryLabel,
+      paymentLabel: persistedOrder.paymentType === 'cod' || isCodMethod(persistedOrder.paymentMethod)
         ? 'Pay When You Receive Your Order'
-        : order.paymentMethod === 'mtn'
+        : persistedOrder.paymentMethod === 'mtn'
           ? 'MTN Mobile Money'
-          : order.paymentMethod === 'airtel'
+          : persistedOrder.paymentMethod === 'airtel'
             ? 'Airtel Money'
-            : order.paymentMethod === 'bank'
+            : persistedOrder.paymentMethod === 'bank'
               ? 'Bank Transfer'
-              : order.paymentMethod === 'card'
+              : persistedOrder.paymentMethod === 'card'
                 ? 'Visa / Mastercard'
             : 'Payment pending',
-      paymentType: order.paymentType,
-      paymentMethod: order.paymentMethod
+      paymentType: persistedOrder.paymentType,
+      paymentMethod: persistedOrder.paymentMethod
     };
 
     saveCheckoutConfirmation(confirmation);
+    clearPendingOrderSubmission();
     state.confirmation = confirmation;
-
-    await persistOrderToServer(order);
 
     await delay(SUBMISSION_DELAY_MS);
 
     return {
       valid: true,
-      order,
+      order: persistedOrder,
       confirmation,
-      redirectUrl: `../order-success.html?orderId=${encodeURIComponent(order.id)}`,
-      message: `${customerName} order placed for ${formatCurrency(order.total)}.`
+      redirectUrl: `../order-success.html?orderId=${encodeURIComponent(persistedOrder.id)}`,
+      message: `${customerName} order placed for ${formatCurrency(persistedOrder.total)}.`
     };
   } catch (error) {
     console.error('Checkout submission failed:', error);

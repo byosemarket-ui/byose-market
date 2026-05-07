@@ -1,4 +1,4 @@
-(function () {
+(async function () {
 	const sidebar = window.AdminSidebar;
 	const service = window.AdminProductsService;
 
@@ -8,6 +8,13 @@
 
 	if (!service) {
 		return;
+	}
+
+	try {
+		elements.status.textContent = 'Loading live catalog from the backend...';
+		await service.init?.();
+	} catch (error) {
+		elements.status.textContent = error?.message || 'Unable to load the centralized catalog right now.';
 	}
 
 	const elements = {

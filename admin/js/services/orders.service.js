@@ -13,6 +13,7 @@
 		hydrated: false,
 		lastSyncedAt: 0,
 		source: "local",
+		error: "",
 		refreshPromise: null,
 		pollTimerId: 0,
 		observersBound: false
@@ -510,17 +511,23 @@
 			if (canUseApi()) {
 				try {
 					const remoteOrders = await fetchOrdersFromApi();
-					nextOrders = mergeRawOrders(remoteOrders, localOrders);
+					nextOrders = remoteOrders;
 					writeOrders(nextOrders);
 					source = "api";
+					cache.error = "";
 				} catch (error) {
-					console.warn("Admin orders API refresh failed. Using local checkout storage.", error);
+					cache.error = error?.message || 'Unable to sync admin orders from the API.';
+					window.ByoseDiagnostics?.logSyncIssue?.('admin.orders.refresh', {
+						message: cache.error,
+						source: 'api'
+					});
+					console.warn("Admin orders API refresh failed. Using cached order data.", error);
 				}
 			}
 
 			const normalized = setCacheFromRaw(nextOrders, source);
 			if (!config.silent) {
-				dispatchChange({ action: "refresh", source, count: normalized.length });
+				dispatchChange({ action: "refresh", source, count: normalized.length, error: cache.error });
 			}
 
 			return normalized;
@@ -549,6 +556,9 @@
 
 		global.addEventListener("byose:orders-changed", () => {
 			refreshOrders({ silent: false }).catch((error) => {
+				window.ByoseDiagnostics?.logSyncIssue?.('admin.orders.checkout-refresh', {
+					message: error?.message || 'Unknown refresh error'
+				});
 				console.warn("Admin order refresh after checkout event failed.", error);
 			});
 		});
@@ -658,14 +668,16 @@
 				const payload = await global.AdminApiClient.put(`${getAdminOrdersEndpoint(orderId)}/status`, { status: normalizedStatus });
 				const remoteOrder = payload?.order;
 				if (remoteOrder) {
-					const merged = mergeRawOrders([remoteOrder], readLocalOrders().filter((entry) => getOrderIdentifier(entry) !== String(orderId || "")));
-					writeOrders(merged);
-					setCacheFromRaw(merged, "api");
+					const nextOrders = [remoteOrder].concat(readLocalOrders().filter((entry) => getOrderIdentifier(entry) !== String(orderId || "")));
+					writeOrders(nextOrders);
+					setCacheFromRaw(nextOrders, "api");
+					cache.error = "";
 					dispatchChange({ action: "update", orderId: String(orderId || ""), source: "api" });
 					return getOrderById(orderId);
 				}
 			} catch (error) {
-				console.warn("Admin order status update failed against the API. Falling back to local storage.", error);
+				cache.error = error?.message || 'Unable to update order status from the API.';
+				throw error;
 			}
 		}
 
@@ -698,10 +710,12 @@
 				const nextLocalOrders = readLocalOrders().filter((entry, index) => getOrderIdentifier(entry, `local-${index}`) !== String(orderId || ""));
 				writeOrders(nextLocalOrders);
 				setCacheFromRaw(nextLocalOrders, "api");
+				cache.error = "";
 				dispatchChange({ action: "delete", orderId: String(orderId || ""), source: "api" });
 				return true;
 			} catch (error) {
-				console.warn("Admin order delete failed against the API. Falling back to local storage.", error);
+				cache.error = error?.message || 'Unable to delete order from the API.';
+				throw error;
 			}
 		}
 
@@ -732,6 +746,7 @@
 			hydrated: cache.hydrated,
 			lastSyncedAt: cache.lastSyncedAt,
 			source: cache.source,
+			error: cache.error,
 			pollIntervalMs: POLL_INTERVAL_MS
 		};
 	}
