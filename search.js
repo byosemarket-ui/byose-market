@@ -325,7 +325,6 @@
       elements.imageReset.addEventListener('click', resetVisualSearch);
     }
 
-    window.addEventListener('storage', refreshCatalog);
     window.addEventListener('byose:products-changed', refreshCatalog);
 
     const initialQuery = new URLSearchParams(window.location.search).get('q') || '';

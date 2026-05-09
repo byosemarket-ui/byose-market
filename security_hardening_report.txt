@@ -1,0 +1,79 @@
+Security Hardening Report
+Date: 2026-05-09
+Scope: Security hardening, admin protection, authorization stabilization, JWT/session security, production security stability
+
+Overview
+- Completed a full security hardening pass across backend auth, admin access, API guards, realtime routes, and admin session handling.
+- Preserved centralized MongoDB ownership, centralized APIs, realtime sync systems, and existing ecommerce logic.
+
+1) Vulnerabilities Fixed
+- Fixed insecure realtime admin middleware import mismatch in server/routes/realtime.js.
+- Removed insecure admin frontend fallback session persistence in admin/admin-login/admin-login.js.
+- Removed insecure in-memory admin authentication fallback in admin/admin-login/admin.controller.js.
+- Tightened auth middleware role/claim checks for user/admin separation.
+- Strengthened JWT signing/verification with issuer, audience, algorithm allowlist, claim checks.
+- Reduced account enumeration risk in auth forgot/reset flows.
+- Added route-level abuse controls and auth-sensitive rate limiting.
+- Added global security headers middleware and no-store handling for sensitive responses.
+
+2) Protected Systems
+- Admin-only routes and admin API endpoints protected with strict role validation and no-store headers.
+- Authentication endpoints protected with payload validation + brute-force throttling.
+- Realtime activity/event streams protected with admin auth and non-cacheable responses.
+- Product/admin inventory operations protected with dedicated admin rate limits.
+- Cart/order mutation endpoints protected with abuse throttling and payload size checks.
+
+3) Authorization/JWT Stabilization
+- JWT:
+  - HS256 algorithm constrained.
+  - issuer/audience verification enforced.
+  - subject claim attached at issuance.
+  - required claims validated (id + role).
+- Auth middleware:
+  - Robust bearer parsing.
+  - User routes require role=user with id claim.
+  - Admin routes require role=admin with id/email claims.
+- Admin session handling:
+  - Added bounded validation grace window to avoid stale auth bypass on transport failures.
+  - Added validated-session timestamp tracking.
+  - Enforced admin-role claim locally before allowing session continuity.
+
+4) Production Security Stability Improvements
+- Added security response headers middleware (HSTS on secure transport, anti-mime sniffing, framing restrictions, referrer policy, permissions policy).
+- Tightened production CORS fallback to explicit trusted origins only.
+- Added no-store cache controls on admin session and realtime endpoints.
+- Added central and route-level rate limiting for auth/admin/realtime/order/cart/product endpoints.
+
+5) Modified Files
+Backend:
+- server/utils/token.js
+- server/middleware/authmiddleware.js
+- server/middleware/optionalauthmiddleware.js
+- server/middleware/requireadminauth.js
+- server/middleware/securityheaders.js (new)
+- server/middleware/ratelimiter.js (new)
+- server/routes/auth.js
+- server/routes/orders.js
+- server/routes/products.js
+- server/routes/cart.js
+- server/routes/realtime.js
+- server/controllers/authcontroller.js
+- server/server.js
+
+Admin:
+- admin/admin-login/admin.controller.js
+- admin/admin-login/admin.routes.js
+- admin/admin-login/auth.middleware.js
+- admin/admin-login/admin-login.js
+- admin/admin-login/js/admin-security.js
+
+6) Remaining Recommendations (Next Phase)
+- Move admin JWT storage from localStorage to secure HTTP-only cookie with SameSite=strict and CSRF token strategy.
+- Add distributed rate limiter backing store (Redis) for multi-instance horizontal scaling.
+- Add audit trail persistence for admin privileged actions and suspicious auth events.
+- Add account lockout with progressive delays and optional MFA for admin login.
+- Add API schema validation (Joi/Zod) on high-risk write endpoints.
+
+Validation
+- Diagnostics completed for all modified files: no errors.
+- Centralized ecommerce architecture and realtime synchronization preserved.

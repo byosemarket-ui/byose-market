@@ -1,1 +1,0 @@
-// Media upload page placeholder.

@@ -14,4 +14,8 @@ const StorefrontStateSchema = new mongoose.Schema({
     lastCheckoutSyncedAt: { type: Date, default: null }
 }, { timestamps: true, strict: false });
 
+// Scalability: compound indexes for common query patterns
+StorefrontStateSchema.index({ userId: 1, updatedAt: -1 });
+StorefrontStateSchema.index({ email: 1, updatedAt: -1 });
+
 module.exports = mongoose.model('StorefrontState', StorefrontStateSchema);

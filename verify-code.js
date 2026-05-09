@@ -71,59 +71,44 @@ function getOTP() {
 // ===============================
 let time = 60;
 
-function getStoredResetCode() {
-    return localStorage.getItem('resetCode');
-}
-
 async function verifyResetCode(method, identifier, otp) {
     const endpoint = window.__BYOSE_VERIFY_CODE_API__ || `${resolveApiOrigin()}/api/auth/verify-code`;
 
-    if (endpoint) {
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json'
-            },
-            body: JSON.stringify({ method, identifier, otp })
-        });
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json'
+        },
+        body: JSON.stringify({ method, identifier, otp })
+    });
 
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) {
-            return { success: false, message: payload?.message || `Verify request failed with status ${response.status}` };
-        }
-
-        return payload || { success: false, message: 'Invalid API response.' };
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+        return { success: false, message: payload?.message || `Verify request failed with status ${response.status}` };
     }
 
-    return { success: otp === getStoredResetCode() };
+    return payload || { success: false, message: 'Invalid API response.' };
 }
 
 async function resendResetCode(method, identifier) {
     const endpoint = window.__BYOSE_PASSWORD_RESET_API__ || `${resolveApiOrigin()}/api/auth/forgot-password`;
 
-    if (endpoint) {
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json'
-            },
-            body: JSON.stringify({ method, identifier })
-        });
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json'
+        },
+        body: JSON.stringify({ method, identifier })
+    });
 
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) {
-            return { success: false, message: payload?.message || `Resend request failed with status ${response.status}` };
-        }
-
-        return payload || { success: false, message: 'Invalid API response.' };
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+        return { success: false, message: payload?.message || `Resend request failed with status ${response.status}` };
     }
 
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    localStorage.setItem('resetCode', code);
-    localStorage.setItem('resetIdentifier', identifier || '');
-    return { success: true, staticCode: code };
+    return payload || { success: false, message: 'Invalid API response.' };
 }
 
 const timer = setInterval(() => {
@@ -188,9 +173,6 @@ resendBtn.addEventListener("click", async () => {
         const data = await resendResetCode(method, identifier);
 
         if (data.success) {
-            if (data.staticCode) {
-                alert(`Static hosting mode code: ${data.staticCode}`);
-            }
             alert("Code resent!");
             time = 60;
         } else {

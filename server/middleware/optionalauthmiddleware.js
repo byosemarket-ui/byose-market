@@ -1,23 +1,32 @@
 const { verifyToken } = require('../utils/token');
 
+function extractBearerToken(req) {
+    const authHeader = String(req.headers.authorization || req.headers.Authorization || '').trim();
+    if (!authHeader || !/^Bearer\s+/i.test(authHeader)) {
+        return '';
+    }
+
+    return authHeader.replace(/^Bearer\s+/i, '').trim();
+}
+
 function optionalAuthMiddleware(req, res, next) {
-    const auth = req.headers.authorization || req.headers.Authorization || '';
-    if (!auth || !auth.startsWith('Bearer ')) {
+    const token = extractBearerToken(req);
+    if (!token) {
         next();
         return;
     }
 
-    const token = auth.split(' ')[1];
     const result = verifyToken(token);
     if (!result.valid) {
         return res.status(401).json({ success: false, message: 'Invalid token' });
     }
 
-    if (result.payload && result.payload.role === 'admin') {
+    const payload = result.payload || {};
+    if (!payload.id || payload.role === 'admin') {
         return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
 
-    req.user = result.payload;
+    req.user = payload;
     next();
 }
 

@@ -18,7 +18,10 @@ function requireDatabase(req, res, next) {
     res.setHeader('Retry-After', '30');
     return res.status(503).json({
         success: false,
-        message: 'Service temporarily unavailable. Database connection is not ready.'
+        code: 'DATABASE_UNAVAILABLE',
+        message: 'Service temporarily unavailable. Database connection is not ready.',
+        retryAfterSeconds: 30,
+        readyState: mongoose.connection.readyState
     });
 }
 

@@ -2,7 +2,6 @@ import { buildVariantKey, normalizeProductAttributes } from './product-attribute
 import { createProductModal } from './product-modal.js';
 import { renderProductOptionPreview } from './product-ui-renderer.js';
 
-const CART_KEY = 'byose_market_cart_v1';
 const DIRECT_CHECKOUT_KEY = 'byose_direct_checkout';
 const CHECKOUT_DRAFT_KEY = 'byose_checkout_draft_v1';
 const CHECKOUT_CONFIRMATION_KEY = 'byose_checkout_confirmation_v1';
@@ -42,33 +41,15 @@ function dispatchCartEvents() {
 }
 
 function fallbackAddItemsToCart(items) {
-  try {
-    const cart = JSON.parse(localStorage.getItem(CART_KEY) || '[]');
-
-    items.forEach(item => {
-      const existing = cart.find(entry => (
-        String(entry.id) === String(item.id)
-        && String(entry.variantKey || '') === String(item.variantKey || '')
-      ));
-
-      if (existing) {
-        existing.qty += item.qty;
-        existing.total = existing.qty * existing.price;
-        existing.attributes = item.attributes || existing.attributes || {};
-        existing.attributeSummary = item.attributeSummary || existing.attributeSummary || '';
-        existing.color = item.color || existing.color || '';
-        existing.size = item.size || existing.size || '';
-      } else {
-        cart.push({ ...item });
-      }
-    });
-
-    localStorage.setItem(CART_KEY, JSON.stringify(cart));
-    window.ByoseStorefrontSync?.syncStorageKey?.(CART_KEY, cart);
-    dispatchCartEvents();
-  } catch (error) {
-    console.error('Unable to write cart data', error);
-  }
+  const count = Array.isArray(items) ? items.length : 0;
+  window.dispatchEvent(new CustomEvent('byose:storefront-cart-error', {
+    detail: {
+      action: 'add',
+      itemCount: count,
+      message: 'Centralized cart service is unavailable. Please refresh and try again.'
+    }
+  }));
+  throw new Error('Centralized cart service is unavailable.');
 }
 
 function addItemsToCart(items) {
@@ -93,9 +74,9 @@ function startDirectCheckout(item) {
   }
 
   try {
-    localStorage.setItem(DIRECT_CHECKOUT_KEY, JSON.stringify(item));
-    localStorage.removeItem(CHECKOUT_DRAFT_KEY);
-    localStorage.removeItem(CHECKOUT_CONFIRMATION_KEY);
+    window.ByoseStorefrontSync?.writeStateByKey?.(DIRECT_CHECKOUT_KEY, item);
+    window.ByoseStorefrontSync?.removeStateByKey?.(CHECKOUT_DRAFT_KEY);
+    window.ByoseStorefrontSync?.removeStateByKey?.(CHECKOUT_CONFIRMATION_KEY);
     window.ByoseStorefrontSync?.syncPatch?.({
       directCheckout: item,
       checkoutDraft: null,

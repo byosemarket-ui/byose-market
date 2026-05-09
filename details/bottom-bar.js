@@ -23,7 +23,7 @@
 
   function getCartCount() {
     try {
-      const cart = JSON.parse(localStorage.getItem(CART_KEY) || '[]');
+      const cart = window.ByoseStorefrontSync?.readStateByKey?.(CART_KEY) || [];
       return cart.reduce((count, item) => count + (Number(item.qty) || 0), 0);
     } catch (error) {
       return 0;
@@ -97,7 +97,7 @@
 
     document.addEventListener('cart:updated', updateCartBadge);
     window.addEventListener('kcart:updated', updateCartBadge);
-    window.addEventListener('storage', updateCartBadge);
+    window.addEventListener('byose:storefront-state-updated', updateCartBadge);
     window.addEventListener('resize', updateBodySpacing, { passive: true });
     window.addEventListener('pageshow', () => {
       updateCartBadge();

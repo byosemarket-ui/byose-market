@@ -1,69 +1,18 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="../admin-login/js/admin-security.js"></script>
-<title>View Product | Byose Market Admin</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="../css/tokens.css">
-  <link rel="stylesheet" href="../css/base.css">
-  <link rel="stylesheet" href="../css/layout.css">
-  <link rel="stylesheet" href="../css/pages/products.css">
+<title>Redirecting | Products</title>
+<meta http-equiv="refresh" content="0; url=../dashboard.html#/products">
+<script>
+(function () {
+  window.location.replace('../dashboard.html#/products');
+})();
+</script>
 </head>
-<body class="admin-dashboard-page">
-  <div class="dashboard-shell">
-    <div class="dashboard-orb dashboard-orb-primary" aria-hidden="true"></div>
-    <div class="dashboard-orb dashboard-orb-secondary" aria-hidden="true"></div>
-    <div class="admin-app-shell">
-      <div class="admin-sidebar-backdrop" data-sidebar-backdrop hidden></div>
-      <aside class="admin-sidebar" id="adminSidebar" aria-label="Admin navigation" data-sidebar-root></aside>
-      <div class="admin-main-shell">
-<div class="admin-topbar-leading">
-            <button class="sidebar-toggle-button" type="button" aria-label="Open navigation" aria-controls="adminSidebar" aria-expanded="false" data-sidebar-toggle>
-              <span></span>
-              <span></span>
-              <span></span>
-            </button>
-            <div>
-              <p class="dashboard-eyebrow">Admin Products</p>
-              <h1 class="admin-topbar-title" id="productViewTitle">Product details</h1>
-            </div>
-          </div>
-          <div class="admin-topbar-meta"><span class="admin-status-dot"></span><span id="productViewSubtitle">Loading product details...</span></div>
-        </header>
-
-        <main class="dashboard-grid products-dashboard-grid">
-          <section class="dashboard-panel products-view-toolbar">
-            <div>
-              <p class="dashboard-eyebrow">Catalog item</p>
-              <h2>View synced product data</h2>
-            </div>
-            <div class="products-view-actions">
-              <a class="products-secondary-link" href="index.html">Back to catalog</a>
-              <a class="products-primary-link" id="productEditButton" href="edit.html">Edit product</a>
-              <button class="products-danger-button" id="productDeleteButton" type="button">Delete product</button>
-            </div>
-          </section>
-          <div id="productViewMount"></div>
-        </main>
-      </div>
-    </div>
-  </div>
-  <script src="../js/core/config.js"></script>
-  <script src="../js/core/api-client.js"></script>
-  <script src="../js/services/catalog.service.js"></script>
-  <script src="../../js/products.js"></script>
-  <script src="../js/services/products.service.js"></script>
-  <script src="../js/components/sidebar.js"></script>
-  <script src="../js/pages/product-view.page.js"></script>
+<body>
+<p>Redirecting to admin module...</p>
 </body>
 </html>
-
-
-
-
-
-

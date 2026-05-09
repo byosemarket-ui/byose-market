@@ -1,25 +1,18 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="admin-login/js/admin-security.js"></script>
-<title>Redirecting | Byose Market Admin Add Product</title>
-	<meta http-equiv="refresh" content="0; url=products/create.html">
-	<script>
-		(function () {
-			var suffix = window.location.search || window.location.hash || '';
-			window.location.replace('products/create.html' + suffix);
-		})();
-	</script>
+<title>Redirecting | Admin Products</title>
+<meta http-equiv="refresh" content="0; url=dashboard.html#/products">
+<script>
+(function () {
+  window.location.replace('dashboard.html#/products');
+})();
+</script>
 </head>
 <body>
-	<p>Redirecting to add product...</p>
+<p>Redirecting to products...</p>
 </body>
 </html>
-
-
-
-
-
-

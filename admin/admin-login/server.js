@@ -11,5 +11,7 @@ const HOST = "0.0.0.0";
 
 // 🚀 START SERVER
 app.listen(PORT, HOST, () => {
-  console.log(`🚀 Server running on http://${HOST}:${PORT}`);
+  if (process.env.NODE_ENV !== "production") {
+    console.info(`Admin login helper running on http://${HOST}:${PORT}`);
+  }
 });

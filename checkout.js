@@ -107,23 +107,17 @@ document.addEventListener("DOMContentLoaded", () => {
    LOAD CART
 ================================= */
 function loadCart() {
-
   try {
-
-    // 1️⃣ Check if direct checkout exists
-    const directItem = JSON.parse(localStorage.getItem("byose_direct_checkout"));
+    const directItem = window.ByoseStorefrontSync?.readStateByKey?.("byose_direct_checkout") || null;
 
     if (directItem) {
       cart = [directItem];
-
-      // Remove it so refresh doesn't duplicate
-      localStorage.removeItem("byose_direct_checkout");
+      window.ByoseStorefrontSync?.removeStateByKey?.("byose_direct_checkout");
 
       return;
     }
 
-    // 2️⃣ Otherwise load normal cart
-    cart = JSON.parse(localStorage.getItem("byose_market_cart_v1")) || [];
+    cart = window.ByoseStorefrontSync?.readStateByKey?.("byose_market_cart_v1") || [];
 
   } catch {
     cart = [];
@@ -458,7 +452,7 @@ function placeOrder() {
 
     try {
       await saveOrder(orderData);
-      localStorage.setItem("byose_market_cart_v1", JSON.stringify([]));
+      window.ByoseStorefrontSync?.writeStateByKey?.("byose_market_cart_v1", []);
 
       // HIDE LOADING
       document.getElementById("loadingOverlay").classList.add("hidden");
@@ -504,10 +498,6 @@ async function saveOrder(order) {
   }
 
   const savedOrder = payload.order || order;
-  let orders = JSON.parse(localStorage.getItem("byose_orders")) || [];
-  orders = orders.filter((entry) => String(entry?.id || entry?.orderId || "") !== String(savedOrder?.id || savedOrder?.orderId || ""));
-  orders.push(savedOrder);
-  localStorage.setItem("byose_orders", JSON.stringify(orders));
 	window.dispatchEvent(new CustomEvent("byose:orders-changed", { detail: { order: savedOrder, source: "api" } }));
 	return savedOrder;
 }

@@ -1,0 +1,108 @@
+Byose Market - Full Reliability Stabilization Report
+Date: 2026-05-09
+Scope: Production reliability, resilience, stability, and consistency only
+
+==================================================
+1) Stabilized Systems
+==================================================
+- Backend startup and database recovery behavior stabilized.
+- Backend degraded-mode behavior made explicit for API consumers.
+- Storefront checkout submission reliability improved with stale-submission protection.
+- Storefront cart state consistency improved with safer sync and cache invalidation.
+- Admin API request retry logic stabilized for safe methods and timeout handling.
+- Admin realtime synchronization hardened against duplicate events and reconnect storms.
+- Admin dashboard refresh pipeline hardened against live-update refresh floods.
+- Live feed processing stabilized with per-scope in-flight guards and refresh pacing.
+
+==================================================
+2) Repaired Reliability Issues
+==================================================
+A) Database and server resilience
+- Added reconnect scheduler in DB config to auto-recover after disconnections.
+- Added startup reconnect retry scheduling when initial DB connect fails.
+- Added runtime DB readiness propagation per request for consistent server state.
+- Added /readyz endpoint for deterministic readiness checks (200 when ready, 503 otherwise).
+- Improved /healthz to expose degraded state and DB readyState.
+
+B) Graceful database/API failure handling
+- requireDatabase now returns structured 503 payload with code, retryAfterSeconds, and readyState.
+- This improves client retry behavior and observability under transient DB outages.
+
+C) Storefront checkout consistency and stale response prevention
+- Added active submission nonce guard in order submission flow.
+- Prevented stale/older submission responses from overriding active checkout state.
+- Improved retry criteria for 408/429/5xx in order persistence path.
+
+D) Storefront cart stability and sync consistency
+- Added in-memory parsed cart cache to reduce repeated parse/normalize churn.
+- Added cache invalidation and cross-tab consistency refresh via storage event handling.
+- Wrapped external sync provider invocation in try/catch so sync failures do not break cart persistence.
+- Wrapped hydration in try/catch to continue with safe local cart fallback when hydrate fails.
+
+E) Admin frontend/backend communication reliability
+- Request retry policy is now method-aware:
+  - Safe methods can retry on transient failures.
+  - Unsafe methods (POST/PATCH/DELETE) do not retry unless explicitly allowed.
+- Added jittered retry delay to reduce synchronized retry spikes.
+- Preserved timeout enforcement and normalized error propagation.
+
+F) Realtime synchronization resilience
+- Added robust event dedupe keys (event id or deterministic fallback fingerprint).
+- Added bounded processed-event cache to prevent event replay loops.
+- Removed duplicate publish path for cross-tab events.
+- Added reconnect timer guard to prevent reconnect storm fan-out.
+- Added polling in-flight guard to prevent overlapping poll cycles.
+- Ensured disconnect clears reconnect timers and resets in-flight polling state.
+
+G) Dashboard rendering and live feed stability
+- Removed redundant live-feeds bootstrap call path from dashboard page.
+- Added debounced dashboard refresh queue for bursty realtime updates.
+- Added refresh token guard to drop stale render results.
+- Added cleanup for refresh timers during route cleanup.
+- Added per-scope live feed in-flight lock and minimum refresh spacing to prevent duplicated update bursts.
+
+==================================================
+3) Improved Production Behavior
+==================================================
+- Better transient outage behavior during Mongo unavailability.
+- Better readiness semantics for deployment probes and traffic routing.
+- Reduced risk of duplicate state updates from concurrent realtime and tab events.
+- Reduced risk of stale dashboard and checkout state overwrites.
+- Reduced request retry side effects for write operations.
+
+==================================================
+4) Improved Synchronization Consistency
+==================================================
+- Cross-tab cart and admin realtime updates now avoid duplicate fan-out loops.
+- Dashboard update fan-in now coalesces bursts rather than re-rendering excessively.
+- Realtime polling and reconnect behavior now constrained to avoid overlap and storms.
+
+==================================================
+5) Modified Files
+==================================================
+- server/config/db.js
+- server/server.js
+- server/middleware/requiredatabase.js
+- server/controllers/cartcontroller.js
+- orders/state.js
+- cart.js
+- admin/app/core/api.js
+- admin/app/services/realtime-sync.service.js
+- admin/app/services/live-feeds.service.js
+- admin/app/pages/dashboard.js
+
+==================================================
+6) Validation Results
+==================================================
+- Diagnostics check passed with no errors in all modified files.
+
+==================================================
+7) Remaining Warnings / Recommendations
+==================================================
+- Consider adding persistent/shared rate-limit storage (Redis) for multi-instance deployments.
+- Consider idempotency keys for sensitive write endpoints (orders/cart mutations) for strict duplicate write protection across retries.
+- Consider server-side distributed lock or optimistic concurrency control for extremely high cart write concurrency.
+- Consider synthetic uptime checks for /readyz and /healthz with alerting thresholds.
+- Consider capturing reconnect/error metrics to dashboard observability panels for realtime health trend analysis.
+
+End of report.

@@ -1,14 +1,7 @@
-/* Visitor Tracker — keeps the existing local cache, but also records visits in the backend. */
+/* Visitor Tracker — records visits in the backend without browser-local ownership. */
 const Tracker = (function(){
-  const KEY = 'byose_market_visitors_v1';
-
-  function getStore(){
-    try{ return JSON.parse(localStorage.getItem(KEY)) || []; }catch{ return []; }
-  }
-
-  function saveStore(v){
-    try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) {}
-  }
+  let currentVisit = null;
+  let recentVisits = [];
 
   function detectDevice(){
     const ua = navigator.userAgent || '';
@@ -162,44 +155,37 @@ const Tracker = (function(){
       viewport: `${window.innerWidth || 0}x${window.innerHeight || 0}`
     };
 
-    const store = getStore();
-    store.push(visitor);
-    saveStore(store);
+    currentVisit = visitor;
+    recentVisits = [visitor];
 
     void recordVisitOnServer(visitor);
 
     fetchGeo().then((geo) => {
       if(!geo) return;
       try{
-        const all = getStore();
-        const idx = all.findIndex(v=>v.id===visitor.id);
-        if(idx>-1){
-          all[idx].ip = geo.ip || null;
-          all[idx].city = geo.city || null;
-          all[idx].country = geo.country_name || null;
-          all[idx].org = geo.org || null;
-          saveStore(all);
-          void updateVisitOnServer(all[idx]);
-        }
+        if(!currentVisit || currentVisit.id !== visitor.id) return;
+        currentVisit.ip = geo.ip || null;
+        currentVisit.city = geo.city || null;
+        currentVisit.country = geo.country_name || null;
+        currentVisit.org = geo.org || null;
+        recentVisits = [currentVisit];
+        void updateVisitOnServer(currentVisit);
       }catch(e){}
     }).catch(() => null);
 
     window.addEventListener('beforeunload', () => {
       try{
         const now = Date.now();
-        const all = getStore();
-        const idx = all.findIndex(v=>v.id===visitor.id);
-        if(idx>-1){
-          all[idx].duration = Math.round((now - all[idx].start)/1000);
-          saveStore(all);
-          void updateVisitOnServer(all[idx]);
-        }
+        if(!currentVisit || currentVisit.id !== visitor.id) return;
+        currentVisit.duration = Math.round((now - currentVisit.start)/1000);
+        recentVisits = [currentVisit];
+        void updateVisitOnServer(currentVisit);
       }catch(e){}
     }, { once: true });
   }
 
-  function getVisits(){ return getStore(); }
-  function clearVisits(){ localStorage.removeItem(KEY); }
+  function getVisits(){ return recentVisits.slice(); }
+  function clearVisits(){ recentVisits = []; currentVisit = null; }
 
   return { startVisit, getVisits, clearVisits };
 })();

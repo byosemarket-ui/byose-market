@@ -1,4 +1,4 @@
-import { getAllProductContent, getProductContentById } from './product-content.js';
+import { getAllProductContent } from './product-content.js';
 
 const CATEGORY_COPY = {
   shoes: {
@@ -73,12 +73,11 @@ const CATEGORY_COPY = {
 
 function getCatalog() {
   const detailCatalog = getAllProductContent();
-
   if (detailCatalog.length) {
     return detailCatalog;
   }
 
-  return Array.isArray(window.products) ? window.products : [];
+  return [];
 }
 
 function getCategoryProfile(category) {
@@ -244,10 +243,7 @@ export function createProductUrl(product, mode = 'relative') {
 export function loadProductData() {
   const catalog = getCatalog();
   const productId = getNumericId();
-  const product = catalog.find(item => Number(item.id) === productId)
-    || getProductContentById(productId)
-    || catalog[0]
-    || null;
+  const product = catalog.find(item => Number(item.id) === productId) || null;
 
   if (!product) {
     return null;

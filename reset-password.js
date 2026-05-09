@@ -63,67 +63,24 @@ function validatePassword(password) {
     return password.length >= 4;
 }
 
-function getStoredUsers() {
-    try {
-        return JSON.parse(localStorage.getItem('bm_users')) || [];
-    } catch (error) {
-        return [];
-    }
-}
-
-function saveStoredUsers(users) {
-    localStorage.setItem('bm_users', JSON.stringify(users));
-    localStorage.setItem('byose_market_users', JSON.stringify(users));
-}
-
 async function updatePassword(method, identifier, newPassword) {
     const endpoint = window.__BYOSE_RESET_PASSWORD_API__ || `${resolveApiOrigin()}/api/auth/reset-password`;
 
-    if (endpoint) {
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json'
-            },
-            body: JSON.stringify({ method, identifier, newPassword })
-        });
-
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) {
-            return { success: false, message: payload?.message || `Password reset failed with status ${response.status}` };
-        }
-
-        return payload || { success: false, message: 'Invalid API response.' };
-    }
-
-    const users = getStoredUsers();
-    const index = users.findIndex((user) => {
-        if (method === 'email') {
-            return (user.email || '').toLowerCase() === String(identifier || '').toLowerCase();
-        }
-        return (user.phone || '') === identifier;
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json'
+        },
+        body: JSON.stringify({ method, identifier, newPassword })
     });
 
-    if (index === -1) {
-        return { success: false, message: 'Account not found.' };
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+        return { success: false, message: payload?.message || `Password reset failed with status ${response.status}` };
     }
 
-    users[index].password = newPassword;
-    saveStoredUsers(users);
-
-    try {
-        const currentUser = JSON.parse(localStorage.getItem('bm_current_user') || 'null');
-        if (currentUser && users[index].id === currentUser.id) {
-            localStorage.setItem('bm_current_user', JSON.stringify(users[index]));
-            localStorage.setItem('bm_user', JSON.stringify(users[index]));
-        }
-    } catch (error) {
-        console.error(error);
-    }
-
-    localStorage.removeItem('resetCode');
-    return { success: true };
+    return payload || { success: false, message: 'Invalid API response.' };
 }
 
 // ===============================

@@ -337,7 +337,7 @@ qty: qty
 
 };
 
-	// try to add to any available cart integration, otherwise persist to localStorage
+	// Use centralized cart integration only.
 	if (window.Cart && Cart.addItem){
 		Cart.addItem(product);
 	} else if(window.KCart){
@@ -345,22 +345,13 @@ qty: qty
 	} else if(window.addToCart){
 		addToCart(product);
 	} else {
-		try {
-			const key = 'byose_market_cart_v1';
-			const raw = localStorage.getItem(key);
-			const list = raw ? JSON.parse(raw) : [];
-			// simple merge: if same id exists, increment qty
-			const existing = list.find(i => i.id === product.id);
-			if (existing) {
-				existing.qty = Number(existing.qty) + Number(product.qty);
-			} else {
-				list.push(product);
+		window.dispatchEvent(new CustomEvent('byose:storefront-cart-error', {
+			detail: {
+				action: 'add',
+				message: 'Centralized cart service is unavailable. Please refresh and try again.'
 			}
-			localStorage.setItem(key, JSON.stringify(list));
-			window.dispatchEvent(new Event('cart:updated'));
-		} catch (e) {
-			console.error('Could not save cart to localStorage', e);
-		}
+		}));
+		throw new Error('Centralized cart service is unavailable.');
 	}
 
 	modal.classList.remove("active");

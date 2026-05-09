@@ -2,6 +2,9 @@ const jwt = require('jsonwebtoken');
 const { appLogger } = require('./logger');
 
 const EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const JWT_ISSUER = process.env.JWT_ISSUER || 'byosemarket-api';
+const JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'byosemarket-clients';
+const JWT_ALGORITHM = 'HS256';
 
 function getSecret() {
     if (process.env.JWT_SECRET) {
@@ -35,7 +38,13 @@ function getJwtConfig() {
 
 function generateToken(payload) {
     const jwtConfig = getJwtConfig();
-    const token = jwt.sign(payload, jwtConfig.secret, { expiresIn: jwtConfig.expiresIn });
+    const token = jwt.sign(payload, jwtConfig.secret, {
+        algorithm: JWT_ALGORITHM,
+        expiresIn: jwtConfig.expiresIn,
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE,
+        subject: String(payload?.id || payload?.email || '')
+    });
 
     appLogger.info('auth.jwt.token_created', {
         subjectId: String(payload?.id || ''),
@@ -51,7 +60,21 @@ function generateToken(payload) {
 function verifyToken(token) {
     try {
         const jwtConfig = getJwtConfig();
-        const payload = jwt.verify(token, jwtConfig.secret);
+        const payload = jwt.verify(token, jwtConfig.secret, {
+            algorithms: [JWT_ALGORITHM],
+            issuer: JWT_ISSUER,
+            audience: JWT_AUDIENCE,
+            clockTolerance: 5
+        });
+
+        if (!payload || !payload.id || !payload.role) {
+            return {
+                valid: false,
+                expired: false,
+                error: new Error('Token payload missing required claims'),
+                secretSource: jwtConfig.secretSource
+            };
+        }
 
         appLogger.debug('auth.jwt.token_validated', {
             subjectId: String(payload?.id || ''),

@@ -25,7 +25,6 @@
 	};
 
 	let inMemoryCatalog = [];
-	let registeredSeedCatalog = [];
 	let remoteSyncPromise = null;
 	let pollingStarted = false;
 	let refreshTimerId = 0;
@@ -135,7 +134,29 @@
 	}
 
 	function getApiBaseUrl() {
-		return String(global.AdminConfig?.apiBaseUrl || "/api").replace(/\/$/, "");
+		const explicit = String(global.BYOSE_API_BASE_URL || global.__BYOSE_API_BASE__ || "").trim().replace(/\/+$/, "");
+		if (explicit) {
+			return explicit.endsWith("/api") ? explicit : `${explicit}/api`;
+		}
+
+		const configured = String(global.AdminConfig?.apiBaseUrl || "").trim().replace(/\/+$/, "");
+		if (configured) {
+			return configured;
+		}
+
+		const protocol = String(global.location?.protocol || "").toLowerCase();
+		const origin = String(global.location?.origin || "").trim().replace(/\/+$/, "");
+		const hostname = String(global.location?.hostname || "").trim().toLowerCase();
+
+		if (protocol === "file:" || hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0") {
+			return `http://${hostname || "localhost"}:5000/api`;
+		}
+
+		if (/(^|\.)(github\.io|byosemarket\.com|www\.byosemarket\.com)$/i.test(hostname)) {
+			return "https://byosesemarket4.onrender.com/api";
+		}
+
+		return origin ? `${origin}/api` : "/api";
 	}
 
 	function getProductsApiUrl(pathSuffix) {
@@ -307,50 +328,8 @@ function normalizeSpecs(specs) {
 		return source.map((item, index) => normalizeProduct(item, index, usedIds));
 	}
 
-	function mergeCatalogWithSeed(items, seedItems) {
-		const catalog = normalizeCatalog(items);
-		const seedCatalog = normalizeCatalog(seedItems);
-		if (!seedCatalog.length) {
-			return catalog;
-		}
-
-		const seedById = new Map(seedCatalog.map((item) => [Number(item.id), item]));
-		return normalizeCatalog((catalog.length ? catalog : seedCatalog).map((item) => {
-			const seed = seedById.get(Number(item.id)) || {};
-			return {
-				...seed,
-				...item,
-				mainImage: item.mainImage || item.image || seed.mainImage || seed.image,
-				image: item.image || item.mainImage || seed.image || seed.mainImage,
-				gallery: Array.isArray(item.gallery) && item.gallery.length ? item.gallery : seed.gallery,
-				keywords: Array.isArray(item.keywords) && item.keywords.length ? item.keywords : seed.keywords,
-				longDescription: Array.isArray(item.longDescription) && item.longDescription.length ? item.longDescription : seed.longDescription,
-				highlights: Array.isArray(item.highlights) && item.highlights.length ? item.highlights : seed.highlights,
-				trust: Array.isArray(item.trust) && item.trust.length ? item.trust : seed.trust,
-				specs: Array.isArray(item.specs) && item.specs.length ? item.specs : seed.specs,
-				attributes: Array.isArray(item.attributes) && item.attributes.length ? item.attributes : seed.attributes
-			};
-		}));
-	}
-
 	function readPersistedCatalog() {
-		if (!canUseStorage()) {
-			return [];
-		}
-
-		const raw = global.localStorage.getItem(STORAGE_KEY);
-		if (!raw) {
-			return [];
-		}
-
-		const parsed = safeParse(raw, []);
-		const catalog = Array.isArray(parsed)
-			? parsed
-			: parsed && Array.isArray(parsed.catalog)
-				? parsed.catalog
-				: [];
-
-		return normalizeCatalog(catalog);
+		return [];
 	}
 
 	function dispatchChange(detail) {
@@ -366,14 +345,7 @@ function normalizeSpecs(specs) {
 	}
 
 	function persistCatalog(catalog, metadata) {
-		inMemoryCatalog = mergeCatalogWithSeed(catalog, registeredSeedCatalog);
-
-		if (canUseStorage()) {
-			global.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-				updatedAt: new Date().toISOString(),
-				catalog: inMemoryCatalog
-			}));
-		}
+		inMemoryCatalog = normalizeCatalog(catalog);
 
 		if (!metadata?.silent) {
 			dispatchChange(metadata || {});
@@ -413,37 +385,10 @@ function normalizeSpecs(specs) {
 		return payload;
 	}
 
-	function hydrateLocalFallbackFromSeed() {
-		if (!inMemoryCatalog.length && registeredSeedCatalog.length) {
-			persistCatalog(registeredSeedCatalog, { action: "seed", silent: true });
-		}
-	}
-
-	async function bootstrapRemoteCatalog() {
-		if (!registeredSeedCatalog.length || !getAuthToken()) {
-			return [];
-		}
-
-		const payload = await requestRemote("bootstrap", {
-			method: "POST",
-			body: {
-				products: registeredSeedCatalog
-			}
-		});
-
-		const remoteProducts = Array.isArray(payload?.products) ? payload.products : [];
-		if (remoteProducts.length) {
-			persistCatalog(remoteProducts, { action: "bootstrap" });
-		}
-
-		return remoteProducts;
-	}
-
 	async function refreshCatalog(options) {
 		const config = options || {};
 		if (!canUseFetch()) {
-			hydrateLocalFallbackFromSeed();
-			return clone(inMemoryCatalog);
+			throw new Error('Product sync is not available in this browser.');
 		}
 
 		if (remoteSyncPromise && !config.force) {
@@ -453,25 +398,23 @@ function normalizeSpecs(specs) {
 		remoteSyncPromise = (async () => {
 			try {
 				const payload = await requestRemote("", { method: "GET" });
-				let remoteProducts = Array.isArray(payload?.products) ? payload.products : [];
-
-				if (!remoteProducts.length && config.allowBootstrap !== false && registeredSeedCatalog.length && getAuthToken()) {
-					remoteProducts = await bootstrapRemoteCatalog();
-				}
+				const remoteProducts = Array.isArray(payload?.products) ? payload.products : [];
 
 				if (remoteProducts.length) {
 					persistCatalog(remoteProducts, { action: config.action || "refresh" });
 					return clone(inMemoryCatalog);
 				}
 
-				hydrateLocalFallbackFromSeed();
+				persistCatalog([], { action: config.action || "refresh-empty", silent: true });
 				return clone(inMemoryCatalog);
 			} catch (error) {
-				hydrateLocalFallbackFromSeed();
 				if (!config.silent) {
 					dispatchChange({ action: "refresh-error", error: error.message });
 				}
-				return clone(inMemoryCatalog);
+				if (config.allowCacheFallback === true) {
+					return clone(inMemoryCatalog);
+				}
+				throw error;
 			} finally {
 				remoteSyncPromise = null;
 			}
@@ -498,16 +441,16 @@ function normalizeSpecs(specs) {
 				return;
 			}
 
-			refreshCatalog({ silent: true, allowBootstrap: false }).catch(() => {});
+			refreshCatalog({ silent: true }).catch(() => {});
 		}, REMOTE_POLL_INTERVAL);
 
 		global.addEventListener("focus", () => {
-			queueRefresh({ silent: true, allowBootstrap: false, force: true });
+			queueRefresh({ silent: true, force: true });
 		});
 
 		global.document?.addEventListener?.("visibilitychange", () => {
 			if (!global.document.hidden) {
-				queueRefresh({ silent: true, allowBootstrap: false, force: true });
+				queueRefresh({ silent: true, force: true });
 			}
 		});
 	}
@@ -515,41 +458,26 @@ function normalizeSpecs(specs) {
 	function ensureInitialized() {
 		const persisted = readPersistedCatalog();
 		if (persisted.length) {
-			inMemoryCatalog = mergeCatalogWithSeed(persisted, registeredSeedCatalog);
+			inMemoryCatalog = normalizeCatalog(persisted);
 		}
 
-		startPolling();
 	}
 
 	function getCatalog() {
 		ensureInitialized();
 		const persisted = readPersistedCatalog();
 		if (persisted.length) {
-			inMemoryCatalog = mergeCatalogWithSeed(persisted, registeredSeedCatalog);
+			inMemoryCatalog = normalizeCatalog(persisted);
 			return clone(inMemoryCatalog);
 		}
 
-		hydrateLocalFallbackFromSeed();
 		return clone(inMemoryCatalog);
 	}
 
 	function registerSeed(seedItems) {
-		const normalizedSeed = normalizeCatalog(seedItems);
-		registeredSeedCatalog = mergeCatalogWithSeed(normalizedSeed, registeredSeedCatalog);
-		if (!normalizedSeed.length) {
-			queueRefresh({ silent: true, allowBootstrap: false });
-			return getCatalog();
-		}
-
-		const currentCatalog = getCatalog();
-		if (!currentCatalog.length) {
-			persistCatalog(registeredSeedCatalog, { action: "seed", silent: true });
-		} else {
-			inMemoryCatalog = mergeCatalogWithSeed(currentCatalog, registeredSeedCatalog);
-		}
-
-		queueRefresh({ silent: true, allowBootstrap: true });
-		return clone(inMemoryCatalog);
+		const _ignored = seedItems;
+		queueRefresh({ silent: true, allowCacheFallback: true });
+		return getCatalog();
 	}
 
 	function getProductById(productId) {

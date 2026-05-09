@@ -3,8 +3,6 @@ document.addEventListener('DOMContentLoaded', () => {
   setupMapScroll();
 });
 
-const CONTACT_MESSAGES_KEY = 'byose_market_messages';
-
 function normalizeApiBase(value) {
   return String(value || '').trim().replace(/\/+$/, '');
 }
@@ -28,32 +26,23 @@ function resolveMessagesApiUrl() {
 async function persistContactMessage(entry) {
   const endpoint = resolveMessagesApiUrl();
   if (!endpoint) {
-    saveContactMessage(entry);
-    return entry;
+    throw new Error('Message API is not available from this page.');
   }
 
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(entry)
-    });
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(entry)
+  });
 
-    if (!response.ok) {
-      throw new Error(`Message API failed with status ${response.status}`);
-    }
-
-    const payload = await response.json().catch(() => null);
-    const saved = payload?.message || entry;
-    saveContactMessage(saved);
-    return saved;
-  } catch (error) {
-    console.warn('Unable to persist contact message to the API. Falling back to local storage.', error);
-    saveContactMessage(entry);
-    return entry;
+  if (!response.ok) {
+    throw new Error(`Message API failed with status ${response.status}`);
   }
+
+  const payload = await response.json().catch(() => null);
+  return payload?.message || entry;
 }
 
 function setupContactForm() {
@@ -100,16 +89,22 @@ function setupContactForm() {
     const emailSubject = `Ubutumwa bushya buvuye kuri ${name}`;
     const mailtoUrl = `mailto:kwizeraevode266@gmail.com?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(textMessage)}`;
 
-    await persistContactMessage({
-      id: `msg-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      name,
-      email,
-      phone,
-      message,
-      status: 'new',
-      source: 'contact-form'
-    });
+    try {
+      await persistContactMessage({
+        id: `msg-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+        name,
+        email,
+        phone,
+        message,
+        status: 'new',
+        source: 'contact-form'
+      });
+    } catch (error) {
+      console.warn('Unable to persist contact message to the API.', error);
+      renderFeedback(feedback, 'Ubutumwa ntibwabitswe muri sisitemu. Ongera ugerageze nyuma gato.', 'error');
+      return;
+    }
 
     window.open(whatsappUrl, '_blank', 'noopener');
     window.setTimeout(() => {
@@ -143,15 +138,4 @@ function isValidEmail(email) {
 function renderFeedback(node, message, type) {
   node.textContent = message;
   node.className = `form-feedback is-${type}`;
-}
-
-function saveContactMessage(entry) {
-  try {
-    const current = JSON.parse(localStorage.getItem(CONTACT_MESSAGES_KEY) || '[]');
-    const next = Array.isArray(current) ? current : [];
-    next.unshift(entry);
-    localStorage.setItem(CONTACT_MESSAGES_KEY, JSON.stringify(next));
-  } catch (error) {
-    console.error('Failed to save contact message', error);
-  }
 }

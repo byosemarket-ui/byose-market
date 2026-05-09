@@ -49,4 +49,10 @@ const ProductSchema = new mongoose.Schema({
     minimize: false
 });
 
+ProductSchema.index({ category: 1, visibility: 1, status: 1, updatedAt: -1 });
+ProductSchema.index({ status: 1, orderIndex: -1, updatedAt: -1 });
+ProductSchema.index({ priority: -1, orderIndex: -1, updatedAt: -1 });
+ProductSchema.index({ highlightTag: 1, updatedAt: -1 });
+ProductSchema.index({ name: 'text', title: 'text', description: 'text', shortDescription: 'text', keywords: 'text', badge: 'text', category: 'text' });
+
 module.exports = mongoose.model('Product', ProductSchema);

@@ -26,10 +26,6 @@
 		}
 	}
 
-	function isLocalHost(hostname) {
-		return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0";
-	}
-
 	function readApiBaseOverride() {
 		const securityValue = normalizeApiBaseUrl(global.AdminSecurity?.getApiBaseUrl?.() || "");
 		const metaTag = global.document && typeof global.document.querySelector === "function"
@@ -53,8 +49,8 @@
 		const hostname = String(global.location?.hostname || "").trim();
 		const origin = normalizeApiBaseUrl(global.location?.origin || "");
 
-		if (protocol === "file:" || isLocalHost(hostname)) {
-			return `http://${hostname || "localhost"}:5000/api`;
+		if (protocol === "file:") {
+			return PRODUCTION_API_BASE_URL;
 		}
 
 		if (requiresExternalApiBaseUrl(protocol, hostname)) {
@@ -118,7 +114,6 @@
 		siteRootPrefix: getSiteRootPrefix(),
 		storageKeys: {
 			orders: ["byose_orders", "orders"],
-			users: ["bm_users", "byose_market_users"],
 			messages: ["byose_market_messages", "byose_messages"],
 			categories: "byose_admin_categories_v1",
 			media: "byose_admin_media_v1",

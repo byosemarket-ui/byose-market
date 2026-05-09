@@ -166,7 +166,7 @@
     let count = 0;
 
     try {
-      const cart = JSON.parse(localStorage.getItem('byose_market_cart_v1') || '[]');
+      const cart = window.ByoseStorefrontSync?.readStateByKey?.('byose_market_cart_v1') || [];
       count = cart.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
     } catch (e) {}
 
@@ -189,7 +189,7 @@
 
   function setupListeners() {
     document.addEventListener('cart:updated', updateBadge);
-    window.addEventListener('storage', updateBadge);
+    window.addEventListener('byose:storefront-state-updated', updateBadge);
     window.addEventListener('popstate', updateActiveState);
     window.addEventListener('pageshow', updateActiveState);
   }

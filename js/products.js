@@ -135,6 +135,9 @@ const products = [
 
 (function initializeStorefrontCatalog() {
 	const catalogService = window.ByoseProductCatalog;
+	let syncInFlight = null;
+	let lastSyncAt = 0;
+	const MIN_SYNC_INTERVAL_MS = 3000;
 
 	function mapStorefrontProduct(product) {
 		const id = Number(product && product.id) || 0;
@@ -150,20 +153,59 @@ const products = [
 		};
 	}
 
-	function syncProducts() {
-		const source = catalogService && typeof catalogService.registerSeed === 'function'
-			? catalogService.registerSeed(products)
-			: products;
+	async function runSyncProducts(options = {}) {
+		if (!catalogService || typeof catalogService.getStorefrontCatalog !== 'function') {
+			window.products = [];
+			window.dispatchEvent(new CustomEvent('byose:storefront-products-error', {
+				detail: { message: 'Product catalog service is unavailable.' }
+			}));
+			return;
+		}
 
-		window.products = source.map(mapStorefrontProduct);
+		if (typeof catalogService.refreshCatalog === 'function') {
+			try {
+				await catalogService.refreshCatalog({ silent: false, force: Boolean(options.force) });
+			} catch (error) {
+				window.dispatchEvent(new CustomEvent('byose:storefront-products-error', {
+					detail: { message: String(error?.message || 'Unable to load product catalog from backend.') }
+				}));
+			}
+		}
+
+		const source = catalogService.getStorefrontCatalog();
+		window.products = Array.isArray(source) ? source.map(mapStorefrontProduct) : [];
 		window.dispatchEvent(new CustomEvent('byose:storefront-products-updated', {
 			detail: {
 				products: window.products.slice()
 			}
 		}));
+		lastSyncAt = Date.now();
 	}
 
-	syncProducts();
-	window.addEventListener('storage', syncProducts);
-	window.addEventListener('byose:products-changed', syncProducts);
+	async function syncProducts(options = {}) {
+		if (syncInFlight) {
+			return syncInFlight;
+		}
+
+		const now = Date.now();
+		const shouldForce = Boolean(options.force);
+		if (!shouldForce && now - lastSyncAt < MIN_SYNC_INTERVAL_MS) {
+			return;
+		}
+
+		syncInFlight = runSyncProducts({ force: shouldForce }).finally(() => {
+			syncInFlight = null;
+		});
+
+		return syncInFlight;
+	}
+
+	void syncProducts({ force: true });
+	window.addEventListener('storage', (event) => {
+		if (event && event.key && event.key !== 'byose_market_products_catalog_v1') {
+			return;
+		}
+		void syncProducts();
+	});
+	window.addEventListener('byose:products-changed', () => { void syncProducts({ force: true }); });
 })();

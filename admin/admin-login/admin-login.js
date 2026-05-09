@@ -1,9 +1,7 @@
 import API_BASE_URL from "./js/config.js";
 
 const API_URL = `${API_BASE_URL}/api/admin/login`;
-
-console.log("[AdminLogin] API_BASE_URL:", API_BASE_URL);
-console.log("[AdminLogin] Login endpoint:", API_URL);
+const LOGIN_REQUEST_TIMEOUT_MS = 12000;
 
 // 🎯 Get DOM elements
 const form = document.getElementById("loginForm");
@@ -15,33 +13,14 @@ const btnText = submitButton.querySelector('.btn-text');
 const btnLoader = submitButton.querySelector('.btn-loader');
 
 function persistAdminSession(payload) {
-  if (window.AdminSecurity && typeof window.AdminSecurity.persistSession === "function") {
-    return window.AdminSecurity.persistSession(payload, {
-      apiBaseUrl: `${API_BASE_URL}/api`,
-      loginEmail: String(payload?.admin?.email || emailInput.value.trim() || "")
-    });
+  if (!window.AdminSecurity || typeof window.AdminSecurity.persistSession !== "function") {
+    return false;
   }
 
-  localStorage.setItem("adminAuth", "true");
-  localStorage.setItem("adminLoginTime", new Date().toISOString());
-  localStorage.setItem("adminEmail", String(payload?.admin?.email || emailInput.value.trim() || ""));
-  localStorage.setItem("adminApiBaseUrl", `${API_BASE_URL}/api`);
-
-  if (payload?.token) {
-    localStorage.setItem("adminToken", payload.token);
-  }
-
-  if (payload?.expiresAt) {
-    localStorage.setItem("adminTokenExpiresAt", payload.expiresAt);
-  } else {
-    localStorage.removeItem("adminTokenExpiresAt");
-  }
-
-  if (payload?.admin) {
-    localStorage.setItem("adminProfile", JSON.stringify(payload.admin));
-  }
-
-  return true;
+  return window.AdminSecurity.persistSession(payload, {
+    apiBaseUrl: `${API_BASE_URL}/api`,
+    loginEmail: String(payload?.admin?.email || emailInput.value.trim() || "")
+  });
 }
 
 async function validateSessionAfterLogin() {
@@ -89,17 +68,20 @@ form.addEventListener("submit", async (e) => {
   setFormLoading(true);
 
   try {
+    const requestController = new AbortController();
+    const timeoutId = window.setTimeout(() => requestController.abort(), LOGIN_REQUEST_TIMEOUT_MS);
+
     const res = await fetch(API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email, password }),
+      signal: requestController.signal
+    }).finally(() => {
+      window.clearTimeout(timeoutId);
     });
     const data = await parseJsonSafe(res);
-
-    console.log("[AdminLogin] Response status:", res.status);
-    console.log("[AdminLogin] Response data:", data);
 
     // ✔ SUCCESS (200)
     if (res.status === 200 && data.success) {
@@ -158,7 +140,6 @@ form.addEventListener("submit", async (e) => {
     const unreachableMessage = getNetworkErrorMessage(error);
 
     showMessage(unreachableMessage, "error");
-    console.error("Admin login request failed:", error);
     setFormLoading(false);
   }
 });
@@ -173,7 +154,10 @@ async function parseJsonSafe(response) {
 
 function getNetworkErrorMessage(error) {
   const detail = String(error && error.message ? error.message : "").toLowerCase();
-  console.error("[AdminLogin] Network/fetch error:", error.message || error);
+
+  if (String(error?.name || "") === "AbortError") {
+    return "Login request timed out. Please try again.";
+  }
 
   if (detail.includes("failed to fetch") || detail.includes("networkerror") || detail.includes("load failed")) {
     return "Unable to connect to server. Check your internet connection and try again.";

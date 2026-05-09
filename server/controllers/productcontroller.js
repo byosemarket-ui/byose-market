@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Product = require('../models/product');
 const { appLogger, monitorAsyncOperation } = require('../utils/logger');
+const getRealtimeEventService = require('../services/realtimeeventservice');
 
 const DEFAULT_DETAIL_PAGE = 'product-details1.html';
 
@@ -277,6 +278,15 @@ exports.createProduct = async (req, res) => {
 
         logger.info('inventory.product_created', { adminId: req.admin?.id || '', catalogId, productName: normalized.name, stock: normalized.stock, price: normalized.price });
 
+        try {
+            const realtimeService = getRealtimeEventService();
+            realtimeService.emitProductUpdated(product._id || product.id, serializeProduct(product));
+            realtimeService.emitProductStockChanged(product._id || product.id, 0, Number(product.stock || 0));
+            realtimeService.emitAnalyticsUpdated({ source: 'products', action: 'created' });
+        } catch (eventError) {
+            logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'product.created' });
+        }
+
         return res.status(201).json({ success: true, product: serializeProduct(product) });
     } catch (error) {
         logger.error('inventory.product_create_failed', { error });
@@ -292,7 +302,11 @@ exports.getAllProducts = async (req, res) => {
             filter.category = String(req.query.category).trim().toLowerCase();
         }
 
-        const products = await monitorAsyncOperation(logger, 'database.product.list', { category: filter.category || '' }, () => Product.find(filter).sort(buildSort()), { slowThresholdMs: 900 });
+        const limit = Math.min(500, Math.max(1, Number(req.query?.limit || 200) || 200));
+        const page = Math.max(1, Number(req.query?.page || 1) || 1);
+        const skip = (page - 1) * limit;
+
+        const products = await monitorAsyncOperation(logger, 'database.product.list', { category: filter.category || '', limit, page }, () => Product.find(filter).sort(buildSort()).skip(skip).limit(limit).select('catalogId name title description shortDescription category price oldPrice stock image mainImage gallery keywords specs visibility priority orderIndex highlightTag status url page updatedAt createdAt').lean(), { slowThresholdMs: 900 });
         return res.json({ success: true, products: products.map(serializeProduct) });
     } catch (error) {
         logger.error('inventory.product_list_failed', { error, category: req.query?.category || '' });
@@ -354,6 +368,17 @@ exports.updateProduct = async (req, res) => {
             price: Number(product.price || 0)
         });
 
+        try {
+            const realtimeService = getRealtimeEventService();
+            realtimeService.emitProductUpdated(product._id || product.id, serializeProduct(product));
+            if (previousStock !== Number(product.stock || 0)) {
+                realtimeService.emitProductStockChanged(product._id || product.id, previousStock, Number(product.stock || 0));
+            }
+            realtimeService.emitAnalyticsUpdated({ source: 'products', action: 'updated' });
+        } catch (eventError) {
+            logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'product.updated' });
+        }
+
         return res.json({ success: true, product: serializeProduct(product) });
     } catch (error) {
         logger.error('inventory.product_update_failed', { error, requestedProductId: req.params.id });
@@ -371,6 +396,23 @@ exports.deleteProduct = async (req, res) => {
 
         await monitorAsyncOperation(logger, 'database.product.delete', { catalogId: product.catalogId, adminId: req.admin?.id || '' }, () => Product.deleteOne({ _id: product._id }), { slowThresholdMs: 700 });
         logger.info('inventory.product_deleted', { adminId: req.admin?.id || '', catalogId: product.catalogId, productName: product.name || product.title || '' });
+
+        try {
+            const realtimeService = getRealtimeEventService();
+            realtimeService.broadcast({
+                type: 'product:deleted',
+                scope: 'products',
+                payload: {
+                    productId: product._id || product.id,
+                    catalogId: product.catalogId,
+                    action: 'deleted'
+                }
+            });
+            realtimeService.emitAnalyticsUpdated({ source: 'products', action: 'deleted' });
+        } catch (eventError) {
+            logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'product.deleted' });
+        }
+
         return res.json({ success: true, id: product.catalogId });
     } catch (error) {
         logger.error('inventory.product_delete_failed', { error, requestedProductId: req.params.id });

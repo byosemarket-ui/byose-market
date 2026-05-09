@@ -27,9 +27,9 @@ const ProductDetail = {
       total: this.product.price * this.quantity,
     };
 
-    Util.setToStorage('byose_direct_checkout', directItem);
-    Util.removeFromStorage('byose_checkout_draft_v1');
-    Util.removeFromStorage('byose_checkout_confirmation_v1');
+    window.ByoseStorefrontSync?.writeStateByKey?.('byose_direct_checkout', directItem);
+    window.ByoseStorefrontSync?.removeStateByKey?.('byose_checkout_draft_v1');
+    window.ByoseStorefrontSync?.removeStateByKey?.('byose_checkout_confirmation_v1');
     window.location.href = 'orders/shipping.html';
   },
 

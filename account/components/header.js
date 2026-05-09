@@ -84,14 +84,17 @@ function initProfileUpload() {
         const imageData = reader.result;
 
         let user = {};
-        if (typeof window.getCurrentUser === 'function') {
+        if (window.authService && typeof window.authService.getCurrentUser === 'function') {
+          try { user = window.authService.getCurrentUser() || {}; } catch (e) { user = {}; }
+        } else if (typeof window.getCurrentUser === 'function') {
           try { user = window.getCurrentUser() || {}; } catch (e) { user = {}; }
-        } else {
-          try { user = JSON.parse(localStorage.getItem("bm_user")) || {}; } catch (e) { user = {}; }
         }
         user.avatar = imageData;
-        if (typeof window.setCurrentUser === 'function') { try { window.setCurrentUser(user); } catch (e) { localStorage.setItem("bm_user", JSON.stringify(user)); } }
-        else { localStorage.setItem("bm_user", JSON.stringify(user)); }
+        if (window.authService && typeof window.authService.setCurrentUser === 'function') {
+          try { window.authService.setCurrentUser(user); } catch (e) { console.error(e); }
+        } else if (typeof window.setCurrentUser === 'function') {
+          try { window.setCurrentUser(user); } catch (e) { console.error(e); }
+        }
 
         // reload header
         loadHeader();

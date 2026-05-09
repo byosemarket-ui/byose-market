@@ -1,126 +1,18 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="../admin-login/js/admin-security.js"></script>
-<title>Orders | Byose Market Admin</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-  <link rel="stylesheet" href="../css/tokens.css">
-  <link rel="stylesheet" href="../css/base.css">
-  <link rel="stylesheet" href="../css/layout.css">
-  <link rel="stylesheet" href="../css/pages/orders.css">
+<title>Redirecting | Orders</title>
+<meta http-equiv="refresh" content="0; url=../dashboard.html#/orders">
+<script>
+(function () {
+  window.location.replace('../dashboard.html#/orders');
+})();
+</script>
 </head>
-<body class="admin-dashboard-page">
-  <div class="dashboard-shell">
-    <div class="dashboard-orb dashboard-orb-primary" aria-hidden="true"></div>
-    <div class="dashboard-orb dashboard-orb-secondary" aria-hidden="true"></div>
-    <div class="admin-app-shell">
-      <div class="admin-sidebar-backdrop" data-sidebar-backdrop hidden></div>
-      <aside class="admin-sidebar" id="adminSidebar" aria-label="Admin navigation" data-sidebar-root></aside>
-      <div class="admin-main-shell">
-<div class="admin-topbar-leading">
-            <button class="sidebar-toggle-button" type="button" aria-label="Open navigation" aria-controls="adminSidebar" aria-expanded="false" data-sidebar-toggle>
-              <span></span>
-              <span></span>
-              <span></span>
-            </button>
-            <div>
-              <p class="dashboard-eyebrow">Admin Orders</p>
-              <h1 class="admin-topbar-title">Orders Management</h1>
-            </div>
-          </div>
-          <div class="admin-topbar-meta">
-            <span class="admin-status-dot"></span>
-            <span>Connected to live checkout orders</span>
-          </div>
-        </header>
-
-        <main class="dashboard-grid orders-page-grid">
-          <section class="orders-hero-grid">
-            <article class="dashboard-panel orders-hero-card">
-              <p class="dashboard-eyebrow">Orders Control</p>
-              <h2>Track every real checkout order from one connected admin queue.</h2>
-              <p>This page reads the same order storage written by the storefront checkout and links each order back to its customer and product data when available.</p>
-            </article>
-            <div class="orders-stats-grid">
-              <article class="dashboard-panel orders-stat-card"><span>Total orders</span><strong id="ordersTotalStat">0</strong></article>
-              <article class="dashboard-panel orders-stat-card"><span>Pending</span><strong id="ordersPendingStat">0</strong></article>
-              <article class="dashboard-panel orders-stat-card"><span>Delivered</span><strong id="ordersDeliveredStat">0</strong></article>
-              <article class="dashboard-panel orders-stat-card"><span>Revenue</span><strong id="ordersRevenueStat">RWF 0</strong></article>
-            </div>
-          </section>
-
-          <section class="dashboard-panel orders-toolbar-panel">
-            <div class="orders-toolbar-copy">
-              <p class="dashboard-eyebrow">Filters</p>
-              <h2>Browse and manage live orders</h2>
-              <p id="ordersResultsText">Loading orders...</p>
-            </div>
-            <div class="orders-toolbar-actions">
-              <label class="orders-search-field">
-                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-                <input type="search" id="ordersSearchInput" placeholder="Search by order ID, customer, phone, or product">
-              </label>
-              <select id="ordersStatusFilter" aria-label="Filter orders by status">
-                <option value="all">All statuses</option>
-                <option value="Pending">Pending</option>
-                <option value="Confirmed">Confirmed</option>
-                <option value="Shipping">Shipping</option>
-                <option value="Delivered">Delivered</option>
-                <option value="Cancelled">Cancelled</option>
-                <option value="Returned">Returned</option>
-              </select>
-              <select id="ordersSortSelect" aria-label="Sort orders">
-                <option value="date-desc">Newest first</option>
-                <option value="date-asc">Oldest first</option>
-                <option value="total-desc">Highest total</option>
-                <option value="total-asc">Lowest total</option>
-                <option value="status">Status</option>
-              </select>
-            </div>
-          </section>
-
-          <section class="dashboard-panel orders-table-panel">
-            <div class="orders-table-wrap">
-              <table class="orders-table">
-                <thead>
-                  <tr>
-                    <th>Order ID</th>
-                    <th>Customer</th>
-                    <th>Phone</th>
-                    <th>Total</th>
-                    <th>Status</th>
-                    <th>Date</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="ordersTableBody">
-                  <tr><td colspan="7" class="orders-empty-row">Loading live orders...</td></tr>
-                </tbody>
-              </table>
-            </div>
-            <div class="orders-mobile-grid" id="ordersMobileGrid" aria-live="polite"></div>
-          </section>
-        </main>
-      </div>
-    </div>
-  </div>
-  <script src="../js/core/config.js"></script>
-  <script src="../js/core/api-client.js"></script>
-  <script src="../js/services/catalog.service.js"></script>
-  <script src="../../js/products.js"></script>
-  <script src="../js/services/orders.service.js"></script>
-  <script src="../js/components/sidebar.js"></script>
-  <script src="../js/pages/orders-list.page.js"></script>
+<body>
+<p>Redirecting to admin module...</p>
 </body>
 </html>
-
-
-
-
-
-

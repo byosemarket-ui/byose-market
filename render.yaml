@@ -21,5 +21,46 @@ services:
         sync: false
       - key: JWT_EXPIRES_IN
         value: 7d
+      - key: MONGO_URI
+        sync: false
       - key: CORS_ORIGINS
-        value: "https://byosemarket.com,https://www.byosemarket.com"
+        value: "https://byosemarket.com,https://www.byosemarket.com,https://byosesemarket4.onrender.com"
+
+      # ---- Scalability & Monitoring ----------------------------------------
+      # Optional: set to a secret string to protect the /metrics endpoint.
+      - key: METRICS_TOKEN
+        sync: false
+
+      # Activity log TTL in seconds (default 90 days = 7776000).
+      - key: ACTIVITY_LOG_TTL_SECONDS
+        value: "7776000"
+
+      # ---- Notification system (disabled until credentials are added) ------
+      - key: NOTIFY_EMAIL_ENABLED
+        value: "false"
+      - key: NOTIFY_SMS_ENABLED
+        value: "false"
+
+      # Email (set all to enable)
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_SECURE
+        value: "false"
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
+      - key: EMAIL_FROM_NAME
+        value: "Byose Market"
+      - key: ADMIN_ALERT_EMAIL
+        value: byosemarket@gmail.com
+
+      # ---- Webhook delivery (disabled until WEBHOOK_URL is configured) -----
+      - key: WEBHOOK_ENABLED
+        value: "false"
+      - key: WEBHOOK_URL
+        sync: false
+      - key: WEBHOOK_SECRET
+        sync: false

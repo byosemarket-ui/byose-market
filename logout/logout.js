@@ -13,7 +13,6 @@
     try { localStorage.removeItem('bm_current_user'); } catch (e) {}
     try { localStorage.removeItem('bm_user'); } catch (e) {}
     try { localStorage.removeItem('bm_session'); } catch (e) {}
-    // do NOT remove persistent user DB (bm_users)
     try { sessionStorage.clear(); } catch (e) {}
     // best-effort: call central authService logout if available (clears session records)
     try { if (typeof authService !== 'undefined' && typeof authService.logout === 'function') authService.logout(); } catch (e) {}

@@ -53,7 +53,7 @@ admin/admin-login/
    npm run backend:dev
    
    # Or direct Node
-   node backend/server.js
+  node server/server.js
    ```
 
    You should see:
@@ -175,7 +175,7 @@ curl -X POST http://localhost:5000/api/admin/login \
 
 ### Issue: Routes not found (404)
 **Solution:**
-- Verify admin routes are mounted in `backend/server.js`
+- Verify admin routes are mounted in `server/server.js`
 - Check relative paths in `admin.routes.js` (should use `./` not `../`)
 
 ### Issue: Button stays disabled after login

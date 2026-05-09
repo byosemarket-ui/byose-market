@@ -7,6 +7,7 @@ const { generateToken } = require('../utils/token');
 const { generateOTP, saveOTP, verifyOTP } = require('../utils/otp');
 const { sendSMS } = require('../utils/sms');
 const { appLogger } = require('../utils/logger');
+const getRealtimeEventService = require('../services/realtimeeventservice');
 const User = require('../models/user');
 
 const authLogger = appLogger.child({ scope: 'auth' });
@@ -30,6 +31,18 @@ function isAdminUser(user) {
     return Boolean(user && user.role === 'admin');
 }
 
+function isStrongPassword(password) {
+    const value = String(password || '');
+    if (value.length < 8 || value.length > 128) {
+        return false;
+    }
+
+    const hasLower = /[a-z]/.test(value);
+    const hasUpper = /[A-Z]/.test(value);
+    const hasNumber = /\d/.test(value);
+    return hasLower && hasUpper && hasNumber;
+}
+
 async function generateUserId() {
     const users = await User.find({}, 'id').lean();
     if (!users || !users.length) return 'BM00001';
@@ -48,7 +61,12 @@ exports.signup = async (req, res) => {
         const { name, email, phone, password } = req.body || {};
         if (!name) return res.status(400).json({ success: false, message: 'Name required' });
         if (!email && !phone) return res.status(400).json({ success: false, message: 'Email or phone required' });
-        if (!password || String(password).length < 6) return res.status(400).json({ success: false, message: 'Password too weak' });
+        if (!isStrongPassword(password)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must be 8+ chars with uppercase, lowercase, and number'
+            });
+        }
 
         if (email) {
             const ex = await User.findOne({ email: String(email).toLowerCase() });
@@ -74,9 +92,14 @@ exports.signup = async (req, res) => {
 
         await newUser.save();
 
+        const realtimeService = getRealtimeEventService();
+        const sanitizedUser = sanitizeUserForClient(newUser);
+        realtimeService.emitCustomerRegistered(sanitizedUser);
+        realtimeService.emitAnalyticsUpdated({ source: 'customers', action: 'registered' });
+
         const token = generateToken({ id: newUser.id, email: newUser.email, phone: newUser.phone, role: newUser.role });
 
-        return res.json({ success: true, token, user: sanitizeUserForClient(newUser) });
+        return res.json({ success: true, token, user: sanitizedUser });
     } catch (err) {
         authLogger.error('auth.signup_failed', { error: err });
         return res.status(500).json({ success: false, message: 'Server error' });
@@ -96,7 +119,7 @@ exports.login = async (req, res) => {
             $or: [ { email: id }, { phone: id } ],
             role: { $ne: 'admin' }
         });
-        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+        if (!user) return res.status(401).json({ success: false, message: 'Invalid credentials' });
         if (String(user.status || 'active').toLowerCase() === 'blocked') {
             return res.status(403).json({ success: false, message: 'Account blocked' });
         }
@@ -185,7 +208,13 @@ exports.updateMe = async (req, res) => {
         };
 
         await user.save();
-        return res.json({ success: true, user: sanitizeUserForClient(user) });
+
+        const sanitizedUser = sanitizeUserForClient(user);
+        const realtimeService = getRealtimeEventService();
+        realtimeService.emitCustomerUpdated(user.id, sanitizedUser);
+        realtimeService.emitAnalyticsUpdated({ source: 'customers', action: 'updated' });
+
+        return res.json({ success: true, user: sanitizedUser });
     } catch (err) {
         authLogger.error('auth.update_me_failed', { error: err });
         return res.status(500).json({ success: false, message: 'Server error' });
@@ -203,7 +232,13 @@ exports.forgotPassword = async (req, res) => {
         const user = await User.findOne({
             $or: [ { email: normalizedIdentifier }, { phone: String(identifier).trim() } ]
         });
-        if (isAdminUser(user)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+        if (!user || isAdminUser(user)) {
+            authLogger.info('auth.forgot_password_suppressed', {
+                identifier: normalizedIdentifier,
+                reason: !user ? 'not_found' : 'admin_account'
+            });
+            return res.json({ success: true });
+        }
 
         const otp = generateOTP();
         saveOTP(identifier, otp);
@@ -241,12 +276,25 @@ exports.resetPassword = async (req, res) => {
     try {
         const { identifier, newPassword } = req.body;
         if (!identifier || !newPassword) return res.status(400).json({ success: false, message: 'Identifier and new password required' });
+        if (!isStrongPassword(newPassword)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must be 8+ chars with uppercase, lowercase, and number'
+            });
+        }
+
         const normalizedIdentifier = String(identifier).trim().toLowerCase();
         const user = await User.findOne({
             $or: [ { email: normalizedIdentifier }, { phone: String(identifier).trim() } ],
             role: { $ne: 'admin' }
         });
-        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+        if (!user) {
+            authLogger.info('auth.password_reset_suppressed', {
+                identifier: normalizedIdentifier,
+                reason: 'not_found'
+            });
+            return res.json({ success: true });
+        }
         user.password = await hashPassword(String(newPassword));
         await user.save();
         authLogger.info('auth.password_reset_completed', { identifier: normalizedIdentifier, userId: user.id });

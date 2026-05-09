@@ -409,7 +409,6 @@
 
     setFilter(state.currentFilter, { skipUrlUpdate: true });
 
-    window.addEventListener("storage", syncProducts);
     window.addEventListener("byose:products-changed", syncProducts);
   }
 

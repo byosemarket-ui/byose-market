@@ -1,146 +1,18 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="../admin-login/js/admin-security.js"></script>
-<title>Customers | Byose Market Admin</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-  <link rel="stylesheet" href="../css/tokens.css">
-  <link rel="stylesheet" href="../css/base.css">
-  <link rel="stylesheet" href="../css/layout.css">
-  <link rel="stylesheet" href="../css/pages/customers.css">
+<title>Redirecting | Customers</title>
+<meta http-equiv="refresh" content="0; url=../dashboard.html#/customers">
+<script>
+(function () {
+  window.location.replace('../dashboard.html#/customers');
+})();
+</script>
 </head>
-<body class="admin-dashboard-page">
-  <div class="dashboard-shell">
-    <div class="dashboard-orb dashboard-orb-primary" aria-hidden="true"></div>
-    <div class="dashboard-orb dashboard-orb-secondary" aria-hidden="true"></div>
-    <div class="admin-app-shell">
-      <div class="admin-sidebar-backdrop" data-sidebar-backdrop hidden></div>
-      <aside class="admin-sidebar" id="adminSidebar" aria-label="Admin navigation" data-sidebar-root></aside>
-      <div class="admin-main-shell">
-<div class="admin-topbar-leading">
-            <button class="sidebar-toggle-button" type="button" aria-label="Open navigation" aria-controls="adminSidebar" aria-expanded="false" data-sidebar-toggle>
-              <span></span>
-              <span></span>
-              <span></span>
-            </button>
-            <div>
-              <p class="dashboard-eyebrow">Admin Customers</p>
-              <h1 class="admin-topbar-title">Customer List</h1>
-            </div>
-          </div>
-          <div class="admin-topbar-meta">
-            <span class="admin-status-dot"></span>
-            <span>Live customer records and order activity</span>
-          </div>
-        </header>
-
-        <main class="dashboard-grid customers-page-grid">
-          <section class="dashboard-panel customers-hero-panel">
-            <div class="customers-hero-copy">
-              <p class="dashboard-eyebrow">Customers Management</p>
-              <h2>All customers connected to the website</h2>
-              <p>Search, filter, and manage real customer accounts linked to login, orders, and purchased products.</p>
-            </div>
-            <div class="customers-hero-actions">
-              <a class="customers-secondary-link" href="profile.html">Open profile page</a>
-            </div>
-          </section>
-
-          <section class="customers-stats-grid" aria-label="Customer statistics">
-            <article class="dashboard-panel customers-stat-card">
-              <span>Total Customers</span>
-              <strong id="customersTotalStat">0</strong>
-              <small id="customersTotalNote">No customer records yet.</small>
-            </article>
-            <article class="dashboard-panel customers-stat-card">
-              <span>Active Accounts</span>
-              <strong id="customersActiveStat">0</strong>
-              <small id="customersActiveNote">No active accounts yet.</small>
-            </article>
-            <article class="dashboard-panel customers-stat-card">
-              <span>Blocked Accounts</span>
-              <strong id="customersBlockedStat">0</strong>
-              <small id="customersBlockedNote">No blocked accounts.</small>
-            </article>
-            <article class="dashboard-panel customers-stat-card">
-              <span>Total Spending</span>
-              <strong id="customersSpendStat">RWF 0</strong>
-              <small id="customersTopNote">No top customer yet.</small>
-            </article>
-          </section>
-
-          <section class="dashboard-panel customers-toolbar-panel">
-            <div class="customers-toolbar-copy">
-              <p class="dashboard-eyebrow">Filters</p>
-              <h2>Customer Directory</h2>
-            </div>
-            <div class="customers-toolbar-controls">
-              <label class="customers-search-field">
-                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-                <input type="search" id="customersSearchInput" placeholder="Search by name, email, phone">
-              </label>
-              <select id="customersFilterSelect" aria-label="Filter customers">
-                <option value="all">All customers</option>
-                <option value="active">Active</option>
-                <option value="new">New</option>
-                <option value="top">Top customers</option>
-              </select>
-              <select id="customersSortSelect" aria-label="Sort customers">
-                <option value="date">Sort by date joined</option>
-                <option value="orders">Sort by orders</option>
-                <option value="spending">Sort by spending</option>
-              </select>
-            </div>
-          </section>
-
-          <section class="dashboard-panel customers-table-panel">
-            <div class="customers-table-header">
-              <div>
-                <p class="dashboard-eyebrow">Customer List</p>
-                <h2>Accounts and activity</h2>
-              </div>
-              <p class="customers-results-text" id="customersResultsText">Loading customers...</p>
-            </div>
-            <div class="customers-table-wrap">
-              <table class="customers-table">
-                <thead>
-                  <tr>
-                    <th>Customer</th>
-                <th>Email</th>
-                <th>Phone</th>
-                    <th>Status</th>
-                    <th>Date Joined</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="customersTableBody">
-                  <tr>
-                <td colspan="6" class="customers-empty-row">Loading customer records...</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div class="customers-mobile-grid" id="customersMobileGrid"></div>
-          </section>
-        </main>
-      </div>
-    </div>
-  </div>
-  <script src="../js/core/config.js"></script>
-  <script src="../js/core/api-client.js"></script>
-  <script src="../js/services/customers.service.js"></script>
-  <script src="../js/components/sidebar.js"></script>
-  <script src="../js/pages/customers-list.page.js"></script>
+<body>
+<p>Redirecting to admin module...</p>
 </body>
 </html>
-
-
-
-
-
-

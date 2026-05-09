@@ -11,6 +11,8 @@ function extractBearerToken(req) {
 }
 
 function requireAdminAuth(req, res, next) {
+    res.setHeader('Cache-Control', 'no-store');
+
     const token = extractBearerToken(req);
     const logger = req.log || appLogger;
     logger.debug('auth.admin.validation_started', {
@@ -42,7 +44,7 @@ function requireAdminAuth(req, res, next) {
     }
 
     const payload = result.payload || {};
-    if (payload.role !== 'admin' || !payload.id || !payload.email) {
+    if (payload.role !== 'admin' || !payload.id || !payload.email || typeof payload.email !== 'string') {
         logger.warn('auth.admin.role_denied', {
             adminId: payload.id || '',
             adminEmail: payload.email || ''
@@ -56,6 +58,7 @@ function requireAdminAuth(req, res, next) {
 
     req.admin = payload;
     req.adminToken = token;
+    req.adminTokenFingerprint = String(token).slice(-12);
     logger.debug('auth.admin.authorized', {
         adminId: payload.id,
         adminEmail: payload.email,

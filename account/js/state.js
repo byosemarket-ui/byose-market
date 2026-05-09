@@ -26,17 +26,22 @@ function initState() {
 // 👤 USER STATE
 // ===============================
 function loadUser() {
+  if (window.authService && typeof window.authService.getCurrentUser === 'function') {
+    try { AppState.user = window.authService.getCurrentUser(); return; } catch (e) {}
+  }
+
   if (typeof window.getCurrentUser === 'function') {
     try { AppState.user = window.getCurrentUser(); return; } catch (e) {}
   }
-  const user = localStorage.getItem("bm_user");
-  AppState.user = user ? JSON.parse(user) : null;
+  AppState.user = null;
 }
 
 function setUser(user) {
   AppState.user = user;
-  if (typeof window.setCurrentUser === 'function') { try { window.setCurrentUser(user); return; } catch (e) {} }
-  localStorage.setItem("bm_user", JSON.stringify(user));
+  if (window.authService && typeof window.authService.setCurrentUser === 'function') {
+    try { window.authService.setCurrentUser(user); return; } catch (e) {}
+  }
+  if (typeof window.setCurrentUser === 'function') { try { window.setCurrentUser(user); } catch (e) {} }
 }
 
 // ===============================

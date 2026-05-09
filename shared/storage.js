@@ -28,11 +28,6 @@
       appendScript('account/shared/storage.js');
     }
 
-    if (!window.__byoseStorefrontConfigLoaded) {
-      window.__byoseStorefrontConfigLoaded = true;
-      appendScript('js/storefront-config.js');
-    }
-
     if (!window.__byoseTrackerRequested) {
       window.__byoseTrackerRequested = true;
       appendScript('js/tracker.js', function () {

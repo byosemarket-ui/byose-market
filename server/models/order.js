@@ -53,4 +53,14 @@ const OrderSchema = new mongoose.Schema({
     updatedAt: { type: Date, default: Date.now }
 }, { strict: false });
 
+OrderSchema.index({ createdAt: -1, updatedAt: -1 });
+OrderSchema.index({ status: 1, createdAt: -1 });
+OrderSchema.index({ orderStatus: 1, createdAt: -1 });
+OrderSchema.index({ paymentStatus: 1, createdAt: -1 });
+OrderSchema.index({ customerId: 1, createdAt: -1 });
+OrderSchema.index({ userId: 1, createdAt: -1 });
+OrderSchema.index({ userEmail: 1, createdAt: -1 });
+OrderSchema.index({ customerEmail: 1, createdAt: -1 });
+OrderSchema.index({ customerPhone: 1, createdAt: -1 });
+
 module.exports = mongoose.model('Order', OrderSchema);

@@ -1,0 +1,75 @@
+Dashboard Frontend Rebuild Report
+Date: 2026-05-09
+Scope: Admin dashboard frontend architecture, visualization system, and rendering reliability
+
+Objective
+- Rebuild and modernize the admin dashboard frontend without changing backend APIs, MongoDB persistence, auth/security, or centralized synchronization logic.
+
+1) Rebuilt Dashboard Frontend Architecture
+- Split monolithic dashboard page into a clear orchestration layer plus modular view composition.
+- New architecture:
+  - dashboard orchestrator handles data loading, all-settled async flow, and degraded-mode fallback.
+  - dashboard view builder composes all UI sections from normalized centralized data.
+- Files:
+  - admin/app/pages/dashboard.js
+  - admin/app/pages/dashboard-view.js (new)
+
+2) Removed/Replaced Unstable Frontend Patterns
+- Replaced mixed data+render monolith with modular section renderers.
+- Removed duplicated inline section assembly from the page entry and moved it to dedicated view builder helpers.
+- Added explicit normalized model construction before rendering to prevent undefined render crashes.
+
+3) Rebuilt Dashboard Sections
+- Overview statistics: revenue/orders/customers/products/visitors/pending/completed/low-stock/carts/conversion/fulfillment.
+- Orders section: realtime order table.
+- Customers section: customer activity table.
+- Products section: product visibility table.
+- Inventory section: low-stock and inventory watch table.
+- Analytics section: weekly/monthly/customer/visitor/performance chart blocks.
+- Activity section: realtime operational feed + admin logs.
+- Notifications section: new centralized notification stream for operational events and degraded sync states.
+
+4) Centralized Data Binding (Backend-Only Sources)
+- Dashboard remains connected exclusively to centralized APIs:
+  - getDashboard
+  - getAnalytics
+  - getOrders
+  - getCustomers
+  - getProducts
+  - getActivityLogs
+  - getCarts
+- No local dashboard data source is used as truth.
+
+5) Visualization Improvements
+- Chart widgets enhanced with metadata strip (total, peak, points) for clearer interpretation.
+- Visualization cards remain data-driven from centralized analytics payloads.
+- Files:
+  - admin/app/components/ui.js
+  - admin/app/styles/admin-app.css
+
+6) UX and Responsiveness Improvements
+- Added dashboard-wide grid container for scalable layout composition.
+- Stats grid switched to auto-fit responsive cards.
+- Large-screen enhancements for realtime/table sections with multi-column behavior.
+- Added dedicated dashboard notification visual styles.
+
+7) Frontend Reliability Improvements
+- Hardened async rendering using Promise.allSettled orchestration in dashboard page.
+- Added safe degraded rendering when some APIs fail.
+- Added explicit snapshot API unavailability banner while preserving remaining centralized feeds.
+- Reduced crash risk via normalized model builder before section rendering.
+
+8) Modified Files
+- admin/app/pages/dashboard.js
+- admin/app/pages/dashboard-view.js (new)
+- admin/app/components/ui.js
+- admin/app/styles/admin-app.css
+
+9) Validation
+- Error diagnostics run on all modified frontend files.
+- Result: no errors found.
+
+10) Remaining Recommendations
+- Add route-level skeleton variants per section for even smoother perceived performance on slow links.
+- Introduce lightweight chart interaction states (hover values/tooltips) while keeping dependency-free architecture.
+- Add visual test snapshots for dashboard sections to prevent frontend regressions during future data-layer updates.

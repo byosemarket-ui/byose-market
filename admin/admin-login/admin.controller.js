@@ -1,7 +1,7 @@
 const bcrypt = require("bcryptjs");
 const mongoose = require("mongoose");
-const connectDB = require("../../backend/config/db");
-const Admin = require("../../backend/models/Admin");
+const connectDB = require("../../server/config/db");
+const User = require("../../server/models/user");
 const requireAdminAuth = require("../../server/middleware/requireadminauth");
 const { generateToken, getJwtConfig } = require("../../server/utils/token");
 const { appLogger, monitorAsyncOperation } = require("../../server/utils/logger");
@@ -9,7 +9,6 @@ const { appLogger, monitorAsyncOperation } = require("../../server/utils/logger"
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const MAX_LOGIN_ATTEMPTS = 5;
 
-let inMemoryAdmin = null;
 const loginAttempts = new Map();
 
 function isValidEmail(email) {
@@ -22,6 +21,10 @@ function normalizeEmail(email) {
 
 function looksLikeBcryptHash(value) {
   return /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(String(value || ""));
+}
+
+function buildAdminUserId(adminEmail) {
+  return `ADMIN_${Buffer.from(String(adminEmail || "").trim().toLowerCase()).toString("hex").slice(0, 16)}`;
 }
 
 function getAdminConfig() {
@@ -90,24 +93,22 @@ async function ensureDatabaseConnection() {
 }
 
 async function ensureAdminUser(adminEmail, adminPasswordHash) {
-  inMemoryAdmin = {
-    id: "in-memory-admin",
-    email: adminEmail,
-    password: adminPasswordHash
-  };
-
   const dbConnected = await ensureDatabaseConnection();
   if (!dbConnected) {
-    appLogger.warn('auth.admin.bootstrap_memory_fallback', { adminEmail });
-    return { source: "memory", admin: inMemoryAdmin };
+    throw new Error('Admin authentication unavailable while database is disconnected');
   }
 
-  let admin = await monitorAsyncOperation(appLogger, 'database.admin.find_one', { adminEmail }, () => Admin.findOne({ email: adminEmail }), { slowThresholdMs: 500 });
+  let admin = await monitorAsyncOperation(appLogger, 'database.admin.find_one', { adminEmail }, () => User.findOne({ email: adminEmail, role: 'admin' }), { slowThresholdMs: 500 });
 
   if (!admin) {
-    admin = new Admin({
+    admin = new User({
+      id: buildAdminUserId(adminEmail),
+      name: 'Administrator',
       email: adminEmail,
-      password: adminPasswordHash
+      password: adminPasswordHash,
+      role: 'admin',
+      verified: true,
+      status: 'active'
     });
     await monitorAsyncOperation(appLogger, 'database.admin.create', { adminEmail }, () => admin.save(), { slowThresholdMs: 500 });
     appLogger.info("auth.admin.bootstrap_created", { adminEmail });
@@ -173,28 +174,18 @@ exports.loginAdmin = async (req, res) => {
     const bootstrapResult = await ensureAdminUser(adminEmail, adminPasswordHash);
 
     let userFound = false;
-    const passwordMatch = await bcrypt.compare(String(password), adminPasswordHash);
+    let passwordMatch = false;
     let tokenPayload = null;
 
-    if (bootstrapResult.source === "database") {
-      const admin = await monitorAsyncOperation(logger, 'database.admin.login_lookup', { adminEmail }, () => Admin.findOne({ email: adminEmail }), { slowThresholdMs: 500 });
-      userFound = enteredEmail === adminEmail && Boolean(admin);
-      if (admin) {
-        tokenPayload = {
-          id: String(admin._id),
-          email: admin.email,
-          role: "admin"
-        };
-      }
-    } else {
-      userFound = enteredEmail === adminEmail && enteredEmail === inMemoryAdmin.email;
-      if (userFound) {
-        tokenPayload = {
-          id: inMemoryAdmin.id,
-          email: inMemoryAdmin.email,
-          role: "admin"
-        };
-      }
+    const admin = await monitorAsyncOperation(logger, 'database.admin.login_lookup', { adminEmail }, () => User.findOne({ email: adminEmail, role: 'admin' }), { slowThresholdMs: 500 });
+    userFound = enteredEmail === adminEmail && Boolean(admin);
+    if (admin) {
+      passwordMatch = await bcrypt.compare(String(password), String(admin.password || adminPasswordHash));
+      tokenPayload = {
+        id: String(admin.id || admin._id),
+        email: admin.email,
+        role: "admin"
+      };
     }
 
     if (!userFound || !passwordMatch) {
@@ -265,6 +256,7 @@ exports.loginAdmin = async (req, res) => {
 exports.requireAdminAuth = requireAdminAuth;
 
 exports.getAdminSession = (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   (req.log || appLogger).info('auth.admin.session_valid', {
     adminId: req.admin.id,
     adminEmail: req.admin.email,

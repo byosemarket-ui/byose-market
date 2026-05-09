@@ -1,1 +1,0 @@
-// Category form page placeholder.

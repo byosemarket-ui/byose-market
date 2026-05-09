@@ -7,7 +7,9 @@
   var ADMIN_PROFILE_KEY = "adminProfile";
   var ADMIN_API_BASE_URL_KEY = "adminApiBaseUrl";
   var ADMIN_VALIDATED_API_BASE_URL_KEY = "adminValidatedApiBaseUrl";
+  var ADMIN_LAST_VALIDATED_AT_KEY = "adminLastValidatedAt";
   var DEFAULT_SESSION_MS = 8 * 60 * 60 * 1000;
+  var SESSION_VALIDATION_GRACE_MS = 2 * 60 * 1000;
   var PRODUCTION_API_BASE_URL = "https://byosesemarket4.onrender.com/api";
   var validationPromise = null;
 
@@ -59,14 +61,12 @@
       // Fall back to the console below.
     }
 
-    if (window.console && typeof window.console[level] === "function") {
-      window.console[level]("[AdminSecurity] " + event, payload);
+    if (window.console && typeof window.console.debug === "function" && (level === "warn" || level === "error")) {
+      window.console.debug("[AdminSecurity] " + event, payload);
       return;
     }
 
-    if (window.console && typeof window.console.log === "function") {
-      window.console.log("[AdminSecurity] " + event, payload);
-    }
+    // No-op when diagnostics hooks are unavailable.
   }
 
   function getSessionDurationMs() {
@@ -106,10 +106,6 @@
     return normalized;
   }
 
-  function isLocalHost(hostname) {
-    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0";
-  }
-
   function requiresExternalApiBaseUrl(protocol, hostname) {
     return (protocol === "http:" || protocol === "https:")
       && /(^|\.)(github\.io|byosemarket\.com|www\.byosemarket\.com)$/i.test(String(hostname || ""));
@@ -139,8 +135,8 @@
     var hostname = String(window.location.hostname || "").trim();
     var origin = normalizeBaseUrl(window.location.origin || "");
 
-    if (protocol === "file:" || isLocalHost(hostname)) {
-      return `http://${hostname || "localhost"}:5000/api`;
+    if (protocol === "file:") {
+      return PRODUCTION_API_BASE_URL;
     }
 
     if (requiresExternalApiBaseUrl(protocol, hostname)) {
@@ -192,7 +188,7 @@
       || resolveApiBaseUrl()
     );
 
-    if (!admin || !token) {
+    if (!admin || !token || String(admin.role || "").toLowerCase() !== "admin") {
       clearAuth();
       return false;
     }
@@ -213,6 +209,8 @@
     if (apiBaseUrl) {
       persistResolvedApiBaseUrl(apiBaseUrl);
     }
+
+    safeStorageSet(ADMIN_LAST_VALIDATED_AT_KEY, new Date().toISOString());
 
     logAuthDebug("info", "auth.session.persisted", {
       adminEmail: String(admin.email || ""),
@@ -316,6 +314,7 @@
     safeStorageRemove(ADMIN_PROFILE_KEY);
     safeStorageRemove(ADMIN_API_BASE_URL_KEY);
     safeStorageRemove(ADMIN_VALIDATED_API_BASE_URL_KEY);
+    safeStorageRemove(ADMIN_LAST_VALIDATED_AT_KEY);
 
     try {
       window.sessionStorage.clear();
@@ -330,6 +329,12 @@
     var adminToken = getStoredToken();
 
     if (authFlag !== "true" || !loginTimeRaw || !adminToken) {
+      return false;
+    }
+
+    var tokenPayload = decodeTokenPayload(adminToken);
+    if (!tokenPayload || String(tokenPayload.role || "").toLowerCase() !== "admin") {
+      clearAuth();
       return false;
     }
 
@@ -426,6 +431,7 @@
         try {
           var response = await fetch(sessionUrl, {
             method: "GET",
+            cache: "no-store",
             headers: {
               Accept: "application/json",
               Authorization: `Bearer ${authToken}`
@@ -441,6 +447,7 @@
             safeStorageSet(LOGIN_TIME_KEY, new Date().toISOString());
             safeStorageSet(ADMIN_EMAIL_KEY, String(payload.admin.email || ""));
             safeStorageSet(ADMIN_PROFILE_KEY, JSON.stringify(payload.admin));
+            safeStorageSet(ADMIN_LAST_VALIDATED_AT_KEY, new Date().toISOString());
             persistResolvedApiBaseUrl(apiBaseUrl);
 
             logAuthDebug("info", "auth.session.validation_succeeded", {
@@ -486,12 +493,23 @@
       }
 
       if (recoverableFailure) {
+        var lastValidatedAt = new Date(String(safeStorageGet(ADMIN_LAST_VALIDATED_AT_KEY) || '')).getTime();
+        var nowMs = Date.now();
+        var canGracefullyContinue = Number.isFinite(lastValidatedAt) && (nowMs - lastValidatedAt) <= SESSION_VALIDATION_GRACE_MS;
+
         logAuthDebug("warn", "auth.session.validation_deferred", {
           source: options.source || "guard",
           candidates: candidates,
-          snapshot: getSessionSnapshot()
+          snapshot: getSessionSnapshot(),
+          canGracefullyContinue: canGracefullyContinue
         });
-        return true;
+
+        if (canGracefullyContinue) {
+          return true;
+        }
+
+        clearAuth();
+        return false;
       }
 
       clearAuth();

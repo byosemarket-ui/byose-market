@@ -1,5 +1,6 @@
 const Order = require('../models/order');
 const User = require('../models/user');
+const { appLogger } = require('../utils/logger');
 
 function normalizeText(value) {
     return String(value || '').trim();
@@ -108,17 +109,19 @@ async function findCustomer(identifier) {
 }
 
 exports.listCustomers = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'admin_customers' });
     try {
         const users = await User.find({ role: { $ne: 'admin' } }).sort({ createdAt: -1 });
         const customers = await Promise.all(users.map(async (user) => sanitizeCustomer(user, await loadCustomerOrders(user))));
         return res.json({ success: true, customers });
     } catch (error) {
-        console.error('listCustomers error', error);
+        logger.error('admin.customers.list_failed', { error });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.getCustomerById = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'admin_customers' });
     try {
         const user = await findCustomer(req.params.id);
         if (!user) {
@@ -127,12 +130,13 @@ exports.getCustomerById = async (req, res) => {
 
         return res.json({ success: true, customer: sanitizeCustomer(user, await loadCustomerOrders(user)) });
     } catch (error) {
-        console.error('getCustomerById error', error);
+        logger.error('admin.customers.lookup_failed', { error, requestedCustomerId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.updateCustomer = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'admin_customers' });
     try {
         const user = await findCustomer(req.params.id);
         if (!user) {
@@ -175,12 +179,13 @@ exports.updateCustomer = async (req, res) => {
 
         return res.json({ success: true, customer: sanitizeCustomer(user, await loadCustomerOrders(user)) });
     } catch (error) {
-        console.error('updateCustomer error', error);
+        logger.error('admin.customers.update_failed', { error, requestedCustomerId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.deleteCustomer = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'admin_customers' });
     try {
         const user = await findCustomer(req.params.id);
         if (!user) {
@@ -190,7 +195,7 @@ exports.deleteCustomer = async (req, res) => {
         await User.deleteOne({ _id: user._id });
         return res.json({ success: true, customerId: user.id });
     } catch (error) {
-        console.error('deleteCustomer error', error);
+        logger.error('admin.customers.delete_failed', { error, requestedCustomerId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };

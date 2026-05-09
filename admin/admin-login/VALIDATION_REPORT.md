@@ -11,7 +11,7 @@
 ## 📋 CHANGES SUMMARY
 
 ### 1. Backend Integration (Fixed)
-- ✅ `backend/server.js` - Now properly mounts admin routes
+- ✅ `server/server.js` - Now properly mounts admin routes
 - ✅ Routes accessible at: `POST /api/admin/login`
 - ✅ Error handling with proper HTTP status codes
 

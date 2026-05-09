@@ -60,7 +60,6 @@ function initializeHomePage() {
   setupHeroSlider();
   setupFooterSubscribe();
 
-  window.addEventListener('storage', syncCatalog);
   window.addEventListener('byose:products-changed', syncCatalog);
   window.addEventListener('byose:hero-slides-updated', setupHeroSlider);
 }

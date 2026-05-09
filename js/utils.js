@@ -25,6 +25,11 @@ const Util = {
   // STORAGE
   getFromStorage: (key, defaultValue = null) => {
     try {
+      if (window.ByoseStorefrontSync?.isManagedKey?.(key)) {
+        const value = window.ByoseStorefrontSync.readStateByKey(key);
+        return value === undefined ? defaultValue : value;
+      }
+
       const item = localStorage.getItem(key);
       return item ? JSON.parse(item) : defaultValue;
     } catch (e) {
@@ -35,6 +40,10 @@ const Util = {
 
   setToStorage: (key, value) => {
     try {
+      if (window.ByoseStorefrontSync?.isManagedKey?.(key)) {
+        return window.ByoseStorefrontSync.writeStateByKey(key, value);
+      }
+
       localStorage.setItem(key, JSON.stringify(value));
       try { window.ByoseStorefrontSync?.syncStorageKey?.(key, value); } catch (syncError) { console.warn(syncError); }
       return true;
@@ -46,6 +55,10 @@ const Util = {
 
   removeFromStorage: (key) => {
     try {
+      if (window.ByoseStorefrontSync?.isManagedKey?.(key)) {
+        return window.ByoseStorefrontSync.removeStateByKey(key);
+      }
+
       localStorage.removeItem(key);
       try { window.ByoseStorefrontSync?.syncStorageKey?.(key, null); } catch (syncError) { console.warn(syncError); }
       return true;
@@ -231,6 +244,130 @@ const Util = {
       let syncQueue = Promise.resolve({ skipped: true });
       let pendingPatch = null;
       const REQUEST_TIMEOUT_MS = 10000;
+      const STOREFRONT_STATE_EVENT = 'byose:storefront-state-updated';
+      const stateByField = {
+        cartItems: [],
+        directCheckout: null,
+        checkoutDraft: null,
+        checkoutConfirmation: null
+      };
+      const bootstrapState = {};
+
+      function cloneValue(value) {
+        if (value === undefined) {
+          return undefined;
+        }
+
+        return JSON.parse(JSON.stringify(value));
+      }
+
+      function hasValue(value) {
+        if (Array.isArray(value)) {
+          return value.length > 0;
+        }
+
+        return value !== null && value !== undefined;
+      }
+
+      function dispatchStateEvent(changedFields = []) {
+        const detail = {
+          changedFields: Array.from(new Set(changedFields.filter(Boolean))),
+          state: cloneValue(stateByField)
+        };
+
+        global.dispatchEvent(new CustomEvent(STOREFRONT_STATE_EVENT, { detail }));
+
+        if (detail.changedFields.some((field) => field === 'cartItems' || field === 'directCheckout')) {
+          global.dispatchEvent(new Event('kcart:updated'));
+          global.dispatchEvent(new Event('cart:updated'));
+        }
+      }
+
+      function applyField(field, value, options = {}) {
+        if (!field) {
+          return;
+        }
+
+        const normalizedValue = value === undefined ? null : cloneValue(value);
+        stateByField[field] = normalizedValue;
+
+        if (options.emit !== false) {
+          dispatchStateEvent([field]);
+        }
+      }
+
+      function readLegacyValue(key) {
+        try {
+          const raw = global.localStorage.getItem(key);
+          if (!raw) {
+            return undefined;
+          }
+
+          return JSON.parse(raw);
+        } catch (_error) {
+          return undefined;
+        }
+      }
+
+      function purgeLegacyStateKey(key) {
+        try {
+          global.localStorage.removeItem(key);
+        } catch (_error) {
+          // Ignore storage cleanup failures.
+        }
+      }
+
+      function readStateByKey(key) {
+        const field = STOREFRONT_KEYS[key];
+        if (!field) {
+          return undefined;
+        }
+
+        return cloneValue(stateByField[field]);
+      }
+
+      function writeStateByKey(key, value) {
+        const field = STOREFRONT_KEYS[key];
+        if (!field) {
+          return false;
+        }
+
+        applyField(field, value);
+        if (!suppressSync) {
+          void syncPatch({ [field]: value === undefined ? null : cloneValue(value) });
+        }
+        return true;
+      }
+
+      function removeStateByKey(key) {
+        return writeStateByKey(key, null);
+      }
+
+      function bootstrapLegacyState() {
+        Object.entries(STOREFRONT_KEYS).forEach(([key, field]) => {
+          const value = readLegacyValue(key);
+          if (value === undefined) {
+            return;
+          }
+
+          bootstrapState[field] = cloneValue(value);
+          stateByField[field] = cloneValue(value);
+          purgeLegacyStateKey(key);
+        });
+      }
+
+      function buildBootstrapPatch(remoteState) {
+        return Object.entries(bootstrapState).reduce((patch, [field, value]) => {
+          if (!hasValue(value) || hasValue(remoteState?.[field])) {
+            return patch;
+          }
+
+          patch[field] = cloneValue(value);
+          return patch;
+        }, {});
+      }
+
+      bootstrapLegacyState();
 
       function normalizeBase(value) {
         return String(value || '').trim().replace(/\/+$/, '');
@@ -344,35 +481,33 @@ const Util = {
         suppressSync = true;
 
         try {
+          const changedFields = [];
+
           if (Array.isArray(state?.cartItems)) {
-            global.localStorage.setItem('byose_market_cart_v1', JSON.stringify(state.cartItems));
+            stateByField.cartItems = cloneValue(state.cartItems);
+            changedFields.push('cartItems');
           }
 
           if (Object.prototype.hasOwnProperty.call(state || {}, 'directCheckout')) {
-            if (state.directCheckout) {
-              global.localStorage.setItem('byose_direct_checkout', JSON.stringify(state.directCheckout));
-            } else {
-              global.localStorage.removeItem('byose_direct_checkout');
-            }
+            stateByField.directCheckout = cloneValue(state.directCheckout || null);
+            changedFields.push('directCheckout');
           }
 
           if (Object.prototype.hasOwnProperty.call(state || {}, 'checkoutDraft')) {
-            if (state.checkoutDraft) {
-              global.localStorage.setItem('byose_checkout_draft_v1', JSON.stringify(state.checkoutDraft));
-            } else {
-              global.localStorage.removeItem('byose_checkout_draft_v1');
-            }
+            stateByField.checkoutDraft = cloneValue(state.checkoutDraft || null);
+            changedFields.push('checkoutDraft');
           }
 
           if (Object.prototype.hasOwnProperty.call(state || {}, 'checkoutConfirmation')) {
-            if (state.checkoutConfirmation) {
-              global.localStorage.setItem('byose_checkout_confirmation_v1', JSON.stringify(state.checkoutConfirmation));
-            } else {
-              global.localStorage.removeItem('byose_checkout_confirmation_v1');
-            }
+            stateByField.checkoutConfirmation = cloneValue(state.checkoutConfirmation || null);
+            changedFields.push('checkoutConfirmation');
+          }
+
+          if (changedFields.length) {
+            dispatchStateEvent(changedFields);
           }
         } catch (error) {
-          console.warn('Unable to apply remote storefront state locally.', error);
+          console.warn('Unable to apply remote storefront state in memory.', error);
         } finally {
           suppressSync = false;
         }
@@ -410,16 +545,15 @@ const Util = {
       }
 
       function syncStorageKey(key, value) {
-        if (suppressSync) {
-          return;
-        }
-
         const field = STOREFRONT_KEYS[key];
         if (!field) {
           return;
         }
 
-        void syncPatch({ [field]: value === undefined ? null : value });
+        applyField(field, value);
+        if (!suppressSync) {
+          void syncPatch({ [field]: value === undefined ? null : cloneValue(value) });
+        }
       }
 
       async function hydrate(force = false) {
@@ -431,14 +565,23 @@ const Util = {
           .then((payload) => {
             if (payload?.state) {
               applyRemoteState(payload.state);
-              return payload.state;
+              const bootstrapPatch = buildBootstrapPatch(payload.state);
+              if (Object.keys(bootstrapPatch).length && getToken()) {
+                void syncPatch(bootstrapPatch);
+              }
+              return cloneValue(stateByField);
             }
 
             if (payload?.success === false) {
               console.warn('Unable to hydrate storefront state from the API.', payload.message || payload.error || payload);
             }
 
-            return null;
+            const bootstrapPatch = buildBootstrapPatch(null);
+            if (Object.keys(bootstrapPatch).length && getToken()) {
+              void syncPatch(bootstrapPatch);
+            }
+
+            return cloneValue(stateByField);
           })
           .finally(() => {
             hydrationPromise = null;
@@ -450,9 +593,13 @@ const Util = {
       global.ByoseStorefrontSync = {
         getToken,
         hydrate,
+        isManagedKey: (key) => Boolean(STOREFRONT_KEYS[key]),
+        readStateByKey,
+        removeStateByKey,
         resolveApiOrigin,
         syncPatch,
-        syncStorageKey
+        syncStorageKey,
+        writeStateByKey
       };
     })(window);
   },

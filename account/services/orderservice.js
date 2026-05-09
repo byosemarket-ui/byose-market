@@ -2,9 +2,8 @@
   'use strict';
 
   const PRODUCTION_API_ORIGIN = 'https://byosesemarket4.onrender.com';
-  const ORDER_KEYS = ['byose_orders', 'orders'];
   const USER_KEYS = ['bm_current_user', 'bm_user', 'byose_market_user', 'user'];
-  const CHANGE_EVENTS = ['storage', 'byose:orders-changed', 'byose:admin-orders-changed'];
+  const CHANGE_EVENTS = ['byose:orders-changed', 'byose:admin-orders-changed'];
 
   function normalizeBase(value) {
     return String(value || '').trim().replace(/\/+$/, '');
@@ -49,33 +48,6 @@
     } catch (error) {
       return fallbackValue;
     }
-  }
-
-  function readArrayFromKeys(keys) {
-    const unique = new Map();
-
-    keys.forEach((key) => {
-      const raw = global.localStorage.getItem(key);
-      if (!raw) {
-        return;
-      }
-
-      const parsed = safeParse(raw, []);
-      if (!Array.isArray(parsed)) {
-        return;
-      }
-
-      parsed.forEach((entry) => {
-        const identifier = String(entry?.orderId || entry?.id || '').trim();
-        if (!identifier || unique.has(identifier)) {
-          return;
-        }
-
-        unique.set(identifier, entry);
-      });
-    });
-
-    return Array.from(unique.values());
   }
 
   function normalizePhone(value) {
@@ -363,8 +335,7 @@
     }
 
     const apiOrders = await fetchApiOrders();
-    const localOrders = readArrayFromKeys(ORDER_KEYS);
-    const combined = [...apiOrders, ...localOrders]
+    const combined = apiOrders
       .map(normalizeOrder)
       .filter((order, index, list) => list.findIndex((entry) => entry.orderId === order.orderId) === index)
       .filter((order) => orderBelongsToUser(order, resolvedUserId, currentUser))
@@ -391,33 +362,39 @@
     return orders.find((order) => String(order.orderId) === String(orderId || '')) || null;
   }
 
-  function writeOrders(orders) {
-    const serialized = JSON.stringify(Array.isArray(orders) ? orders : []);
-    ORDER_KEYS.forEach((key) => {
-      global.localStorage.setItem(key, serialized);
-    });
-  }
-
   async function cancelOrder(orderId, userId) {
-    const orders = readArrayFromKeys(ORDER_KEYS);
     const currentUser = readCurrentUser();
-    const index = orders.findIndex((order) => {
-      const normalizedOrder = normalizeOrder(order);
-      return normalizedOrder.orderId === String(orderId || '') && orderBelongsToUser(normalizedOrder, userId, currentUser);
-    });
 
-    if (index === -1) {
+    const targetOrder = await getOrderById(orderId, userId);
+    if (!targetOrder || !orderBelongsToUser(targetOrder, userId, currentUser)) {
       return { success: false, message: 'Order not found.' };
     }
 
-    orders[index] = {
-      ...orders[index],
-      orderStatus: 'cancelled',
-      status: 'Cancelled',
-      updatedAt: new Date().toISOString()
-    };
-    writeOrders(orders);
-    global.dispatchEvent(new CustomEvent('byose:orders-changed', { detail: { action: 'cancel', orderId } }));
+    const orderApi = getOrdersApiUrl();
+    const token = getAuthToken();
+    if (!orderApi || !token) {
+      return { success: false, message: 'Authentication is required to cancel orders.' };
+    }
+
+    try {
+      const response = await fetch(`${orderApi}/${encodeURIComponent(String(orderId || ''))}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ status: 'Cancelled' })
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success) {
+        return { success: false, message: (payload && payload.message) || 'Unable to cancel this order.' };
+      }
+
+      global.dispatchEvent(new CustomEvent('byose:orders-changed', { detail: { action: 'cancel', orderId } }));
+    } catch (error) {
+      return { success: false, message: 'Unable to reach the order service right now.' };
+    }
 
     return { success: true, message: 'Order cancelled successfully.' };
   }
@@ -426,9 +403,6 @@
     const callback = typeof listener === 'function' ? listener : function () {};
     const handlers = CHANGE_EVENTS.map((eventName) => {
       const handler = function (event) {
-        if (eventName === 'storage' && event && event.key && !ORDER_KEYS.includes(event.key)) {
-          return;
-        }
         callback(event);
       };
       global.addEventListener(eventName, handler);

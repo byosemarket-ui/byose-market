@@ -1,0 +1,55 @@
+Synchronization Repair Report
+Date: 2026-05-09
+Scope: Centralized ecommerce flow stabilization (backend/frontend consistency, sync reliability, MongoDB persistence alignment)
+
+1) Repaired Ecommerce Flows
+- Products flow stabilized through API-only catalog refresh path.
+- Storefront product sync now guarded against duplicate concurrent refresh calls.
+- Orders flow remains API-first with duplicate-submission protection in server order controller.
+- Admin dashboard data flow remains API-driven with explicit failure handling (no silent empty-state fallback).
+- Inventory flow now requires explicit allowCacheFallback before stale cache is returned.
+
+2) Repaired Synchronization Systems
+- Removed remaining seed-merge behavior from shared catalog service.
+- Removed bootstrap/seed fallback execution path from catalog refresh.
+- Catalog persistence now normalizes and stores API source-only catalog snapshots.
+- Storefront product updates now avoid storm refresh loops by:
+  - single in-flight sync guard
+  - minimum sync interval throttle
+  - storage-event key filtering to catalog key only
+
+3) Centralized Persistence Verification
+- Product catalog source validation enforced with source='api' check before loading persisted catalog.
+- Inventory stale cache no longer auto-returns silently unless explicitly opted in.
+- Admin data services continue to use backend APIs as primary source.
+
+4) Modified Files
+- admin/js/services/catalog.service.js
+  - API base URL resolution hardened for admin/storefront/runtime contexts.
+  - Seed merge and bootstrap fallback paths removed from active sync behavior.
+  - refreshCatalog now syncs only remote API data and clear-empty state behavior.
+- admin/app/services/admin-data.service.js
+  - getInventory fallback changed to explicit opt-in (allowCacheFallback === true).
+- js/products.js
+  - Added in-flight synchronization guard.
+  - Added sync throttling and filtered storage-event trigger.
+  - Reduced duplicated forced API refresh calls.
+
+5) Removed Legacy/Conflict Behavior
+- Active seed-based product merge path removed from catalog persistence flow.
+- Active bootstrap fallback path removed from catalog refresh execution.
+- Duplicate refresh storm behavior in storefront product bootstrap reduced.
+- Silent stale inventory fallback removed by default.
+
+6) Remaining Recommendations
+- Migrate legacy standalone cart.js and checkout.js (root-level pages) to shared orders/ API-driven state utilities if still in use.
+- Deprecate dead legacy service files not used by active admin SPA to prevent accidental regressions.
+- Add server-side schema validation middleware for write endpoints (products/orders/cart/admin updates) for stricter payload integrity.
+- Add integration tests for:
+  - catalog refresh recovery after transient API failure
+  - multi-tab product sync dedupe
+  - checkout/order creation retry and idempotency
+  - admin dashboard full-scope snapshot consistency
+
+7) Verification
+- Static error check run on all modified files: no errors found.

@@ -6,21 +6,30 @@ let isSubmitting = false;
 // 🧠 SESSION HELPERS
 // ===============================
 function setSession(user) {
-    // persist user and flag
+    if (window.authService && typeof window.authService.setCurrentUser === 'function') {
+        try {
+            window.authService.setCurrentUser(user);
+            return;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
     if (typeof window.setCurrentUser === 'function') {
         try { window.setCurrentUser(user); } catch (e) { console.error(e); }
-        return;
     }
-    try { localStorage.setItem("bm_user", JSON.stringify(user)); } catch (e) { console.error(e); }
-    try { localStorage.setItem("bm_current_user", JSON.stringify(user)); } catch (e) { console.error(e); }
-    try { localStorage.setItem("bm_logged_in", "true"); } catch (e) { console.error(e); }
 }
 
 function isLoggedIn() {
+    if (window.authService && typeof window.authService.isLoggedIn === 'function') {
+        try { return !!window.authService.isLoggedIn(); } catch (e) { /* fallback */ }
+    }
+
     if (typeof window.isLoggedIn === 'function') {
         try { return !!window.isLoggedIn(); } catch (e) { /* fallback */ }
     }
-    return localStorage.getItem("bm_logged_in") === "true";
+
+    return false;
 }
 
 // ===============================

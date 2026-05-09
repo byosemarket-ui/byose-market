@@ -7,9 +7,7 @@ export const STORAGE_KEYS = {
   pendingOrderSubmission: 'byose_pending_order_submission_v1',
   currentUser: 'bm_current_user',
   legacyUser: 'bm_user',
-  storefrontUser: 'byose_market_user',
-  users: 'bm_users',
-  legacyUsers: 'byose_market_users'
+  storefrontUser: 'byose_market_user'
 };
 
 const PRODUCTION_API_ORIGIN = 'https://byosesemarket4.onrender.com';
@@ -25,6 +23,7 @@ let storefrontHydrationPromise = null;
 let storefrontSyncQueue = Promise.resolve({ skipped: true });
 let pendingStorefrontPatch = null;
 const STOREFRONT_REQUEST_TIMEOUT_MS = 10000;
+const transientStore = new Map();
 
 export const PAYMENT_ACCOUNTS = [
   {
@@ -197,6 +196,10 @@ function applyRemoteStorefrontState(state) {
 }
 
 export async function syncStorefrontState(patch = {}) {
+  if (window.ByoseStorefrontSync && typeof window.ByoseStorefrontSync.syncPatch === 'function') {
+    return window.ByoseStorefrontSync.syncPatch(clone(patch || {}));
+  }
+
   if (!patch || !Object.keys(patch).length) {
     return { skipped: true };
   }
@@ -228,6 +231,11 @@ export async function syncStorefrontState(patch = {}) {
 }
 
 function syncStorefrontStorageKey(key, value) {
+  if (window.ByoseStorefrontSync && typeof window.ByoseStorefrontSync.syncStorageKey === 'function') {
+    window.ByoseStorefrontSync.syncStorageKey(key, value);
+    return;
+  }
+
   if (suppressStorefrontSync) {
     return;
   }
@@ -241,6 +249,10 @@ function syncStorefrontStorageKey(key, value) {
 }
 
 export async function hydrateStorefrontState(force = false) {
+  if (window.ByoseStorefrontSync && typeof window.ByoseStorefrontSync.hydrate === 'function') {
+    return window.ByoseStorefrontSync.hydrate(force);
+  }
+
   if (storefrontHydrationPromise && !force) {
     return storefrontHydrationPromise;
   }
@@ -267,6 +279,15 @@ export async function hydrateStorefrontState(force = false) {
 
 export function readStorage(key, fallback) {
   try {
+    if (window.ByoseStorefrontSync?.isManagedKey?.(key)) {
+      const managedValue = window.ByoseStorefrontSync.readStateByKey(key);
+      return managedValue === undefined ? fallback : managedValue;
+    }
+
+    if (transientStore.has(key)) {
+      return clone(transientStore.get(key));
+    }
+
     const raw = window.localStorage.getItem(key);
     if (!raw) {
       return fallback;
@@ -279,20 +300,22 @@ export function readStorage(key, fallback) {
 }
 
 export function writeStorage(key, value) {
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch (error) {
-    console.warn(`Unable to persist ${key} in local storage.`, error);
+  if (window.ByoseStorefrontSync?.isManagedKey?.(key)) {
+    window.ByoseStorefrontSync.writeStateByKey(key, value);
+    return;
   }
+
+  transientStore.set(key, clone(value));
   syncStorefrontStorageKey(key, value);
 }
 
 export function removeStorage(key) {
-  try {
-    window.localStorage.removeItem(key);
-  } catch (error) {
-    console.warn(`Unable to remove ${key} from local storage.`, error);
+  if (window.ByoseStorefrontSync?.isManagedKey?.(key)) {
+    window.ByoseStorefrontSync.removeStateByKey(key);
+    return;
   }
+
+  transientStore.delete(key);
   syncStorefrontStorageKey(key, null);
 }
 
@@ -487,32 +510,8 @@ export function persistUserAddress(address) {
     }
   };
 
-  writeStorage(STORAGE_KEYS.currentUser, nextUser);
-  writeStorage(STORAGE_KEYS.legacyUser, nextUser);
-  if (window.localStorage.getItem(STORAGE_KEYS.storefrontUser)) {
-    writeStorage(STORAGE_KEYS.storefrontUser, nextUser);
-  }
-
-  const keys = [STORAGE_KEYS.users, STORAGE_KEYS.legacyUsers];
-  keys.forEach((key) => {
-    const users = readStorage(key, []);
-    if (!Array.isArray(users)) {
-      return;
-    }
-
-    const nextUsers = users.map((user) => {
-      const sameUser = String(user?.id || '') === String(nextUser.id)
-        || (user?.email && nextUser.email && String(user.email).toLowerCase() === String(nextUser.email).toLowerCase())
-        || (user?.phone && nextUser.phone && normalizePhone(user.phone) === normalizePhone(nextUser.phone));
-
-      return sameUser ? { ...user, ...nextUser, address: { ...(user.address || {}), ...(nextUser.address || {}) } } : user;
-    });
-
-    writeStorage(key, nextUsers);
-  });
-
   if (window.authService && typeof window.authService.updateProfile === 'function') {
-    window.authService.updateProfile({
+    return window.authService.updateProfile({
       name: nextUser.name || currentUser.name || '',
       phone: nextUser.phone || currentUser.phone || '',
       avatar: nextUser.avatar || currentUser.avatar || '',
@@ -521,51 +520,23 @@ export function persistUserAddress(address) {
       console.warn('Unable to sync the customer address to the API.', error);
     });
   }
+
+  return undefined;
 }
 
 export function readOrders() {
-  const sources = [
-    readStorage(STORAGE_KEYS.orders, []),
-    readStorage('orders', [])
-  ];
-  const unique = new Map();
-
-  sources.forEach((source) => {
-    if (!Array.isArray(source)) {
-      return;
-    }
-
-    source.forEach((order) => {
-      const key = getOrderIdentifier(order);
-      if (!key || unique.has(key)) {
-        return;
-      }
-
-      unique.set(key, clone(order));
-    });
-  });
-
-  return Array.from(unique.values());
+  // Orders are centralized in the backend; browser storage is no longer used as an order database.
+  return [];
 }
 
 export function readOrderById(orderId) {
-  return readOrders().find((order) => String(order?.id || '') === String(orderId || '')) || null;
+  const _ignored = orderId;
+  return null;
 }
 
 export function saveOrder(order) {
-  validateOrder(order);
-
-  const orders = readOrders();
-  const orderKey = getOrderIdentifier(order);
-  if (orders.some((existingOrder) => getOrderIdentifier(existingOrder) === orderKey)) {
-    throw new Error('This order has already been saved.');
-  }
-
-  const nextOrders = orders.concat([clone(order)]);
-
-  writeStorage(STORAGE_KEYS.orders, nextOrders);
-  writeStorage('orders', nextOrders);
-  window.dispatchEvent(new CustomEvent('byose:orders-changed', { detail: { order } }));
+  const _ignored = order;
+  return true;
 }
 
 export function saveCheckoutConfirmation(payload) {
@@ -594,68 +565,7 @@ export function emitCartUpdated() {
 }
 
 export function createOrderId() {
-  const nextSequence = readOrders().reduce((highest, order, index) => {
-    const identifier = String(order?.orderId || order?.id || '').trim();
-    const match = identifier.match(/^BM(\d+)$/i);
-    if (match) {
-      return Math.max(highest, Number(match[1]) || 0);
-    }
-
-    return Math.max(highest, index + 1);
-  }, 0) + 1;
-
-  return `BM${String(nextSequence).padStart(13, '0')}`;
-}
-
-function getOrderIdentifier(order) {
-  return String(order?.orderId || order?.id || '').trim();
-}
-
-function validateOrder(order) {
-  const requiredFields = [
-    ['orderId', order?.orderId || order?.id],
-    ['customerName', order?.customerName],
-    ['phoneNumber', order?.phoneNumber || order?.customerPhone],
-    ['province', order?.fullAddress?.province || order?.shippingAddress?.provinceCity],
-    ['district', order?.fullAddress?.district || order?.shippingAddress?.district],
-    ['sector', order?.fullAddress?.sector || order?.shippingAddress?.sector],
-    ['cell', order?.fullAddress?.cell || order?.shippingAddress?.cell],
-    ['village', order?.fullAddress?.village || order?.shippingAddress?.village],
-    ['paymentMethod', order?.paymentMethod],
-    ['paymentStatus', order?.paymentStatus],
-    ['orderStatus', order?.orderStatus || order?.status],
-    ['createdAt', order?.createdAt || order?.date]
-  ];
-
-  const missingField = requiredFields.find(([, value]) => !String(value || '').trim());
-  if (missingField) {
-    throw new Error(`Order is missing required field: ${missingField[0]}`);
-  }
-
-  const hasLinkedUser = Boolean(String(order?.userId || order?.customerId || '').trim());
-  if (!hasLinkedUser && order?.isGuest !== true) {
-    throw new Error('Order must be linked to a user or explicitly marked as a guest order.');
-  }
-
-  const items = Array.isArray(order?.items) ? order.items : [];
-  if (!items.length) {
-    throw new Error('Order is missing required field: items');
-  }
-
-  const hasInvalidItem = items.some((item) => {
-    const image = resolveOrderItemImage(item);
-    const requiredItemFields = [
-      item?.productId,
-      item?.productName,
-      image,
-      item?.quantity,
-      item?.price
-    ];
-
-    return requiredItemFields.some((value) => value === undefined || value === null || String(value).trim() === '');
-  });
-
-  if (hasInvalidItem) {
-    throw new Error('Order items are incomplete.');
-  }
+  const timestamp = Date.now();
+  const random = Math.floor(Math.random() * 1000000);
+  return `BM${String(timestamp)}${String(random).padStart(6, '0')}`;
 }

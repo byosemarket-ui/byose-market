@@ -1,0 +1,1423 @@
+import * as api from "../core/api.js";
+import { publishRealtime } from "../core/realtime-adapter.js";
+
+const CACHE_PREFIX = "byose_admin_api_cache_v2";
+const DEFAULT_RETRY_COUNT = 2;
+const RETRY_DELAY_MS = 450;
+const INTELLIGENCE_SCOPE = "intelligence";
+const DEFAULT_SYNC_INTERVAL_MS = 25000;
+const MAX_SYNC_INTERVAL_MS = 180000;
+const TAB_SYNC_DEBOUNCE_MS = 1400;
+const IN_MEMORY_CACHE_TTL_MS = 15000;
+const MAX_ORDERS_ITEMS = 400;
+const MAX_CUSTOMERS_ITEMS = 400;
+const MAX_PRODUCTS_ITEMS = 500;
+const MAX_ACTIVITY_ITEMS = 200;
+const MAX_MESSAGES_ITEMS = 200;
+const MAX_CARTS_ITEMS = 300;
+
+export const ADMIN_SYNC_EVENT = "byose:admin-sync-updated";
+
+let lastKnownIntelligence = null;
+let syncTimer = null;
+let syncStarted = false;
+let syncIntervalMs = DEFAULT_SYNC_INTERVAL_MS;
+let syncFailureStreak = 0;
+let inFlightSyncPromise = null;
+let pendingVisibilityRefresh = null;
+const scopeMemoryCache = new Map();
+const scopeInFlight = new Map();
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function asObject(value) {
+  return value && typeof value === "object" ? value : {};
+}
+
+function toNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeText(value, fallback = "") {
+  const text = String(value || "").trim();
+  return text || fallback;
+}
+
+function normalizeStatus(status) {
+  const value = normalizeText(status, "Pending").toLowerCase();
+  if (value.includes("deliver") || value.includes("complete")) return "Delivered";
+  if (value.includes("ship")) return "Shipping";
+  if (value.includes("confirm") || value.includes("process") || value.includes("payment")) return "Confirmed";
+  if (value.includes("cancel")) return "Cancelled";
+  if (value.includes("return")) return "Returned";
+  return "Pending";
+}
+
+function cacheKey(scope) {
+  return `${CACHE_PREFIX}:${scope}`;
+}
+
+function readCache(scope) {
+  const payload = readMemoryCache(scope, Number.MAX_SAFE_INTEGER);
+  return payload ? { payload } : null;
+}
+
+function readMemoryCache(scope, ttlMs = IN_MEMORY_CACHE_TTL_MS) {
+  const entry = scopeMemoryCache.get(scope);
+  if (!entry) {
+    return null;
+  }
+
+  if (Date.now() - Number(entry.cachedAt || 0) > Math.max(500, Number(ttlMs || IN_MEMORY_CACHE_TTL_MS))) {
+    scopeMemoryCache.delete(scope);
+    return null;
+  }
+
+  return entry.payload;
+}
+
+function writeMemoryCache(scope, payload) {
+  scopeMemoryCache.set(scope, {
+    cachedAt: Date.now(),
+    payload
+  });
+}
+
+function getCachedScopePayload(scope, options = {}) {
+  const memoryPayload = readMemoryCache(scope, options?.cacheTtlMs);
+  if (memoryPayload) {
+    return memoryPayload;
+  }
+
+  return null;
+}
+
+function capArray(items, maxItems) {
+  const safeItems = asArray(items);
+  const cap = Math.max(1, Number(maxItems || safeItems.length || 1));
+  return safeItems.length <= cap ? safeItems : safeItems.slice(0, cap);
+}
+
+function writeCache(scope, payload) {
+  writeMemoryCache(scope, payload);
+}
+
+function emitSync(scope, payload) {
+  const event = {
+    scope,
+    syncedAt: new Date().toISOString(),
+    payload
+  };
+
+  window.dispatchEvent(new CustomEvent(ADMIN_SYNC_EVENT, {
+    detail: {
+      ...event
+    }
+  }));
+
+  publishRealtime(event);
+}
+
+function wait(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+async function withRetry(label, action, attempts = DEFAULT_RETRY_COUNT) {
+  let lastError = null;
+
+  for (let index = 0; index <= attempts; index += 1) {
+    try {
+      return await action();
+    } catch (error) {
+      lastError = error;
+      if (index >= attempts) {
+        break;
+      }
+
+      await wait(RETRY_DELAY_MS * (index + 1));
+    }
+  }
+
+  const wrapped = new Error(lastError?.message || `Request failed for ${label}`);
+  wrapped.cause = lastError;
+  wrapped.scope = label;
+  throw wrapped;
+}
+
+function monthLabel(date) {
+  return new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit" }).format(date);
+}
+
+function dayLabel(date) {
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(date);
+}
+
+function normalizeDate(value) {
+  const date = new Date(value || 0);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeOrder(order) {
+  const status = normalizeStatus(order?.status || order?.orderStatus || order?.paymentStatus);
+  const total = toNumber(order?.totalAmount ?? order?.totalPrice ?? order?.total ?? order?.amount);
+
+  return {
+    id: normalizeText(order?.id || order?.orderId || order?._id),
+    orderId: normalizeText(order?.orderId || order?.id || order?._id),
+    status,
+    total,
+    date: order?.date || order?.createdAt || new Date().toISOString(),
+    customerName: normalizeText(order?.customerName || order?.customer || "Guest"),
+    customerEmail: normalizeText(order?.customerEmail || order?.userEmail),
+    customerPhone: normalizeText(order?.customerPhone || order?.phoneNumber),
+    paymentStatus: normalizeText(order?.paymentStatus || status),
+    itemsCount: asArray(order?.items || order?.products).length,
+    products: asArray(order?.items || order?.products)
+  };
+}
+
+function normalizeCustomer(customer) {
+  return {
+    id: normalizeText(customer?.id || customer?._id),
+    name: normalizeText(customer?.name || "Unnamed"),
+    email: normalizeText(customer?.email).toLowerCase(),
+    phone: normalizeText(customer?.phone),
+    status: normalizeText(customer?.status || "active").toLowerCase(),
+    verified: Boolean(customer?.verified),
+    joinedAt: customer?.joinedAt || customer?.createdAt || new Date().toISOString(),
+    totalOrders: toNumber(customer?.totalOrders),
+    totalSpent: toNumber(customer?.totalSpent),
+    lastOrderDate: customer?.lastOrderDate || "",
+    orders: asArray(customer?.orders)
+  };
+}
+
+function normalizeProduct(product) {
+  return {
+    id: normalizeText(product?.id || product?.catalogId || product?._id),
+    catalogId: toNumber(product?.catalogId || product?.id),
+    name: normalizeText(product?.name || product?.title || "Product"),
+    category: normalizeText(product?.category || "general").toLowerCase(),
+    price: toNumber(product?.price),
+    stock: toNumber(product?.stock),
+    visibility: normalizeText(product?.visibility || "both").toLowerCase(),
+    sku: normalizeText(product?.sku || product?.catalogId || product?.id),
+    updatedAt: product?.updatedAt || product?.createdAt || new Date().toISOString(),
+    createdAt: product?.createdAt || new Date().toISOString()
+  };
+}
+
+function normalizeActivityEntry(activity) {
+  return {
+    id: normalizeText(activity?.id || activity?.clientActivityId || activity?._id),
+    event: normalizeText(activity?.event || activity?.eventType || "activity"),
+    type: normalizeText(activity?.eventType || activity?.type || "activity"),
+    level: normalizeText(activity?.level || "info"),
+    path: normalizeText(activity?.path),
+    city: normalizeText(activity?.city),
+    country: normalizeText(activity?.country),
+    device: normalizeText(activity?.device),
+    detail: asObject(activity?.detail),
+    createdAt: activity?.createdAt || activity?.updatedAt || new Date().toISOString(),
+    timestamp: activity?.createdAt || activity?.updatedAt || new Date().toISOString()
+  };
+}
+
+function buildMonthlyRevenueSeries(orders) {
+  const map = new Map();
+  const now = new Date();
+
+  for (let offset = 5; offset >= 0; offset -= 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    map.set(monthLabel(date), 0);
+  }
+
+  orders.forEach((order) => {
+    const date = normalizeDate(order.date);
+    if (!date) {
+      return;
+    }
+
+    const key = monthLabel(new Date(date.getFullYear(), date.getMonth(), 1));
+    if (!map.has(key)) {
+      return;
+    }
+
+    map.set(key, toNumber(map.get(key)) + toNumber(order.total));
+  });
+
+  return Array.from(map.entries()).map(([label, total]) => ({ label, total }));
+}
+
+function buildCustomerGrowthSeries(customers) {
+  const map = new Map();
+  const now = new Date();
+
+  for (let offset = 5; offset >= 0; offset -= 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    map.set(monthLabel(date), 0);
+  }
+
+  customers.forEach((customer) => {
+    const date = normalizeDate(customer.joinedAt);
+    if (!date) {
+      return;
+    }
+
+    const key = monthLabel(new Date(date.getFullYear(), date.getMonth(), 1));
+    if (!map.has(key)) {
+      return;
+    }
+
+    map.set(key, toNumber(map.get(key)) + 1);
+  });
+
+  let running = 0;
+  return Array.from(map.entries()).map(([label, joined]) => {
+    running += toNumber(joined);
+    return {
+      label,
+      joined: toNumber(joined),
+      cumulative: running
+    };
+  });
+}
+
+function buildVisitorSeries(activityEntries) {
+  const map = new Map();
+  const now = new Date();
+
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    const date = new Date(now);
+    date.setDate(now.getDate() - offset);
+    map.set(dayLabel(date), 0);
+  }
+
+  activityEntries.forEach((entry) => {
+    const date = normalizeDate(entry.createdAt || entry.timestamp);
+    if (!date) {
+      return;
+    }
+
+    const key = dayLabel(date);
+    if (!map.has(key)) {
+      return;
+    }
+
+    map.set(key, toNumber(map.get(key)) + 1);
+  });
+
+  return Array.from(map.entries()).map(([label, total]) => ({ label, total }));
+}
+
+function buildPerformanceMetrics(orders, customers, visitors) {
+  const revenue = orders.reduce((sum, order) => sum + toNumber(order.total), 0);
+  const orderCount = orders.length;
+  const visitorsCount = visitors.length;
+  const averageOrderValue = orderCount ? revenue / orderCount : 0;
+  const conversionRate = visitorsCount ? (orderCount / visitorsCount) * 100 : 0;
+
+  return {
+    revenue,
+    orderCount,
+    visitorsCount,
+    averageOrderValue,
+    conversionRate,
+    customerCount: customers.length
+  };
+}
+
+function computeDataFreshness(syncedAt) {
+  const synced = new Date(syncedAt || 0).getTime();
+  if (!Number.isFinite(synced) || synced <= 0) {
+    return {
+      staleSeconds: 0,
+      staleLabel: "just now"
+    };
+  }
+
+  const staleSeconds = Math.max(0, Math.floor((Date.now() - synced) / 1000));
+  if (staleSeconds < 60) {
+    return { staleSeconds, staleLabel: `${staleSeconds}s ago` };
+  }
+
+  const minutes = Math.floor(staleSeconds / 60);
+  if (minutes < 60) {
+    return { staleSeconds, staleLabel: `${minutes}m ago` };
+  }
+
+  const hours = Math.floor(minutes / 60);
+  return { staleSeconds, staleLabel: `${hours}h ago` };
+}
+
+function normalizeMessage(message) {
+  return {
+    id: normalizeText(message?.id || message?.messageId || message?._id),
+    messageId: normalizeText(message?.messageId || message?.id || message?._id),
+    status: normalizeText(message?.status || "New"),
+    source: normalizeText(message?.source || "contact-form"),
+    createdAt: message?.createdAt || message?.updatedAt || new Date().toISOString()
+  };
+}
+
+function normalizeCart(cart) {
+  const items = asArray(cart?.items).map((item) => {
+    const quantity = toNumber(item?.quantity);
+    const price = toNumber(item?.price);
+    return {
+      productId: normalizeText(item?.productId || item?.id),
+      catalogId: toNumber(item?.catalogId),
+      name: normalizeText(item?.name || "Product"),
+      quantity,
+      price,
+      stock: toNumber(item?.stock),
+      image: normalizeText(item?.image),
+      total: toNumber(item?.total || (quantity * price))
+    };
+  });
+
+  const itemCount = toNumber(cart?.itemCount || items.reduce((sum, item) => sum + toNumber(item.quantity), 0));
+  const estimatedTotal = toNumber(cart?.estimatedTotal || items.reduce((sum, item) => sum + toNumber(item.total), 0));
+
+  return {
+    id: normalizeText(cart?.id || cart?._id),
+    userId: normalizeText(cart?.userId || cart?.user?.id || cart?.user?._id),
+    userName: normalizeText(cart?.userName || cart?.user?.name || "Customer"),
+    userEmail: normalizeText(cart?.userEmail || cart?.user?.email),
+    userPhone: normalizeText(cart?.userPhone || cart?.user?.phone),
+    itemCount,
+    estimatedTotal,
+    items,
+    createdAt: cart?.createdAt || new Date().toISOString(),
+    updatedAt: cart?.updatedAt || cart?.createdAt || new Date().toISOString()
+  };
+}
+
+function deriveMonitoring({ snapshot, orders, customers, products, activity, messages, carts, hasApiData }) {
+  const stats = asObject(snapshot?.stats);
+  const cartsList = asArray(carts);
+  const snapshotSyncedAt = snapshot?.syncedAt || null;
+  const freshness = computeDataFreshness(snapshotSyncedAt || new Date().toISOString());
+
+  const pendingOrders = orders.filter((order) => String(order.status || "").toLowerCase().includes("pending")).length;
+  const completedOrders = orders.filter((order) => {
+    const status = String(order.status || "").toLowerCase();
+    return status.includes("deliver") || status.includes("complete");
+  }).length;
+
+  const ordersCount = Number(stats.ordersCount || stats.orders || orders.length || 0);
+  const productsCount = Number(stats.productsCount || stats.products || products.length || 0);
+  const customersCount = Number(stats.customersCount || stats.customers || customers.length || 0);
+  const visitsCount = Number(stats.visitsCount || stats.visitors || activity.filter((entry) => String(entry.type || "").toLowerCase().includes("visit")).length || 0);
+  const openMessages = messages.filter((message) => String(message.status || "").toLowerCase().includes("new")).length;
+  const lowStock = products.filter((product) => Number(product.stock || 0) <= 5).length;
+  const outOfStock = products.filter((product) => Number(product.stock || 0) <= 0).length;
+  const cartsCount = Number(stats.cartsCount || cartsList.length || 0);
+  const activeCarts = Number(stats.cartsWithItems || cartsList.filter((cart) => Number(cart.itemCount || 0) > 0).length || 0);
+  const totalCartItems = Number(stats.totalCartItems || cartsList.reduce((sum, cart) => sum + Number(cart.itemCount || 0), 0) || 0);
+
+  const revenue = Number(stats.totalSales || stats.revenue || 0);
+  const averageOrderValue = ordersCount ? revenue / ordersCount : 0;
+  const conversionRate = visitsCount ? (ordersCount / visitsCount) * 100 : 0;
+  const fulfillmentRate = ordersCount ? (completedOrders / ordersCount) * 100 : 0;
+
+  return {
+    syncedAt: snapshotSyncedAt || new Date().toISOString(),
+    staleSeconds: freshness.staleSeconds,
+    staleLabel: freshness.staleLabel,
+    source: normalizeText(snapshot?.source || (hasApiData ? "api" : "cache"), "cache"),
+    dataQuality: hasApiData ? "live" : "cached",
+    kpi: {
+      revenue,
+      ordersCount,
+      pendingOrders,
+      completedOrders,
+      customersCount,
+      productsCount,
+      visitsCount,
+      openMessages,
+      lowStock,
+      outOfStock,
+      cartsCount,
+      activeCarts,
+      totalCartItems,
+      averageOrderValue,
+      conversionRate,
+      fulfillmentRate
+    }
+  };
+}
+
+function clearSyncTimer() {
+  if (syncTimer) {
+    window.clearTimeout(syncTimer);
+    syncTimer = null;
+  }
+}
+
+function nextBackoffInterval(baseMs, streak) {
+  const multiplier = Math.min(6, Math.max(1, streak));
+  return Math.min(MAX_SYNC_INTERVAL_MS, baseMs * multiplier);
+}
+
+async function fetchDashboardSnapshotFromApi() {
+  const payload = await withRetry("admin/dashboard", () => api.get("admin/dashboard"));
+  const snapshot = payload?.snapshot || payload;
+  if (!snapshot || typeof snapshot !== "object") {
+    throw new Error("Invalid dashboard snapshot payload");
+  }
+
+  return snapshot;
+}
+
+function buildDashboardAnalytics({ snapshot, orders, customers, activityLogs, carts, hasApiData }) {
+  const analytics = asObject(snapshot?.analytics);
+  const visitEntries = activityLogs.filter((entry) => String(entry.type || "").toLowerCase().includes("visit"));
+  const performance = buildPerformanceMetrics(orders, customers, visitEntries);
+  const monitoring = deriveMonitoring({
+    snapshot,
+    orders,
+    customers,
+    products: asArray(snapshot?.raw?.products || []),
+    activity: activityLogs,
+    carts,
+    messages: [],
+    hasApiData
+  });
+
+  return {
+    weeklySales: asArray(analytics?.salesSeries),
+    monthlyRevenue: buildMonthlyRevenueSeries(orders),
+    customerGrowth: buildCustomerGrowthSeries(customers),
+    visitorActivity: buildVisitorSeries(visitEntries),
+    orderStatusBreakdown: asObject(analytics?.orderStatusBreakdown),
+    topProducts: asArray(analytics?.topProducts),
+    inventory: asObject(analytics?.inventory),
+    performance,
+    totalRevenue: performance.revenue,
+    averageOrderValue: performance.averageOrderValue,
+    conversionRate: performance.conversionRate,
+    returningCustomers: toNumber(analytics?.activityCounts?.customers),
+    syncedAt: snapshot?.syncedAt || new Date().toISOString(),
+    monitoring
+  };
+}
+
+export async function getDashboard(options = {}) {
+  const scope = "dashboard";
+  const allowCacheFallback = options?.allowCacheFallback === true;
+  const preferCache = options?.preferCache === true;
+  const cachedPayload = (options?.force || !preferCache) ? null : getCachedScopePayload(scope, options);
+  if (cachedPayload) {
+    return cachedPayload;
+  }
+
+  const inFlight = scopeInFlight.get(scope);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const promise = (async () => {
+  try {
+    const snapshot = await fetchDashboardSnapshotFromApi();
+    writeMemoryCache(scope, snapshot);
+    writeCache(scope, snapshot);
+    if (options?.emit !== false) {
+      emitSync(scope, snapshot);
+    }
+    return snapshot;
+  } catch (error) {
+    const cached = getCachedScopePayload(scope, options);
+    if (allowCacheFallback && cached) {
+      return cached;
+    }
+
+    if (!options?.silent) {
+      throw error;
+    }
+
+    return {
+      stats: {},
+      analytics: {},
+      activity: [],
+      raw: { orders: [], customers: [], products: [], visits: [], carts: [] }
+    };
+  }
+  })().finally(() => {
+    scopeInFlight.delete(scope);
+  });
+
+  scopeInFlight.set(scope, promise);
+  return promise;
+}
+
+export async function getOrders(options = {}) {
+  const scope = "orders";
+  const allowCacheFallback = options?.allowCacheFallback === true;
+  const preferCache = options?.preferCache === true;
+  const cachedPayload = (options?.force || !preferCache) ? null : getCachedScopePayload(scope, options);
+  if (cachedPayload) {
+    return capArray(cachedPayload, options?.maxItems || MAX_ORDERS_ITEMS).map(normalizeOrder);
+  }
+
+  const inFlight = scopeInFlight.get(scope);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const promise = (async () => {
+    try {
+      const payload = await withRetry("admin/orders", () => api.get("admin/orders"));
+      const orders = capArray(asArray(payload?.orders || payload?.data || payload).map(normalizeOrder), options?.maxItems || MAX_ORDERS_ITEMS);
+      writeMemoryCache(scope, orders);
+      writeCache(scope, orders);
+      if (options?.emit !== false) {
+        emitSync(scope, orders);
+      }
+      return orders;
+    } catch (error) {
+      const cached = getCachedScopePayload(scope, options);
+      if (allowCacheFallback && cached) {
+        return capArray(cached, options?.maxItems || MAX_ORDERS_ITEMS).map(normalizeOrder);
+      }
+
+      throw error;
+    }
+  })().finally(() => {
+    scopeInFlight.delete(scope);
+  });
+
+  scopeInFlight.set(scope, promise);
+  return promise;
+}
+
+export async function getCustomers(options = {}) {
+  const scope = "customers";
+  const allowCacheFallback = options?.allowCacheFallback === true;
+  const preferCache = options?.preferCache === true;
+  const cachedPayload = (options?.force || !preferCache) ? null : getCachedScopePayload(scope, options);
+  if (cachedPayload) {
+    return capArray(cachedPayload, options?.maxItems || MAX_CUSTOMERS_ITEMS).map(normalizeCustomer);
+  }
+
+  const inFlight = scopeInFlight.get(scope);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const promise = (async () => {
+    try {
+      const payload = await withRetry("admin/customers", () => api.get("admin/customers"));
+      const customers = capArray(asArray(payload?.customers || payload?.data || payload).map(normalizeCustomer), options?.maxItems || MAX_CUSTOMERS_ITEMS);
+      writeMemoryCache(scope, customers);
+      writeCache(scope, customers);
+      if (options?.emit !== false) {
+        emitSync(scope, customers);
+      }
+      return customers;
+    } catch (error) {
+      const cached = getCachedScopePayload(scope, options);
+      if (allowCacheFallback && cached) {
+        return capArray(cached, options?.maxItems || MAX_CUSTOMERS_ITEMS).map(normalizeCustomer);
+      }
+
+      throw error;
+    }
+  })().finally(() => {
+    scopeInFlight.delete(scope);
+  });
+
+  scopeInFlight.set(scope, promise);
+  return promise;
+}
+
+export async function getProducts(options = {}) {
+  const scope = "products";
+  const allowCacheFallback = options?.allowCacheFallback === true;
+  const preferCache = options?.preferCache === true;
+  const cachedPayload = (options?.force || !preferCache) ? null : getCachedScopePayload(scope, options);
+  if (cachedPayload) {
+    return capArray(cachedPayload, options?.maxItems || MAX_PRODUCTS_ITEMS).map(normalizeProduct);
+  }
+
+  const inFlight = scopeInFlight.get(scope);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const promise = (async () => {
+    try {
+      const payload = await withRetry("products", () => api.get("products"));
+      const products = capArray(asArray(payload?.products || payload?.data || payload).map(normalizeProduct), options?.maxItems || MAX_PRODUCTS_ITEMS);
+      writeMemoryCache(scope, products);
+      writeCache(scope, products);
+      if (options?.emit !== false) {
+        emitSync(scope, products);
+      }
+      return products;
+    } catch (error) {
+      const cached = getCachedScopePayload(scope, options);
+      if (allowCacheFallback && cached) {
+        return capArray(cached, options?.maxItems || MAX_PRODUCTS_ITEMS).map(normalizeProduct);
+      }
+
+      throw error;
+    }
+  })().finally(() => {
+    scopeInFlight.delete(scope);
+  });
+
+  scopeInFlight.set(scope, promise);
+  return promise;
+}
+
+export async function getActivityLogs(options = {}) {
+  const scope = "activity";
+  const allowCacheFallback = options?.allowCacheFallback === true;
+  const preferCache = options?.preferCache === true;
+  const cachedPayload = (options?.force || !preferCache) ? null : getCachedScopePayload(scope, options);
+  if (cachedPayload) {
+    return capArray(cachedPayload, options?.maxItems || MAX_ACTIVITY_ITEMS).map(normalizeActivityEntry);
+  }
+
+  const inFlight = scopeInFlight.get(scope);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const promise = (async () => {
+    try {
+      const payload = await withRetry("admin/activity", () => api.get("admin/activity?limit=120"));
+      const activity = capArray(asArray(payload?.activity || payload?.logs || payload?.data || payload).map(normalizeActivityEntry), options?.maxItems || MAX_ACTIVITY_ITEMS);
+      writeMemoryCache(scope, activity);
+      writeCache(scope, activity);
+      if (options?.emit !== false) {
+        emitSync(scope, activity);
+      }
+      return activity;
+    } catch (error) {
+      const cached = getCachedScopePayload(scope, options);
+      if (allowCacheFallback && cached) {
+        return capArray(cached, options?.maxItems || MAX_ACTIVITY_ITEMS).map(normalizeActivityEntry);
+      }
+
+      throw error;
+    }
+  })().finally(() => {
+    scopeInFlight.delete(scope);
+  });
+
+  scopeInFlight.set(scope, promise);
+  return promise;
+}
+
+export async function getAnalytics(options = {}) {
+  const scope = "analytics";
+  const allowCacheFallback = options?.allowCacheFallback === true;
+
+  try {
+    const [snapshot, orders, customers, activity] = await Promise.all([
+      getDashboard({ silent: true }),
+      getOrders(),
+      getCustomers(),
+      getActivityLogs()
+    ]);
+
+    const analytics = asObject(snapshot?.analytics);
+    const weeklySales = asArray(analytics?.salesSeries);
+    const monthlyRevenue = buildMonthlyRevenueSeries(orders);
+    const customerGrowth = buildCustomerGrowthSeries(customers);
+    const visitorActivity = buildVisitorSeries(activity.filter((entry) => String(entry.type || "").toLowerCase().includes("visit")));
+    const performance = buildPerformanceMetrics(orders, customers, activity.filter((entry) => String(entry.type || "").toLowerCase().includes("visit")));
+
+    const syncedAt = snapshot?.syncedAt || new Date().toISOString();
+    const monitoring = deriveMonitoring({
+      snapshot,
+      orders,
+      customers,
+      products: asArray(snapshot?.raw?.products || []),
+      activity,
+      carts: asArray(snapshot?.raw?.carts || []),
+      messages: [],
+      hasApiData: true
+    });
+
+    const normalized = {
+      weeklySales,
+      monthlyRevenue,
+      customerGrowth,
+      visitorActivity,
+      orderStatusBreakdown: asObject(analytics?.orderStatusBreakdown),
+      topProducts: asArray(analytics?.topProducts),
+      inventory: asObject(analytics?.inventory),
+      performance,
+      totalRevenue: performance.revenue,
+      averageOrderValue: performance.averageOrderValue,
+      conversionRate: performance.conversionRate,
+      returningCustomers: toNumber(analytics?.activityCounts?.customers),
+      syncedAt,
+      monitoring
+    };
+
+    writeCache(scope, normalized);
+    emitSync(scope, normalized);
+    return normalized;
+  } catch (error) {
+    const cached = readCache(scope);
+    if (allowCacheFallback && cached?.payload) {
+      return asObject(cached.payload);
+    }
+
+    throw error;
+  }
+}
+
+export async function getDashboardBundle(options = {}) {
+  const scope = "dashboard_bundle";
+  const allowCacheFallback = options?.allowCacheFallback === true;
+  const preferCache = options?.preferCache === true;
+  const cachedPayload = (options?.force || !preferCache) ? null : getCachedScopePayload(scope, options);
+  if (cachedPayload) {
+    return cachedPayload;
+  }
+
+  const inFlight = scopeInFlight.get(scope);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const promise = (async () => {
+    try {
+      const snapshot = await getDashboard({
+        allowCacheFallback,
+        preferCache,
+        force: options?.force === true,
+        emit: false
+      });
+      const raw = asObject(snapshot?.raw);
+      const orders = capArray(asArray(raw.orders).map(normalizeOrder), options?.maxOrders || 24);
+      const customers = capArray(asArray(raw.customers).map(normalizeCustomer), options?.maxCustomers || 16);
+      const products = capArray(asArray(raw.products).map(normalizeProduct), options?.maxProducts || 24);
+      const carts = capArray(asArray(raw.carts).map(normalizeCart), options?.maxCarts || 24);
+
+      let activityLogs = [];
+      try {
+        activityLogs = await getActivityLogs({
+          allowCacheFallback: true,
+          preferCache: true,
+          emit: false
+        });
+      } catch (_error) {
+        activityLogs = asArray(snapshot?.activity).map((entry) => ({
+          id: normalizeText(entry?.reference || entry?.id),
+          event: normalizeText(entry?.type || entry?.source || "activity"),
+          type: normalizeText(entry?.type || "activity").toLowerCase(),
+          level: "info",
+          path: normalizeText(entry?.reference),
+          city: "",
+          country: "",
+          device: "",
+          detail: { source: normalizeText(entry?.type || entry?.source) },
+          createdAt: entry?.date || new Date().toISOString(),
+          timestamp: entry?.date || new Date().toISOString()
+        }));
+      }
+
+      const bundle = {
+        snapshot,
+        analytics: buildDashboardAnalytics({
+          snapshot,
+          orders,
+          customers,
+          activityLogs,
+          carts,
+          hasApiData: true
+        }),
+        orders,
+        customers,
+        products,
+        activityLogs,
+        carts,
+        failedSources: []
+      };
+
+      writeMemoryCache(scope, bundle);
+      return bundle;
+    } catch (error) {
+      const cached = getCachedScopePayload(scope, options);
+      if (allowCacheFallback && cached) {
+        return cached;
+      }
+
+      throw error;
+    }
+  })().finally(() => {
+    scopeInFlight.delete(scope);
+  });
+
+  scopeInFlight.set(scope, promise);
+  return promise;
+}
+
+export async function getEnterpriseOverview(options = {}) {
+  const scope = "enterprise_overview";
+  const allowCacheFallback = options?.allowCacheFallback === true;
+  const rangeDays = Math.min(180, Math.max(7, Number(options?.rangeDays || 30) || 30));
+
+  try {
+    const payload = await withRetry("admin/intelligence/overview", () => api.get(`admin/intelligence/overview?rangeDays=${rangeDays}`));
+    const overview = payload?.overview || payload;
+    writeMemoryCache(scope, overview);
+    writeCache(scope, overview);
+    if (options?.emit !== false) {
+      emitSync(scope, overview);
+    }
+    return overview;
+  } catch (error) {
+    const cached = getCachedScopePayload(scope, options);
+    if (allowCacheFallback && cached) {
+      return cached;
+    }
+
+    throw error;
+  }
+}
+
+function resolveAdminApiBaseUrl() {
+  const configured = String(window.AdminConfig?.apiBaseUrl || "").trim();
+  if (configured) {
+    return configured.replace(/\/+$/, "");
+  }
+
+  if (/^https?:$/i.test(String(window.location?.protocol || ""))) {
+    return String(window.location.origin || "").replace(/\/+$/, "");
+  }
+
+  return "";
+}
+
+function readAdminToken() {
+  try {
+    return String(window.localStorage.getItem("adminToken") || "").trim();
+  } catch (_error) {
+    return "";
+  }
+}
+
+export async function exportEnterpriseReport(options = {}) {
+  const format = String(options?.format || "csv").trim().toLowerCase();
+  const reportType = String(options?.reportType || options?.report || "analytics").trim().toLowerCase();
+  const rangeDays = Math.min(180, Math.max(7, Number(options?.rangeDays || 30) || 30));
+
+  if (!["csv", "pdf"].includes(format)) {
+    throw new Error("Unsupported export format. Use csv or pdf.");
+  }
+
+  const base = resolveAdminApiBaseUrl();
+  if (!base) {
+    throw new Error("Admin API base URL is not configured.");
+  }
+
+  const query = new URLSearchParams({
+    report: reportType,
+    format,
+    rangeDays: String(rangeDays)
+  });
+
+  const url = `${base}/api/admin/intelligence/reports/export?${query.toString()}`;
+  const token = readAdminToken();
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Accept: format === "pdf" ? "application/pdf" : "text/csv",
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+  });
+
+  if (!response.ok) {
+    let message = `Export failed with status ${response.status}`;
+    try {
+      const errorPayload = await response.json();
+      if (errorPayload?.message) {
+        message = String(errorPayload.message);
+      }
+    } catch (_error) {
+      // Ignore non-JSON error bodies.
+    }
+
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = String(response.headers.get("content-disposition") || "");
+  const filenameMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+  const filename = filenameMatch && filenameMatch[1]
+    ? filenameMatch[1]
+    : `byose_${reportType}_report.${format}`;
+
+  const objectUrl = window.URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    window.setTimeout(() => {
+      window.URL.revokeObjectURL(objectUrl);
+    }, 200);
+  }
+
+  return { success: true, filename, format };
+}
+
+export async function getInventory(options = {}) {
+  const scope = "inventory";
+  const allowCacheFallback = options?.allowCacheFallback === true;
+  try {
+    const [products, analytics] = await Promise.all([getProducts(), getAnalytics()]);
+
+    const entries = products.map((product) => ({
+      id: product.id,
+      name: product.name,
+      sku: product.sku,
+      stock: product.stock,
+      category: product.category,
+      updatedAt: product.updatedAt
+    }));
+
+    const lowStock = entries.filter((entry) => entry.stock <= 5).length;
+
+    const payload = {
+      totalSku: entries.length,
+      totalStock: entries.reduce((sum, entry) => sum + toNumber(entry.stock), 0),
+      lowStock,
+      outOfStock: entries.filter((entry) => entry.stock <= 0).length,
+      recentlyUpdated: asArray(analytics?.inventory?.recentlyUpdated || []),
+      entries
+    };
+
+    writeCache(scope, payload);
+    emitSync(scope, payload);
+    return payload;
+  } catch (error) {
+    const cached = readCache(scope);
+    if (allowCacheFallback && cached?.payload) {
+      return asObject(cached.payload);
+    }
+
+    throw error;
+  }
+}
+
+export async function getSettings() {
+  const scope = "settings";
+  const cached = readCache(scope);
+
+  try {
+    const response = await withRetry(scope, () => api.get("/admin/settings"));
+    const payload = asObject(response?.settings || response?.data || {});
+    writeCache(scope, payload);
+    return payload;
+  } catch (error) {
+    if (cached?.payload) {
+      return asObject(cached.payload);
+    }
+
+    throw error;
+  }
+}
+
+export async function updateSettings(nextSettings) {
+  const safeSettings = asObject(nextSettings);
+  const response = await withRetry("settings", () => api.put("/admin/settings", safeSettings), 1);
+  const persistedSettings = asObject(response?.settings || response?.data || safeSettings);
+  writeMemoryCache("settings", persistedSettings);
+  writeCache("settings", persistedSettings);
+  emitSync("settings", persistedSettings);
+  return persistedSettings;
+}
+
+async function resyncEnterpriseScopes(scopes = []) {
+  const normalizedScopes = new Set(asArray(scopes).map((scope) => normalizeText(scope).toLowerCase()));
+  const tasks = [];
+
+  if (normalizedScopes.has("orders")) {
+    tasks.push(getOrders({ force: true, emit: true }));
+  }
+
+  if (normalizedScopes.has("messages")) {
+    tasks.push(getMessages({ force: true, emit: true }));
+  }
+
+  if (normalizedScopes.has("products")) {
+    tasks.push(getProducts({ force: true, emit: true }));
+  }
+
+  if (normalizedScopes.has("customers")) {
+    tasks.push(getCustomers({ force: true, emit: true }));
+  }
+
+  if (normalizedScopes.has("activity")) {
+    tasks.push(getActivityLogs({ force: true, emit: true }));
+  }
+
+  if (tasks.length) {
+    await Promise.allSettled(tasks);
+  }
+
+  await refreshRealtimeIntelligence();
+}
+
+export async function updateOrderStatus(orderId, status) {
+  const id = normalizeText(orderId);
+  const nextStatus = normalizeText(status);
+  if (!id || !nextStatus) {
+    throw new Error("Order id and status are required.");
+  }
+
+  const payload = await api.put(`admin/orders/${encodeURIComponent(id)}/status`, { status: nextStatus });
+  await resyncEnterpriseScopes(["orders"]);
+  return payload?.order || payload || null;
+}
+
+export async function deleteOrder(orderId) {
+  const id = normalizeText(orderId);
+  if (!id) {
+    throw new Error("Order id is required.");
+  }
+
+  const payload = await api.remove(`admin/orders/${encodeURIComponent(id)}`);
+  await resyncEnterpriseScopes(["orders"]);
+  return payload || { id };
+}
+
+export async function updateMessageStatus(messageId, status) {
+  const id = normalizeText(messageId);
+  const nextStatus = normalizeText(status);
+  if (!id || !nextStatus) {
+    throw new Error("Message id and status are required.");
+  }
+
+  const payload = await api.put(`admin/messages/${encodeURIComponent(id)}`, { status: nextStatus });
+  await resyncEnterpriseScopes(["messages"]);
+  return payload?.message || payload || null;
+}
+
+export async function deleteMessage(messageId) {
+  const id = normalizeText(messageId);
+  if (!id) {
+    throw new Error("Message id is required.");
+  }
+
+  const payload = await api.remove(`admin/messages/${encodeURIComponent(id)}`);
+  await resyncEnterpriseScopes(["messages"]);
+  return payload || { id };
+}
+
+export async function bulkUpdateOrderStatus(orderIds = [], status) {
+  const ids = asArray(orderIds).map((value) => normalizeText(value)).filter(Boolean);
+  if (!ids.length) {
+    throw new Error("Select at least one order.");
+  }
+
+  const nextStatus = normalizeText(status);
+  const results = await Promise.allSettled(ids.map((id) => updateOrderStatus(id, nextStatus)));
+  const failures = results.filter((result) => result.status === "rejected");
+  if (failures.length) {
+    const error = new Error(`Updated ${ids.length - failures.length} of ${ids.length} orders.`);
+    error.failures = failures;
+    throw error;
+  }
+
+  return results.map((result) => result.value);
+}
+
+export async function bulkDeleteOrders(orderIds = []) {
+  const ids = asArray(orderIds).map((value) => normalizeText(value)).filter(Boolean);
+  if (!ids.length) {
+    throw new Error("Select at least one order.");
+  }
+
+  const results = await Promise.allSettled(ids.map((id) => deleteOrder(id)));
+  const failures = results.filter((result) => result.status === "rejected");
+  if (failures.length) {
+    const error = new Error(`Deleted ${ids.length - failures.length} of ${ids.length} orders.`);
+    error.failures = failures;
+    throw error;
+  }
+
+  return results.map((result) => result.value);
+}
+
+export async function bulkUpdateMessageStatus(messageIds = [], status) {
+  const ids = asArray(messageIds).map((value) => normalizeText(value)).filter(Boolean);
+  if (!ids.length) {
+    throw new Error("Select at least one message.");
+  }
+
+  const nextStatus = normalizeText(status);
+  const results = await Promise.allSettled(ids.map((id) => updateMessageStatus(id, nextStatus)));
+  const failures = results.filter((result) => result.status === "rejected");
+  if (failures.length) {
+    const error = new Error(`Updated ${ids.length - failures.length} of ${ids.length} messages.`);
+    error.failures = failures;
+    throw error;
+  }
+
+  return results.map((result) => result.value);
+}
+
+export async function bulkDeleteMessages(messageIds = []) {
+  const ids = asArray(messageIds).map((value) => normalizeText(value)).filter(Boolean);
+  if (!ids.length) {
+    throw new Error("Select at least one message.");
+  }
+
+  const results = await Promise.allSettled(ids.map((id) => deleteMessage(id)));
+  const failures = results.filter((result) => result.status === "rejected");
+  if (failures.length) {
+    const error = new Error(`Deleted ${ids.length - failures.length} of ${ids.length} messages.`);
+    error.failures = failures;
+    throw error;
+  }
+
+  return results.map((result) => result.value);
+}
+
+export async function getMessages(options = {}) {
+  const scope = "messages";
+  const allowCacheFallback = options?.allowCacheFallback === true;
+  const preferCache = options?.preferCache === true;
+  const cachedPayload = (options?.force || !preferCache) ? null : getCachedScopePayload(scope, options);
+  if (cachedPayload) {
+    return capArray(cachedPayload, options?.maxItems || MAX_MESSAGES_ITEMS).map(normalizeMessage);
+  }
+
+  const inFlight = scopeInFlight.get(scope);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const promise = (async () => {
+    try {
+      const payload = await withRetry("admin/messages", () => api.get("admin/messages?limit=120"));
+      const messages = capArray(asArray(payload?.messages || payload?.data || payload).map(normalizeMessage), options?.maxItems || MAX_MESSAGES_ITEMS);
+      writeMemoryCache(scope, messages);
+      writeCache(scope, messages);
+      if (options?.emit !== false) {
+        emitSync(scope, messages);
+      }
+      return messages;
+    } catch (error) {
+      const cached = getCachedScopePayload(scope, options);
+      if (allowCacheFallback && cached) {
+        return capArray(cached, options?.maxItems || MAX_MESSAGES_ITEMS).map(normalizeMessage);
+      }
+
+      throw error;
+    }
+  })().finally(() => {
+    scopeInFlight.delete(scope);
+  });
+
+  scopeInFlight.set(scope, promise);
+  return promise;
+}
+
+export async function getCarts(options = {}) {
+  const scope = "carts";
+  const allowCacheFallback = options?.allowCacheFallback === true;
+  const preferCache = options?.preferCache === true;
+  const cachedPayload = (options?.force || !preferCache) ? null : getCachedScopePayload(scope, options);
+  if (cachedPayload) {
+    return capArray(cachedPayload, options?.maxItems || MAX_CARTS_ITEMS).map(normalizeCart);
+  }
+
+  const inFlight = scopeInFlight.get(scope);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const promise = (async () => {
+    try {
+      const payload = await withRetry("admin/carts", () => api.get("admin/carts?limit=200"));
+      const carts = capArray(asArray(payload?.carts || payload?.data || payload).map(normalizeCart), options?.maxItems || MAX_CARTS_ITEMS);
+      writeMemoryCache(scope, carts);
+      writeCache(scope, carts);
+      if (options?.emit !== false) {
+        emitSync(scope, carts);
+      }
+      return carts;
+    } catch (error) {
+      const cached = getCachedScopePayload(scope, options);
+      if (allowCacheFallback && cached) {
+        return capArray(cached, options?.maxItems || MAX_CARTS_ITEMS).map(normalizeCart);
+      }
+
+      throw error;
+    }
+  })().finally(() => {
+    scopeInFlight.delete(scope);
+  });
+
+  scopeInFlight.set(scope, promise);
+  return promise;
+}
+
+export async function getRealtimeIntelligence(options = {}) {
+  const forceApi = Boolean(options?.forceApi);
+  const allowCacheFallback = !forceApi;
+
+  const [snapshotResult, ordersResult, customersResult, productsResult, activityResult, messagesResult, cartsResult] = await Promise.allSettled([
+    getDashboard({ allowCacheFallback, silent: true, emit: false, force: forceApi }),
+    getOrders({ emit: false, force: forceApi }),
+    getCustomers({ emit: false, force: forceApi }),
+    getProducts({ emit: false, force: forceApi }),
+    getActivityLogs({ emit: false, force: forceApi }),
+    getMessages({ emit: false, force: forceApi }),
+    getCarts({ emit: false, force: forceApi })
+  ]);
+
+  const hasApiData = [snapshotResult, ordersResult, customersResult, productsResult, activityResult, messagesResult, cartsResult]
+    .some((result) => result.status === "fulfilled");
+  const snapshot = snapshotResult.status === "fulfilled"
+    ? snapshotResult.value
+    : asObject(readCache("dashboard")?.payload || {});
+
+  const orders = ordersResult.status === "fulfilled" ? ordersResult.value : asArray(readCache("orders")?.payload || []).map(normalizeOrder);
+  const customers = customersResult.status === "fulfilled" ? customersResult.value : asArray(readCache("customers")?.payload || []).map(normalizeCustomer);
+  const products = productsResult.status === "fulfilled" ? productsResult.value : asArray(readCache("products")?.payload || []).map(normalizeProduct);
+  const activity = activityResult.status === "fulfilled" ? activityResult.value : asArray(readCache("activity")?.payload || []).map(normalizeActivityEntry);
+  const messages = messagesResult.status === "fulfilled" ? messagesResult.value : asArray(readCache("messages")?.payload || []).map(normalizeMessage);
+  const carts = cartsResult.status === "fulfilled" ? cartsResult.value : asArray(readCache("carts")?.payload || []).map(normalizeCart);
+
+  const errors = [snapshotResult, ordersResult, customersResult, productsResult, activityResult, messagesResult, cartsResult]
+    .filter((result) => result.status === "rejected")
+    .map((result) => ({ message: String(result.reason?.message || "Sync request failed") }));
+
+  const monitoring = deriveMonitoring({ snapshot, orders, customers, products, activity, messages, carts, hasApiData });
+  const intelligence = {
+    syncedAt: monitoring.syncedAt,
+    source: monitoring.source,
+    dataQuality: monitoring.dataQuality,
+    monitoring,
+    errors,
+    feeds: {
+      orders,
+      customers,
+      products,
+      activity,
+      messages,
+      carts
+    }
+  };
+
+  writeCache(INTELLIGENCE_SCOPE, intelligence);
+  emitSync(INTELLIGENCE_SCOPE, intelligence);
+  writeMemoryCache(INTELLIGENCE_SCOPE, intelligence);
+  lastKnownIntelligence = intelligence;
+  return intelligence;
+}
+
+function scheduleNextSync() {
+  clearSyncTimer();
+  if (!syncStarted) {
+    return;
+  }
+
+  syncTimer = window.setTimeout(async () => {
+    try {
+      await refreshRealtimeIntelligence();
+    } finally {
+      scheduleNextSync();
+    }
+  }, syncIntervalMs);
+}
+
+export async function refreshRealtimeIntelligence() {
+  if (inFlightSyncPromise) {
+    return inFlightSyncPromise;
+  }
+
+  inFlightSyncPromise = (async () => {
+    try {
+      const intelligence = await getRealtimeIntelligence({ forceApi: false });
+      syncFailureStreak = 0;
+      syncIntervalMs = DEFAULT_SYNC_INTERVAL_MS;
+      return intelligence;
+    } catch (error) {
+      syncFailureStreak += 1;
+      syncIntervalMs = nextBackoffInterval(DEFAULT_SYNC_INTERVAL_MS, syncFailureStreak);
+      if (lastKnownIntelligence) {
+        return lastKnownIntelligence;
+      }
+      throw error;
+    } finally {
+      inFlightSyncPromise = null;
+    }
+  })();
+
+  return inFlightSyncPromise;
+}
+
+function installVisibilitySync() {
+  const onVisible = () => {
+    if (document.visibilityState !== "visible") {
+      return;
+    }
+
+    if (pendingVisibilityRefresh) {
+      window.clearTimeout(pendingVisibilityRefresh);
+    }
+
+    pendingVisibilityRefresh = window.setTimeout(() => {
+      void refreshRealtimeIntelligence();
+    }, TAB_SYNC_DEBOUNCE_MS);
+  };
+
+  document.addEventListener("visibilitychange", onVisible);
+  window.addEventListener("focus", onVisible);
+
+  return () => {
+    document.removeEventListener("visibilitychange", onVisible);
+    window.removeEventListener("focus", onVisible);
+    if (pendingVisibilityRefresh) {
+      window.clearTimeout(pendingVisibilityRefresh);
+      pendingVisibilityRefresh = null;
+    }
+  };
+}
+
+let removeVisibilitySync = null;
+
+export function startRealtimeAnalyticsSync(options = {}) {
+  if (syncStarted) {
+    return () => stopRealtimeAnalyticsSync();
+  }
+
+  syncStarted = true;
+  syncIntervalMs = Math.max(12000, Number(options?.intervalMs || DEFAULT_SYNC_INTERVAL_MS));
+  syncFailureStreak = 0;
+
+  removeVisibilitySync = installVisibilitySync();
+  void refreshRealtimeIntelligence();
+  scheduleNextSync();
+
+  return () => stopRealtimeAnalyticsSync();
+}
+
+export function stopRealtimeAnalyticsSync() {
+  syncStarted = false;
+  clearSyncTimer();
+  if (removeVisibilitySync) {
+    removeVisibilitySync();
+    removeVisibilitySync = null;
+  }
+}

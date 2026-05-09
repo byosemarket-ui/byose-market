@@ -1,5 +1,6 @@
 const StorefrontState = require('../models/storefrontstate');
 const User = require('../models/user');
+const { appLogger } = require('../utils/logger');
 
 async function resolveUser(req) {
     if (!req.user || !req.user.id) {
@@ -149,6 +150,7 @@ async function ensureState(user) {
 }
 
 exports.getStorefrontState = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'storefront_state' });
     try {
         const user = await resolveUser(req);
         if (!user) {
@@ -158,12 +160,13 @@ exports.getStorefrontState = async (req, res) => {
         const state = await ensureState(user);
         return res.json({ success: true, state: serializeState(state) });
     } catch (error) {
-        console.error('getStorefrontState error', error);
+        logger.error('storefront.state_get_failed', { error });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.updateStorefrontState = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'storefront_state' });
     try {
         const user = await resolveUser(req);
         if (!user) {
@@ -200,7 +203,7 @@ exports.updateStorefrontState = async (req, res) => {
 
         return res.json({ success: true, state: serializeState(state) });
     } catch (error) {
-        console.error('updateStorefrontState error', error);
+        logger.error('storefront.state_update_failed', { error });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };

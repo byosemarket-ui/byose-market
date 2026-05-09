@@ -68,62 +68,24 @@ function validatePhone(phone) {
     return /^\+2507\d{8}$/.test(phone); // Rwanda format
 }
 
-function getStoredUsers() {
-    try {
-        return JSON.parse(localStorage.getItem('bm_users')) || [];
-    } catch (error) {
-        return [];
-    }
-}
-
-function hasMatchingUser(method, identifier) {
-    const normalized = method === 'email' ? identifier.toLowerCase() : identifier;
-    return getStoredUsers().some((user) => {
-        if (method === 'email') {
-            return (user.email || '').toLowerCase() === normalized;
-        }
-        return (user.phone || '') === normalized;
-    });
-}
-
-function storeResetCode(identifier) {
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    localStorage.setItem('resetIdentifier', identifier);
-    localStorage.setItem('resetCode', code);
-    return code;
-}
-
 async function requestResetCode(method, identifier) {
     const endpoint = window.__BYOSE_PASSWORD_RESET_API__ || `${resolveApiOrigin()}/api/auth/forgot-password`;
 
-    if (endpoint) {
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json'
-            },
-            body: JSON.stringify({ method, identifier })
-        });
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json'
+        },
+        body: JSON.stringify({ method, identifier })
+    });
 
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) {
-            return { success: false, message: payload?.message || `Reset-code request failed with status ${response.status}` };
-        }
-
-        return payload || { success: false, message: 'Invalid API response.' };
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+        return { success: false, message: payload?.message || `Reset-code request failed with status ${response.status}` };
     }
 
-    if (!hasMatchingUser(method, identifier)) {
-        return { success: false, message: 'Account not found for that identifier.' };
-    }
-
-    const code = storeResetCode(identifier);
-    return {
-        success: true,
-        staticCode: code,
-        message: 'Static hosting mode: use the generated code to continue.'
-    };
+    return payload || { success: false, message: 'Invalid API response.' };
 }
 
 // ===============================
@@ -162,9 +124,6 @@ sendBtn.addEventListener('click', async () => {
             localStorage.setItem("resetIdentifier", identifier);
 
             // Go to verify page
-            if (data.staticCode) {
-                alert(`Static hosting mode code: ${data.staticCode}`);
-            }
             window.location.href = "verify-code.html";
 
         } else {

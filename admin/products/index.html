@@ -1,112 +1,18 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="../admin-login/js/admin-security.js"></script>
-<title>Products | Byose Market Admin</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-  <link rel="stylesheet" href="../css/tokens.css">
-  <link rel="stylesheet" href="../css/base.css">
-  <link rel="stylesheet" href="../css/layout.css">
-  <link rel="stylesheet" href="../css/pages/products.css">
+<title>Redirecting | Products</title>
+<meta http-equiv="refresh" content="0; url=../dashboard.html#/products">
+<script>
+(function () {
+  window.location.replace('../dashboard.html#/products');
+})();
+</script>
 </head>
-<body class="admin-dashboard-page">
-  <div class="dashboard-shell">
-    <div class="dashboard-orb dashboard-orb-primary" aria-hidden="true"></div>
-    <div class="dashboard-orb dashboard-orb-secondary" aria-hidden="true"></div>
-    <div class="admin-app-shell">
-      <div class="admin-sidebar-backdrop" data-sidebar-backdrop hidden></div>
-      <aside class="admin-sidebar" id="adminSidebar" aria-label="Admin navigation" data-sidebar-root></aside>
-      <div class="admin-main-shell">
-<div class="admin-topbar-leading">
-            <button class="sidebar-toggle-button" type="button" aria-label="Open navigation" aria-controls="adminSidebar" aria-expanded="false" data-sidebar-toggle>
-              <span></span>
-              <span></span>
-              <span></span>
-            </button>
-            <div>
-              <p class="dashboard-eyebrow">Admin Products</p>
-              <h1 class="admin-topbar-title">All Products</h1>
-            </div>
-          </div>
-          <div class="admin-topbar-meta">
-            <span class="admin-status-dot"></span>
-            <span>Connected to live website products</span>
-          </div>
-        </header>
-
-        <main class="dashboard-grid products-dashboard-grid">
-          <section class="products-hero-grid">
-            <article class="dashboard-panel products-hero-card">
-              <p class="dashboard-eyebrow">Catalog Listing</p>
-              <h2>Browse every real product already used across the website.</h2>
-              <p>This page loads the same shared catalog powering the storefront, so edits and deletions stay connected across the full system.</p>
-            </article>
-            <div class="products-stats-grid">
-              <article class="dashboard-panel products-stat-card"><span>Total products</span><strong id="productsTotalCount">0</strong></article>
-              <article class="dashboard-panel products-stat-card"><span>Total stock</span><strong id="productsTotalStock">0</strong></article>
-              <article class="dashboard-panel products-stat-card"><span>Low stock</span><strong id="productsLowStock">0</strong></article>
-              <article class="dashboard-panel products-stat-card"><span>Inventory value</span><strong id="productsTotalValue">RWF 0</strong></article>
-            </div>
-          </section>
-
-          <section class="dashboard-panel products-toolbar-panel">
-            <div class="products-toolbar-copy">
-              <p class="dashboard-eyebrow">Catalog filters</p>
-              <h2>Find and manage products quickly</h2>
-              <p id="productListStatus">0 products</p>
-            </div>
-            <div class="products-toolbar-actions">
-              <input type="search" id="productSearchInput" placeholder="Search products by name, badge, or keyword">
-              <select id="productCategoryFilter">
-                <option value="all">All categories</option>
-                <option value="fashion">Fashion</option>
-                <option value="shoes">Shoes</option>
-                <option value="electronics">Electronics</option>
-                <option value="general">General</option>
-              </select>
-            </div>
-          </section>
-
-          <section class="dashboard-panel products-table-panel">
-            <div class="products-table-wrap">
-              <table class="products-table">
-                <thead>
-                  <tr>
-                    <th>Product</th>
-                    <th>Category</th>
-                    <th>Price</th>
-                    <th>Stock</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="productTableBody">
-                  <tr><td colspan="5" class="products-empty-row">Loading shared catalog...</td></tr>
-                </tbody>
-              </table>
-            </div>
-            <div class="products-mobile-grid" id="productCardGrid" aria-live="polite"></div>
-          </section>
-        </main>
-      </div>
-    </div>
-  </div>
-  <script src="../js/core/config.js"></script>
-  <script src="../js/core/api-client.js"></script>
-  <script src="../js/services/catalog.service.js"></script>
-  <script src="../../js/products.js"></script>
-  <script src="../js/services/products.service.js"></script>
-  <script src="../js/components/sidebar.js"></script>
-  <script src="../js/pages/products-list.page.js"></script>
+<body>
+<p>Redirecting to admin module...</p>
 </body>
 </html>
-
-
-
-
-
-

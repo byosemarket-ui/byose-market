@@ -202,8 +202,11 @@
 
   function writeCart(cart) {
     try {
-      localStorage.setItem(SELECTORS.cartStorageKey, JSON.stringify(cart));
-      window.ByoseStorefrontSync?.syncStorageKey?.(SELECTORS.cartStorageKey, cart);
+      if (window.ByoseStorefrontSync?.isManagedKey?.(SELECTORS.cartStorageKey)) {
+        window.ByoseStorefrontSync.writeStateByKey(SELECTORS.cartStorageKey, cart);
+      } else {
+        localStorage.setItem(SELECTORS.cartStorageKey, JSON.stringify(cart));
+      }
       window.dispatchEvent(new CustomEvent('kcart:updated'));
     } catch (e) {
       console.error('writeCart error', e);
@@ -666,17 +669,13 @@
         } else if (window.KCart && KCart.add) {
           KCart.add(item);
         } else {
-          // fallback to localStorage write
-          const cart = readCart();
-          const existing = cart.find(c => c.id === id);
-          if (existing) {
-            existing.qty = Math.min((Number(existing.qty) || 0) + item.qty, 999);
-          } else {
-            cart.push(Object.assign({ id }, item));
-          }
-          writeCart(cart);
-          // dispatch for other listeners
-          window.dispatchEvent(new Event('kcart:updated'));
+          window.dispatchEvent(new CustomEvent('byose:storefront-cart-error', {
+            detail: {
+              action: 'add',
+              message: 'Centralized cart service is unavailable. Please refresh and try again.'
+            }
+          }));
+          throw new Error('Centralized cart service is unavailable.');
         }
 
         if (immediateFeedback && addBtn) {
@@ -782,12 +781,9 @@
       total: (Number(selected.price) || 0) * (Number(selected.qty) || 1)
     };
 
-    localStorage.setItem(
-      'byose_direct_checkout',
-      JSON.stringify(directItem)
-    );
-    localStorage.removeItem('byose_checkout_draft_v1');
-    localStorage.removeItem('byose_checkout_confirmation_v1');
+    window.ByoseStorefrontSync?.writeStateByKey?.('byose_direct_checkout', directItem);
+    window.ByoseStorefrontSync?.removeStateByKey?.('byose_checkout_draft_v1');
+    window.ByoseStorefrontSync?.removeStateByKey?.('byose_checkout_confirmation_v1');
     window.ByoseStorefrontSync?.syncPatch?.({
       directCheckout: directItem,
       checkoutDraft: null,

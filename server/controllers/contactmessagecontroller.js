@@ -1,5 +1,6 @@
 const ContactMessage = require('../models/contactmessage');
 const User = require('../models/user');
+const { appLogger } = require('../utils/logger');
 
 function normalizeText(value) {
     return String(value || '').trim();
@@ -65,6 +66,7 @@ function buildMessageId(payload) {
 }
 
 exports.createMessage = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'contact_messages' });
     try {
         const user = await resolveOptionalUser(req);
         const name = normalizeText(req.body?.name);
@@ -91,12 +93,13 @@ exports.createMessage = async (req, res) => {
 
         return res.status(201).json({ success: true, message: serializeMessage(document) });
     } catch (error) {
-        console.error('createMessage error', error);
+        logger.error('messages.create_failed', { error });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.listAdminMessages = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'admin_messages' });
     try {
         const query = {};
         const status = normalizeText(req.query?.status);
@@ -116,30 +119,34 @@ exports.listAdminMessages = async (req, res) => {
         }
 
         const limit = Math.min(300, Math.max(1, Number(req.query?.limit || 100) || 100));
-        const messages = await ContactMessage.find(query).sort({ createdAt: -1, updatedAt: -1 }).limit(limit);
+        const page = Math.max(1, Number(req.query?.page || 1) || 1);
+        const skip = (page - 1) * limit;
+        const messages = await ContactMessage.find(query).sort({ createdAt: -1, updatedAt: -1 }).skip(skip).limit(limit).select('messageId userId name email phone message source status meta createdAt updatedAt').lean();
         return res.json({ success: true, messages: messages.map(serializeMessage) });
     } catch (error) {
-        console.error('listAdminMessages error', error);
+        logger.error('admin.messages.list_failed', { error });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.getAdminMessageById = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'admin_messages' });
     try {
         const identifier = normalizeText(req.params.id);
-        const message = await ContactMessage.findOne({ $or: [{ messageId: identifier }, { _id: identifier }] }).catch(() => ContactMessage.findOne({ messageId: identifier }));
+        const message = await ContactMessage.findOne({ $or: [{ messageId: identifier }, { _id: identifier }] }).select('messageId userId name email phone message source status meta createdAt updatedAt').lean().catch(() => ContactMessage.findOne({ messageId: identifier }).select('messageId userId name email phone message source status meta createdAt updatedAt').lean());
         if (!message) {
             return res.status(404).json({ success: false, message: 'Message not found' });
         }
 
         return res.json({ success: true, message: serializeMessage(message) });
     } catch (error) {
-        console.error('getAdminMessageById error', error);
+        logger.error('admin.messages.lookup_failed', { error, requestedMessageId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.updateAdminMessage = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'admin_messages' });
     try {
         const identifier = normalizeText(req.params.id);
         const message = await ContactMessage.findOne({ messageId: identifier });
@@ -166,12 +173,13 @@ exports.updateAdminMessage = async (req, res) => {
         await message.save();
         return res.json({ success: true, message: serializeMessage(message) });
     } catch (error) {
-        console.error('updateAdminMessage error', error);
+        logger.error('admin.messages.update_failed', { error, requestedMessageId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
 exports.deleteAdminMessage = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'admin_messages' });
     try {
         const identifier = normalizeText(req.params.id);
         const message = await ContactMessage.findOneAndDelete({ messageId: identifier });
@@ -181,7 +189,7 @@ exports.deleteAdminMessage = async (req, res) => {
 
         return res.json({ success: true, messageId: identifier });
     } catch (error) {
-        console.error('deleteAdminMessage error', error);
+        logger.error('admin.messages.delete_failed', { error, requestedMessageId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };

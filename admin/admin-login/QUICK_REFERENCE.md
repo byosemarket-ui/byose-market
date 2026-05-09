@@ -106,7 +106,7 @@ lsof -i :5000                 # Mac/Linux
 taskkill /PID <PID> /F
 
 # View logs
-tail -f backend/server.js
+tail -f server/server.js
 ```
 
 ## 🎯 What Was Fixed

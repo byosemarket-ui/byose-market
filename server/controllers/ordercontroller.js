@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Order = require('../models/order');
 const User = require('../models/user');
 const { appLogger, monitorAsyncOperation } = require('../utils/logger');
+const getRealtimeEventService = require('../services/realtimeeventservice');
 
 async function resolveUser(req) {
     if (!req.user || !req.user.id) return null;
@@ -193,6 +194,14 @@ exports.createOrder = async (req, res) => {
             itemCount: normalizedOrder.items.length
         });
 
+        // Emit realtime event
+        try {
+          const realtimeService = getRealtimeEventService();
+          realtimeService.emitOrderCreated(order);
+        } catch (eventError) {
+          logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'order.created' });
+        }
+
         return res.json({ success: true, order });
     } catch (err) {
         logger.error('order.create_failed', { error: err });
@@ -208,7 +217,7 @@ exports.getUserOrders = async (req, res) => {
         if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
         const query = buildOrderQuery(user);
         if (!query) return res.json({ success: true, orders: [] });
-        const orders = await monitorAsyncOperation(logger, 'database.order.list_for_user', { userId: user.id }, () => Order.find(query).sort({ createdAt: -1 }), { slowThresholdMs: 700 });
+        const orders = await monitorAsyncOperation(logger, 'database.order.list_for_user', { userId: user.id }, () => Order.find(query).sort({ createdAt: -1 }).select('orderId id customerName status orderStatus paymentStatus totalAmount totalPrice total createdAt updatedAt items products shippingAddress paymentMethod paymentType').lean(), { slowThresholdMs: 700 });
         return res.json({ success: true, orders });
     } catch (err) {
         logger.error('order.list_for_user_failed', { error: err });
@@ -264,7 +273,10 @@ exports.updateOrderStatus = async (req, res) => {
 exports.getAdminOrders = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'admin_orders' });
     try {
-        const orders = await monitorAsyncOperation(logger, 'database.order.list_admin', { adminId: req.admin?.id || '' }, () => Order.find({}).sort({ createdAt: -1, updatedAt: -1 }), { slowThresholdMs: 900 });
+        const limit = Math.min(500, Math.max(1, Number(req.query?.limit || 100) || 100));
+        const page = Math.max(1, Number(req.query?.page || 1) || 1);
+        const skip = (page - 1) * limit;
+        const orders = await monitorAsyncOperation(logger, 'database.order.list_admin', { adminId: req.admin?.id || '', limit, page }, () => Order.find({}).sort({ createdAt: -1, updatedAt: -1 }).skip(skip).limit(limit).select('orderId id customerName customerEmail customerPhone status orderStatus paymentStatus totalAmount totalPrice total createdAt updatedAt items products shippingAddress paymentMethod paymentType').lean(), { slowThresholdMs: 900 });
         return res.json({ success: true, orders });
     } catch (err) {
         logger.error('admin.order_list_failed', { error: err });
@@ -275,7 +287,7 @@ exports.getAdminOrders = async (req, res) => {
 exports.getAdminOrderById = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'admin_orders' });
     try {
-        const order = await monitorAsyncOperation(logger, 'database.order.find_admin', { requestedOrderId: req.params.id }, () => Order.findOne(buildOrderLookupQuery(req.params.id)), { slowThresholdMs: 700 });
+        const order = await monitorAsyncOperation(logger, 'database.order.find_admin', { requestedOrderId: req.params.id }, () => Order.findOne(buildOrderLookupQuery(req.params.id)).select('orderId id customerId customerName customerEmail customerPhone status orderStatus paymentStatus totalAmount totalPrice total subtotal deliveryFee shippingFee codFee paymentMethod paymentType note items products shippingAddress fullAddress gpsLocation payment customer statusHistory createdAt updatedAt').lean(), { slowThresholdMs: 700 });
         if (!order) {
             return res.status(404).json({ success: false, message: 'Order not found' });
         }
@@ -300,9 +312,19 @@ exports.updateAdminOrderStatus = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Order not found' });
         }
 
+        const oldStatus = order.status || order.orderStatus || 'Pending';
         appendStatusHistory(order, status);
         await monitorAsyncOperation(logger, 'database.order.save_status_admin', { orderId: order.orderId || order.id, status, adminId: req.admin?.id || '' }, () => order.save(), { slowThresholdMs: 700 });
         logger.info('admin.order_status_updated', { orderId: order.orderId || order.id, status, adminId: req.admin?.id || '' });
+
+        // Emit realtime event
+        try {
+          const realtimeService = getRealtimeEventService();
+          realtimeService.emitOrderStatusChanged(order._id || order.id, oldStatus, status);
+        } catch (eventError) {
+          logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'order.status-changed' });
+        }
+
         return res.json({ success: true, order });
     } catch (err) {
         logger.error('admin.order_status_update_failed', { error: err, requestedOrderId: req.params.id });
@@ -318,8 +340,25 @@ exports.deleteAdminOrder = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Order not found' });
         }
 
-        logger.info('admin.order_deleted', { orderId: order.orderId || order.id || req.params.id, adminId: req.admin?.id || '' });
-        return res.json({ success: true, orderId: order.orderId || order.id || req.params.id });
+        const orderId = order.orderId || order.id || req.params.id;
+        logger.info('admin.order_deleted', { orderId, adminId: req.admin?.id || '' });
+
+        // Emit realtime event
+        try {
+          const realtimeService = getRealtimeEventService();
+          realtimeService.broadcast({
+            type: 'order:deleted',
+            scope: 'orders',
+            payload: {
+              orderId,
+              action: 'deleted'
+            }
+          });
+        } catch (eventError) {
+          logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'order.deleted' });
+        }
+
+        return res.json({ success: true, orderId });
     } catch (err) {
         logger.error('admin.order_delete_failed', { error: err, requestedOrderId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });

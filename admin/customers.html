@@ -1,26 +1,18 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="admin-login/js/admin-security.js"></script>
-<title>Redirecting | Byose Market Admin</title>
-	<meta http-equiv="refresh" content="0; url=customers/index.html">
-	<script>
-		(function () {
-			var target = 'customers/index.html';
-			var suffix = window.location.search || window.location.hash || '';
-			window.location.replace(target + suffix);
-		})();
-	</script>
+<title>Redirecting | Admin Customers</title>
+<meta http-equiv="refresh" content="0; url=dashboard.html#/customers">
+<script>
+(function () {
+  window.location.replace('dashboard.html#/customers');
+})();
+</script>
 </head>
 <body>
-	<p>Redirecting to customer management...</p>
+<p>Redirecting to customers...</p>
 </body>
 </html>
-
-
-
-
-
-

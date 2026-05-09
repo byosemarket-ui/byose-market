@@ -1,6 +1,7 @@
 const CustomerActivity = require('../models/customeractivity');
 const User = require('../models/user');
 const { appLogger, monitorAsyncOperation } = require('../utils/logger');
+const getRealtimeEventService = require('../services/realtimeeventservice');
 
 async function resolveUser(req) {
     if (!req.user || !req.user.id) {
@@ -110,6 +111,16 @@ exports.recordActivity = async (req, res) => {
             path: basePayload.path
         });
 
+        try {
+            const realtimeService = getRealtimeEventService();
+            const serialized = serializeActivity(activity);
+            realtimeService.emitActivityLogged(serialized);
+            realtimeService.emitCustomerActivity(serialized.userId, serialized.eventType, serialized);
+            realtimeService.emitAnalyticsUpdated({ source: 'activity', action: 'recorded', eventType: serialized.eventType });
+        } catch (eventError) {
+            logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'activity.recorded' });
+        }
+
         return res.status(201).json({ success: true, activity: serializeActivity(activity) });
     } catch (error) {
         logger.error('activity.record_failed', { error });
@@ -157,6 +168,16 @@ exports.updateActivity = async (req, res) => {
 
         await monitorAsyncOperation(logger, 'database.activity.save', { clientActivityId }, () => activity.save(), { slowThresholdMs: 500 });
         logger.info('activity.updated', { clientActivityId, eventType: activity.eventType });
+
+        try {
+            const realtimeService = getRealtimeEventService();
+            const serialized = serializeActivity(activity);
+            realtimeService.emitActivityLogged(serialized);
+            realtimeService.emitAnalyticsUpdated({ source: 'activity', action: 'updated', eventType: serialized.eventType });
+        } catch (eventError) {
+            logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'activity.updated' });
+        }
+
         return res.json({ success: true, activity: serializeActivity(activity) });
     } catch (error) {
         logger.error('activity.update_failed', { error, clientActivityId: normalizeText(req.params.id || req.body?.clientActivityId) });
@@ -169,8 +190,10 @@ exports.listAdminActivity = async (req, res) => {
     try {
         const eventType = normalizeText(req.query?.eventType || req.query?.type);
         const limit = Math.min(200, Math.max(1, Number(req.query?.limit || 50) || 50));
+        const page = Math.max(1, Number(req.query?.page || 1) || 1);
+        const skip = (page - 1) * limit;
         const filter = eventType ? { eventType } : {};
-        const activity = await monitorAsyncOperation(logger, 'database.activity.list', { eventType, limit }, () => CustomerActivity.find(filter).sort({ createdAt: -1, updatedAt: -1 }).limit(limit).lean(), { slowThresholdMs: 700 });
+        const activity = await monitorAsyncOperation(logger, 'database.activity.list', { eventType, limit, page }, () => CustomerActivity.find(filter).sort({ createdAt: -1, updatedAt: -1 }).skip(skip).limit(limit).select('clientActivityId userId sessionId eventType path referrer userAgent device ip city country org duration meta startedAt endedAt createdAt updatedAt').lean(), { slowThresholdMs: 700 });
         logger.debug('activity.listed', { eventType, count: activity.length, limit });
         return res.json({
             success: true,

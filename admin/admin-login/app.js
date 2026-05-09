@@ -26,12 +26,10 @@ app.use(express.json());
 // 🧾 Parse form data
 app.use(express.urlencoded({ extended: true }));
 
-// 🚦 REQUEST LOGGER (for debugging)
-app.use((req, res, next) => {
-  if (req.body && Object.keys(req.body).length > 0) {
-    console.log(`📨 ${req.method} ${req.url} | body: ${JSON.stringify(req.body)}`);
-  } else {
-    console.log(`📨 ${req.method} ${req.url}`);
+// 🚦 REQUEST LOGGER (production-safe, no payload logging)
+app.use((req, _res, next) => {
+  if (process.env.NODE_ENV !== "production" && process.env.LOG_LEVEL === "debug") {
+    console.debug(`📨 ${req.method} ${req.url}`);
   }
   next();
 });
@@ -62,8 +60,6 @@ app.use((req, res) => {
 
 // 🚨 GLOBAL ERROR HANDLER
 app.use((err, req, res, next) => {
-  console.error("Global Error:", err);
-
   res.status(500).json({
     success: false,
     message: "Internal server error"

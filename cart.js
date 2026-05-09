@@ -1,11 +1,18 @@
 // Kwizera Cart Pack — cart.js
 (() => {
   const KEY = 'byose_market_cart_v1';
+  let cartCache = null;
+  let cartCacheRaw = '';
 
   const $ = (sel, root = document) => root.querySelector(sel);
 
   function safeGetStorage(key) {
     try {
+      if (window.ByoseStorefrontSync?.isManagedKey?.(key)) {
+        const value = window.ByoseStorefrontSync.readStateByKey(key);
+        return value === undefined ? null : JSON.stringify(value);
+      }
+
       return localStorage.getItem(key);
     } catch (error) {
       console.warn(`Unable to read ${key} from local storage.`, error);
@@ -15,6 +22,11 @@
 
   function safeSetStorage(key, value) {
     try {
+      if (window.ByoseStorefrontSync?.isManagedKey?.(key)) {
+        const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+        return window.ByoseStorefrontSync.writeStateByKey(key, parsed);
+      }
+
       localStorage.setItem(key, value);
       return true;
     } catch (error) {
@@ -25,6 +37,11 @@
 
   function safeRemoveStorage(key) {
     try {
+      if (window.ByoseStorefrontSync?.isManagedKey?.(key)) {
+        window.ByoseStorefrontSync.removeStateByKey(key);
+        return;
+      }
+
       localStorage.removeItem(key);
     } catch (error) {
       console.warn(`Unable to remove ${key} from local storage.`, error);
@@ -34,13 +51,8 @@
   function migrateOldKey() {
     const oldKey = 'kwizeraCart_v1';
     try {
-      if (oldKey !== KEY) {
-        const oldData = localStorage.getItem(oldKey);
-        const newData = safeGetStorage(KEY);
-        if (oldData && !newData) {
-          safeSetStorage(KEY, oldData);
-          safeRemoveStorage(oldKey);
-        }
+      if (oldKey !== KEY && localStorage.getItem(oldKey)) {
+        safeRemoveStorage(oldKey);
       }
     } catch (error) {
       // Ignore storage migration issues.
@@ -113,7 +125,12 @@
   function load() {
     migrateOldKey();
     try {
-      const cart = JSON.parse(safeGetStorage(KEY)) || [];
+      const raw = safeGetStorage(KEY) || '';
+      if (cartCache && raw === cartCacheRaw) {
+        return cartCache.map((item) => ({ ...item, attributes: { ...(item.attributes || {}) } }));
+      }
+
+      const cart = JSON.parse(raw || '[]') || [];
       cart.forEach(item => {
         if (item.img && !item.image) item.image = item.img;
         const attributes = normalizeAttributes(item);
@@ -124,6 +141,8 @@
         item.color = item.color || legacy.color || '';
         item.size = item.size || legacy.size || '';
       });
+      cartCache = cart.map((item) => ({ ...item, attributes: { ...(item.attributes || {}) } }));
+      cartCacheRaw = raw;
       return cart;
     } catch {
       return [];
@@ -131,11 +150,20 @@
   }
 
   function save(cart) {
-    if (!safeSetStorage(KEY, JSON.stringify(cart))) {
+    const serialized = JSON.stringify(Array.isArray(cart) ? cart : []);
+    if (!safeSetStorage(KEY, serialized)) {
       return false;
     }
 
-    window.ByoseStorefrontSync?.syncStorageKey?.(KEY, cart);
+    cartCache = Array.isArray(cart) ? cart.map((item) => ({ ...item, attributes: { ...(item.attributes || {}) } })) : [];
+    cartCacheRaw = serialized;
+
+    try {
+      window.ByoseStorefrontSync?.syncStorageKey?.(KEY, cart);
+    } catch (error) {
+      console.warn('Cart sync provider failed; local cart state was preserved.', error);
+    }
+
     return true;
   }
 
@@ -416,11 +444,17 @@
   }
 
   async function hydrateFromServer() {
-    const hydrated = await window.ByoseStorefrontSync?.hydrate?.();
-    if (hydrated) {
-      render();
-      renderCount();
-      emitCartEvents();
+    try {
+      const hydrated = await window.ByoseStorefrontSync?.hydrate?.();
+      if (hydrated) {
+        cartCache = null;
+        cartCacheRaw = '';
+        render();
+        renderCount();
+        emitCartEvents();
+      }
+    } catch (error) {
+      console.warn('Cart hydrate failed; centralized cart state could not be refreshed.', error);
     }
   }
 
@@ -429,6 +463,18 @@
     renderCount();
     bindAddToCart();
     document.addEventListener('cart:updated', renderCount);
+    window.addEventListener('byose:storefront-state-updated', (event) => {
+      if (!event.detail?.changedFields?.includes('cartItems')) {
+        return;
+      }
+
+      cartCache = null;
+      cartCacheRaw = '';
+      renderCount();
+      if ($('.kcart-overlay')?.classList.contains('kcart-open')) {
+        render();
+      }
+    });
     await hydrateFromServer();
   }
 

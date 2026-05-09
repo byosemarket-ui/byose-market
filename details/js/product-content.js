@@ -504,19 +504,22 @@ export const productContent = [
 
 export function getProductContentById(productId) {
   const service = window.ByoseProductCatalog;
-  if (service && typeof service.registerSeed === 'function') {
-    const catalog = service.registerSeed(productContent);
-    return catalog.find(item => Number(item.id) === Number(productId)) || null;
+  if (!service || typeof service.getStorefrontCatalog !== 'function') {
+    return null;
   }
 
-  return productContent.find(item => Number(item.id) === Number(productId)) || null;
+  const catalog = service.getStorefrontCatalog();
+  return Array.isArray(catalog)
+    ? catalog.find(item => Number(item.id) === Number(productId)) || null
+    : null;
 }
 
 export function getAllProductContent() {
   const service = window.ByoseProductCatalog;
-  if (service && typeof service.registerSeed === 'function') {
-    return service.registerSeed(productContent);
+  if (!service || typeof service.getStorefrontCatalog !== 'function') {
+    return [];
   }
 
-  return productContent.slice();
+  const catalog = service.getStorefrontCatalog();
+  return Array.isArray(catalog) ? catalog.slice() : [];
 }

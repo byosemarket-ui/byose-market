@@ -14,7 +14,6 @@ import {
   readCartItems,
   readCheckoutConfirmation,
   readCurrentUser,
-  readOrderById,
   readDirectCheckout,
   readPendingOrderSubmission,
   readStorage,
@@ -23,7 +22,6 @@ import {
   resolveOrderItemImage,
   savePendingOrderSubmission,
   saveCheckoutConfirmation,
-  saveOrder,
   writeCartItems,
   writeDirectCheckout,
   writeStorage
@@ -92,6 +90,7 @@ const ORDER_REQUEST_MAX_ATTEMPTS = 2;
 const PENDING_ORDER_MAX_AGE_MS = 15 * 60 * 1000;
 const INACTIVE_PAYMENT_MESSAGE = 'This payment method is not available yet. Ubu buryo bwo kwishyura ntiburakora.';
 const listeners = new Set();
+let activeSubmissionNonce = 0;
 
 const state = {
   initialized: false,
@@ -132,13 +131,20 @@ function getOrdersApiUrl() {
   return '';
 }
 
-async function persistOrderToServer(order) {
+async function persistOrderToServer(order, options = {}) {
   const endpoint = getOrdersApiUrl();
   if (!endpoint) {
     return { skipped: true };
   }
 
+  const latestSubmissionNonce = Number(options?.submissionNonce || 0);
+  const isCurrentSubmission = () => latestSubmissionNonce > 0 && latestSubmissionNonce === activeSubmissionNonce;
+
   for (let attempt = 1; attempt <= ORDER_REQUEST_MAX_ATTEMPTS; attempt += 1) {
+    if (latestSubmissionNonce && !isCurrentSubmission()) {
+      return { cancelled: true, message: 'A newer checkout submission is already active.' };
+    }
+
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
     const timeoutId = controller
       ? window.setTimeout(() => controller.abort(new Error('Order request timeout')), ORDER_REQUEST_TIMEOUT_MS)
@@ -171,7 +177,8 @@ async function persistOrderToServer(order) {
         };
       }
 
-      const shouldRetry = response.status >= 500 && attempt < ORDER_REQUEST_MAX_ATTEMPTS;
+      const shouldRetry = (response.status >= 500 || response.status === 429 || response.status === 408)
+        && attempt < ORDER_REQUEST_MAX_ATTEMPTS;
       if (shouldRetry) {
         await delay(300 * attempt);
         continue;
@@ -186,7 +193,7 @@ async function persistOrderToServer(order) {
         continue;
       }
 
-      console.warn('Unable to persist order to the API. Falling back to local checkout storage.', error);
+      console.warn('Unable to persist order to the API. Centralized checkout state was not updated.', error);
       return {
         success: false,
         timeout: isAbort,
@@ -866,11 +873,27 @@ export async function submitOrder() {
     }
 
     const { order, customerName } = prepared;
+    const submissionNonce = Date.now();
+    activeSubmissionNonce = submissionNonce;
 
     state.isSubmitting = true;
     emit('submitting-changed');
 
-    const persistenceResult = await persistOrderToServer(order);
+    const persistenceResult = await persistOrderToServer(order, { submissionNonce });
+    if (submissionNonce !== activeSubmissionNonce) {
+      return {
+        valid: false,
+        message: 'Checkout state changed while submitting. Please review and try again.'
+      };
+    }
+
+    if (persistenceResult?.cancelled) {
+      return {
+        valid: false,
+        message: persistenceResult?.message || 'Checkout submission was cancelled.'
+      };
+    }
+
     if (persistenceResult?.success === false && !persistenceResult?.skipped) {
       return {
         valid: false,
@@ -881,15 +904,6 @@ export async function submitOrder() {
     const persistedOrder = persistenceResult?.order && typeof persistenceResult.order === 'object'
       ? { ...order, ...clone(persistenceResult.order) }
       : order;
-
-    try {
-      saveOrder(persistedOrder);
-    } catch (error) {
-      const alreadySaved = String(error?.message || '').includes('already been saved');
-      if (!alreadySaved) {
-        throw error;
-      }
-    }
 
     persistUserAddress(order.shippingAddress);
 
@@ -954,6 +968,7 @@ export async function submitOrder() {
       state.isSubmitting = false;
       emit('submitting-changed');
     }
+    activeSubmissionNonce = 0;
   }
 }
 
@@ -963,36 +978,5 @@ export function getConfirmationState(orderId) {
     return clone(savedConfirmation);
   }
 
-  const order = readOrderById(orderId);
-  if (!order) {
-    return null;
-  }
-
-  return {
-    orderId: order.id,
-    customerName: order.customerName || order.customer?.name || 'Customer',
-    customerPhone: order.customerPhone || order.customer?.phone || order.shippingAddress?.phone || '',
-    total: order.total || 0,
-    subtotal: order.subtotal || 0,
-    shippingFee: order.shippingFee || 0,
-    codFee: order.codFee || 0,
-    placedAt: order.date || order.createdAt || new Date().toISOString(),
-    status: order.status || 'Pending',
-    products: clone(order.products || []),
-    shippingAddress: clone(order.shippingAddress || {}),
-    deliveryLabel: order.deliveryLabel || order.deliveryMethod || 'Delivery',
-    paymentLabel: order.paymentType === 'cod' || isCodMethod(order.paymentMethod)
-      ? 'Pay When You Receive Your Order'
-      : order.paymentMethod === 'mtn'
-        ? 'MTN Mobile Money'
-        : order.paymentMethod === 'airtel'
-          ? 'Airtel Money'
-          : order.paymentMethod === 'bank'
-            ? 'Bank Transfer'
-            : order.paymentMethod === 'card'
-              ? 'Visa / Mastercard'
-          : 'Payment pending',
-    paymentType: order.paymentType || 'pay_now',
-    paymentMethod: order.paymentMethod || ''
-  };
+  return null;
 }
