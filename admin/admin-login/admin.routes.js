@@ -4,7 +4,6 @@ const router = express.Router();
 
 // 📥 Controller
 const { loginAdmin, getAdminSession, requireAdminAuth } = require("./admin.controller");
-const requireDatabase = require("../../server/middleware/requiredatabase");
 const { createRateLimiter } = require("../../server/middleware/ratelimiter");
 
 // 🧠 Middleware (optional future use)
@@ -30,7 +29,6 @@ const adminSessionLimiter = createRateLimiter({
 router.post(
   "/login",
   adminLoginLimiter,
-  requireDatabase,
   validateLoginInput, // ✔ validation middleware
   loginAdmin          // ✔ controller logic
 );

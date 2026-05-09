@@ -10,6 +10,7 @@
   var ADMIN_LAST_VALIDATED_AT_KEY = "adminLastValidatedAt";
   var DEFAULT_SESSION_MS = 8 * 60 * 60 * 1000;
   var SESSION_VALIDATION_GRACE_MS = 2 * 60 * 1000;
+  var SESSION_VALIDATION_TIMEOUT_MS = 10000;
   var PRODUCTION_API_BASE_URL = "https://byosesemarket4.onrender.com/api";
   var validationPromise = null;
 
@@ -429,13 +430,21 @@
         });
 
         try {
+          var requestController = new AbortController();
+          var timeoutId = window.setTimeout(function () {
+            requestController.abort();
+          }, SESSION_VALIDATION_TIMEOUT_MS);
+
           var response = await fetch(sessionUrl, {
             method: "GET",
             cache: "no-store",
             headers: {
               Accept: "application/json",
               Authorization: `Bearer ${authToken}`
-            }
+            },
+            signal: requestController.signal
+          }).finally(function () {
+            window.clearTimeout(timeoutId);
           });
 
           var payload = await response.json().catch(function () {

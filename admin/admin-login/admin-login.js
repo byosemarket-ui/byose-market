@@ -1,7 +1,8 @@
 import API_BASE_URL from "./js/config.js";
 
 const API_URL = `${API_BASE_URL}/api/admin/login`;
-const LOGIN_REQUEST_TIMEOUT_MS = 12000;
+const LOGIN_REQUEST_TIMEOUT_MS = 45000;
+const LOGIN_SLOW_NOTICE_MS = 8000;
 
 // 🎯 Get DOM elements
 const form = document.getElementById("loginForm");
@@ -67,81 +68,111 @@ form.addEventListener("submit", async (e) => {
   // 🔒 Disable form during request
   setFormLoading(true);
 
+  let res;
+  let data;
+
   try {
     const requestController = new AbortController();
     const timeoutId = window.setTimeout(() => requestController.abort(), LOGIN_REQUEST_TIMEOUT_MS);
+    const slowNoticeId = window.setTimeout(() => {
+      showMessage("Contacting the admin server. Production wake-up can take a little longer.", "info");
+    }, LOGIN_SLOW_NOTICE_MS);
 
-    const res = await fetch(API_URL, {
+    res = await fetch(API_URL, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "application/json"
       },
       body: JSON.stringify({ email, password }),
       signal: requestController.signal
     }).finally(() => {
       window.clearTimeout(timeoutId);
+      window.clearTimeout(slowNoticeId);
     });
-    const data = await parseJsonSafe(res);
+    data = await parseJsonSafe(res);
+  } catch (error) {
+    showMessage(getNetworkErrorMessage(error), "error");
+    setFormLoading(false);
+    return;
+  }
 
-    // ✔ SUCCESS (200)
-    if (res.status === 200 && data.success) {
-      const persisted = persistAdminSession(data);
-      if (!persisted) {
-        showMessage("Login succeeded but the admin session could not be stored.", "error");
-        setFormLoading(false);
-        return;
-      }
+  // ✔ SUCCESS (200)
+  if (res.status === 200 && data.success) {
+    const persisted = persistAdminSession(data);
+    if (!persisted) {
+      showMessage("Login succeeded but the admin session could not be stored.", "error");
+      setFormLoading(false);
+      return;
+    }
 
+    try {
       const sessionIsValid = await validateSessionAfterLogin();
       if (!sessionIsValid) {
         showMessage("Login succeeded but session validation failed. Please try again.", "error");
         setFormLoading(false);
         return;
       }
-
-      showMessage("Login successful. Redirecting...", "success");
-
-      // Redirect after validation confirms the persisted session is usable.
-      setTimeout(() => {
-        redirectToDashboard();
-      }, 300);
-
-    } 
-    // ❌ WRONG CREDENTIALS (401)
-    else if (res.status === 401) {
-      showMessage("Invalid email or password", "error");
+    } catch (_error) {
+      showMessage("Login succeeded, but session verification could not be completed. Please retry.", "error");
       setFormLoading(false);
-    } 
-    // ❌ BAD INPUT (400)
-    else if (res.status === 400) {
-      showMessage(data.message || "Please check your input", "error");
-      setFormLoading(false);
-    } 
-    // ❌ SERVER ERROR (500)
-    else if (res.status === 500) {
-      showMessage(data.message || "Server error. Please try again later.", "error");
-      setFormLoading(false);
-    }
-    else if (res.status === 404) {
-      showMessage("Login endpoint not found. Contact support.", "error");
-      setFormLoading(false);
-    }
-    else if (res.status === 403) {
-      showMessage(data.message || "Access denied.", "error");
-      setFormLoading(false);
-    }
-    // ❌ OTHER ERROR
-    else {
-      showMessage(data.message || "An unexpected error occurred. Please try again.", "error");
-      setFormLoading(false);
+      return;
     }
 
-  } catch (error) {
-    const unreachableMessage = getNetworkErrorMessage(error);
+    showMessage("Login successful. Redirecting...", "success");
 
-    showMessage(unreachableMessage, "error");
-    setFormLoading(false);
+    // Redirect after validation confirms the persisted session is usable.
+    setTimeout(() => {
+      redirectToDashboard();
+    }, 300);
+
+    return;
   }
+
+  if (res.status === 401) {
+    showMessage("Invalid email or password", "error");
+    setFormLoading(false);
+    return;
+  }
+
+  if (res.status === 400) {
+    showMessage(data.message || "Please check your input", "error");
+    setFormLoading(false);
+    return;
+  }
+
+  if (res.status === 403) {
+    showMessage(data.message || "Access denied.", "error");
+    setFormLoading(false);
+    return;
+  }
+
+  if (res.status === 404) {
+    showMessage("Login endpoint not found. Contact support.", "error");
+    setFormLoading(false);
+    return;
+  }
+
+  if (res.status === 429) {
+    showMessage(data.message || "Too many login attempts. Please wait a moment and try again.", "error");
+    setFormLoading(false);
+    return;
+  }
+
+  if (res.status === 503) {
+    showMessage(data.message || "The admin service is starting up. Please retry shortly.", "error");
+    setFormLoading(false);
+    return;
+  }
+
+  if (res.status === 500) {
+    showMessage(data.message || "Server error. Please try again later.", "error");
+    setFormLoading(false);
+    return;
+  }
+
+  showMessage(data.message || "An unexpected error occurred. Please try again.", "error");
+  setFormLoading(false);
 });
 
 async function parseJsonSafe(response) {
@@ -156,7 +187,7 @@ function getNetworkErrorMessage(error) {
   const detail = String(error && error.message ? error.message : "").toLowerCase();
 
   if (String(error?.name || "") === "AbortError") {
-    return "Login request timed out. Please try again.";
+    return "The admin server took too long to respond. It may be waking up; please try again.";
   }
 
   if (detail.includes("failed to fetch") || detail.includes("networkerror") || detail.includes("load failed")) {

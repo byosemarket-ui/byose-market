@@ -1,6 +1,5 @@
 const bcrypt = require("bcryptjs");
 const mongoose = require("mongoose");
-const connectDB = require("../../server/config/db");
 const User = require("../../server/models/user");
 const requireAdminAuth = require("../../server/middleware/requireadminauth");
 const { generateToken, getJwtConfig } = require("../../server/utils/token");
@@ -78,50 +77,38 @@ function clearFailedAttempts(clientId) {
   loginAttempts.delete(clientId);
 }
 
-async function ensureDatabaseConnection() {
-  if (mongoose.connection.readyState === 1) {
-    return true;
+async function syncAdminUserRecord(adminEmail, adminPasswordHash, logger) {
+  if (mongoose.connection.readyState !== 1) {
+    logger.warn("auth.admin.bootstrap_skipped_db_unavailable", {
+      adminEmail,
+      readyState: mongoose.connection.readyState
+    });
+    return;
   }
 
-  try {
-    await connectDB();
-    return true;
-  } catch (error) {
-    appLogger.warn("auth.admin.db_unavailable", { message: error.message });
-    return false;
-  }
-}
-
-async function ensureAdminUser(adminEmail, adminPasswordHash) {
-  const dbConnected = await ensureDatabaseConnection();
-  if (!dbConnected) {
-    throw new Error('Admin authentication unavailable while database is disconnected');
-  }
-
-  let admin = await monitorAsyncOperation(appLogger, 'database.admin.find_one', { adminEmail }, () => User.findOne({ email: adminEmail, role: 'admin' }), { slowThresholdMs: 500 });
+  let admin = await monitorAsyncOperation(logger, "database.admin.find_one", { adminEmail }, () => User.findOne({ email: adminEmail, role: "admin" }), { slowThresholdMs: 500 });
 
   if (!admin) {
     admin = new User({
       id: buildAdminUserId(adminEmail),
-      name: 'Administrator',
+      name: "Administrator",
       email: adminEmail,
       password: adminPasswordHash,
-      role: 'admin',
+      role: "admin",
       verified: true,
-      status: 'active'
+      status: "active"
     });
-    await monitorAsyncOperation(appLogger, 'database.admin.create', { adminEmail }, () => admin.save(), { slowThresholdMs: 500 });
-    appLogger.info("auth.admin.bootstrap_created", { adminEmail });
-    return { source: "database", admin };
+
+    await monitorAsyncOperation(logger, "database.admin.create", { adminEmail }, () => admin.save(), { slowThresholdMs: 500 });
+    logger.info("auth.admin.bootstrap_created", { adminEmail });
+    return;
   }
 
   if (String(admin.password || "") !== adminPasswordHash) {
     admin.password = adminPasswordHash;
-    await monitorAsyncOperation(appLogger, 'database.admin.update_password_hash', { adminEmail }, () => admin.save(), { slowThresholdMs: 500 });
-    appLogger.info("auth.admin.bootstrap_password_hash_updated", { adminEmail });
+    await monitorAsyncOperation(logger, "database.admin.update_password_hash", { adminEmail }, () => admin.save(), { slowThresholdMs: 500 });
+    logger.info("auth.admin.bootstrap_password_hash_updated", { adminEmail });
   }
-
-  return { source: "database", admin };
 }
 
 exports.loginAdmin = async (req, res) => {
@@ -171,22 +158,15 @@ exports.loginAdmin = async (req, res) => {
       });
     }
 
-    const bootstrapResult = await ensureAdminUser(adminEmail, adminPasswordHash);
-
-    let userFound = false;
-    let passwordMatch = false;
-    let tokenPayload = null;
-
-    const admin = await monitorAsyncOperation(logger, 'database.admin.login_lookup', { adminEmail }, () => User.findOne({ email: adminEmail, role: 'admin' }), { slowThresholdMs: 500 });
-    userFound = enteredEmail === adminEmail && Boolean(admin);
-    if (admin) {
-      passwordMatch = await bcrypt.compare(String(password), String(admin.password || adminPasswordHash));
-      tokenPayload = {
-        id: String(admin.id || admin._id),
-        email: admin.email,
-        role: "admin"
-      };
-    }
+    const userFound = enteredEmail === adminEmail;
+    const passwordMatch = userFound
+      ? await bcrypt.compare(String(password), adminPasswordHash)
+      : false;
+    const tokenPayload = {
+      id: buildAdminUserId(adminEmail),
+      email: adminEmail,
+      role: "admin"
+    };
 
     if (!userFound || !passwordMatch) {
       recordFailedAttempt(clientId);
@@ -205,8 +185,16 @@ exports.loginAdmin = async (req, res) => {
     logger.info('auth.admin.login_succeeded', {
       adminId: tokenPayload.id,
       adminEmail: tokenPayload.email,
-      authSource: bootstrapResult.source
+      authSource: 'env'
     });
+
+    void syncAdminUserRecord(adminEmail, adminPasswordHash, logger.child({ scope: 'admin_bootstrap' }))
+      .catch((error) => {
+        logger.warn('auth.admin.bootstrap_sync_failed', {
+          adminEmail,
+          error
+        });
+      });
 
     const token = generateToken({
       id: tokenPayload.id,
