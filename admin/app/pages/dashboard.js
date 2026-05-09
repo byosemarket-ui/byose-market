@@ -1,9 +1,8 @@
 import { errorState, panel, table } from "../components/ui.js";
-import { getDashboardBundle } from "../services/admin-data.service.js";
+import { getActivityLogs, getAnalytics, getCarts, getCustomers, getDashboard, getOrders, getProducts } from "../services/admin-data.service.js";
 import { buildDashboardMarkup, buildDashboardModel } from "./dashboard-view.js";
-import { subscribeToLiveFeeds } from "../services/live-feeds.service.js";
-
-const DASHBOARD_REFRESH_DEBOUNCE_MS = 250;
+import { startRealtimeSync, subscribeToRealtimeEvents } from "../services/realtime-sync.service.js";
+import { startLiveFeeds, subscribeToLiveFeeds } from "../services/live-feeds.service.js";
 
 function skeletonTable(columns) {
   const rows = new Array(5).fill(0).map(() => columns.map(() => ({ html: '<span class="skeleton-line"></span>' })));
@@ -35,75 +34,70 @@ function renderLoading(container) {
   `;
 }
 
+function normalizeSettledPayload(result) {
+  if (result.status === "fulfilled") {
+    return result.value;
+  }
+
+  return null;
+}
+
 export async function renderDashboard(container) {
   if (typeof container._dashboardCleanup === "function") {
     container._dashboardCleanup();
   }
 
-  container._dashboardRefreshToken = Number(container._dashboardRefreshToken || 0) + 1;
-  const refreshToken = container._dashboardRefreshToken;
-
   renderLoading(container);
 
+  // Start realtime synchronization
+  const realtimeService = await startRealtimeSync();
+  
+  // Start live feeds handler
+  const liveFeeds = startLiveFeeds();
+
   let unsubscribers = [];
-  let refreshTimer = null;
-
-  const queueRefresh = () => {
-    if (refreshTimer) {
-      clearTimeout(refreshTimer);
-    }
-
-    refreshTimer = setTimeout(() => {
-      void refreshDashboard(container, refreshToken, { force: true, allowCacheFallback: true });
-    }, DASHBOARD_REFRESH_DEBOUNCE_MS);
-  };
 
   // Subscribe to live updates
   unsubscribers.push(
-    subscribeToLiveFeeds("orders", () => {
+    subscribeToLiveFeeds("orders", async () => {
       console.log("[Dashboard] Live order update received");
-      queueRefresh();
+      await refreshDashboard(container, unsubscribers);
     })
   );
 
   unsubscribers.push(
-    subscribeToLiveFeeds("products", () => {
+    subscribeToLiveFeeds("products", async () => {
       console.log("[Dashboard] Live product update received");
-      queueRefresh();
+      await refreshDashboard(container, unsubscribers);
     })
   );
 
   unsubscribers.push(
-    subscribeToLiveFeeds("carts", () => {
+    subscribeToLiveFeeds("carts", async () => {
       console.log("[Dashboard] Live cart update received");
-      queueRefresh();
+      await refreshDashboard(container, unsubscribers);
     })
   );
 
   unsubscribers.push(
-    subscribeToLiveFeeds("customers", () => {
+    subscribeToLiveFeeds("customers", async () => {
       console.log("[Dashboard] Live customer update received");
-      queueRefresh();
+      await refreshDashboard(container, unsubscribers);
     })
   );
 
   unsubscribers.push(
-    subscribeToLiveFeeds("activity", () => {
+    subscribeToLiveFeeds("activity", async () => {
       console.log("[Dashboard] Live activity update received");
-      queueRefresh();
+      await refreshDashboard(container, unsubscribers);
     })
   );
 
   // Initial dashboard render
-  await refreshDashboard(container, refreshToken, { preferCache: true, allowCacheFallback: true });
+  await refreshDashboard(container, unsubscribers);
 
   // Store cleanup function on container for later cleanup
   container._dashboardCleanup = () => {
-    if (refreshTimer) {
-      clearTimeout(refreshTimer);
-      refreshTimer = null;
-    }
-
     unsubscribers.forEach((unsub) => {
       try {
         unsub?.();
@@ -115,26 +109,42 @@ export async function renderDashboard(container) {
   };
 }
 
-async function refreshDashboard(container, refreshToken, options = {}) {
-  if (refreshToken !== container._dashboardRefreshToken) {
-    return;
-  }
-
+async function refreshDashboard(container, unsubscribers) {
   if (container._dashboardRefreshInFlight) {
     return;
   }
 
   container._dashboardRefreshInFlight = true;
   try {
-    const bundle = await getDashboardBundle(options);
-    const snapshot = bundle?.snapshot || {};
-    const analytics = bundle?.analytics || {};
-    const orders = bundle?.orders || [];
-    const customers = bundle?.customers || [];
-    const products = bundle?.products || [];
-    const activityLogs = bundle?.activityLogs || [];
-    const carts = bundle?.carts || [];
-    const failedSources = Array.isArray(bundle?.failedSources) ? bundle.failedSources : [];
+    const [snapshotResult, analyticsResult, ordersResult, customersResult, productsResult, logsResult, cartsResult] = await Promise.allSettled([
+      getDashboard(),
+      getAnalytics(),
+      getOrders(),
+      getCustomers(),
+      getProducts(),
+      getActivityLogs(),
+      getCarts()
+    ]);
+
+    const failedSources = [
+      ["dashboard", snapshotResult],
+      ["analytics", analyticsResult],
+      ["orders", ordersResult],
+      ["customers", customersResult],
+      ["products", productsResult],
+      ["activity", logsResult],
+      ["carts", cartsResult]
+    ]
+      .filter(([, result]) => result.status === "rejected")
+      .map(([name, result]) => `${name}: ${String(result.reason?.message || "Request failed")}`);
+
+    const snapshot = normalizeSettledPayload(snapshotResult) || {};
+    const analytics = normalizeSettledPayload(analyticsResult) || {};
+    const orders = normalizeSettledPayload(ordersResult) || [];
+    const customers = normalizeSettledPayload(customersResult) || [];
+    const products = normalizeSettledPayload(productsResult) || [];
+    const activityLogs = normalizeSettledPayload(logsResult) || [];
+    const carts = normalizeSettledPayload(cartsResult) || [];
 
     const model = buildDashboardModel({
       snapshot,
@@ -148,16 +158,12 @@ async function refreshDashboard(container, refreshToken, options = {}) {
     });
 
     // Update dashboard container with new markup
-    if (refreshToken !== container._dashboardRefreshToken) {
-      return;
-    }
-
     container.innerHTML = buildDashboardMarkup(model);
 
     // Add realtime status indicator
     addRealtimeStatusIndicator(container);
 
-    if (!bundle?.snapshot) {
+    if (!snapshotResult || snapshotResult.status === "rejected") {
       const errorBanner = document.createElement("div");
       errorBanner.innerHTML = errorState("Dashboard snapshot API is currently unavailable. Showing best available centralized data feeds.");
       container.prepend(errorBanner.firstElementChild);

@@ -1,66 +1,48 @@
 import { ensureAuthenticated, logout, validateActiveSession } from "./core/auth.js";
-import { AUTO_REFRESH_INTERVAL_MS, MIN_SYNC_REFRESH_DEBOUNCE_MS, REALTIME_SYNC_INTERVAL_MS, ROUTES } from "./core/constants.js";
+import { ROUTES } from "./core/constants.js";
 import { startRouter } from "./core/router.js";
 import { createStore } from "./core/state.js";
 import { bindLayoutActions, renderAppShell, setActiveNav, setRouteTitle } from "./components/layout.js";
 import { errorState, loadingState, mountModalHandlers } from "./components/ui.js";
+import { renderDashboard } from "./pages/dashboard.js";
+import { renderEnterprise } from "./pages/enterprise.js";
+import { renderOrders } from "./pages/orders.js";
+import { renderCustomers } from "./pages/customers.js";
+import { renderProducts } from "./pages/products.js";
+import { renderAnalytics } from "./pages/analytics.js";
+import { renderInventory } from "./pages/inventory.js";
+import { renderActivity } from "./pages/activity.js";
+import { renderSettings } from "./pages/settings.js";
 import { ADMIN_SYNC_EVENT, startRealtimeAnalyticsSync, stopRealtimeAnalyticsSync } from "./services/admin-data.service.js";
-import { startRealtimeSync, stopRealtimeSync as stopRealtimeTransport, subscribeToRealtimeEvents } from "./services/realtime-sync.service.js";
 
-// ---------------------------------------------------------------------------
-// LAZY PAGE LOADER
-// ---------------------------------------------------------------------------
-// Pages are loaded on first visit using dynamic import() so the browser only
-// parses and executes each module when it is actually needed. This reduces
-// initial parse time and memory pressure — important as more pages are added.
-//
-// The resolved renderer is cached after the first load, so subsequent visits
-// to the same route incur no extra network round-trip.
-// ---------------------------------------------------------------------------
-
-const PAGE_MODULES = {
-  dashboard: () => import("./pages/dashboard.js").then((m) => m.renderDashboard),
-  enterprise: () => import("./pages/enterprise.js").then((m) => m.renderEnterprise),
-  orders: () => import("./pages/orders.js").then((m) => m.renderOrders),
-  customers: () => import("./pages/customers.js").then((m) => m.renderCustomers),
-  products: () => import("./pages/products.js").then((m) => m.renderProducts),
-  analytics: () => import("./pages/analytics.js").then((m) => m.renderAnalytics),
-  inventory: () => import("./pages/inventory.js").then((m) => m.renderInventory),
-  activity: () => import("./pages/activity.js").then((m) => m.renderActivity),
-  settings: () => import("./pages/settings.js").then((m) => m.renderSettings)
+const pageMap = {
+  dashboard: renderDashboard,
+  enterprise: renderEnterprise,
+  orders: renderOrders,
+  customers: renderCustomers,
+  products: renderProducts,
+  analytics: renderAnalytics,
+  inventory: renderInventory,
+  activity: renderActivity,
+  settings: renderSettings
 };
-
-// Cache resolved renderers after first load.
-const pageRendererCache = new Map();
-
-async function getPageRenderer(routeKey) {
-  if (pageRendererCache.has(routeKey)) {
-    return pageRendererCache.get(routeKey);
-  }
-
-  const loader = PAGE_MODULES[routeKey] || PAGE_MODULES.dashboard;
-  const renderer = await loader();
-  pageRendererCache.set(routeKey, renderer);
-  return renderer;
-}
 
 let activeRenderToken = 0;
 let activeRouteKey = "";
 let autoRefreshTimer = null;
 let inAppSyncRefreshTimer = null;
 let stopRealtimeSync = null;
-const realtimeUnsubscribers = [];
 
 const REFRESHABLE_ROUTES = new Set(["dashboard", "enterprise", "orders", "customers", "products", "analytics", "inventory", "activity"]);
 const ROUTE_SCOPE_MAP = {
   dashboard: new Set(["dashboard", "orders", "customers", "products", "activity", "messages", "analytics", "inventory", "carts", "intelligence"]),
   enterprise: new Set(["dashboard", "orders", "customers", "products", "activity", "messages", "analytics", "inventory", "carts", "intelligence"]),
-  orders: new Set(["orders"]),
-  customers: new Set(["customers"]),
-  products: new Set(["products"]),
+  orders: new Set(["orders", "intelligence"]),
+  customers: new Set(["customers", "intelligence"]),
+  products: new Set(["products", "intelligence"]),
   analytics: new Set(["analytics", "orders", "customers", "activity", "messages", "dashboard", "intelligence"]),
-  inventory: new Set(["inventory", "products"]),
-  activity: new Set(["activity", "messages"])
+  inventory: new Set(["inventory", "products", "intelligence"]),
+  activity: new Set(["activity", "messages", "intelligence"])
 };
 
 function routeShouldRefreshForScope(routeKey, scope) {
@@ -105,7 +87,7 @@ async function renderRoute(routeKey, store, options = {}) {
     return;
   }
 
-  const renderer = await getPageRenderer(route.key);
+  const renderer = pageMap[route.key] || renderDashboard;
 
   setRouteTitle(route.label);
   setActiveNav(route.key);
@@ -154,33 +136,7 @@ function installSyncGuards(store) {
 
     inAppSyncRefreshTimer = window.setTimeout(() => {
       renderRoute(activeRouteKey, store, { force: true, softRefresh: true });
-    }, MIN_SYNC_REFRESH_DEBOUNCE_MS);
-  });
-}
-
-function installRealtimeRouteRefresh(store) {
-  const watchedScopes = ["orders", "customers", "products", "activity", "analytics", "messages", "carts"];
-
-  watchedScopes.forEach((scope) => {
-    const unsubscribe = subscribeToRealtimeEvents(scope, () => {
-      if (!REFRESHABLE_ROUTES.has(activeRouteKey) || activeRouteKey === "dashboard") {
-        return;
-      }
-
-      if (!routeShouldRefreshForScope(activeRouteKey, scope)) {
-        return;
-      }
-
-      if (inAppSyncRefreshTimer) {
-        window.clearTimeout(inAppSyncRefreshTimer);
-      }
-
-      inAppSyncRefreshTimer = window.setTimeout(() => {
-        renderRoute(activeRouteKey, store, { force: true, softRefresh: true });
-      }, MIN_SYNC_REFRESH_DEBOUNCE_MS);
-    });
-
-    realtimeUnsubscribers.push(unsubscribe);
+    }, 320);
   });
 }
 
@@ -199,7 +155,7 @@ function installAutoRefresh(store) {
     }
 
     renderRoute(activeRouteKey, store, { force: true, softRefresh: true });
-  }, AUTO_REFRESH_INTERVAL_MS);
+  }, 120000);
 }
 
 async function bootstrap() {
@@ -224,23 +180,11 @@ async function bootstrap() {
 
   installSessionRefreshGuard();
   installSyncGuards(store);
-  installRealtimeRouteRefresh(store);
   installAutoRefresh(store);
-  await startRealtimeSync();
-  stopRealtimeSync = startRealtimeAnalyticsSync({ intervalMs: REALTIME_SYNC_INTERVAL_MS });
+  stopRealtimeSync = startRealtimeAnalyticsSync({ intervalMs: 25000 });
 }
 
 window.addEventListener("beforeunload", () => {
-  realtimeUnsubscribers.splice(0).forEach((unsubscribe) => {
-    try {
-      unsubscribe?.();
-    } catch (_error) {
-      // Ignore teardown errors.
-    }
-  });
-
-  stopRealtimeTransport();
-
   if (typeof stopRealtimeSync === "function") {
     stopRealtimeSync();
   } else {

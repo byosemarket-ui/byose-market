@@ -3,10 +3,8 @@ const { appLogger } = require('../utils/logger');
 
 const MONGO_RETRY_ATTEMPTS = 5;
 const MONGO_RETRY_BASE_DELAY_MS = 1200;
-const MONGO_RECONNECT_DELAY_MS = 5000;
 let connectionPromise = null;
 let listenersBound = false;
-let reconnectTimer = null;
 
 function getMongoUri() {
     const configured = String(process.env.MONGO_URI || '').trim();
@@ -37,30 +35,6 @@ function buildRetryDelayMs(attempt) {
     return Math.min(10000, MONGO_RETRY_BASE_DELAY_MS * safeAttempt);
 }
 
-function clearReconnectTimer() {
-    if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-    }
-}
-
-function scheduleReconnect() {
-    if (reconnectTimer || connectionPromise || mongoose.connection.readyState === 1) {
-        return;
-    }
-
-    reconnectTimer = setTimeout(async () => {
-        reconnectTimer = null;
-
-        try {
-            await connectDB();
-        } catch (error) {
-            appLogger.warn('database.reconnect_attempt_failed', { error });
-            scheduleReconnect();
-        }
-    }, MONGO_RECONNECT_DELAY_MS);
-}
-
 function bindConnectionListeners() {
     if (listenersBound) {
         return;
@@ -69,7 +43,6 @@ function bindConnectionListeners() {
     listenersBound = true;
 
     mongoose.connection.on('connected', () => {
-        clearReconnectTimer();
         appLogger.info('database.connection.connected');
     });
 
@@ -79,7 +52,6 @@ function bindConnectionListeners() {
 
     mongoose.connection.on('disconnected', () => {
         appLogger.warn('database.connection.disconnected');
-        scheduleReconnect();
     });
 }
 
@@ -141,10 +113,3 @@ async function connectDB() {
 }
 
 module.exports = connectDB;
-module.exports.getDatabaseState = function getDatabaseState() {
-    return {
-        readyState: mongoose.connection.readyState,
-        hasInFlightConnection: Boolean(connectionPromise),
-        reconnectScheduled: Boolean(reconnectTimer)
-    };
-};

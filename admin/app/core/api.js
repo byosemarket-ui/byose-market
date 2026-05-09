@@ -58,28 +58,17 @@ function normalizeError(error, path) {
   return normalized;
 }
 
-function shouldRetry(error, method = "GET", allowUnsafeRetry = false) {
-  const normalizedMethod = String(method || "GET").toUpperCase();
-  const isUnsafeMethod = normalizedMethod === "POST" || normalizedMethod === "PATCH" || normalizedMethod === "DELETE";
-
-  if (String(error?.name || "") === "AbortError") {
-    return false;
-  }
-
-  if (String(error?.code || "") === "REQUEST_TIMEOUT" && isUnsafeMethod && !allowUnsafeRetry) {
+function shouldRetry(error) {
+  if (String(error?.name || "") === "AbortError" || String(error?.code || "") === "REQUEST_TIMEOUT") {
     return false;
   }
 
   const status = Number(error?.status || 0);
   if (!status) {
-    return !isUnsafeMethod || allowUnsafeRetry;
+    return true;
   }
 
-  if (status === 408 || status === 429 || status >= 500) {
-    return !isUnsafeMethod || allowUnsafeRetry;
-  }
-
-  return false;
+  return status === 408 || status === 429 || status >= 500;
 }
 
 async function fallbackRequest(path, options) {
@@ -133,8 +122,6 @@ async function fallbackRequest(path, options) {
 
 export async function request(path, options) {
   const requestOptions = options || {};
-  const method = String(requestOptions?.method || "GET").toUpperCase();
-  const allowUnsafeRetry = Boolean(requestOptions?.allowUnsafeRetry);
   const retryCount = Number.isFinite(Number(requestOptions.retryCount))
     ? Math.max(0, Number(requestOptions.retryCount))
     : 1;
@@ -160,7 +147,7 @@ export async function request(path, options) {
     try {
       if (hasApiClient()) {
         const result = await withTimeout(
-          window.AdminApiClient.request(path, { ...requestOptions, method, signal: controller.signal }),
+          window.AdminApiClient.request(path, { ...requestOptions, signal: controller.signal }),
           timeoutMs,
           () => controller.abort()
         );
@@ -169,18 +156,17 @@ export async function request(path, options) {
       }
 
       return await withTimeout(
-        fallbackRequest(path, { ...requestOptions, method, signal: controller.signal }),
+        fallbackRequest(path, { ...requestOptions, signal: controller.signal }),
         timeoutMs,
         () => controller.abort()
       );
     } catch (error) {
       const normalized = normalizeError(error, path);
-      if (attempt >= retryCount || !shouldRetry(normalized, method, allowUnsafeRetry)) {
+      if (attempt >= retryCount || !shouldRetry(normalized)) {
         throw normalized;
       }
 
-      const jitter = 0.8 + (Math.random() * 0.4);
-      await wait(Math.round(retryDelayMs * (attempt + 1) * jitter));
+      await wait(retryDelayMs * (attempt + 1));
     } finally {
       if (externalSignal && typeof externalSignal.removeEventListener === "function") {
         externalSignal.removeEventListener("abort", abortForwarder);

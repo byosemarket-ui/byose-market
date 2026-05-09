@@ -38,10 +38,4 @@ CustomerActivitySchema.index({ userId: 1, createdAt: -1 });
 CustomerActivitySchema.index({ path: 1, createdAt: -1 });
 CustomerActivitySchema.index({ createdAt: -1, updatedAt: -1 });
 
-// Scalability: auto-expire activity logs after 90 days to prevent unbounded growth.
-// Set ACTIVITY_LOG_TTL_SECONDS env var to override (e.g. 7776000 = 90 days).
-// Remove or increase this index to retain logs longer.
-const ACTIVITY_TTL_SECONDS = Math.max(86400, Number(process.env.ACTIVITY_LOG_TTL_SECONDS || 7776000));
-CustomerActivitySchema.index({ createdAt: 1 }, { expireAfterSeconds: ACTIVITY_TTL_SECONDS });
-
 module.exports = mongoose.model('CustomerActivity', CustomerActivitySchema);

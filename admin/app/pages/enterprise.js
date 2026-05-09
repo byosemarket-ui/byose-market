@@ -1,5 +1,5 @@
 import { badge, emptyState, formatCurrency, formatDate, loadingState, panel, statCard, table, openModal } from "../components/ui.js";
-import { getActivityLogs, getAnalytics, getCarts, getCustomers, getDashboard, getInventory, getMessages, getOrders, getProducts, getRealtimeIntelligence, bulkDeleteMessages, bulkDeleteOrders, bulkUpdateMessageStatus, bulkUpdateOrderStatus, exportEnterpriseReport } from "../services/admin-data.service.js";
+import { getActivityLogs, getAnalytics, getCarts, getCustomers, getDashboard, getInventory, getMessages, getOrders, getProducts, getRealtimeIntelligence, bulkDeleteMessages, bulkDeleteOrders, bulkUpdateMessageStatus, bulkUpdateOrderStatus } from "../services/admin-data.service.js";
 import { buildBestSellingProducts, buildBehaviorInsights, buildEnterpriseSearchIndex, buildExecutiveSummary, buildGroupedActivity, buildOperationalAlerts, buildReportRows, buildRevenueForecast, buildTopCustomers, downloadCsvFile, downloadJsonFile, openPrintableReport, searchEnterpriseRecords } from "../services/enterprise-intelligence.service.js";
 
 function toneForValue(value) {
@@ -368,33 +368,22 @@ export async function renderEnterprise(container) {
         button.addEventListener("click", () => {
           const action = String(button.dataset.export || "");
           if (action === "summary-csv") {
-            exportEnterpriseReport({ format: "csv", reportType: "analytics", rangeDays: 30 }).catch(() =>
-              downloadCsvFile("enterprise-summary.csv", data.summary.map((item) => ({ Metric: item.label, Value: item.value })))
-            );
+            downloadCsvFile("enterprise-summary.csv", data.summary.map((item) => ({ Metric: item.label, Value: item.value })));
           }
           if (action === "orders-csv") {
-            exportEnterpriseReport({ format: "csv", reportType: "orders", rangeDays: 30 }).catch(() =>
-              downloadCsvFile("enterprise-orders.csv", data.reportRows.orders)
-            );
+            downloadCsvFile("enterprise-orders.csv", data.reportRows.orders);
           }
           if (action === "customers-csv") {
-            exportEnterpriseReport({ format: "csv", reportType: "customers", rangeDays: 30 }).catch(() =>
-              downloadCsvFile("enterprise-customers.csv", data.reportRows.customers)
-            );
+            downloadCsvFile("enterprise-customers.csv", data.reportRows.customers);
           }
           if (action === "products-csv") {
-            exportEnterpriseReport({ format: "csv", reportType: "inventory", rangeDays: 30 }).catch(() =>
-              downloadCsvFile("enterprise-products.csv", data.reportRows.products)
-            );
+            downloadCsvFile("enterprise-products.csv", data.reportRows.products);
           }
           if (action === "activity-csv") {
-            exportEnterpriseReport({ format: "csv", reportType: "activity", rangeDays: 30 }).catch(() =>
-              downloadCsvFile("enterprise-activity.csv", data.reportRows.activity)
-            );
+            downloadCsvFile("enterprise-activity.csv", data.reportRows.activity);
           }
           if (action === "print-report") {
-            exportEnterpriseReport({ format: "pdf", reportType: "analytics", rangeDays: 30 }).catch(() =>
-              openPrintableReport("Enterprise Ecommerce Report", [
+            openPrintableReport("Enterprise Ecommerce Report", [
               {
                 title: "Executive Summary",
                 content: `<div class="enterprise-report-pill-row">${data.summary.map((item) => `<span class="pill">${item.label}: ${item.value}</span>`).join("")}</div>`
@@ -415,8 +404,7 @@ export async function renderEnterprise(container) {
                 title: "Activity Groups",
                 content: `<ul class="bullet-list">${data.groupedActivity.map((group) => `<li>${group.type} • ${group.count}</li>`).join("")}</ul>`
               }
-            ])
-            );
+            ]);
           }
         });
       });

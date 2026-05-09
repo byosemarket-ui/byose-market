@@ -34,45 +34,8 @@ class RealtimeSyncService {
     this.pollingInFlight = false;
     this.processedEventIds = new Map();
     this.maxProcessedEvents = 1200;
-    this.handleVisibilityChange = this.handleVisibilityChange.bind(this);
-    this.handleOnline = this.handleOnline.bind(this);
-    this.handleOffline = this.handleOffline.bind(this);
 
     this.initializeBroadcastChannel();
-    this.bindBrowserLifecycle();
-  }
-
-  bindBrowserLifecycle() {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    window.addEventListener("online", this.handleOnline);
-    window.addEventListener("offline", this.handleOffline);
-
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", this.handleVisibilityChange);
-    }
-  }
-
-  handleVisibilityChange() {
-    if (typeof document === "undefined" || document.hidden) {
-      return;
-    }
-
-    if (!this.isConnected && !this.reconnectTimer && navigator.onLine !== false) {
-      void this.connect();
-    }
-  }
-
-  handleOnline() {
-    if (!this.isConnected && !this.reconnectTimer) {
-      void this.connect();
-    }
-  }
-
-  handleOffline() {
-    this.disconnect();
   }
 
   /**
@@ -334,14 +297,6 @@ class RealtimeSyncService {
     this.broadcastConnectionStatus("connected");
 
     const poll = async () => {
-      if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        return;
-      }
-
-      if (typeof document !== "undefined" && document.hidden) {
-        return;
-      }
-
       if (this.pollingInFlight) {
         return;
       }
@@ -389,10 +344,6 @@ class RealtimeSyncService {
       return;
     }
 
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      return;
-    }
-
     this.connectionAttempts += 1;
 
     try {
@@ -415,10 +366,6 @@ class RealtimeSyncService {
    */
   scheduleReconnect() {
     if (this.reconnectTimer) {
-      return;
-    }
-
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
       return;
     }
 
@@ -521,15 +468,6 @@ class RealtimeSyncService {
   destroy() {
     this.disconnect();
     this.eventListeners.clear();
-
-    if (typeof window !== "undefined") {
-      window.removeEventListener("online", this.handleOnline);
-      window.removeEventListener("offline", this.handleOffline);
-    }
-
-    if (typeof document !== "undefined") {
-      document.removeEventListener("visibilitychange", this.handleVisibilityChange);
-    }
 
     if (this.broadcastChannel) {
       this.broadcastChannel.close();

@@ -114,6 +114,7 @@
 		siteRootPrefix: getSiteRootPrefix(),
 		storageKeys: {
 			orders: ["byose_orders", "orders"],
+			users: ["bm_users", "byose_market_users"],
 			messages: ["byose_market_messages", "byose_messages"],
 			categories: "byose_admin_categories_v1",
 			media: "byose_admin_media_v1",

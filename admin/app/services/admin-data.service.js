@@ -61,8 +61,21 @@ function cacheKey(scope) {
 }
 
 function readCache(scope) {
-  const payload = readMemoryCache(scope, Number.MAX_SAFE_INTEGER);
-  return payload ? { payload } : null;
+  try {
+    const raw = window.localStorage.getItem(cacheKey(scope));
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+
+    return parsed;
+  } catch (_error) {
+    return null;
+  }
 }
 
 function readMemoryCache(scope, ttlMs = IN_MEMORY_CACHE_TTL_MS) {
@@ -92,6 +105,12 @@ function getCachedScopePayload(scope, options = {}) {
     return memoryPayload;
   }
 
+  const persisted = readCache(scope);
+  if (persisted?.payload) {
+    writeMemoryCache(scope, persisted.payload);
+    return persisted.payload;
+  }
+
   return null;
 }
 
@@ -102,7 +121,14 @@ function capArray(items, maxItems) {
 }
 
 function writeCache(scope, payload) {
-  writeMemoryCache(scope, payload);
+  try {
+    window.localStorage.setItem(cacheKey(scope), JSON.stringify({
+      syncedAt: new Date().toISOString(),
+      payload
+    }));
+  } catch (_error) {
+    // Ignore cache write failures.
+  }
 }
 
 function emitSync(scope, payload) {
@@ -475,39 +501,6 @@ async function fetchDashboardSnapshotFromApi() {
   return snapshot;
 }
 
-function buildDashboardAnalytics({ snapshot, orders, customers, activityLogs, carts, hasApiData }) {
-  const analytics = asObject(snapshot?.analytics);
-  const visitEntries = activityLogs.filter((entry) => String(entry.type || "").toLowerCase().includes("visit"));
-  const performance = buildPerformanceMetrics(orders, customers, visitEntries);
-  const monitoring = deriveMonitoring({
-    snapshot,
-    orders,
-    customers,
-    products: asArray(snapshot?.raw?.products || []),
-    activity: activityLogs,
-    carts,
-    messages: [],
-    hasApiData
-  });
-
-  return {
-    weeklySales: asArray(analytics?.salesSeries),
-    monthlyRevenue: buildMonthlyRevenueSeries(orders),
-    customerGrowth: buildCustomerGrowthSeries(customers),
-    visitorActivity: buildVisitorSeries(visitEntries),
-    orderStatusBreakdown: asObject(analytics?.orderStatusBreakdown),
-    topProducts: asArray(analytics?.topProducts),
-    inventory: asObject(analytics?.inventory),
-    performance,
-    totalRevenue: performance.revenue,
-    averageOrderValue: performance.averageOrderValue,
-    conversionRate: performance.conversionRate,
-    returningCustomers: toNumber(analytics?.activityCounts?.customers),
-    syncedAt: snapshot?.syncedAt || new Date().toISOString(),
-    monitoring
-  };
-}
-
 export async function getDashboard(options = {}) {
   const scope = "dashboard";
   const allowCacheFallback = options?.allowCacheFallback === true;
@@ -777,206 +770,6 @@ export async function getAnalytics(options = {}) {
   }
 }
 
-export async function getDashboardBundle(options = {}) {
-  const scope = "dashboard_bundle";
-  const allowCacheFallback = options?.allowCacheFallback === true;
-  const preferCache = options?.preferCache === true;
-  const cachedPayload = (options?.force || !preferCache) ? null : getCachedScopePayload(scope, options);
-  if (cachedPayload) {
-    return cachedPayload;
-  }
-
-  const inFlight = scopeInFlight.get(scope);
-  if (inFlight) {
-    return inFlight;
-  }
-
-  const promise = (async () => {
-    try {
-      const snapshot = await getDashboard({
-        allowCacheFallback,
-        preferCache,
-        force: options?.force === true,
-        emit: false
-      });
-      const raw = asObject(snapshot?.raw);
-      const orders = capArray(asArray(raw.orders).map(normalizeOrder), options?.maxOrders || 24);
-      const customers = capArray(asArray(raw.customers).map(normalizeCustomer), options?.maxCustomers || 16);
-      const products = capArray(asArray(raw.products).map(normalizeProduct), options?.maxProducts || 24);
-      const carts = capArray(asArray(raw.carts).map(normalizeCart), options?.maxCarts || 24);
-
-      let activityLogs = [];
-      try {
-        activityLogs = await getActivityLogs({
-          allowCacheFallback: true,
-          preferCache: true,
-          emit: false
-        });
-      } catch (_error) {
-        activityLogs = asArray(snapshot?.activity).map((entry) => ({
-          id: normalizeText(entry?.reference || entry?.id),
-          event: normalizeText(entry?.type || entry?.source || "activity"),
-          type: normalizeText(entry?.type || "activity").toLowerCase(),
-          level: "info",
-          path: normalizeText(entry?.reference),
-          city: "",
-          country: "",
-          device: "",
-          detail: { source: normalizeText(entry?.type || entry?.source) },
-          createdAt: entry?.date || new Date().toISOString(),
-          timestamp: entry?.date || new Date().toISOString()
-        }));
-      }
-
-      const bundle = {
-        snapshot,
-        analytics: buildDashboardAnalytics({
-          snapshot,
-          orders,
-          customers,
-          activityLogs,
-          carts,
-          hasApiData: true
-        }),
-        orders,
-        customers,
-        products,
-        activityLogs,
-        carts,
-        failedSources: []
-      };
-
-      writeMemoryCache(scope, bundle);
-      return bundle;
-    } catch (error) {
-      const cached = getCachedScopePayload(scope, options);
-      if (allowCacheFallback && cached) {
-        return cached;
-      }
-
-      throw error;
-    }
-  })().finally(() => {
-    scopeInFlight.delete(scope);
-  });
-
-  scopeInFlight.set(scope, promise);
-  return promise;
-}
-
-export async function getEnterpriseOverview(options = {}) {
-  const scope = "enterprise_overview";
-  const allowCacheFallback = options?.allowCacheFallback === true;
-  const rangeDays = Math.min(180, Math.max(7, Number(options?.rangeDays || 30) || 30));
-
-  try {
-    const payload = await withRetry("admin/intelligence/overview", () => api.get(`admin/intelligence/overview?rangeDays=${rangeDays}`));
-    const overview = payload?.overview || payload;
-    writeMemoryCache(scope, overview);
-    writeCache(scope, overview);
-    if (options?.emit !== false) {
-      emitSync(scope, overview);
-    }
-    return overview;
-  } catch (error) {
-    const cached = getCachedScopePayload(scope, options);
-    if (allowCacheFallback && cached) {
-      return cached;
-    }
-
-    throw error;
-  }
-}
-
-function resolveAdminApiBaseUrl() {
-  const configured = String(window.AdminConfig?.apiBaseUrl || "").trim();
-  if (configured) {
-    return configured.replace(/\/+$/, "");
-  }
-
-  if (/^https?:$/i.test(String(window.location?.protocol || ""))) {
-    return String(window.location.origin || "").replace(/\/+$/, "");
-  }
-
-  return "";
-}
-
-function readAdminToken() {
-  try {
-    return String(window.localStorage.getItem("adminToken") || "").trim();
-  } catch (_error) {
-    return "";
-  }
-}
-
-export async function exportEnterpriseReport(options = {}) {
-  const format = String(options?.format || "csv").trim().toLowerCase();
-  const reportType = String(options?.reportType || options?.report || "analytics").trim().toLowerCase();
-  const rangeDays = Math.min(180, Math.max(7, Number(options?.rangeDays || 30) || 30));
-
-  if (!["csv", "pdf"].includes(format)) {
-    throw new Error("Unsupported export format. Use csv or pdf.");
-  }
-
-  const base = resolveAdminApiBaseUrl();
-  if (!base) {
-    throw new Error("Admin API base URL is not configured.");
-  }
-
-  const query = new URLSearchParams({
-    report: reportType,
-    format,
-    rangeDays: String(rangeDays)
-  });
-
-  const url = `${base}/api/admin/intelligence/reports/export?${query.toString()}`;
-  const token = readAdminToken();
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      Accept: format === "pdf" ? "application/pdf" : "text/csv",
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    }
-  });
-
-  if (!response.ok) {
-    let message = `Export failed with status ${response.status}`;
-    try {
-      const errorPayload = await response.json();
-      if (errorPayload?.message) {
-        message = String(errorPayload.message);
-      }
-    } catch (_error) {
-      // Ignore non-JSON error bodies.
-    }
-
-    throw new Error(message);
-  }
-
-  const blob = await response.blob();
-  const contentDisposition = String(response.headers.get("content-disposition") || "");
-  const filenameMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
-  const filename = filenameMatch && filenameMatch[1]
-    ? filenameMatch[1]
-    : `byose_${reportType}_report.${format}`;
-
-  const objectUrl = window.URL.createObjectURL(blob);
-  try {
-    const anchor = document.createElement("a");
-    anchor.href = objectUrl;
-    anchor.download = filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-  } finally {
-    window.setTimeout(() => {
-      window.URL.revokeObjectURL(objectUrl);
-    }, 200);
-  }
-
-  return { success: true, filename, format };
-}
-
 export async function getInventory(options = {}) {
   const scope = "inventory";
   const allowCacheFallback = options?.allowCacheFallback === true;
@@ -1019,29 +812,15 @@ export async function getInventory(options = {}) {
 export async function getSettings() {
   const scope = "settings";
   const cached = readCache(scope);
-
-  try {
-    const response = await withRetry(scope, () => api.get("/admin/settings"));
-    const payload = asObject(response?.settings || response?.data || {});
-    writeCache(scope, payload);
-    return payload;
-  } catch (error) {
-    if (cached?.payload) {
-      return asObject(cached.payload);
-    }
-
-    throw error;
-  }
+  return asObject(cached?.payload || {});
 }
 
 export async function updateSettings(nextSettings) {
   const safeSettings = asObject(nextSettings);
-  const response = await withRetry("settings", () => api.put("/admin/settings", safeSettings), 1);
-  const persistedSettings = asObject(response?.settings || response?.data || safeSettings);
-  writeMemoryCache("settings", persistedSettings);
-  writeCache("settings", persistedSettings);
-  emitSync("settings", persistedSettings);
-  return persistedSettings;
+  writeMemoryCache("settings", safeSettings);
+  writeCache("settings", safeSettings);
+  emitSync("settings", safeSettings);
+  return safeSettings;
 }
 
 async function resyncEnterpriseScopes(scopes = []) {

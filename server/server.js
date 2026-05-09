@@ -5,7 +5,8 @@ const path = require('path');
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../backend/.env') });
 
 const connectDB = require('./config/db');
 const requestLogger = require('./middleware/requestlogger');

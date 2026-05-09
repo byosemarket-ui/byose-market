@@ -4,17 +4,6 @@ const User = require('../models/user');
 const { appLogger } = require('../utils/logger');
 const getRealtimeEventService = require('../services/realtimeeventservice');
 
-const MAX_CART_ITEM_QUANTITY = 99;
-
-function sanitizeQuantity(value, fallbackValue = 1) {
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed)) {
-        return fallbackValue;
-    }
-
-    return Math.max(1, Math.min(MAX_CART_ITEM_QUANTITY, Math.floor(parsed)));
-}
-
 async function resolveUser(req) {
     // token contains custom id in payload (id)
     if (!req.user || !req.user.id) return null;
@@ -30,7 +19,6 @@ exports.addToCart = async (req, res) => {
 
         const { productId, quantity } = req.body || {};
         if (!productId) return res.status(400).json({ success: false, message: 'productId required' });
-        const normalizedQuantity = sanitizeQuantity(quantity, 1);
 
         const product = await Product.findById(productId);
         if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
@@ -42,9 +30,9 @@ exports.addToCart = async (req, res) => {
 
         const idx = cart.items.findIndex(i => String(i.product) === String(product._id));
         if (idx > -1) {
-            cart.items[idx].quantity = sanitizeQuantity((Number(cart.items[idx].quantity || 0) + normalizedQuantity), MAX_CART_ITEM_QUANTITY);
+            cart.items[idx].quantity += Number(quantity || 1);
         } else {
-            cart.items.push({ product: product._id, quantity: normalizedQuantity });
+            cart.items.push({ product: product._id, quantity: Number(quantity || 1) });
         }
 
         await cart.save();
@@ -101,7 +89,7 @@ exports.removeFromCart = async (req, res) => {
         if (removeAll || cart.items[idx].quantity <= 1) {
             cart.items.splice(idx, 1);
         } else {
-            cart.items[idx].quantity = sanitizeQuantity((Number(cart.items[idx].quantity || 1) - 1), 1);
+            cart.items[idx].quantity -= 1;
         }
 
         await cart.save();
