@@ -109,36 +109,37 @@ class LiveFeedsHandler {
     this.lastUpdates.set(scope, Date.now());
 
     const promise = (async () => {
-      // Process based on scope
-      switch (scope) {
-        case "orders":
-          await this.processOrderUpdates(updates);
-          break;
-        case "products":
-          await this.processProductUpdates(updates);
-          break;
-        case "carts":
-          await this.processCartUpdates(updates);
-          break;
-        case "customers":
-          await this.processCustomerUpdates(updates);
-          break;
-        case "activity":
-          await this.processActivityUpdates(updates);
-          break;
-        case "analytics":
-          await this.processAnalyticsUpdates(updates);
-          break;
-        default:
-          console.log(`[LiveFeeds] Unknown scope: ${scope}`);
-      }
+      try {
+        // Process updates by scope, then notify subscribers once the refresh completes.
+        switch (scope) {
+          case "orders":
+            await this.processOrderUpdates(updates);
+            break;
+          case "products":
+            await this.processProductUpdates(updates);
+            break;
+          case "carts":
+            await this.processCartUpdates(updates);
+            break;
+          case "customers":
+            await this.processCustomerUpdates(updates);
+            break;
+          case "activity":
+            await this.processActivityUpdates(updates);
+            break;
+          case "analytics":
+            await this.processAnalyticsUpdates(updates);
+            break;
+          default:
+            console.log(`[LiveFeeds] Unknown scope: ${scope}`);
+        }
 
-      this.notifyListeners(scope, updates);
-    } catch (error) {
-      console.error(`[LiveFeeds] Error processing ${scope} updates:`, error);
-    } finally {
-      this.scopeRefreshInFlight.delete(scope);
-    }
+        this.notifyListeners(scope, updates);
+      } catch (error) {
+        console.error(`[LiveFeeds] Error processing ${scope} updates:`, error);
+      } finally {
+        this.scopeRefreshInFlight.delete(scope);
+      }
     })();
 
     this.scopeRefreshInFlight.set(scope, promise);
@@ -338,4 +339,5 @@ export function startLiveFeeds(scopes = ["orders", "products", "carts", "custome
 export function stopLiveFeeds() {
   const handler = getLiveFeedsHandler();
   handler.destroy();
+  instance = null;
 }

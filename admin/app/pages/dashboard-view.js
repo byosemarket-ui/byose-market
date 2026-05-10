@@ -351,7 +351,7 @@ export function buildDashboardMarkup(model) {
   );
 
   const operationsMarkup = `
-    <section class="content-grid enterprise-ops-grid">
+    <section class="content-grid enterprise-operations-grid">
       ${panel("Operational Alerts", "Realtime visibility into risks and exceptions", model.alerts.map((alert) => `<article class="enterprise-alert enterprise-alert--${alert.tone}"><strong>${alert.title}</strong><p>${alert.detail}</p></article>`).join(""))}
       ${panel("Enterprise Intelligence", "Top customers, best sellers, behavior signals, and forecasting", `<ul class="bullet-list"><li>Top customers: ${model.topCustomers.slice(0, 3).map((customer) => customer.name).join(", ") || "No data"}</li><li>Best sellers: ${model.bestSellers.slice(0, 3).map((product) => product.name).join(", ") || "No data"}</li><li>Forecast: ${formatCurrency(model.forecast.projected30DayRevenue || 0)}</li><li>Loyalty rate: ${asNumber(model.behavior.loyaltyRate).toFixed(1)}%</li></ul>`) }
       ${notificationsMarkup}

@@ -379,12 +379,6 @@
     clearAuth();
 
     try {
-      document.documentElement.style.visibility = "hidden";
-    } catch (_error) {
-      // Ignore DOM visibility failures and continue with redirect safety.
-    }
-
-    try {
       window.history.replaceState(null, "", getLoginUrl());
     } catch (_error) {
       // Ignore history errors and continue with redirect safety.
@@ -504,21 +498,24 @@
       if (recoverableFailure) {
         var lastValidatedAt = new Date(String(safeStorageGet(ADMIN_LAST_VALIDATED_AT_KEY) || '')).getTime();
         var nowMs = Date.now();
-        var canGracefullyContinue = Number.isFinite(lastValidatedAt) && (nowMs - lastValidatedAt) <= SESSION_VALIDATION_GRACE_MS;
+        var localSessionStillValid = hasValidSession();
+        var canGracefullyContinue = localSessionStillValid && (
+          !Number.isFinite(lastValidatedAt) || (nowMs - lastValidatedAt) <= SESSION_VALIDATION_GRACE_MS
+        );
 
         logAuthDebug("warn", "auth.session.validation_deferred", {
           source: options.source || "guard",
           candidates: candidates,
           snapshot: getSessionSnapshot(),
-          canGracefullyContinue: canGracefullyContinue
+          canGracefullyContinue: canGracefullyContinue,
+          localSessionStillValid: localSessionStillValid
         });
 
         if (canGracefullyContinue) {
           return true;
         }
 
-        clearAuth();
-        return false;
+        return localSessionStillValid;
       }
 
       clearAuth();
@@ -537,10 +534,6 @@
   }
 
   function protectPage() {
-    var root = document.documentElement;
-    var previousVisibility = root.style.visibility;
-    root.style.visibility = "hidden";
-
     var authenticated = hasValidSession();
     var onLoginPage = isLoginPage();
 
@@ -550,7 +543,6 @@
     }
 
     if (!authenticated && onLoginPage) {
-      root.style.visibility = previousVisibility || "visible";
       return true;
     }
 
@@ -561,8 +553,6 @@
             redirectToLogin();
             return;
           }
-
-          root.style.visibility = previousVisibility || "visible";
           return;
         }
 
@@ -570,16 +560,12 @@
           redirectToDashboard();
           return;
         }
-
-        root.style.visibility = previousVisibility || "visible";
       })
       .catch(function () {
         if (!onLoginPage) {
           redirectToLogin();
           return;
         }
-
-        root.style.visibility = previousVisibility || "visible";
       });
 
     return true;

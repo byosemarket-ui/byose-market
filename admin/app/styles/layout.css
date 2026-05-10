@@ -1,0 +1,107 @@
+.admin-app {
+  display: grid;
+  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);
+  min-height: 100vh;
+  max-width: 100vw;
+  position: relative;
+  isolation: isolate;
+}
+
+body.admin-nav-locked {
+  overflow: hidden;
+}
+
+.admin-app.is-drawer-mode {
+  grid-template-columns: 1fr;
+}
+
+.admin-main {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 1rem;
+  padding: 1rem;
+  position: relative;
+}
+
+.admin-main-shell {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.admin-app.sidebar-collapsed {
+  grid-template-columns: var(--app-sidebar-collapsed-width) minmax(0, 1fr);
+}
+
+.admin-app.sidebar-collapsed .sidebar-brand-copy,
+.admin-app.sidebar-collapsed .sidebar-shell-tag,
+.admin-app.sidebar-collapsed .sidebar-meta,
+.admin-app.sidebar-collapsed .sidebar-menu-heading,
+.admin-app.sidebar-collapsed .nav-group-title,
+.admin-app.sidebar-collapsed .nav-branch-copy,
+.admin-app.sidebar-collapsed .nav-branch-summary,
+.admin-app.sidebar-collapsed .nav-branch-chevron,
+.admin-app.sidebar-collapsed .nav-submenu,
+.admin-app.sidebar-collapsed .sidebar-footer-card,
+.admin-app.sidebar-collapsed .btn[data-admin-logout] {
+  display: none;
+}
+
+.admin-app.sidebar-collapsed .sidebar-brand-panel,
+.admin-app.sidebar-collapsed .sidebar-shell-actions,
+.admin-app.sidebar-collapsed .sidebar-admin-region,
+.admin-app.sidebar-collapsed .nav-branch-trigger {
+  justify-content: center;
+}
+
+.admin-app.sidebar-collapsed .nav-group-items,
+.admin-app.sidebar-collapsed .nav-branch {
+  justify-items: center;
+}
+
+.admin-app.sidebar-collapsed .nav-branch-trigger {
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+
+.admin-app.sidebar-collapsed .sidebar-collapse-toggle {
+  margin-left: auto;
+}
+
+.admin-app.sidebar-collapsed .sidebar-brand-mark {
+  margin: 0 auto;
+}
+
+.admin-content-shell {
+  min-width: 0;
+  display: grid;
+}
+
+.admin-page-scroll {
+  min-width: 0;
+  display: grid;
+}
+
+.admin-page-container {
+  min-width: 0;
+  width: min(100%, var(--app-content-max));
+  justify-self: stretch;
+}
+
+.admin-page-surface {
+  min-width: 0;
+  display: grid;
+  min-height: calc(100vh - var(--app-header-height) - 2rem);
+}
+
+.admin-page-content {
+  min-width: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-page-surface[data-route="dashboard"] .admin-page-content {
+  gap: 1.1rem;
+}

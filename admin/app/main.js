@@ -29,6 +29,7 @@ const pageMap = {
 
 let activeRenderToken = 0;
 let activeRouteKey = "";
+let activeRouteSignature = "";
 let autoRefreshTimer = null;
 let inAppSyncRefreshTimer = null;
 let stopRealtimeSync = null;
@@ -56,6 +57,13 @@ function routeShouldRefreshForScope(routeKey, scope) {
   return routeScopes.has(normalizedScope);
 }
 
+function getRouteSignature(routeKey) {
+  const route = ROUTES[routeKey] || ROUTES.dashboard;
+  return String(window.location.hash || route.path || `#/${route.key}`)
+    .trim()
+    .toLowerCase();
+}
+
 function installSessionRefreshGuard() {
   window.addEventListener("focus", async () => {
     const valid = await validateActiveSession();
@@ -69,15 +77,19 @@ async function renderRoute(routeKey, store, options = {}) {
   const route = ROUTES[routeKey] || ROUTES.dashboard;
   const force = Boolean(options?.force);
   const softRefresh = Boolean(options?.softRefresh);
-  if (!force && activeRouteKey === route.key) {
+  const routeSignature = getRouteSignature(route.key);
+  if (!force && activeRouteKey === route.key && activeRouteSignature === routeSignature) {
     return;
   }
 
   activeRouteKey = route.key;
+  activeRouteSignature = routeSignature;
   const renderToken = ++activeRenderToken;
 
-  const content = document.getElementById("appContent");
-  if (!content) {
+  const contentShell = document.getElementById("appContent");
+  const content = document.getElementById("appPageContent");
+  const pageSurface = document.getElementById("appPageSurface");
+  if (!contentShell || !content || !pageSurface) {
     return;
   }
 
@@ -92,6 +104,8 @@ async function renderRoute(routeKey, store, options = {}) {
   setRouteTitle(route.label);
   setActiveNav(route.key);
   store.setState({ route: route.key });
+  pageSurface.dataset.route = route.key;
+  pageSurface.dataset.routeVariant = routeSignature;
 
   const hasExistingContent = Boolean(content.childElementCount);
   if (!softRefresh || !hasExistingContent) {

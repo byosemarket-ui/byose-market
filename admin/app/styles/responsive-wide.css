@@ -1,0 +1,55 @@
+@media (min-width: 1600px) {
+  .admin-main {
+    padding: 1.4rem;
+  }
+
+  .admin-header {
+    grid-template-columns: minmax(0, 1.2fr) minmax(360px, 1fr) auto;
+  }
+
+  .admin-content {
+    width: min(100%, 1760px);
+  }
+
+  .admin-sidebar {
+    padding: 1.2rem;
+  }
+
+  .header-search-shell {
+    max-width: 520px;
+  }
+
+  .stats-grid,
+  .stats-grid-premium {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 2200px) {
+  .admin-app {
+    grid-template-columns: 360px minmax(0, 1fr);
+  }
+
+  .admin-main {
+    padding: 1.8rem;
+  }
+
+  .admin-header,
+  .card,
+  .panel,
+  .chart-card {
+    border-radius: 26px;
+  }
+
+  .admin-header {
+    min-height: 108px;
+  }
+
+  .stat-value {
+    font-size: 1.7rem;
+  }
+
+  .hero-overview h1 {
+    font-size: 1.9rem;
+  }
+}

@@ -1,0 +1,45 @@
+:root {
+  --app-bg: #eef8f5;
+  --app-bg-strong: #e5f5f1;
+  --app-card: rgba(255, 255, 255, 0.94);
+  --app-card-strong: #ffffff;
+  --app-text: #12212b;
+  --app-heading: #0a1720;
+  --app-muted: #5e6f79;
+  --app-border: rgba(15, 52, 46, 0.12);
+  --app-border-strong: rgba(15, 52, 46, 0.18);
+  --app-primary: #00b894;
+  --app-primary-strong: #009e7f;
+  --app-primary-soft: rgba(0, 184, 148, 0.12);
+  --app-primary-soft-strong: rgba(0, 184, 148, 0.2);
+  --app-primary-contrast: #f3fffb;
+  --app-sidebar-bg: linear-gradient(180deg, #062e27 0%, #0a3f35 56%, #0f5145 100%);
+  --app-sidebar-border: rgba(196, 255, 243, 0.12);
+  --app-sidebar-text: #dffdf4;
+  --app-sidebar-muted: rgba(223, 253, 244, 0.68);
+  --app-success: #12a874;
+  --app-warn: #dc8b1a;
+  --app-danger: #d14f45;
+  --app-info: #1780c2;
+  --app-shadow: 0 24px 48px rgba(6, 35, 31, 0.1);
+  --app-shadow-soft: 0 14px 30px rgba(6, 35, 31, 0.08);
+  --app-shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  --app-radius-xl: 28px;
+  --app-radius-lg: 22px;
+  --app-radius-md: 16px;
+  --app-radius-sm: 12px;
+  --app-sidebar-width: 320px;
+  --app-sidebar-collapsed-width: 112px;
+  --app-header-height: 92px;
+  --app-content-max: 1680px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

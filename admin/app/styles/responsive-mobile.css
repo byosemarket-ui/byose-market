@@ -1,0 +1,170 @@
+@media (max-width: 767px) {
+  .admin-app {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-main {
+    padding: 0.7rem;
+  }
+
+  .admin-header {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+    padding: 0.9rem;
+  }
+
+  .admin-header-leading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .header-title-block {
+    width: 100%;
+  }
+
+  .header-breadcrumbs {
+    display: none;
+  }
+
+  .header-search-shell,
+  .header-actions {
+    width: 100%;
+  }
+
+  .header-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .header-search-meta {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .header-action-cluster {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .header-profile {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .header-status {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .header-panel {
+    position: static;
+    width: 100%;
+    margin-top: 0.6rem;
+  }
+
+  .menu-toggle {
+    display: inline-flex;
+    align-self: flex-start;
+    min-width: 56px;
+    min-height: 52px;
+  }
+
+  .admin-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 50;
+    width: min(92vw, 360px);
+    max-width: calc(100vw - 1.1rem);
+    padding: 0.9rem 0.85rem 1rem;
+    transform: translateX(-104%);
+    opacity: 0;
+    visibility: hidden;
+    box-shadow: 22px 0 48px rgba(2, 10, 9, 0.32);
+    transition: transform 0.24s ease, opacity 0.24s ease, visibility 0.24s ease;
+  }
+
+  .admin-sidebar.sidebar-open {
+    transform: translateX(0);
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .sidebar-collapse-toggle {
+    display: none;
+  }
+
+  .sidebar-shell {
+    border-radius: 0 22px 22px 0;
+  }
+
+  .sidebar-nav-scroll {
+    padding-right: 0.05rem;
+  }
+
+  .sidebar-menu-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .nav-branch-trigger,
+  .nav-sublink {
+    min-height: 52px;
+  }
+
+  .nav-branch-trigger {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .nav-branch-summary {
+    display: none;
+  }
+
+  .nav-submenu {
+    margin-left: 0.7rem;
+    padding-left: 0.8rem;
+  }
+
+  .stats-grid,
+  .stats-grid-premium,
+  .analytics-grid,
+  .settings-form,
+  .content-grid.two-col,
+  .enterprise-operations-grid,
+  .enterprise-insight-grid,
+  .enterprise-report-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-overview,
+  .enterprise-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-chip-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .enterprise-toolbar-fields label,
+  .enterprise-shortcut {
+    min-width: 100%;
+  }
+
+  .app-modal-dialog {
+    margin: 6vh 0.8rem 0;
+  }
+
+  .sidebar-meta {
+    display: none;
+  }
+
+  .header-search-caption,
+  .header-route-badge {
+    display: none;
+  }
+
+  .header-search-shortcut {
+    display: none;
+  }
+}

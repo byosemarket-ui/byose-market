@@ -10,8 +10,14 @@
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="app/styles/admin-app.css">
 </head>
-<body>
-  <div id="appRoot"></div>
+<body class="admin-dashboard-body">
+  <div id="appRoot" class="admin-app-root">
+    <noscript>
+      <div style="padding:24px;font-family:Manrope,Segoe UI,sans-serif;color:#12212b;">
+        JavaScript is required to load the protected admin dashboard.
+      </div>
+    </noscript>
+  </div>
 
   <script src="js/core/config.js"></script>
   <script src="js/core/api-client.js"></script>

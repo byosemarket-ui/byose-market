@@ -1,0 +1,40 @@
+@media (min-width: 1025px) {
+  .admin-main {
+    padding: 1.1rem;
+  }
+
+  .admin-content {
+    width: min(100%, var(--app-content-max));
+  }
+
+  .admin-sidebar {
+    padding: 1.1rem;
+  }
+
+  .header-actions {
+    justify-self: end;
+  }
+
+  .header-search-shell {
+    max-width: 440px;
+  }
+
+  .realtime-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1200px) {
+  .stats-grid,
+  .stats-grid-premium {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .analytics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .table-stack {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
