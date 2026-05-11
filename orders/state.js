@@ -26,6 +26,21 @@ import {
   writeDirectCheckout,
   writeStorage
 } from './utils.js';
+import {
+  CHECKOUT_FOUNDATION_VERSION,
+  buildOrderPreparationArtifacts,
+  validateCheckoutInventory
+} from './checkout-foundation.js';
+import {
+  buildTransactionPreparation,
+  getGatewayPreparationBlueprint,
+  getPaymentMethodById,
+  getPaymentStateMeta,
+  normalizePaymentMethod,
+  normalizePaymentState,
+  resolvePaymentMethodLabel,
+  validateTransactionPreparation
+} from './payment-foundation.js';
 
 const DELIVERY_OPTIONS = [
   {
@@ -77,18 +92,17 @@ const DEFAULT_ADDRESS = {
 const DEFAULT_PAYMENT = {
   paymentType: 'pay_now',
   method: '',
+  state: 'pending',
   phone: '',
   payerPhone: '',
   transactionId: ''
 };
 
-const SUPPORTED_PAY_NOW_METHODS = ['mtn', 'airtel', 'bank', 'card'];
 const COD_FEE = 2000;
 const SUBMISSION_DELAY_MS = 900;
 const ORDER_REQUEST_TIMEOUT_MS = 12000;
 const ORDER_REQUEST_MAX_ATTEMPTS = 2;
 const PENDING_ORDER_MAX_AGE_MS = 15 * 60 * 1000;
-const INACTIVE_PAYMENT_MESSAGE = 'This payment method is not available yet. Ubu buryo bwo kwishyura ntiburakora.';
 const listeners = new Set();
 let activeSubmissionNonce = 0;
 
@@ -115,6 +129,15 @@ const state = {
     shippingFee: DELIVERY_OPTIONS[0].fee,
     codFee: 0,
     total: DELIVERY_OPTIONS[0].fee
+  },
+  foundation: {
+    version: CHECKOUT_FOUNDATION_VERSION,
+    reason: 'boot',
+    updatedAt: '',
+    inventoryValid: true,
+    inventoryErrors: 0,
+    cartLineCount: 0,
+    cartQuantity: 0
   }
 };
 
@@ -299,7 +322,8 @@ function normalizePayment(value = {}) {
     ...(value || {})
   };
   const phone = String(merged.phone || merged.payerPhone || '').trim();
-  const method = String(merged.method || '').trim();
+  const method = normalizePaymentMethod(merged.method);
+  const normalizedState = normalizePaymentState(merged.state || merged.status);
   const paymentType = isCodMethod(method) ? 'cod' : 'pay_now';
 
   return {
@@ -307,8 +331,11 @@ function normalizePayment(value = {}) {
     ...merged,
     paymentType,
     method,
+    state: normalizedState,
+    status: normalizedState,
     phone,
     payerPhone: phone,
+    methodLabel: resolvePaymentMethodLabel(method),
     transactionId: String(merged.transactionId || '').trim()
   };
 }
@@ -349,6 +376,39 @@ function calculateTotals() {
     codFee,
     total: subtotal + shippingFee + codFee
   };
+}
+
+function buildFoundationSnapshot(reason = 'updated') {
+  const inventoryValidation = validateCheckoutInventory(state.products);
+  const paymentValidation = validateTransactionPreparation({
+    method: state.payment.method,
+    payment: state.payment,
+    products: state.products,
+    totals: state.totals,
+    foundation: state.foundation,
+    currentStage: state.currentStage,
+    shippingAddress: state.shippingAddress,
+    customerPhone: state.customer.phone,
+    isSubmitting: state.isSubmitting
+  });
+  const cartQuantity = state.products.reduce((sum, item) => sum + (Math.max(1, Number(item?.qty || 1) || 1)), 0);
+
+  return {
+    version: CHECKOUT_FOUNDATION_VERSION,
+    reason,
+    updatedAt: new Date().toISOString(),
+    inventoryValid: Boolean(inventoryValidation.valid),
+    inventoryErrors: Array.isArray(inventoryValidation.errors) ? inventoryValidation.errors.length : 0,
+    cartLineCount: state.products.length,
+    cartQuantity,
+    paymentMethod: String(state.payment.method || '').trim(),
+    paymentState: normalizePaymentState(state.payment.state || 'pending'),
+    paymentReady: Boolean(paymentValidation.valid)
+  };
+}
+
+function syncFoundationSnapshot(reason = 'updated') {
+  state.foundation = buildFoundationSnapshot(reason);
 }
 
 function initializeProducts(draft) {
@@ -396,6 +456,11 @@ function persistDraft() {
     stage: state.currentStage,
     currentStep: state.currentStep,
     source: state.source,
+    foundation: {
+      version: state.foundation.version,
+      inventoryValid: state.foundation.inventoryValid,
+      updatedAt: state.foundation.updatedAt
+    },
     shippingAddress: state.shippingAddress,
     delivery: { id: state.delivery.id },
     payment: state.payment,
@@ -404,6 +469,11 @@ function persistDraft() {
 }
 
 function ensureValidPaymentType() {
+  const methodMeta = getPaymentMethodById(state.payment.method);
+  if (!methodMeta || !methodMeta.enabled) {
+    state.payment.method = '';
+  }
+
   if (!isCodAvailable() && isCodMethod(state.payment.method)) {
     state.payment.method = '';
     state.payment.paymentType = 'pay_now';
@@ -411,7 +481,13 @@ function ensureValidPaymentType() {
 
   if (!isCodMethod(state.payment.method)) {
     state.payment.paymentType = 'pay_now';
+  } else {
+    state.payment.paymentType = 'cod';
   }
+
+  state.payment.state = normalizePaymentState(state.payment.state || 'pending');
+  state.payment.status = state.payment.state;
+  state.payment.methodLabel = resolvePaymentMethodLabel(state.payment.method);
 
   calculateTotals();
 }
@@ -457,6 +533,7 @@ function initializeBaseState(preferredStage = 'shipping') {
   state.initialized = true;
 
   ensureValidPaymentType();
+  syncFoundationSnapshot('initialized');
   persistDraft();
   emit('initialized');
 }
@@ -563,12 +640,14 @@ export function getStageUrl(stage) {
 export function setStage(stage) {
   state.currentStage = STAGES.includes(stage) ? stage : 'shipping';
   state.currentStep = getStageIndex(state.currentStage);
+  syncFoundationSnapshot('stage-changed');
   persistDraft();
   emit('stage-changed');
 }
 
 export function resolveStageAccess(stage) {
-  if (!state.products.length) {
+  const cartValidation = validateCartStep();
+  if (!cartValidation.valid) {
     return { valid: false, redirectUrl: '../cart.html' };
   }
 
@@ -623,6 +702,7 @@ export function updateProductQuantity(productId, variantKey, quantity) {
 
   syncProductsToSource();
   calculateTotals();
+  syncFoundationSnapshot('products-changed');
   persistDraft();
   emitCartUpdated();
   emit('products-changed');
@@ -635,6 +715,7 @@ export function removeProduct(productId, variantKey) {
 
   syncProductsToSource();
   calculateTotals();
+  syncFoundationSnapshot('products-changed');
   persistDraft();
   emitCartUpdated();
   emit('products-changed');
@@ -654,6 +735,7 @@ export function updateShippingDetails(patch = {}) {
   }
 
   ensureValidPaymentType();
+  syncFoundationSnapshot('shipping-changed');
   persistDraft();
   emit('shipping-changed');
 }
@@ -665,17 +747,22 @@ export function updateShippingField(field, value) {
 export function selectDeliveryOption(optionId) {
   state.delivery = clone(DELIVERY_OPTIONS.find((option) => option.id === optionId) || DELIVERY_OPTIONS[0]);
   ensureValidPaymentType();
+  syncFoundationSnapshot('delivery-changed');
   persistDraft();
   emit('delivery-changed');
 }
 
 export function updatePaymentDetails(patch = {}) {
+  const nextMethod = normalizePaymentMethod(patch?.method || state.payment.method);
+  const methodChanged = nextMethod !== normalizePaymentMethod(state.payment.method);
   state.payment = normalizePayment({
     ...state.payment,
-    ...(patch || {})
+    ...(patch || {}),
+    ...(methodChanged ? { state: 'pending', transactionId: '' } : {})
   });
 
   ensureValidPaymentType();
+  syncFoundationSnapshot('payment-changed');
   persistDraft();
   emit('payment-changed');
 }
@@ -687,6 +774,16 @@ export function updatePaymentField(field, value) {
 export function validateCartStep() {
   if (!state.products.length) {
     return { valid: false, message: 'Your cart is empty. Add products before checking out.' };
+  }
+
+  const inventoryValidation = validateCheckoutInventory(state.products);
+  if (!inventoryValidation.valid) {
+    const firstError = inventoryValidation.errors[0];
+    const fallbackMessage = 'One or more items are no longer available in the requested quantity.';
+    return {
+      valid: false,
+      message: String(firstError?.error || firstError?.message || fallbackMessage)
+    };
   }
 
   return { valid: true };
@@ -720,7 +817,20 @@ export function getResolvedCustomerName() {
   return state.shippingAddress.fullName || state.customer.name || 'Guest Customer';
 }
 
+export function getPaymentStateView() {
+  return getPaymentStateMeta(state.payment.state || 'pending');
+}
+
+export function getPaymentMethodLabel(method) {
+  return resolvePaymentMethodLabel(method || state.payment.method);
+}
+
 export function buildOrderPayload() {
+  const cartValidation = validateCartStep();
+  if (!cartValidation.valid) {
+    return cartValidation;
+  }
+
   const shippingValidation = buildShippingValidation();
   if (!shippingValidation.valid) {
     return shippingValidation;
@@ -740,6 +850,24 @@ export function buildOrderPayload() {
   const createdAtMs = Number(pendingOrder?.createdAtMs || Date.now());
   const orderId = String(pendingOrder?.orderId || createOrderId()).trim();
   const createdAtIso = new Date(createdAtMs).toISOString();
+  const inventoryValidation = validateCheckoutInventory(state.products);
+  const preparationArtifacts = buildOrderPreparationArtifacts({
+    orderId,
+    customerId: hasAccount ? state.customer.id : '',
+    products: state.products
+  });
+  const normalizedPaymentState = normalizePaymentState(state.payment.state || 'pending');
+  const transaction = buildTransactionPreparation({
+    orderId,
+    method: state.payment.method,
+    state: normalizedPaymentState,
+    total: state.totals.total,
+    payerPhone,
+    transactionId: state.payment.transactionId,
+    attempts: 0,
+    createdAt: createdAtIso
+  });
+  const paymentStateMeta = getPaymentStateMeta(transaction.state);
   const products = state.products.map((product) => {
     const image = resolveOrderItemImage(product);
     return {
@@ -777,7 +905,7 @@ export function buildOrderPayload() {
     longitude: state.shippingAddress.longitude,
     googleMapsLink: state.shippingAddress.mapLink
   };
-  const paymentStatus = usesCod ? 'pending' : 'pending';
+  const paymentStatus = transaction.state;
   const orderStatus = 'pending';
 
   const order = {
@@ -832,16 +960,19 @@ export function buildOrderPayload() {
     deliveryMethod: state.delivery.id,
     deliveryLabel: state.delivery.label,
     paymentType: usesCod ? 'cod' : 'pay_now',
-    paymentMethod: usesCod ? 'COD' : state.payment.method,
-    paymentStatusLabel: usesCod ? 'Pending' : 'Pending',
+    paymentMethod: usesCod ? 'cod' : state.payment.method,
+    paymentStatusLabel: paymentStateMeta.label,
     note: usesCod ? 'Pay on delivery' : '',
     payment: {
       type: usesCod ? 'cod' : 'pay_now',
-      method: usesCod ? 'COD' : state.payment.method,
+      method: usesCod ? 'cod' : state.payment.method,
+      methodLabel: resolvePaymentMethodLabel(state.payment.method),
       status: paymentStatus,
+      statusLabel: paymentStateMeta.label,
       note: usesCod ? 'Pay on delivery' : '',
       payerPhone,
-      transactionId: String(state.payment.transactionId || '').trim()
+      transactionId: String(state.payment.transactionId || '').trim(),
+      transaction
     },
     statusHistory: [
       {
@@ -849,7 +980,49 @@ export function buildOrderPayload() {
         label: 'Order received',
         timestamp: createdAtIso
       }
-    ]
+    ],
+    orderPreparation: {
+      version: CHECKOUT_FOUNDATION_VERSION,
+      builtAt: createdAtIso,
+      inventoryPreflight: {
+        valid: inventoryValidation.valid,
+        errors: clone(inventoryValidation.errors || []),
+        adjustments: clone(inventoryValidation.adjustments || [])
+      },
+      reservationPlan: preparationArtifacts.reservation,
+      stockDeductionPlan: preparationArtifacts.deduction,
+      paymentArchitecture: {
+        methodCatalogVersion: '3Q',
+        stateCatalog: ['pending', 'authorized', 'paid', 'failed', 'refunded', 'cancelled'],
+        selectedMethod: state.payment.method,
+        selectedState: transaction.state
+      },
+      transactionInfrastructure: {
+        transaction,
+        duplicateProtection: {
+          fingerprint: buildOrderFingerprint(),
+          pendingOrderReuseEnabled: true,
+          maxPendingAgeMs: PENDING_ORDER_MAX_AGE_MS
+        }
+      },
+      gatewayPreparation: getGatewayPreparationBlueprint(),
+      paymentGateway: {
+        status: 'not_enabled',
+        reason: 'STEP 3Q defines gateway-ready architecture only; real gateway integrations are deferred.'
+      },
+      fraudProtection: {
+        status: 'not_enabled',
+        reason: 'STEP 3Q scope excludes advanced fraud systems.'
+      },
+      financialReporting: {
+        status: 'not_enabled',
+        reason: 'STEP 3Q scope excludes financial reporting systems.'
+      },
+      automation: {
+        status: 'not_enabled',
+        reason: 'STEP 3Q scope excludes advanced order automation.'
+      }
+    }
   };
 
   savePendingOrderSubmission({

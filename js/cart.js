@@ -5,12 +5,17 @@
 const Cart = {
   STORAGE_KEY: 'byose_market_cart_v1',
   SHIPPING_COST: 5000,
+  MAX_QTY_PER_LINE: 99,
 
   init() {
     this.render();
     this.setupEventListeners();
     this.updateBadge();
     window.addEventListener('cart:updated', () => this.render());
+    window.addEventListener('byose:storefront-state-updated', () => {
+      this.updateBadge();
+      this.render();
+    });
   },
 
   setupEventListeners() {
@@ -88,18 +93,95 @@ const Cart = {
   normalizeItem(item) {
     const attributes = this.normalizeAttributes(item);
     const legacy = this.getLegacyFields(attributes);
+    const stockLimit = this.getStockLimit(item);
+    const qty = this.clampQuantity(item.qty, stockLimit);
+    const availability = this.normalizeAvailability(item.availability || item.inventorySnapshot?.status, stockLimit);
     return {
       ...item,
       id: String(item.id),
+      productId: String(item.productId || item.id),
       image: item.image || item.img || '',
       attributes,
       attributeSummary: item.attributeSummary || this.formatAttributeSummary({ attributes }),
       variantKey: item.variantKey || this.buildVariantKey(attributes),
+      variantType: item.variantType || (Object.keys(attributes).length ? 'variant' : 'simple'),
+      variantSelection: item.variantSelection && typeof item.variantSelection === 'object'
+        ? {
+            key: item.variantSelection.key || item.variantKey || this.buildVariantKey(attributes),
+            type: item.variantSelection.type || (Object.keys(attributes).length ? 'variant' : 'simple'),
+            attributes: this.normalizeAttributes({ attributes: item.variantSelection.attributes || {} }),
+            attributeSummary: item.variantSelection.attributeSummary || this.formatAttributeSummary({ attributes }),
+            color: item.variantSelection.color || legacy.color || '',
+            size: item.variantSelection.size || legacy.size || ''
+          }
+        : {
+            key: item.variantKey || this.buildVariantKey(attributes),
+            type: Object.keys(attributes).length ? 'variant' : 'simple',
+            attributes,
+            attributeSummary: this.formatAttributeSummary({ attributes }),
+            color: legacy.color || '',
+            size: legacy.size || ''
+          },
       color: item.color || legacy.color || '',
       size: item.size || legacy.size || '',
-      qty: Number(item.qty) || 1,
-      total: item.total || ((Number(item.price) || 0) * (Number(item.qty) || 1))
+      sku: item.sku || item.inventorySnapshot?.sku || '',
+      availability,
+      availableStock: Number.isFinite(stockLimit) ? Math.max(0, stockLimit) : null,
+      lowStockThreshold: Number(item.lowStockThreshold || item.inventorySnapshot?.lowStockThreshold || 5) || 5,
+      inventorySnapshot: item.inventorySnapshot && typeof item.inventorySnapshot === 'object'
+        ? {
+            sku: item.inventorySnapshot.sku || item.sku || '',
+            status: this.normalizeAvailability(item.inventorySnapshot.status || availability, item.inventorySnapshot.available),
+            available: Number(item.inventorySnapshot.available || stockLimit || 0) || 0,
+            lowStockThreshold: Number(item.inventorySnapshot.lowStockThreshold || item.lowStockThreshold || 5) || 5
+          }
+        : null,
+      qty,
+      total: item.total || ((Number(item.price) || 0) * qty)
     };
+  },
+
+  normalizeAvailability(value, stockLimit) {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized) {
+      return normalized;
+    }
+
+    if (Number.isFinite(stockLimit)) {
+      return stockLimit > 0 ? 'in_stock' : 'out_of_stock';
+    }
+
+    return 'in_stock';
+  },
+
+  getStockLimit(item) {
+    const candidates = [
+      item?.availableStock,
+      item?.available,
+      item?.stock,
+      item?.inventorySnapshot?.available,
+      item?.inventory?.available,
+      item?.inventory?.quantity
+    ];
+
+    for (const candidate of candidates) {
+      const quantity = Number(candidate);
+      if (Number.isFinite(quantity) && quantity >= 0) {
+        return quantity;
+      }
+    }
+
+    return Number.POSITIVE_INFINITY;
+  },
+
+  clampQuantity(quantity, max = this.MAX_QTY_PER_LINE) {
+    const limit = Number(max);
+    const hardCap = Number.isFinite(limit) ? Math.max(0, limit) : this.MAX_QTY_PER_LINE;
+    const parsed = Math.max(1, parseInt(quantity, 10) || 1);
+    if (hardCap === 0) {
+      return 0;
+    }
+    return Math.min(parsed, Math.max(1, hardCap));
   },
 
   resolveAttributesArg(attributesOrColor, size) {
@@ -129,9 +211,34 @@ const Cart = {
     ));
 
     if (existingItem) {
-      existingItem.qty += normalizedProduct.qty || 1;
+      const stockLimit = this.getStockLimit(existingItem);
+      const requestedQty = Number(existingItem.qty || 0) + Number(normalizedProduct.qty || 1);
+      const acceptedQty = this.clampQuantity(requestedQty, Math.min(this.MAX_QTY_PER_LINE, stockLimit));
+
+      if (acceptedQty === 0) {
+        Util.showWarning('This item is out of stock.');
+        return false;
+      }
+
+      existingItem.qty = acceptedQty;
       existingItem.total = existingItem.price * existingItem.qty;
+      existingItem.availability = normalizedProduct.availability || existingItem.availability || 'in_stock';
+      existingItem.availableStock = Number.isFinite(stockLimit) ? stockLimit : existingItem.availableStock;
+      existingItem.sku = normalizedProduct.sku || existingItem.sku || '';
+      existingItem.variantSelection = normalizedProduct.variantSelection || existingItem.variantSelection || null;
+      if (Number.isFinite(stockLimit) && requestedQty > acceptedQty) {
+        Util.showInfo(`Quantity capped at ${acceptedQty} based on current availability.`);
+      }
     } else {
+      const stockLimit = this.getStockLimit(normalizedProduct);
+      const acceptedQty = this.clampQuantity(normalizedProduct.qty || 1, Math.min(this.MAX_QTY_PER_LINE, stockLimit));
+      if (acceptedQty === 0) {
+        Util.showWarning('This item is currently out of stock.');
+        return false;
+      }
+
+      normalizedProduct.qty = acceptedQty;
+      normalizedProduct.total = normalizedProduct.price * acceptedQty;
       cart.push(normalizedProduct);
     }
 
@@ -155,13 +262,23 @@ const Cart = {
 
     if (!item) return false;
 
+    const stockLimit = this.getStockLimit(item);
     const nextQuantity = Math.max(0, parseInt(quantity, 10) || 0);
     if (nextQuantity === 0) {
       this.removeItem(productId, attributesOrColor, size);
     } else {
-      item.qty = nextQuantity;
+      const acceptedQty = this.clampQuantity(nextQuantity, Math.min(this.MAX_QTY_PER_LINE, stockLimit));
+      if (acceptedQty === 0) {
+        this.removeItem(productId, attributesOrColor, size);
+        return true;
+      }
+
+      item.qty = acceptedQty;
       item.total = item.price * item.qty;
       this.saveCart(cart);
+      if (acceptedQty !== nextQuantity) {
+        Util.showInfo(`Quantity adjusted to ${acceptedQty} based on stock limits.`);
+      }
     }
 
     return true;
@@ -379,6 +496,36 @@ const Cart = {
       total: summary.total,
       timestamp: new Date().toISOString()
     };
+  },
+
+  addMany(items = []) {
+    (Array.isArray(items) ? items : []).forEach(item => this.addItem(item));
+    this.render();
+    this.updateBadge();
+  },
+
+  mergeGuestCart(items = []) {
+    this.addMany(items);
+    return this.getCart();
+  },
+
+  async syncNow() {
+    try {
+      await window.ByoseStorefrontSync?.syncPatch?.({ cartItems: this.getCart() });
+      window.dispatchEvent(new CustomEvent('byose:cart-sync-status', {
+        detail: { success: true, source: 'legacy-cart-adapter' }
+      }));
+      return true;
+    } catch (error) {
+      window.dispatchEvent(new CustomEvent('byose:cart-sync-status', {
+        detail: {
+          success: false,
+          source: 'legacy-cart-adapter',
+          message: String(error?.message || 'Cart sync failed')
+        }
+      }));
+      return false;
+    }
   }
 };
 

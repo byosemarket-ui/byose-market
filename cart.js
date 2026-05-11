@@ -1,6 +1,7 @@
 // Kwizera Cart Pack — cart.js
 (() => {
   const KEY = 'byose_market_cart_v1';
+  const MAX_QTY_PER_LINE = 99;
   let cartCache = null;
   let cartCacheRaw = '';
 
@@ -109,6 +110,117 @@
     return item && item.variantKey ? item.variantKey : buildVariantKey(normalizeAttributes(item));
   }
 
+  function normalizeText(value) {
+    return String(value || '').trim();
+  }
+
+  function normalizeAvailability(value, quantity = 0) {
+    const normalized = normalizeText(value).toLowerCase();
+    if (normalized) {
+      return normalized;
+    }
+
+    return Number(quantity || 0) > 0 ? 'in_stock' : 'out_of_stock';
+  }
+
+  function getItemStockLimit(item) {
+    const candidates = [
+      item?.availableStock,
+      item?.available,
+      item?.stock,
+      item?.inventorySnapshot?.available,
+      item?.inventory?.available,
+      item?.inventory?.quantity
+    ];
+
+    for (const candidate of candidates) {
+      const quantity = Number(candidate);
+      if (Number.isFinite(quantity) && quantity >= 0) {
+        return quantity;
+      }
+    }
+
+    return Number.POSITIVE_INFINITY;
+  }
+
+  function clampQuantity(quantity, max = MAX_QTY_PER_LINE) {
+    return Math.min(Math.max(1, Number(quantity) || 1), Math.max(1, Number(max) || MAX_QTY_PER_LINE));
+  }
+
+  function buildCartLine(item) {
+    const attributes = normalizeAttributes(item);
+    const legacy = getLegacyFields(attributes);
+    const qty = clampQuantity(item?.qty || 1);
+    const unitPrice = Number(item?.price || 0) || 0;
+    const variantKey = normalizeText(item?.variantKey) || buildVariantKey(attributes);
+    const imageUrl = normalizeText(item?.img || item?.image || item?.imageUrl || item?.mainImage || item?.thumbnail);
+    const availability = normalizeAvailability(item?.availability || item?.inventorySnapshot?.status, item?.stock || item?.available);
+    const stockLimit = getItemStockLimit(item);
+    const quantity = Number.isFinite(stockLimit) ? Math.min(qty, Math.max(0, stockLimit)) : qty;
+
+    return {
+      id: normalizeText(item?.id || item?.productId || getIdFromPage()) || getIdFromPage(),
+      productId: normalizeText(item?.productId || item?.id || getIdFromPage()),
+      name: normalizeText(item?.name) || 'Item',
+      price: unitPrice,
+      img: imageUrl,
+      image: imageUrl,
+      imageUrl,
+      color: legacy.color || normalizeText(item?.color),
+      size: legacy.size || normalizeText(item?.size),
+      attributes,
+      attributeSummary: normalizeText(item?.attributeSummary) || formatAttributeSummary({ attributes }),
+      variantKey,
+      variantType: normalizeText(item?.variantType || item?.variantSelection?.type) || (Object.keys(attributes).length ? 'variant' : 'simple'),
+      variantSelection: item?.variantSelection && typeof item.variantSelection === 'object'
+        ? {
+            key: normalizeText(item.variantSelection.key || variantKey),
+            type: normalizeText(item.variantSelection.type) || (Object.keys(attributes).length ? 'variant' : 'simple'),
+            attributes: normalizeAttributes({ attributes: item.variantSelection.attributes || {} }),
+            attributeSummary: normalizeText(item.variantSelection.attributeSummary) || formatAttributeSummary({ attributes }),
+            color: normalizeText(item.variantSelection.color || legacy.color),
+            size: normalizeText(item.variantSelection.size || legacy.size)
+          }
+        : {
+            key: variantKey,
+            type: Object.keys(attributes).length ? 'variant' : 'simple',
+            attributes,
+            attributeSummary: formatAttributeSummary({ attributes }),
+            color: legacy.color,
+            size: legacy.size
+          },
+      sku: normalizeText(item?.sku || item?.inventorySnapshot?.sku),
+      availability,
+      availableStock: Number.isFinite(stockLimit) ? Math.max(0, stockLimit) : null,
+      lowStockThreshold: Number(item?.lowStockThreshold || item?.inventorySnapshot?.lowStockThreshold || 5) || 5,
+      inventorySnapshot: item?.inventorySnapshot && typeof item.inventorySnapshot === 'object'
+        ? {
+            sku: normalizeText(item.inventorySnapshot.sku || item.sku),
+            status: normalizeAvailability(item.inventorySnapshot.status || availability, item.inventorySnapshot.available),
+            available: Number(item.inventorySnapshot.available || item.availableStock || 0) || 0,
+            lowStockThreshold: Number(item.inventorySnapshot.lowStockThreshold || item.lowStockThreshold || 5) || 5
+          }
+        : null,
+      qty: Math.max(1, quantity || qty),
+      total: unitPrice * Math.max(1, quantity || qty)
+    };
+  }
+
+  function createQuantityValidationResult(lineItem, requestedQty) {
+    const stockLimit = getItemStockLimit(lineItem);
+    const hardCap = Math.min(MAX_QTY_PER_LINE, Number.isFinite(stockLimit) ? Math.max(0, stockLimit) : MAX_QTY_PER_LINE);
+    const requested = clampQuantity(requestedQty, MAX_QTY_PER_LINE);
+    const accepted = hardCap > 0 ? Math.min(requested, hardCap) : 0;
+
+    return {
+      requested,
+      accepted,
+      isOutOfStock: hardCap === 0,
+      limitedByStock: Number.isFinite(stockLimit) && requested > accepted,
+      maxAllowed: hardCap
+    };
+  }
+
   function resolveAttributesArg(attributesOrColor, size) {
     if (attributesOrColor && typeof attributesOrColor === 'object' && !Array.isArray(attributesOrColor)) {
       return Object.fromEntries(
@@ -131,19 +243,10 @@
       }
 
       const cart = JSON.parse(raw || '[]') || [];
-      cart.forEach(item => {
-        if (item.img && !item.image) item.image = item.img;
-        const attributes = normalizeAttributes(item);
-        const legacy = getLegacyFields(attributes);
-        item.attributes = attributes;
-        item.attributeSummary = item.attributeSummary || formatAttributeSummary({ attributes });
-        item.variantKey = getItemVariantKey(item);
-        item.color = item.color || legacy.color || '';
-        item.size = item.size || legacy.size || '';
-      });
-      cartCache = cart.map((item) => ({ ...item, attributes: { ...(item.attributes || {}) } }));
+      const normalizedCart = cart.map((item) => buildCartLine(item));
+      cartCache = normalizedCart.map((item) => ({ ...item, attributes: { ...(item.attributes || {}) } }));
       cartCacheRaw = raw;
-      return cart;
+      return normalizedCart;
     } catch {
       return [];
     }
@@ -231,36 +334,52 @@
 
   function add(item) {
     const cart = load();
-    const attributes = normalizeAttributes(item);
-    const legacy = getLegacyFields(attributes);
-    const variantKey = item.variantKey || buildVariantKey(attributes);
-    const existing = cart.find(entry => String(entry.id) === String(item.id) && getItemVariantKey(entry) === variantKey);
+    const normalizedLine = buildCartLine(item || {});
+    const attributes = normalizedLine.attributes;
+    const variantKey = normalizedLine.variantKey;
+    const existing = cart.find(entry => String(entry.id) === String(normalizedLine.id) && getItemVariantKey(entry) === variantKey);
 
     if (existing) {
-      existing.qty += item.qty || 1;
+      const quantityCheck = createQuantityValidationResult(existing, Number(existing.qty || 0) + Number(normalizedLine.qty || 1));
+      if (quantityCheck.isOutOfStock) {
+        window.dispatchEvent(new CustomEvent('byose:cart-validation-warning', {
+          detail: {
+            reason: 'out_of_stock',
+            item: existing
+          }
+        }));
+        return;
+      }
+
+      existing.qty = quantityCheck.accepted;
       existing.total = existing.price * existing.qty;
-      if (item.img) existing.img = item.img;
-      if (item.image) existing.image = item.image;
+      if (normalizedLine.img) existing.img = normalizedLine.img;
+      if (normalizedLine.image) existing.image = normalizedLine.image;
       existing.attributes = attributes;
-      existing.attributeSummary = item.attributeSummary || formatAttributeSummary({ attributes });
+      existing.attributeSummary = normalizedLine.attributeSummary || formatAttributeSummary({ attributes });
       existing.variantKey = variantKey;
-      existing.color = legacy.color || existing.color || '';
-      existing.size = legacy.size || existing.size || '';
+      existing.color = normalizedLine.color || existing.color || '';
+      existing.size = normalizedLine.size || existing.size || '';
+      existing.sku = normalizedLine.sku || existing.sku || '';
+      existing.availability = normalizedLine.availability || existing.availability || 'in_stock';
+      existing.availableStock = normalizedLine.availableStock;
+      existing.inventorySnapshot = normalizedLine.inventorySnapshot || existing.inventorySnapshot || null;
     } else {
-      const imageUrl = item.img || item.image || '';
+      const quantityCheck = createQuantityValidationResult(normalizedLine, normalizedLine.qty || 1);
+      if (quantityCheck.isOutOfStock) {
+        window.dispatchEvent(new CustomEvent('byose:cart-validation-warning', {
+          detail: {
+            reason: 'out_of_stock',
+            item: normalizedLine
+          }
+        }));
+        return;
+      }
+
       cart.push({
-        id: item.id || getIdFromPage(),
-        name: item.name || 'Item',
-        price: Number(item.price) || 0,
-        img: imageUrl,
-        image: imageUrl,
-        color: legacy.color || item.color || '',
-        size: legacy.size || item.size || '',
-        attributes,
-        attributeSummary: item.attributeSummary || formatAttributeSummary({ attributes }),
-        variantKey,
-        qty: item.qty || 1,
-        total: (Number(item.price) || 0) * (item.qty || 1)
+        ...normalizedLine,
+        qty: quantityCheck.accepted,
+        total: (Number(normalizedLine.price) || 0) * quantityCheck.accepted
       });
     }
 
@@ -292,7 +411,19 @@
     const item = cart.find(entry => String(entry.id) === String(id) && getItemVariantKey(entry) === variantKey);
     if (!item) return;
 
-    item.qty = Math.max(0, Number(qty) || 0);
+    const desiredQuantity = Math.max(0, Number(qty) || 0);
+    const quantityCheck = createQuantityValidationResult(item, desiredQuantity);
+    if (quantityCheck.isOutOfStock && desiredQuantity > 0) {
+      window.dispatchEvent(new CustomEvent('byose:cart-validation-warning', {
+        detail: {
+          reason: 'out_of_stock',
+          item
+        }
+      }));
+      return;
+    }
+
+    item.qty = desiredQuantity > 0 ? quantityCheck.accepted : 0;
     item.total = item.price * item.qty;
     if (item.qty === 0) {
       save(cart.filter(entry => !(String(entry.id) === String(id) && getItemVariantKey(entry) === variantKey)));
@@ -429,17 +560,25 @@
   function bindAddToCart() {
     document.addEventListener('click', event => {
       const button = event.target.closest('.add-to-cart');
-      if (!button) return;
+      const quickAddButton = event.target.closest('.byose-product-quick-add');
+      const targetButton = button || quickAddButton;
+      if (!targetButton) return;
 
-      const id = button.dataset.id || getIdFromPage();
-      const name = button.dataset.name || button.getAttribute('data-name') || (document.querySelector('h1,h2')?.textContent || 'Item');
-      const price = Number(button.dataset.price || button.getAttribute('data-price') || 0);
-      const img = button.dataset.img || (document.querySelector('img')?.getAttribute('src') || '');
-      add({ id, name, price, img, qty: 1 });
-      button.disabled = true;
+      event.preventDefault();
+      event.stopPropagation();
+
+      const id = targetButton.dataset.id || getIdFromPage();
+      const name = targetButton.dataset.name || targetButton.getAttribute('data-name') || (document.querySelector('h1,h2')?.textContent || 'Item');
+      const price = Number(targetButton.dataset.price || targetButton.getAttribute('data-price') || 0);
+      const img = targetButton.dataset.img || targetButton.dataset.image || (document.querySelector('img')?.getAttribute('src') || '');
+      const sku = targetButton.dataset.sku || '';
+      const stock = Number(targetButton.dataset.stock || targetButton.dataset.available || 0);
+      const availability = targetButton.dataset.availability || '';
+      add({ id, productId: id, name, price, img, image: img, sku, stock, availability, qty: 1 });
+      targetButton.disabled = true;
       setTimeout(() => {
-        button.disabled = false;
-      }, 500);
+        targetButton.disabled = false;
+      }, 450);
     });
   }
 
@@ -484,12 +623,49 @@
 
   window.KCart = {
     add,
+    addMany: (items = []) => {
+      (Array.isArray(items) ? items : []).forEach((entry) => add(entry));
+      renderCount();
+      emitCartEvents();
+    },
     remove,
     updateQty,
     clear,
     open,
     render,
     renderCount,
+    getSummary: () => {
+      const cart = load();
+      return {
+        items: cart.length,
+        quantity: count(cart),
+        subtotal: total(cart)
+      };
+    },
+    mergeGuestCart: (guestItems = []) => {
+      const incoming = Array.isArray(guestItems) ? guestItems : [];
+      incoming.forEach((item) => add(item));
+      return load();
+    },
+    syncNow: async () => {
+      try {
+        await window.ByoseStorefrontSync?.syncPatch?.({ cartItems: load() });
+        window.dispatchEvent(new CustomEvent('byose:cart-sync-status', {
+          detail: {
+            success: true,
+            source: 'manual'
+          }
+        }));
+      } catch (error) {
+        window.dispatchEvent(new CustomEvent('byose:cart-sync-status', {
+          detail: {
+            success: false,
+            source: 'manual',
+            message: String(error?.message || 'Cart sync failed')
+          }
+        }));
+      }
+    },
     openWhatsAppOrder,
     checkoutUrl: 'orders/shipping.html',
     load

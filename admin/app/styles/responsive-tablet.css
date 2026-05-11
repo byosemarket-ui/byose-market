@@ -3,15 +3,19 @@
     grid-template-columns: 1fr;
   }
 
+  .admin-main {
+    padding: 0.8rem;
+  }
+
   .admin-sidebar {
     position: fixed;
     top: 0;
     left: 0;
     bottom: 0;
     z-index: 50;
-    width: min(76vw, 380px);
+    width: min(70vw, 360px);
     max-width: calc(100vw - 1.5rem);
-    padding: 1rem 0.95rem 1rem;
+    padding: 0.95rem 0.9rem 1rem;
     transform: translateX(-104%);
     opacity: 0;
     visibility: hidden;
@@ -31,12 +35,18 @@
 
   .menu-toggle {
     display: inline-flex;
-    min-width: 56px;
-    min-height: 52px;
+    min-width: 48px;
+    min-height: 44px;
   }
 
   .admin-header {
     grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+    padding: 0.9rem 0.95rem;
+  }
+
+  .admin-header-leading {
+    gap: 0.7rem;
   }
 
   .header-title-block,
@@ -54,8 +64,11 @@
   }
 
   .header-actions {
-    justify-content: flex-start;
+    display: flex;
+    align-items: center;
     flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 0.55rem;
   }
 
   .header-search-meta {
@@ -63,8 +76,15 @@
     flex-direction: column;
   }
 
+  .header-search-caption,
+  .header-search-shortcut,
+  .header-route-badge {
+    display: none;
+  }
+
   .header-profile {
-    min-width: 220px;
+    min-width: 0;
+    flex: 1 1 240px;
   }
 
   .header-panel {
@@ -97,7 +117,9 @@
   }
 
   .content-grid.two-col,
-  .analytics-grid {
+  .analytics-grid,
+  .realtime-grid,
+  .table-stack {
     grid-template-columns: 1fr;
   }
 
@@ -106,8 +128,16 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .enterprise-shortcut-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .hero-overview,
   .enterprise-hero {
     grid-template-columns: 1fr;
+  }
+
+  .hero-chip-grid {
+    justify-content: flex-start;
   }
 }

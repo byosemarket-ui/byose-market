@@ -2135,3 +2135,106 @@ body {
     padding: 12px 18px;
   }
 }
+
+  /* STEP 3P foundation override: preserve legacy selectors but force canonical brand accents. */
+  .orders-location-card {
+    border-color: rgba(0, 184, 148, 0.2);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(239, 251, 247, 0.96) 100%);
+  }
+
+  .orders-location-badge,
+  .orders-progress-step.is-active,
+  .orders-progress-step.is-complete,
+  .orders-choice-card.is-selected,
+  .orders-payment-option.is-selected {
+    box-shadow: 0 12px 24px rgba(0, 184, 148, 0.12);
+  }
+
+  .orders-field input:focus,
+  .orders-field textarea:focus {
+    outline: 2px solid rgba(0, 184, 148, 0.18);
+    border-color: rgba(0, 184, 148, 0.35);
+  }
+
+  .orders-next-button,
+  .orders-link-button,
+  .orders-mobile-checkout-button {
+    background: linear-gradient(135deg, var(--orders-accent) 0%, #009e7f 100%);
+    box-shadow: 0 18px 34px rgba(0, 184, 148, 0.24);
+  }
+
+  .orders-spinner {
+    border-color: rgba(0, 184, 148, 0.22);
+    border-top-color: var(--orders-accent);
+  }
+
+  /* STEP 3Q payment architecture foundation visuals */
+  .orders-payment-state-card {
+    margin: 12px 0 14px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(0, 184, 148, 0.18);
+    background: linear-gradient(135deg, rgba(0, 184, 148, 0.09) 0%, rgba(255, 255, 255, 0.9) 100%);
+  }
+
+  .orders-payment-state-card p {
+    margin: 8px 0 0;
+    color: var(--orders-muted);
+    font-size: 0.8rem;
+    line-height: 1.45;
+  }
+
+  .orders-payment-state-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .orders-payment-state-pill.is-pending {
+    color: #0f766e;
+    background: rgba(13, 148, 136, 0.14);
+  }
+
+  .orders-payment-state-pill.is-authorized {
+    color: #0f766e;
+    background: rgba(20, 184, 166, 0.14);
+  }
+
+  .orders-payment-state-pill.is-paid {
+    color: #047857;
+    background: rgba(16, 185, 129, 0.16);
+  }
+
+  .orders-payment-state-pill.is-failed,
+  .orders-payment-state-pill.is-cancelled {
+    color: #b91c1c;
+    background: rgba(220, 38, 38, 0.12);
+  }
+
+  .orders-payment-state-pill.is-refunded {
+    color: #6d28d9;
+    background: rgba(139, 92, 246, 0.14);
+  }
+
+  @media (max-width: 720px) {
+    .orders-payment-state-card {
+      padding: 10px 12px;
+      border-radius: 12px;
+    }
+
+    .orders-payment-state-card p {
+      font-size: 0.76rem;
+    }
+
+    .orders-payment-state-pill {
+      min-height: 26px;
+      font-size: 0.72rem;
+    }
+  }

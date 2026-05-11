@@ -1,0 +1,111 @@
+/* STEP 3G Classification & Organization Engine CSS */
+
+.editor-classification-grid,
+.editor-classification-grid--tight {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+	gap: 16px;
+	margin-top: 16px;
+	margin-bottom: 20px;
+}
+
+.editor-classification-grid--tight {
+	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+	gap: 12px;
+}
+
+.editor-classification-card {
+	display: grid;
+	gap: 8px;
+	padding: 14px 16px;
+	border-radius: 12px;
+	border: 1px solid rgba(22, 50, 45, 0.08);
+	background: rgba(255, 255, 255, 0.5);
+	font-size: 0.85rem;
+	line-height: 1.4;
+}
+
+.editor-classification-card span {
+	color: var(--admin-muted);
+	font-size: 0.78rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+}
+
+.editor-classification-card strong {
+	color: var(--admin-primary-strong);
+	font-weight: 700;
+	word-break: break-word;
+}
+
+.editor-classification-card small {
+	color: var(--admin-secondary);
+	font-size: 0.75rem;
+	line-height: 1.4;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+	.editor-classification-grid,
+	.editor-classification-grid--tight {
+		grid-template-columns: repeat(2, 1fr);
+		gap: 12px;
+	}
+
+	.editor-classification-grid--tight {
+		grid-template-columns: repeat(2, 1fr);
+	}
+
+	.editor-classification-card {
+		padding: 12px 14px;
+		font-size: 0.8rem;
+	}
+
+	.editor-classification-card span {
+		font-size: 0.7rem;
+	}
+
+	.editor-classification-card small {
+		font-size: 0.7rem;
+	}
+}
+
+@media (max-width: 480px) {
+	.editor-classification-grid,
+	.editor-classification-grid--tight {
+		grid-template-columns: 1fr;
+		gap: 10px;
+	}
+
+	.editor-classification-card {
+		padding: 10px 12px;
+		font-size: 0.75rem;
+	}
+
+	.editor-classification-card span {
+		font-size: 0.65rem;
+	}
+
+	.editor-classification-card strong {
+		font-size: 0.9rem;
+	}
+
+	.editor-classification-card small {
+		font-size: 0.65rem;
+	}
+}
+
+/* Integration with existing editor field styles */
+.editor-section-card .editor-classification-grid {
+	margin-bottom: 24px;
+}
+
+.editor-section-card .editor-classification-grid--tight {
+	margin-bottom: 20px;
+}
+
+/* Ensure token lists work well with classification context */
+.editor-section-card .editor-tag-list {
+	margin-top: 12px;
+}

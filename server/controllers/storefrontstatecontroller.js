@@ -74,9 +74,18 @@ function sanitizeCartItem(item) {
         thumbnail: image,
         attributes,
         attributeSummary: normalizeText(item.attributeSummary),
-        variantKey: normalizeText(item.variantKey),
-        color: normalizeText(item.color || attributes.Color || attributes.color),
-        size: normalizeText(item.size || attributes.Size || attributes.size),
+        variantKey: normalizeText(item.variantKey || item.variantSelection?.key),
+        variantType: normalizeText(item.variantType || item.variantSelection?.type),
+        variantSelection: item.variantSelection && typeof item.variantSelection === 'object' ? {
+            key: normalizeText(item.variantSelection.key),
+            type: normalizeText(item.variantSelection.type),
+            attributes: sanitizeAttributes(item.variantSelection.attributes || {}),
+            attributeSummary: normalizeText(item.variantSelection.attributeSummary),
+            color: normalizeText(item.variantSelection.color),
+            size: normalizeText(item.variantSelection.size)
+        } : null,
+        color: normalizeText(item.color || item.variantSelection?.color || attributes.Color || attributes.color),
+        size: normalizeText(item.size || item.variantSelection?.size || attributes.Size || attributes.size),
         total: Number(item.total || (price * quantity)) || 0
     };
 }

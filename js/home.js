@@ -2,6 +2,35 @@
    HOME PAGE LOGIC
    ======================================== */
 
+function getCentralizedCatalog() {
+  const service = window.ByoseProductCatalog;
+  if (service && typeof service.getStorefrontCatalog === 'function') {
+    return service.getStorefrontCatalog();
+  }
+
+  return Array.isArray(window.products) ? window.products : [];
+}
+
+const ProductsDB = {
+  getFeatured() {
+    return getCentralizedCatalog().filter(product => product && (product.highlightTag || product.badge || '').toLowerCase() === 'featured' || String(product.priority || '').toLowerCase() === 'top');
+  },
+  getTopRated() {
+    return getCentralizedCatalog().slice().sort((left, right) => Number(right.rating || 0) - Number(left.rating || 0));
+  },
+  getById(productId) {
+    return getCentralizedCatalog().find(product => Number(product.id) === Number(productId)) || null;
+  },
+  getDiscount(price, oldPrice) {
+    const current = Number(price || 0);
+    const previous = Number(oldPrice || 0);
+    if (previous <= current || previous <= 0) {
+      return 0;
+    }
+    return Math.round(((previous - current) / previous) * 100);
+  }
+};
+
 document.addEventListener('DOMContentLoaded', () => {
   loadFeaturedProducts();
   loadTopRatedProducts();

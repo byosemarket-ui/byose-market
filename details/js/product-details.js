@@ -155,58 +155,61 @@ function populateProduct(product) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const product = loadProductData();
-  if (!product) {
-    showNotFound();
-    return;
-  }
+  void (async () => {
+    const product = await loadProductData();
+    if (!product) {
+      showNotFound();
+      return;
+    }
 
-  const showToast = setupToast();
-  applyMeta(product);
-  populateProduct(product);
+    const showToast = setupToast();
+    applyMeta(product);
+    populateProduct(product);
 
-  initProductGallery({
-    mainImage: product.mainImage,
-    gallery: product.gallery,
-    name: product.name,
-    root: document.getElementById('productGalleryRoot'),
-    track: document.getElementById('galleryTrack'),
-    thumbs: document.getElementById('galleryThumbs'),
-    prevButton: document.getElementById('galleryPrev'),
-    nextButton: document.getElementById('galleryNext'),
-    counter: document.getElementById('galleryCounter'),
-    zoomButton: document.getElementById('galleryZoom'),
-    lightbox: document.getElementById('galleryLightbox'),
-    lightboxStage: document.getElementById('lightboxStage'),
-    lightboxCounter: document.getElementById('lightboxCounter'),
-    lightboxPrev: document.getElementById('lightboxPrev'),
-    lightboxNext: document.getElementById('lightboxNext'),
-    lightboxClose: document.getElementById('lightboxClose'),
-    viewport: document.getElementById('galleryViewport')
-  });
+    initProductGallery({
+      mainImage: product.mainImage,
+      gallery: product.gallery,
+      name: product.name,
+      root: document.getElementById('productGalleryRoot'),
+      track: document.getElementById('galleryTrack'),
+      thumbs: document.getElementById('galleryThumbs'),
+      prevButton: document.getElementById('galleryPrev'),
+      nextButton: document.getElementById('galleryNext'),
+      counter: document.getElementById('galleryCounter'),
+      zoomButton: document.getElementById('galleryZoom'),
+      lightbox: document.getElementById('galleryLightbox'),
+      lightboxStage: document.getElementById('lightboxStage'),
+      lightboxCounter: document.getElementById('lightboxCounter'),
+      lightboxPrev: document.getElementById('lightboxPrev'),
+      lightboxNext: document.getElementById('lightboxNext'),
+      lightboxClose: document.getElementById('lightboxClose'),
+      viewport: document.getElementById('galleryViewport')
+    });
 
-  initProductActions({
-    product,
-    quantityInput: document.getElementById('quantityInput'),
-    decreaseButton: document.getElementById('qtyDecrease'),
-    increaseButton: document.getElementById('qtyIncrease'),
-    addToCartButton: document.getElementById('addToCartBtn'),
-    buyNowButton: document.getElementById('buyNowBtn'),
-    purchaseCaption: document.getElementById('purchaseCaption'),
-    optionsPreviewRoot: document.getElementById('productOptionsPreview'),
-    showToast
-  });
+    initProductActions({
+      product,
+      quantityInput: document.getElementById('quantityInput'),
+      decreaseButton: document.getElementById('qtyDecrease'),
+      increaseButton: document.getElementById('qtyIncrease'),
+      addToCartButton: document.getElementById('addToCartBtn'),
+      buyNowButton: document.getElementById('buyNowBtn'),
+      purchaseCaption: document.getElementById('purchaseCaption'),
+      optionsPreviewRoot: document.getElementById('productOptionsPreview'),
+      showToast
+    });
 
-  renderRelatedProducts(document.getElementById('relatedProducts'), getRelatedProducts(product));
+    const relatedProducts = await getRelatedProducts(product);
+    renderRelatedProducts(document.getElementById('relatedProducts'), relatedProducts);
 
-  let reloadTimerId = 0;
-  function queueReload() {
-    window.clearTimeout(reloadTimerId);
-    reloadTimerId = window.setTimeout(() => {
-      window.location.reload();
-    }, 60);
-  }
+    let reloadTimerId = 0;
+    function queueReload() {
+      window.clearTimeout(reloadTimerId);
+      reloadTimerId = window.setTimeout(() => {
+        window.location.reload();
+      }, 60);
+    }
 
-  window.addEventListener('storage', queueReload);
-  window.addEventListener('byose:products-changed', queueReload);
+    window.addEventListener('storage', queueReload);
+    window.addEventListener('byose:products-changed', queueReload);
+  })();
 });

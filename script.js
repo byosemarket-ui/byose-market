@@ -1,4 +1,13 @@
-import { getAllProductContent } from './details/js/product-content.js';
+/**
+ * STEP 3H: Backend-Driven Homepage Rendering
+ * STEP 3K: Enterprise Product Card System Integration
+ * 
+ * Homepage now fetches products from centralized backend API
+ * and renders using unified professional product cards.
+ */
+
+import productService from './services/centralized-products.service.js';
+import ProductCardSystem from './js/product-card-system.js';
 
 const DEFAULT_FILTER = 'all';
 const DEFAULT_CATEGORY = 'featured';
@@ -60,19 +69,38 @@ function initializeHomePage() {
   setupHeroSlider();
   setupFooterSubscribe();
 
-  window.addEventListener('byose:products-changed', syncCatalog);
+  // Listen for backend product synchronization events
+  window.addEventListener(productService.GLOBAL_SYNC_EVENT, syncCatalog);
   window.addEventListener('byose:hero-slides-updated', setupHeroSlider);
 }
 
-function syncCatalog() {
-  state.catalog = getAllProductContent()
-    .map(normalizeProduct)
-    .filter(product => shouldShowOnSurface(product, 'home'))
-    .sort(sortProductsByDisplay);
-  state.filterCache.clear();
-  state.markupCache.clear();
-  renderProductGrid(state.currentFilter);
-  renderSpotlightGrid();
+async function syncCatalog() {
+  try {
+    // Fetch products from backend (canonical source)
+    const products = await productService.getProductsWithRetry();
+    
+    state.catalog = products
+      .map(normalizeProduct)
+      .filter(product => shouldShowOnSurface(product, 'home'))
+      .sort(sortProductsByDisplay);
+    
+    state.filterCache.clear();
+    state.markupCache.clear();
+    renderProductGrid(state.currentFilter);
+    renderSpotlightGrid();
+  } catch (error) {
+    console.error('[Homepage] Failed to sync products:', error);
+    // Attempt to use cached data as fallback
+    const cached = productService.getCachedProducts();
+    if (Array.isArray(cached) && cached.length > 0) {
+      state.catalog = cached
+        .map(normalizeProduct)
+        .filter(product => shouldShowOnSurface(product, 'home'))
+        .sort(sortProductsByDisplay);
+      renderProductGrid(state.currentFilter);
+      renderSpotlightGrid();
+    }
+  }
 }
 
 function escapeHtml(value) {
@@ -230,58 +258,31 @@ function sortProductsByDisplay(left, right) {
 }
 
 function createProductCard(product) {
-  const categoryLabel = escapeHtml(formatCategoryLabel(product.category));
-  const highlightLabel = getHighlightTagLabel(product.highlightTag);
-  const metaLabel = highlightLabel ? `${categoryLabel} · ${escapeHtml(highlightLabel)}` : categoryLabel;
-  const name = escapeHtml(product.name);
-  const shortDescription = escapeHtml(product.shortDescription);
-  const href = escapeHtml(product.href);
-  const image = escapeHtml(product.mainImage);
-  const badge = product.badge ? `<span class="product-badge">${escapeHtml(product.badge)}</span>` : '';
-  const oldPrice = product.oldPrice > 0 ? `<span class="product-old-price">${currency(product.oldPrice)}</span>` : '';
-
-  return `
-    <a class="product-card" href="${href}" data-product-id="${escapeHtml(product.id)}" aria-label="Reba ${name}">
-      <div class="product-image-wrap">
-        <img src="${image}" alt="${name}" loading="lazy" decoding="async">
-        ${badge}
-      </div>
-      <div class="product-content">
-        <div class="product-meta">${metaLabel}</div>
-        <h3 class="product-title">${name}</h3>
-        <div class="product-subtitle">${shortDescription}</div>
-        <div class="product-pricing">
-          <span class="product-price">${currency(product.price)}</span>
-          ${oldPrice}
-        </div>
-        <div class="product-footer">
-          <span class="product-meta">${metaLabel}</span>
-          <span class="tiny-link">Reba</span>
-        </div>
-      </div>
-    </a>
-  `;
+  // Use unified product card system from STEP 3K
+  return ProductCardSystem.renderCard(product, {
+    includeDescription: true,
+    includeFooter: true
+  });
 }
 
 function bindGridImageFallback(grid) {
-  if (!grid || grid.dataset.imageFallbackBound === 'true') {
-    return;
-  }
-
-  grid.dataset.imageFallbackBound = 'true';
-  grid.addEventListener('error', event => {
-    const image = event.target;
-    if (!(image instanceof HTMLImageElement) || image.dataset.fallbackApplied === 'true') {
-      return;
-    }
-
-    image.dataset.fallbackApplied = 'true';
-    image.src = FALLBACK_IMAGE;
-  }, true);
+  // Use unified product card system's image fallback handling
+  ProductCardSystem.bindImageFallback(grid);
 }
 
 function renderGrid(grid, cacheKey, items) {
   if (!grid) {
+    return;
+  }
+
+  // Use unified product card system's grid rendering
+  if (items.length === 0) {
+    grid.innerHTML = `
+      <div class="byose-product-grid-empty">
+        <div class="byose-product-grid-empty-icon">📭</div>
+        <p class="byose-product-grid-empty-text">No products available at this time.</p>
+      </div>
+    `;
     return;
   }
 
@@ -292,9 +293,12 @@ function renderGrid(grid, cacheKey, items) {
     return;
   }
 
+  // Wrap with unified grid classes
+  const gridHtml = `<div class="byose-product-grid byose-product-grid--4col">${markup}</div>`;
+
   bindGridImageFallback(grid);
   grid.setAttribute('aria-busy', 'true');
-  grid.innerHTML = markup;
+  grid.innerHTML = gridHtml;
   grid.dataset.renderKey = cacheKey;
   grid.dataset.renderMarkup = markup;
   grid.removeAttribute('aria-busy');

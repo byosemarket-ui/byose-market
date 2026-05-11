@@ -1,4 +1,5 @@
 import { escapeHtml, formatCurrency, normalizePhone } from './utils.js';
+import { renderStageProgress, renderSummaryProducts } from './checkout-ui.js';
 import {
   getResolvedCustomerName,
   getStageUrl,
@@ -9,12 +10,6 @@ import {
   updateShippingDetails,
   validateShippingStage
 } from './state.js';
-
-const steps = [
-  { id: 'shipping', label: 'Shipping' },
-  { id: 'checkout', label: 'Checkout' },
-  { id: 'payment', label: 'Payment' }
-];
 
 const fields = ['fullName', 'phone', 'provinceCity', 'district', 'sector', 'cell', 'village', 'note'];
 
@@ -28,33 +23,6 @@ const ui = {
   locationMapLink: document.getElementById('locationMapLink')
 };
 
-function renderProgress(activeStage) {
-  const activeIndex = steps.findIndex((step) => step.id === activeStage);
-  ui.progress.innerHTML = steps.map((step, index) => {
-    const tone = index < activeIndex ? 'is-complete' : index === activeIndex ? 'is-active' : '';
-    return `
-      <button type="button" class="orders-progress-step ${tone}" disabled>
-        <span>${index + 1}</span>
-        <strong>${escapeHtml(step.label)}</strong>
-      </button>
-    `;
-  }).join('');
-}
-
-function renderProducts(products) {
-  return products.map((item) => `
-    <article class="orders-summary-product">
-      <img src="${escapeHtml(item.image || item.img || '')}" alt="${escapeHtml(item.name || 'Product')}">
-      <div>
-        <strong>${escapeHtml(item.name || 'Product')}</strong>
-        <p>${escapeHtml(item.attributeSummary || 'Standard option')}</p>
-        <span>Qty ${Number(item.qty || 0)} x ${formatCurrency(item.price || 0)}</span>
-      </div>
-      <strong>${formatCurrency(item.total || ((Number(item.qty || 0) || 0) * (Number(item.price || 0) || 0)))}</strong>
-    </article>
-  `).join('');
-}
-
 function renderSidebar(state) {
   const itemCount = state.products.reduce((sum, item) => sum + Number(item.qty || 0), 0);
   ui.sidebar.innerHTML = `
@@ -65,7 +33,7 @@ function renderSidebar(state) {
         <span>${escapeHtml(getResolvedCustomerName())}</span>
       </div>
       <div class="orders-summary-product-list orders-summary-product-list--compact">
-        ${renderProducts(state.products)}
+        ${renderSummaryProducts(state.products)}
       </div>
       <div class="orders-total-row"><span>Subtotal</span><strong>${formatCurrency(state.totals.subtotal)}</strong></div>
       <div class="orders-total-row"><span>Shipping</span><strong>${formatCurrency(state.totals.shippingFee)}</strong></div>
@@ -284,7 +252,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   const state = getState();
-  renderProgress('shipping');
+  renderStageProgress(ui.progress, 'shipping');
   renderSidebar(state);
   syncForm(state);
   bindForm();

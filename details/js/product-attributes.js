@@ -8,13 +8,30 @@ function resolveAssetPath(path) {
   return `../${value}`;
 }
 
+function splitVariantToken(value) {
+  return String(value || '')
+    .split('|')
+    .map(entry => String(entry || '').trim())
+    .filter(Boolean);
+}
+
 function normalizeOption(option, fallbackStock) {
   if (typeof option === 'string' || typeof option === 'number') {
+    const [labelPart, valuePart, swatchPart, imagePart] = splitVariantToken(option);
+    const label = labelPart || valuePart || String(option);
+    const value = valuePart || labelPart || String(option);
+
     return {
-      value: String(option),
-      label: String(option),
+      value,
+      label,
       stock: Number.isFinite(Number(fallbackStock)) ? Math.max(0, Number(fallbackStock)) : Infinity,
-      image: ''
+      image: resolveAssetPath(imagePart || ''),
+      swatch: String(swatchPart || '').trim(),
+      sku: '',
+      code: '',
+      availability: 'future',
+      isDefault: false,
+      priceDelta: 0
     };
   }
 
@@ -29,25 +46,72 @@ function normalizeOption(option, fallbackStock) {
       : Number.isFinite(Number(fallbackStock))
         ? Math.max(0, Number(fallbackStock))
         : Infinity,
-    image: resolveAssetPath(option?.image || option?.thumbnail || '')
+    image: resolveAssetPath(option?.image || option?.thumbnail || ''),
+    swatch: String(option?.swatch || option?.hex || option?.color || '').trim(),
+    sku: String(option?.sku || '').trim(),
+    code: String(option?.code || '').trim(),
+    availability: String(option?.availability || option?.status || 'future').trim().toLowerCase(),
+    isDefault: Boolean(option?.isDefault),
+    priceDelta: Number(option?.priceDelta || 0)
   };
 }
 
 function inferAttributeType(attribute, options) {
-  if (attribute?.type === 'image' || attribute?.type === 'text') {
-    return attribute.type;
+  const explicitType = String(attribute?.type || attribute?.axis || '').trim().toLowerCase();
+  if (['color', 'size', 'image', 'text'].includes(explicitType)) {
+    return explicitType;
   }
 
-  return options.some(option => option.image) ? 'image' : 'text';
+  const attributeName = String(attribute?.name || '').toLowerCase();
+  if (/color|swatch|shade|tone/.test(attributeName)) {
+    return 'color';
+  }
+  if (/size|fit|waist|shoe|length|width/.test(attributeName)) {
+    return 'size';
+  }
+
+  return options.some(option => option.image || option.swatch) ? 'color' : 'text';
+}
+
+function normalizeVariantFoundationAttributes(variants) {
+  const groups = variants && typeof variants === 'object' && variants.groups ? variants.groups : {};
+
+  return Object.entries(groups)
+    .map(([key, group]) => {
+      if (!group || !group.enabled) {
+        return null;
+      }
+
+      const rawOptions = Array.isArray(group.optionTokens)
+        ? group.optionTokens
+        : Array.isArray(group.options)
+          ? group.options
+          : [];
+      const options = rawOptions
+        .map(option => normalizeOption(option, Number.POSITIVE_INFINITY))
+        .filter(option => option.value);
+
+      if (!group.label || !options.length) {
+        return null;
+      }
+
+      return {
+        name: String(group.label || key).trim(),
+        key,
+        axis: inferAttributeType(group, options),
+        type: inferAttributeType(group, options),
+        required: group.required !== false,
+        options
+      };
+    })
+    .filter(Boolean);
 }
 
 export function normalizeProductAttributes(product) {
   const fallbackStock = Number(product?.stock ?? product?.stockCount);
-  const rawAttributes = Array.isArray(product?.attributes)
+  const rawAttributes = Array.isArray(product?.attributes) && product.attributes.length
     ? product.attributes
-    : Array.isArray(product?.options)
-      ? product.options
-      : [];
+    : normalizeVariantFoundationAttributes(product?.variants);
 
   return rawAttributes
     .map(attribute => {
@@ -67,6 +131,8 @@ export function normalizeProductAttributes(product) {
 
       return {
         name,
+        key: String(attribute?.key || '').trim(),
+        axis: inferAttributeType(attribute, options),
         type: inferAttributeType(attribute, options),
         required: attribute?.required !== false,
         options

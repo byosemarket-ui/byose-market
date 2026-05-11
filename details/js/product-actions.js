@@ -17,6 +17,8 @@ function createCartPayload(product, quantity, attributes = {}) {
     Object.entries(attributes || {}).filter(([, value]) => value !== undefined && value !== null && value !== '')
   );
   const image = product.image || product.mainImage || '';
+  const attributeSummary = Object.values(normalizedAttributes).join(' • ');
+  const variantKey = buildVariantKey(normalizedAttributes);
 
   return {
     id: String(product.id),
@@ -28,8 +30,17 @@ function createCartPayload(product, quantity, attributes = {}) {
     qty: Math.max(1, Number(quantity) || 1),
     total: Number(product.price || 0) * Math.max(1, Number(quantity) || 1),
     attributes: normalizedAttributes,
-    attributeSummary: Object.values(normalizedAttributes).join(' • '),
-    variantKey: buildVariantKey(normalizedAttributes),
+    attributeSummary,
+    variantKey,
+    variantType: Object.keys(normalizedAttributes).length ? 'variant' : 'simple',
+    variantSelection: {
+      key: variantKey,
+      type: Object.keys(normalizedAttributes).length ? 'variant' : 'simple',
+      attributes: normalizedAttributes,
+      attributeSummary,
+      color: getLegacyAttribute(normalizedAttributes, 'color'),
+      size: getLegacyAttribute(normalizedAttributes, 'size')
+    },
     color: getLegacyAttribute(normalizedAttributes, 'color'),
     size: getLegacyAttribute(normalizedAttributes, 'size')
   };
@@ -66,6 +77,58 @@ function addItemsToCart(items) {
   }
 
   fallbackAddItemsToCart(payloads);
+}
+
+function resolveAvailableQuantity(product, attributes = {}) {
+  const baseAvailable = Number(product?.inventory?.available ?? product?.availableStock ?? product?.stock);
+  if (Number.isFinite(baseAvailable) && baseAvailable >= 0) {
+    return baseAvailable;
+  }
+
+  const variants = Array.isArray(product?.inventory?.variants) ? product.inventory.variants : [];
+  if (variants.length) {
+    const variantKey = buildVariantKey(attributes || {});
+    const matched = variants.find((entry) => String(entry?.key || '').trim() === variantKey);
+    const variantAvailable = Number(matched?.available);
+    if (Number.isFinite(variantAvailable) && variantAvailable >= 0) {
+      return variantAvailable;
+    }
+  }
+
+  return Number.POSITIVE_INFINITY;
+}
+
+function validateRequestedQuantity(product, quantity, attributes = {}) {
+  const requested = Math.max(1, Number(quantity) || 1);
+  const available = resolveAvailableQuantity(product, attributes);
+
+  if (!Number.isFinite(available)) {
+    return {
+      valid: true,
+      acceptedQuantity: requested
+    };
+  }
+
+  if (available <= 0) {
+    return {
+      valid: false,
+      acceptedQuantity: 0,
+      message: 'This item is currently out of stock.'
+    };
+  }
+
+  if (requested > available) {
+    return {
+      valid: true,
+      acceptedQuantity: available,
+      message: `Quantity adjusted to ${available} based on current stock.`
+    };
+  }
+
+  return {
+    valid: true,
+    acceptedQuantity: requested
+  };
 }
 
 function startDirectCheckout(item) {
@@ -112,7 +175,26 @@ export function initProductActions(options) {
     attributes,
     showToast,
     onSubmit(action, variants) {
-      const items = variants.map(variant => createCartPayload(product, variant.qty, variant.attributes));
+      const items = variants
+        .map((variant) => {
+          const quantityCheck = validateRequestedQuantity(product, variant.qty, variant.attributes);
+          if (!quantityCheck.valid || quantityCheck.acceptedQuantity <= 0) {
+            showToast?.(quantityCheck.message || 'This selection is currently unavailable.');
+            return null;
+          }
+
+          if (quantityCheck.message) {
+            showToast?.(quantityCheck.message);
+          }
+
+          return createCartPayload(product, quantityCheck.acceptedQuantity, variant.attributes);
+        })
+        .filter(Boolean);
+
+      if (!items.length) {
+        return;
+      }
+
       if (action === 'buy') {
         startDirectCheckout(items[0]);
         return;
@@ -152,7 +234,17 @@ export function initProductActions(options) {
       return;
     }
 
-    const payload = createCartPayload(product, qty);
+    const quantityCheck = validateRequestedQuantity(product, qty);
+    if (!quantityCheck.valid || quantityCheck.acceptedQuantity <= 0) {
+      showToast?.(quantityCheck.message || 'This product is currently unavailable.');
+      return;
+    }
+
+    if (quantityCheck.message) {
+      showToast?.(quantityCheck.message);
+    }
+
+    const payload = createCartPayload(product, quantityCheck.acceptedQuantity);
     if (action === 'buy') {
       showToast?.('Selection captured. Redirecting to shipping.');
       startDirectCheckout(payload);

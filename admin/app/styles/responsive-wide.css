@@ -1,18 +1,14 @@
 @media (min-width: 1600px) {
   .admin-main {
-    padding: 1.4rem;
+    padding: clamp(1.35rem, 1.9vw, 1.8rem);
   }
 
   .admin-header {
-    grid-template-columns: minmax(0, 1.2fr) minmax(360px, 1fr) auto;
-  }
-
-  .admin-content {
-    width: min(100%, 1760px);
+    grid-template-columns: minmax(0, 1.25fr) minmax(360px, 0.95fr) auto;
   }
 
   .admin-sidebar {
-    padding: 1.2rem;
+    padding: calc(var(--app-shell-gutter) + 0.1rem);
   }
 
   .header-search-shell {
@@ -27,11 +23,11 @@
 
 @media (min-width: 2200px) {
   .admin-app {
-    grid-template-columns: 360px minmax(0, 1fr);
+    grid-template-columns: 336px minmax(0, 1fr);
   }
 
   .admin-main {
-    padding: 1.8rem;
+    padding: 2rem;
   }
 
   .admin-header,

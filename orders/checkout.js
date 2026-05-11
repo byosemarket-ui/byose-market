@@ -1,5 +1,9 @@
 import { escapeHtml, formatCurrency } from './utils.js';
+import { renderStageProgress } from './checkout-ui.js';
+import { getPaymentMethodCatalog } from './payment-foundation.js';
 import {
+  getPaymentMethodLabel,
+  getPaymentStateView,
   getResolvedCustomerName,
   getState,
   initializeOrderFlow,
@@ -13,47 +17,36 @@ import {
   validateShippingStage
 } from './state.js';
 
-const steps = [
-  { id: 'shipping', label: 'Shipping' },
-  { id: 'checkout', label: 'Checkout' },
-  { id: 'payment', label: 'Payment' }
-];
-
-const paymentOptions = [
-  {
-    id: 'mtn',
-    title: 'MTN Mobile Money',
+const paymentOptionVisuals = {
+  mtn: {
     detail: 'Pay with MTN MoMo',
     icon: '../img/MTN.jpeg'
   },
-  {
-    id: 'airtel',
-    title: 'Airtel Money',
+  airtel: {
     detail: 'Use Airtel Money',
     icon: '../img/airtel.jpeg'
   },
-  {
-    id: 'bank',
-    title: 'Bank Transfer',
+  bank: {
     detail: 'Pay by Bank Transfer',
     icon: '../img/BANK TRANSFER.jpeg'
   },
-  {
-    id: 'card',
-    title: 'Visa / Mastercard',
+  card: {
     detail: 'Pay with Visa or Mastercard',
     icon: '../img/VASA  MASTERCARD.jpeg'
   },
-  {
-    id: 'cod',
-    title: 'Pay on Delivery',
+  cod: {
     detail: 'Pay after receiving your order.',
     detailSecondary: 'Available in Kigali only.',
     detailRw: 'Wishyura nyuma yo kwakira igicuruzwa, ukishyura umaze kugenzura ko gihuye n’icyo waguze.',
     unavailable: 'Iyi serivisi iboneka gusa mu Mujyi wa Kigali.',
     icon: '../img/PAY ON DELIVERY.jpeg'
+  },
+  wallet: {
+    detail: 'Digital wallet foundation is prepared for future activation.',
+    unavailable: 'Wallet payments are coming soon.',
+    icon: '../img/BANK TRANSFER.jpeg'
   }
-];
+};
 
 const ui = {
   progress: document.getElementById('checkoutProgress'),
@@ -63,26 +56,9 @@ const ui = {
   loading: document.getElementById('checkoutLoading')
 };
 
-function renderProgress(activeStage) {
-  const activeIndex = steps.findIndex((step) => step.id === activeStage);
-  ui.progress.innerHTML = steps.map((step, index) => {
-    const tone = index < activeIndex ? 'is-complete' : index === activeIndex ? 'is-active' : '';
-    return `
-      <button type="button" class="orders-progress-step ${tone}" disabled>
-        <span>${index + 1}</span>
-        <strong>${escapeHtml(step.label)}</strong>
-      </button>
-    `;
-  }).join('');
-}
-
 function setMessage(message) {
   ui.message.hidden = !message;
   ui.message.textContent = message || '';
-}
-
-function getPaymentLabel(method) {
-  return paymentOptions.find((option) => option.id === method)?.title || 'Not selected';
 }
 
 function renderShippingSummary(state) {
@@ -154,6 +130,16 @@ function renderProductList(state) {
 }
 
 function renderPaymentMethods(state) {
+  const paymentOptions = getPaymentMethodCatalog({ includeFuture: true }).map((method) => ({
+    id: method.id,
+    title: method.label,
+    detail: paymentOptionVisuals[method.id]?.detail || 'Payment method',
+    detailSecondary: method.id === 'wallet' ? 'Future wallet systems foundation' : paymentOptionVisuals[method.id]?.detailSecondary,
+    detailRw: paymentOptionVisuals[method.id]?.detailRw,
+    unavailable: paymentOptionVisuals[method.id]?.unavailable || 'This method is not available in your area.',
+    icon: paymentOptionVisuals[method.id]?.icon || '../img/BANK TRANSFER.jpeg',
+    enabled: method.enabled
+  }));
   const codVisible = isCodAvailable();
 
   return `
@@ -166,7 +152,7 @@ function renderPaymentMethods(state) {
       </div>
       <div class="orders-payment-list" role="radiogroup" aria-label="Payment methods">
         ${paymentOptions.map((option) => {
-          const isDisabled = option.id === 'cod' && !codVisible;
+          const isDisabled = !option.enabled || (option.id === 'cod' && !codVisible);
           return `
           <label class="orders-payment-option ${state.payment.method === option.id ? 'is-selected' : ''} ${isDisabled ? 'is-disabled' : ''}">
             <input type="radio" name="checkoutPaymentMethod" value="${option.id}" ${state.payment.method === option.id ? 'checked' : ''} ${isDisabled ? 'disabled' : ''}>
@@ -217,12 +203,17 @@ function renderSidebar(state) {
   const isDisabled = state.isSubmitting || !state.products.length || !shippingValid || !hasSelectedPayment;
   const itemCount = state.products.reduce((sum, item) => sum + Number(item.qty || 0), 0);
 
+  const paymentState = getPaymentStateView();
   ui.sidebar.innerHTML = `
     <section class="orders-sidebar-card orders-sidebar-card--sticky orders-order-summary-card">
       <span class="orders-sidebar-label">Order summary</span>
       <div class="orders-sidebar-heading">
         <h3>${itemCount} item${itemCount === 1 ? '' : 's'}</h3>
-        <span>${escapeHtml(getPaymentLabel(state.payment.method))}</span>
+        <span>${escapeHtml(getPaymentMethodLabel(state.payment.method) || 'Not selected')}</span>
+      </div>
+      <div class="orders-payment-state-card">
+        <span class="orders-payment-state-pill is-${escapeHtml(paymentState.tone)}">${escapeHtml(paymentState.label)}</span>
+        <p>Transaction lifecycle is prepared for future gateway authorization and confirmations.</p>
       </div>
       <div class="orders-total-row">
         <span>Subtotal</span>
@@ -298,7 +289,7 @@ function render(state) {
     return;
   }
 
-  renderProgress('checkout');
+  renderStageProgress(ui.progress, 'checkout');
   renderContent(state);
   renderSidebar(state);
 

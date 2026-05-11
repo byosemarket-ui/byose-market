@@ -228,11 +228,22 @@ function normalizeProduct(product) {
     id: normalizeText(product?.id || product?.catalogId || product?._id),
     catalogId: toNumber(product?.catalogId || product?.id),
     name: normalizeText(product?.name || product?.title || "Product"),
+    title: normalizeText(product?.title || product?.name || "Product"),
     category: normalizeText(product?.category || "general").toLowerCase(),
     price: toNumber(product?.price),
+    oldPrice: toNumber(product?.oldPrice),
     stock: toNumber(product?.stock),
     visibility: normalizeText(product?.visibility || "both").toLowerCase(),
     sku: normalizeText(product?.sku || product?.catalogId || product?.id),
+    productCode: normalizeText(product?.productCode || product?.catalogId || product?.id),
+    brand: normalizeText(product?.brand),
+    summary: normalizeText(product?.summary || product?.description || product?.shortDescription),
+    status: normalizeText(product?.status || "draft").toLowerCase(),
+    priority: normalizeText(product?.priority || "normal").toLowerCase(),
+    orderIndex: toNumber(product?.orderIndex),
+    highlightTag: normalizeText(product?.highlightTag).toLowerCase(),
+    mainImage: normalizeText(product?.mainImage || product?.image),
+    image: normalizeText(product?.image || product?.mainImage),
     updatedAt: product?.updatedAt || product?.createdAt || new Date().toISOString(),
     createdAt: product?.createdAt || new Date().toISOString()
   };
@@ -1198,5 +1209,101 @@ export function stopRealtimeAnalyticsSync() {
   if (removeVisibilitySync) {
     removeVisibilitySync();
     removeVisibilitySync = null;
+  }
+}
+
+/**
+ * STEP 3H: Product Mutation Functions
+ * 
+ * These functions handle admin product operations and ensure
+ * storefront receives global synchronization events.
+ */
+
+function publishGlobalProductSync(products) {
+  if (typeof window !== 'undefined' && window.dispatchEvent) {
+    // Publish to storefront rendering layer
+    window.dispatchEvent(new CustomEvent('byose:products-synchronized', {
+      detail: {
+        products: Array.isArray(products) ? products : [],
+        syncedAt: new Date().toISOString(),
+        source: 'admin'
+      }
+    }));
+
+    // Also publish the legacy event for backwards compatibility
+    window.dispatchEvent(new CustomEvent('byose:products-changed', {
+      detail: { products: Array.isArray(products) ? products : [] }
+    }));
+  }
+}
+
+export async function notifyStorefrontProductUpdate() {
+  try {
+    // Fetch fresh products from backend
+    const products = await getProducts({ force: true, emit: false });
+    // Publish global sync event
+    publishGlobalProductSync(products);
+  } catch (error) {
+    console.error('[Admin Data] Failed to notify storefront of product update:', error);
+  }
+}
+
+export async function createProductAndSync(productData) {
+  try {
+    // Call backend to create product
+    const response = await withRetry('admin/products/create', () =>
+      api.post('products', productData)
+    );
+    
+    // Clear cache and re-fetch
+    await resyncEnterpriseScopes(['products']);
+    
+    // Notify storefront of changes
+    await notifyStorefrontProductUpdate();
+    
+    return response?.product || response;
+  } catch (error) {
+    console.error('[Admin Data] Product creation failed:', error);
+    throw error;
+  }
+}
+
+export async function updateProductAndSync(productId, productData) {
+  try {
+    // Call backend to update product
+    const response = await withRetry('admin/products/update', () =>
+      api.put(`products/${encodeURIComponent(productId)}`, productData)
+    );
+    
+    // Clear cache and re-fetch
+    await resyncEnterpriseScopes(['products']);
+    
+    // Notify storefront of changes
+    await notifyStorefrontProductUpdate();
+    
+    return response?.product || response;
+  } catch (error) {
+    console.error('[Admin Data] Product update failed:', error);
+    throw error;
+  }
+}
+
+export async function deleteProductAndSync(productId) {
+  try {
+    // Call backend to delete product
+    const response = await withRetry('admin/products/delete', () =>
+      api.remove(`products/${encodeURIComponent(productId)}`)
+    );
+    
+    // Clear cache and re-fetch
+    await resyncEnterpriseScopes(['products']);
+    
+    // Notify storefront of changes
+    await notifyStorefrontProductUpdate();
+    
+    return response || { id: productId };
+  } catch (error) {
+    console.error('[Admin Data] Product deletion failed:', error);
+    throw error;
   }
 }

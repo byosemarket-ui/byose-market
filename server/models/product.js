@@ -7,13 +7,23 @@ const SpecSchema = new mongoose.Schema({
 
 const AttributeOptionSchema = new mongoose.Schema({
     value: { type: String, default: '' },
+    label: { type: String, default: '' },
     stock: { type: Number, default: 0 },
-    image: { type: String, default: '' }
+    image: { type: String, default: '' },
+    swatch: { type: String, default: '' },
+    sku: { type: String, default: '' },
+    code: { type: String, default: '' },
+    availability: { type: String, default: 'future' },
+    isDefault: { type: Boolean, default: false },
+    priceDelta: { type: Number, default: 0 }
 }, { _id: false });
 
 const AttributeSchema = new mongoose.Schema({
     name: { type: String, default: '' },
+    key: { type: String, default: '' },
+    axis: { type: String, default: 'text' },
     type: { type: String, default: 'text' },
+    required: { type: Boolean, default: true },
     options: { type: [AttributeOptionSchema], default: [] }
 }, { _id: false });
 
@@ -37,6 +47,7 @@ const ProductSchema = new mongoose.Schema({
     trust: { type: [String], default: [] },
     specs: { type: [SpecSchema], default: [] },
     attributes: { type: [AttributeSchema], default: [] },
+    variants: { type: mongoose.Schema.Types.Mixed, default: {} },
     visibility: { type: String, default: 'both', trim: true },
     priority: { type: String, default: 'normal', trim: true },
     orderIndex: { type: Number, default: 0 },

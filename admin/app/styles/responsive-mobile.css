@@ -4,18 +4,18 @@
   }
 
   .admin-main {
-    padding: 0.7rem;
+    padding: 0.6rem;
   }
 
   .admin-header {
     grid-template-columns: 1fr;
-    gap: 0.75rem;
-    padding: 0.9rem;
+    gap: 0.7rem;
+    padding: 0.8rem 0.85rem;
   }
 
   .admin-header-leading {
     align-items: flex-start;
-    flex-direction: column;
+    flex-direction: row;
   }
 
   .header-title-block {
@@ -32,8 +32,11 @@
   }
 
   .header-actions {
-    display: grid;
-    grid-template-columns: 1fr;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    justify-self: stretch;
   }
 
   .header-search-meta {
@@ -44,16 +47,18 @@
   .header-action-cluster {
     justify-content: flex-start;
     flex-wrap: wrap;
+    gap: 0.4rem;
   }
 
   .header-profile {
-    width: 100%;
+    width: auto;
+    flex: 1 1 220px;
     justify-content: flex-start;
   }
 
   .header-status {
-    width: 100%;
-    justify-content: center;
+    width: auto;
+    justify-content: flex-start;
   }
 
   .header-panel {
@@ -65,8 +70,8 @@
   .menu-toggle {
     display: inline-flex;
     align-self: flex-start;
-    min-width: 56px;
-    min-height: 52px;
+    min-width: 48px;
+    min-height: 44px;
   }
 
   .admin-sidebar {
@@ -75,9 +80,9 @@
     left: 0;
     bottom: 0;
     z-index: 50;
-    width: min(92vw, 360px);
+    width: min(88vw, 348px);
     max-width: calc(100vw - 1.1rem);
-    padding: 0.9rem 0.85rem 1rem;
+    padding: 0.85rem 0.8rem 0.95rem;
     transform: translateX(-104%);
     opacity: 0;
     visibility: hidden;
@@ -129,21 +134,25 @@
   .stats-grid,
   .stats-grid-premium,
   .analytics-grid,
+  .realtime-grid,
+  .table-stack,
   .settings-form,
   .content-grid.two-col,
   .enterprise-operations-grid,
   .enterprise-insight-grid,
-  .enterprise-report-columns {
+  .enterprise-report-columns,
+  .enterprise-shortcut-grid {
     grid-template-columns: 1fr;
   }
 
   .hero-overview,
   .enterprise-hero {
     grid-template-columns: 1fr;
+    padding: 0.9rem;
   }
 
   .hero-chip-grid {
-    grid-template-columns: 1fr;
+    justify-content: flex-start;
   }
 
   .enterprise-toolbar-fields label,
@@ -166,5 +175,9 @@
 
   .header-search-shortcut {
     display: none;
+  }
+
+  .dashboard-realtime-indicator {
+    justify-self: start;
   }
 }

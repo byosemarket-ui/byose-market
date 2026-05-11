@@ -1,14 +1,14 @@
 @media (min-width: 1025px) {
   .admin-main {
-    padding: 1.1rem;
+    padding: clamp(1rem, 1.5vw, 1.35rem);
   }
 
   .admin-content {
-    width: min(100%, var(--app-content-max));
+    width: 100%;
   }
 
   .admin-sidebar {
-    padding: 1.1rem;
+    padding: var(--app-shell-gutter);
   }
 
   .header-actions {
@@ -16,10 +16,12 @@
   }
 
   .header-search-shell {
-    max-width: 440px;
+    max-width: 460px;
   }
 
-  .realtime-grid {
+  .analytics-grid,
+  .realtime-grid,
+  .table-stack {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

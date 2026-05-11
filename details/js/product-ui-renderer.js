@@ -105,10 +105,29 @@ export function buildModalMarkup({
               </div>
               <span>${escapeHtml(selectedAttributes?.[layout.visualAttribute.name] || 'Not selected')}</span>
             </div>
-            <div class="pcm-group__options pcm-group__options--image">
+            <div class="pcm-group__options ${layout.visualAttribute.type === 'color' ? 'pcm-group__options--swatch' : 'pcm-group__options--image'}">
               ${layout.visualAttribute.options.map(option => {
                 const isActive = String(selectedAttributes?.[layout.visualAttribute.name] || '') === String(option.value);
                 const meta = Number.isFinite(Number(option.stock)) ? `${Math.max(0, Number(option.stock))} left` : 'Available';
+
+                if (layout.visualAttribute.type === 'color') {
+                  const swatchValue = option.swatch || '#cfd8d6';
+                  const swatchStyle = `background:${escapeHtml(swatchValue)};`;
+
+                  return `
+                    <button
+                      type="button"
+                      class="pcm-option-chip pcm-option-chip--swatch${isActive ? ' is-active' : ''}"
+                      data-attribute-name="${escapeHtml(layout.visualAttribute.name)}"
+                      data-attribute-value="${escapeHtml(option.value)}"
+                      aria-pressed="${isActive ? 'true' : 'false'}"
+                    >
+                      <span class="pcm-option-chip__swatch" style="${swatchStyle}"></span>
+                      <strong>${escapeHtml(option.label)}</strong>
+                      <small>${escapeHtml(meta)}</small>
+                    </button>
+                  `;
+                }
 
                 return `
                   <button

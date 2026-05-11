@@ -71,13 +71,9 @@ const CATEGORY_COPY = {
   }
 };
 
-function getCatalog() {
-  const detailCatalog = getAllProductContent();
-  if (detailCatalog.length) {
-    return detailCatalog;
-  }
-
-  return [];
+async function getCatalog() {
+  const detailCatalog = await getAllProductContent();
+  return Array.isArray(detailCatalog) ? detailCatalog : [];
 }
 
 function getCategoryProfile(category) {
@@ -240,8 +236,8 @@ export function createProductUrl(product, mode = 'relative') {
   return `${base}?id=${encodeURIComponent(product.id)}`;
 }
 
-export function loadProductData() {
-  const catalog = getCatalog();
+export async function loadProductData() {
+  const catalog = await getCatalog();
   const productId = getNumericId();
   const product = catalog.find(item => Number(item.id) === productId) || null;
 
@@ -287,8 +283,8 @@ export function loadProductData() {
   };
 }
 
-export function getRelatedProducts(currentProduct, limit = 5) {
-  const catalog = getCatalog();
+export async function getRelatedProducts(currentProduct, limit = 5) {
+  const catalog = await getCatalog();
   return catalog
     .filter(item => Number(item.id) !== Number(currentProduct.id))
     .sort((left, right) => {

@@ -1,6 +1,34 @@
 (function () {
   "use strict";
 
+  /**
+   * STEP 3H: Backend-Driven Shop Grid Rendering
+   * STEP 3K: Enterprise Product Card System Integration
+   * 
+   * Shop page now fetches products from centralized backend API
+   * and renders using unified professional product cards.
+   */
+
+  // Dynamic import of unified product card system
+  let ProductCardSystem = null;
+  const loadProductCardSystem = async () => {
+    if (!ProductCardSystem) {
+      ProductCardSystem = await import('./js/product-card-system.js').then(m => m.default);
+    }
+    return ProductCardSystem;
+  };
+
+  // Dynamic import of centralized product service
+  const productService = (() => {
+    let service = null;
+    return async function getService() {
+      if (!service) {
+        service = await import('./services/centralized-products.service.js').then(m => m.default);
+      }
+      return service;
+    };
+  })();
+
   const DEFAULT_FILTER = "all";
   const DEFAULT_CATEGORY = "general";
   const DEFAULT_DETAIL_PAGE = "product-details1.html";
@@ -212,7 +240,7 @@
   }
 
   function getCatalog(source) {
-    const items = Array.isArray(source) ? source : Array.isArray(window.products) ? window.products : [];
+    const items = Array.isArray(source) ? source : [];
     return sortProductsByDisplay(
       items
         .map(normalizeProduct)
@@ -220,47 +248,30 @@
     );
   }
 
-  function buildProductCard(product) {
-    const name = escapeHtml(product && product.name);
-    const category = escapeHtml(createCategoryLabel(product && product.category));
-    const highlightLabel = getHighlightTagLabel(product && product.highlightTag);
-    const href = escapeHtml((product && product.href) || getProductHref(product));
-    const image = escapeHtml(product && product.image);
-    const badge = product && product.badge ? `<span class="shop-card-badge">${escapeHtml(product.badge)}</span>` : "";
-    const meta = escapeHtml(highlightLabel || (product && product.badge) || "Featured");
-    const hasOldPrice = Number(product && product.oldPrice) > Number(product && product.price);
-
-    return `
-      <article class="shop-card" aria-label="${name}">
-        <a class="shop-card-media" href="${href}" aria-label="View ${name}">
-          <img src="${image}" alt="${name}" loading="lazy" decoding="async">
-          ${badge}
-        </a>
-        <div class="shop-card-content">
-          <span class="shop-card-category">${category}</span>
-          <h3 class="shop-card-title">${name}</h3>
-          <div class="shop-card-price-row">
-            <span class="shop-card-price">${formatPrice(product && product.price)}</span>
-            ${hasOldPrice ? `<span class="shop-card-old-price">${formatPrice(product.oldPrice)}</span>` : ""}
-          </div>
-          <div class="shop-card-foot">
-            <span class="shop-card-meta">${meta}</span>
-            <a class="shop-card-link" href="${href}">
-              <span>View</span>
-              <i class="fa-solid fa-arrow-right"></i>
-            </a>
-          </div>
-        </div>
-      </article>
-    `;
+  async function buildProductCard(product) {
+    // Use unified product card system from STEP 3K
+    const cardSystem = await loadProductCardSystem();
+    return cardSystem.renderCard(product, {
+      includeDescription: true,
+      includeFooter: true
+    });
   }
 
-  function createProductGridMarkup(items, emptyMessage) {
+  async function createProductGridMarkup(items, emptyMessage) {
     if (!Array.isArray(items) || !items.length) {
-      return `<div class="shop-empty">${escapeHtml(emptyMessage || "No products available right now.")}</div>`;
+      const cardSystem = await loadProductCardSystem();
+      return cardSystem.renderGrid([], {
+        gridClass: 'byose-product-grid',
+        emptyMessage: emptyMessage || "No products available right now."
+      });
     }
 
-    return items.map(buildProductCard).join("");
+    // Build all cards asynchronously
+    const cardsPromises = items.map(item => buildProductCard(item));
+    const cardsHtml = await Promise.all(cardsPromises);
+    
+    // Wrap with unified grid classes
+    return `<div class="byose-product-grid byose-product-grid--4col">${cardsHtml.join('')}</div>`;
   }
 
   function bindGridImageFallback(targetGrid) {
@@ -281,13 +292,16 @@
     }, true);
   }
 
-  function renderProductGrid(targetGrid, items, emptyMessage) {
+  async function renderProductGrid(targetGrid, items, emptyMessage) {
     if (!targetGrid) {
       return;
     }
 
     bindGridImageFallback(targetGrid);
-    targetGrid.innerHTML = createProductGridMarkup(items, emptyMessage);
+    targetGrid.setAttribute('aria-busy', 'true');
+    const markup = await createProductGridMarkup(items, emptyMessage);
+    targetGrid.innerHTML = markup;
+    targetGrid.removeAttribute('aria-busy');
   }
 
   function updateResultsSummary(targetSummary, count, label) {
@@ -349,7 +363,7 @@
     window.history.replaceState({}, "", url);
   }
 
-  function renderShopPage() {
+  async function renderShopPage() {
     if (!elements.grid) {
       return;
     }
@@ -358,18 +372,17 @@
     const label = state.currentFilter === DEFAULT_FILTER ? "All items" : createCategoryLabel(state.currentFilter);
 
     if (!state.markupCache.has(state.currentFilter)) {
-      state.markupCache.set(
-        state.currentFilter,
-        createProductGridMarkup(filtered, "No products available in this category right now.")
-      );
+      const markup = await createProductGridMarkup(filtered, "No products available in this category right now.");
+      state.markupCache.set(state.currentFilter, markup);
     }
 
     bindGridImageFallback(elements.grid);
+    elements.grid.setAttribute('aria-busy', 'false');
     elements.grid.innerHTML = state.markupCache.get(state.currentFilter) || "";
     updateResultsSummary(elements.resultsSummary, filtered.length, label);
   }
 
-  function setFilter(nextFilter, options) {
+  async function setFilter(nextFilter, options) {
     const config = options || {};
     const normalizedFilter = normalizeCategory(nextFilter);
     state.currentFilter = normalizedFilter || DEFAULT_FILTER;
@@ -379,7 +392,7 @@
       syncUrlFilter();
     }
 
-    renderShopPage();
+    await renderShopPage();
   }
 
   function getInitialFilter() {
@@ -390,7 +403,8 @@
   }
 
   function initializeShopPage() {
-    syncProducts();
+    // Start syncing products asynchronously
+    syncProducts().catch(err => console.error('[Shop] Sync error:', err));
     state.filteredCache.clear();
     state.markupCache.clear();
 
@@ -404,19 +418,39 @@
         return;
       }
 
-      setFilter(button.dataset.filter || DEFAULT_FILTER);
+      setFilter(button.dataset.filter || DEFAULT_FILTER).catch(err => console.error('[Shop] Filter error:', err));
     });
 
-    setFilter(state.currentFilter, { skipUrlUpdate: true });
+    setFilter(state.currentFilter, { skipUrlUpdate: true }).catch(err => console.error('[Shop] Filter error:', err));
 
-    window.addEventListener("byose:products-changed", syncProducts);
+    // Listen for backend product synchronization events
+    productService().then(service => {
+      window.addEventListener(service.GLOBAL_SYNC_EVENT, () => {
+        syncProducts().catch(err => console.error('[Shop] Sync error:', err));
+      });
+    });
   }
 
-  function syncProducts() {
-    state.products = getCatalog(window.products);
-    state.filteredCache.clear();
-    state.markupCache.clear();
-    renderShopPage();
+  async function syncProducts() {
+    try {
+      const service = await productService();
+      const products = await service.getProductsWithRetry();
+      state.products = getCatalog(products);
+      state.filteredCache.clear();
+      state.markupCache.clear();
+      await renderShopPage();
+    } catch (error) {
+      console.error('[Shop] Failed to sync products:', error);
+      // Attempt to use cached data as fallback
+      const service = await productService();
+      const cached = service.getCachedProducts();
+      if (Array.isArray(cached) && cached.length > 0) {
+        state.products = getCatalog(cached);
+        state.filteredCache.clear();
+        state.markupCache.clear();
+        await renderShopPage();
+      }
+    }
   }
 
   window.ByoseShop = {

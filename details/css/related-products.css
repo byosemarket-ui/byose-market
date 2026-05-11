@@ -5,157 +5,48 @@
 }
 
 .related-empty {
-  grid-column: 1 / -1;
-  padding: 30px 16px;
-  border: 1px dashed rgba(0, 184, 148, 0.28);
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.74);
-  color: var(--home-muted);
-  text-align: center;
-  font-weight: 700;
+  /* Now styled by .byose-product-grid-empty from product-card-system.css */
 }
 
 .shop-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  padding: 8px;
-  border: 1px solid rgba(18, 33, 39, 0.08);
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 16px 36px rgba(7, 33, 29, 0.08);
-  color: inherit;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  /* DEPRECATED - Now uses unified .byose-product-card system from STEP 3K */
+  /* All card styling handled by css/product-card-system.css */
 }
 
-.shop-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(0, 184, 148, 0.22);
-  box-shadow: 0 18px 34px rgba(7, 33, 29, 0.1);
+/* Legacy classes removed - replaced by STEP 3K unified card system */
+
+/* Grid layout now uses .byose-product-grid classes */
+/* Individual cards use .byose-product-card classes */
+/* See css/product-card-system.css for card styling */
+
+/* Empty state for backward compatibility */
+/* This now appears within .byose-product-grid-empty container */
+/**
+ * STEP 3L: Related Products Section Integration with Unified Card System
+ * 
+ * IMPORTANT: All product card styling moved to css/product-card-system.css (STEP 3K)
+ * This file handles ONLY layout and spacing specific to related products section.
+ * 
+ * Related products now render with:
+ * - Grid class: .byose-product-grid (from STEP 3K)
+ * - Column variant: .byose-product-grid--5col (5 columns on desktop)
+ * - Individual cards: .byose-product-card (from STEP 3K)
+ * - Empty state: .byose-product-grid-empty (from STEP 3K)
+ */
+
+/* Related products section uses responsive grid from product-card-system.css */
+/* Responsive breakpoints align with STEP 3K: */
+/* - Mobile: 2 columns (default) */
+/* - Tablet (768px+): 3 columns */
+/* - Desktop (1024px+): 4 columns  */
+/* - Large Desktop (1280px+): 5 columns */
+/* - Ultrawide (1920px+): 6 columns */
+
+/* Related products specifically use 5-column variant on desktop */
+.related-grid {
+  /* Renders as <div class="byose-product-grid byose-product-grid--5col"> */
+  /* All styling handled by product-card-system.css */
 }
 
-.shop-card-media {
-  position: relative;
-  overflow: hidden;
-  border-radius: 14px;
-  background: linear-gradient(180deg, rgba(238, 247, 244, 0.9), rgba(248, 255, 253, 0.95));
-}
+/* Additional related section styling can go here if needed */
 
-.shop-card-media img {
-  width: 100%;
-  aspect-ratio: 1 / 1.08;
-  object-fit: cover;
-  border-radius: 14px;
-}
-
-.shop-card-badge {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 0 9px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--home-primary-deep);
-  font-size: 0.66rem;
-  font-weight: 900;
-  letter-spacing: 0.02em;
-}
-
-.shop-card-content {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.shop-card-category {
-  color: var(--home-muted);
-  font-size: 0.66rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.shop-card-title {
-  margin: 0;
-  font-family: "Outfit", sans-serif;
-  font-size: 0.84rem;
-  line-height: 1.28;
-  color: var(--home-text);
-}
-
-.shop-card-price-row {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.shop-card-price {
-  color: #00b894;
-  font-size: 0.98rem;
-  font-weight: 900;
-  line-height: 1;
-}
-
-.shop-card-old-price {
-  color: #8a979d;
-  font-size: 0.72rem;
-  text-decoration: line-through;
-}
-
-.shop-card-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.shop-card-meta {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 9px;
-  border-radius: 999px;
-  background: rgba(0, 184, 148, 0.08);
-  color: var(--home-primary-deep);
-  font-size: 0.68rem;
-  font-weight: 800;
-}
-
-.shop-card-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  color: var(--home-primary-deep);
-  background: rgba(0, 184, 148, 0.1);
-  font-size: 0.7rem;
-  font-weight: 800;
-}
-
-@media (min-width: 768px) {
-  .related-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
-  }
-
-  .shop-card {
-    padding: 10px;
-  }
-
-  .shop-card-title {
-    font-size: 0.9rem;
-  }
-}
-
-@media (min-width: 1280px) {
-  .related-grid {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-}

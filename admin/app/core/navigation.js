@@ -69,7 +69,7 @@ export const ADMIN_NAVIGATION = [
         description: "Catalog, inventory, reviews, and featured merchandising.",
         children: [
           routeLink("products-all", "All Products", "products", { description: "SPA catalog management surface." }),
-          externalLink("products-add", "Add Product", "products/create.html", { description: "Create a new storefront product." }),
+          routeLink("products-add", "Add Product", "products", { query: "?view=create", description: "Create a new storefront product." }),
           externalLink("products-categories", "Categories", "categories/index.html", { description: "Catalog structure and category management." }),
           routeLink("products-inventory", "Inventory", "inventory", { description: "Stock position and replenishment signals." }),
           externalLink("products-reviews", "Product Reviews", "reviews/index.html", { description: "Moderate and inspect product reviews." }),

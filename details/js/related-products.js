@@ -1,4 +1,5 @@
 import { createProductUrl, formatPrice } from './product-data-loader.js';
+import ProductCardSystem from '../../js/product-card-system.js';
 
 function escapeHtml(value) {
   return String(value || '')
@@ -14,36 +15,11 @@ function createCategoryLabel(category) {
 }
 
 function buildCard(product) {
-  const name = escapeHtml(product.name);
-  const category = escapeHtml(createCategoryLabel(product.category));
-  const href = escapeHtml(createProductUrl(product));
-  const image = escapeHtml(product.image);
-  const badge = product.badge ? `<span class="shop-card-badge">${escapeHtml(product.badge)}</span>` : '';
-  const hasOldPrice = Number(product.oldPrice) > Number(product.price);
-
-  return `
-    <article class="shop-card" aria-label="${name}">
-      <a class="shop-card-media" href="${href}" aria-label="View ${name}">
-        <img src="${image}" alt="${name}" loading="lazy">
-        ${badge}
-      </a>
-      <div class="shop-card-content">
-        <span class="shop-card-category">${category}</span>
-        <h3 class="shop-card-title">${name}</h3>
-        <div class="shop-card-price-row">
-          <span class="shop-card-price">${formatPrice(product.price)}</span>
-          ${hasOldPrice ? `<span class="shop-card-old-price">${formatPrice(product.oldPrice)}</span>` : ''}
-        </div>
-        <div class="shop-card-foot">
-          <span class="shop-card-meta">${escapeHtml(product.badge || 'Featured')}</span>
-          <a class="shop-card-link" href="${href}">
-            <span>View</span>
-            <i class="fa-solid fa-arrow-right"></i>
-          </a>
-        </div>
-      </div>
-    </article>
-  `;
+  // Use unified product card system from STEP 3K
+  return ProductCardSystem.renderCard(product, {
+    includeDescription: true,
+    includeFooter: true
+  });
 }
 
 export function renderRelatedProducts(container, products) {
@@ -52,9 +28,16 @@ export function renderRelatedProducts(container, products) {
   }
 
   if (!Array.isArray(products) || !products.length) {
-    container.innerHTML = '<div class="related-empty">No related products available right now.</div>';
+    container.innerHTML = `
+      <div class="byose-product-grid-empty">
+        <div class="byose-product-grid-empty-icon">📭</div>
+        <p class="byose-product-grid-empty-text">No related products available right now.</p>
+      </div>
+    `;
     return;
   }
 
-  container.innerHTML = products.map(buildCard).join('');
+  // Wrap with unified grid classes (5 columns on desktop per related products convention)
+  const cardsHtml = products.map(buildCard).join('');
+  container.innerHTML = `<div class="byose-product-grid byose-product-grid--5col">${cardsHtml}</div>`;
 }

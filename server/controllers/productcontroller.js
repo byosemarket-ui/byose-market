@@ -65,6 +65,64 @@ function normalizeSpecs(value) {
         .filter((entry) => entry && entry.label && entry.value);
 }
 
+function splitVariantToken(value) {
+    return String(value || '')
+        .split('|')
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean);
+}
+
+function normalizeVariantOptions(value, variantType) {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+
+    return value
+        .map((option) => {
+            if (typeof option === 'string' || typeof option === 'number') {
+                const [labelPart, valuePart, swatchPart, imagePart] = splitVariantToken(option);
+                const label = labelPart || valuePart || String(option).trim();
+                const normalizedValue = valuePart || labelPart || String(option).trim();
+                return normalizedValue ? {
+                    label,
+                    value: normalizedValue,
+                    stock: 0,
+                    image: variantType === 'color' ? toTrimmedString(imagePart) : '',
+                    swatch: variantType === 'color' ? toTrimmedString(swatchPart) : '',
+                    sku: '',
+                    code: '',
+                    availability: 'future',
+                    isDefault: false,
+                    priceDelta: 0
+                } : null;
+            }
+
+            if (!option || typeof option !== 'object') {
+                return null;
+            }
+
+            const normalizedOption = {
+                label: toTrimmedString(option.label || option.name || option.value),
+                value: toTrimmedString(option.value || option.label || option.name),
+                stock: toNonNegativeNumber(option.stock, 0),
+                image: toTrimmedString(option.image || option.thumbnail),
+                swatch: toTrimmedString(option.swatch || option.hex || option.color),
+                sku: toTrimmedString(option.sku),
+                code: toTrimmedString(option.code),
+                availability: toTrimmedString(option.availability || option.status, 'future').toLowerCase(),
+                isDefault: Boolean(option.isDefault),
+                priceDelta: toNonNegativeNumber(option.priceDelta, 0)
+            };
+
+            if (!normalizedOption.value && !normalizedOption.label) {
+                return null;
+            }
+
+            return normalizedOption;
+        })
+        .filter((option) => Boolean(option && option.value));
+}
+
 function normalizeAttributes(value) {
     if (!Array.isArray(value)) {
         return [];
@@ -76,23 +134,8 @@ function normalizeAttributes(value) {
                 return null;
             }
 
-            const options = Array.isArray(attribute.options)
-                ? attribute.options
-                    .map((option) => {
-                        if (!option || typeof option !== 'object') {
-                            return null;
-                        }
-
-                        const normalizedOption = {
-                            value: toTrimmedString(option.value),
-                            stock: toNonNegativeNumber(option.stock, 0),
-                            image: toTrimmedString(option.image)
-                        };
-
-                        return normalizedOption.value || normalizedOption.image ? normalizedOption : null;
-                    })
-                    .filter(Boolean)
-                : [];
+            const type = toTrimmedString(attribute.type || attribute.axis, 'text').toLowerCase();
+            const options = normalizeVariantOptions(attribute.options, type);
 
             if (!options.length) {
                 return null;
@@ -100,13 +143,111 @@ function normalizeAttributes(value) {
 
             return {
                 name: toTrimmedString(attribute.name, 'Option'),
-                type: toTrimmedString(attribute.type, 'text') === 'image' ? 'image' : 'text',
+                key: toTrimmedString(attribute.key),
+                axis: ['color', 'size', 'image', 'text'].includes(type) ? type : 'text',
+                type: ['color', 'size', 'image', 'text'].includes(type) ? type : 'text',
+                required: attribute.required !== false,
                 options
             };
         })
         .filter(Boolean);
 }
-
++
++function normalizeVariantFoundation(source, fallbackAttributes = []) {
++    const groupsSource = source && typeof source === 'object' ? source.groups : {};
++    const fallbackGroups = Array.isArray(fallbackAttributes) && fallbackAttributes.length
++        ? fallbackAttributes.reduce((result, attribute) => {
++            const key = toTrimmedString(attribute?.key || attribute?.axis || attribute?.name, 'option').toLowerCase();
++            result[key] = {
++                enabled: true,
++                label: toTrimmedString(attribute?.name || key),
++                type: toTrimmedString(attribute?.type || attribute?.axis || 'text', 'text').toLowerCase(),
++                required: attribute?.required !== false,
++                optionTokens: Array.isArray(attribute?.options)
++                    ? attribute.options.map((option) => {
++                        const value = toTrimmedString(option?.value || option?.label);
++                        const swatch = toTrimmedString(option?.swatch || option?.hex || option?.color);
++                        const image = toTrimmedString(option?.image || option?.thumbnail);
++                        return [toTrimmedString(option?.label || value), value, swatch, image].filter(Boolean).join('|');
++                    })
++                    : []
++            };
++            return result;
++        }, {})
++        : {};
++
++    const groups = {};
++    const sourceGroups = groupsSource && typeof groupsSource === 'object' ? groupsSource : {};
++    const groupEntries = Object.keys({ ...fallbackGroups, ...sourceGroups });
++
++    groupEntries.forEach((groupKey) => {
++        const current = sourceGroups[groupKey] || fallbackGroups[groupKey] || {};
++        groups[groupKey] = {
++            enabled: Boolean(current.enabled),
++            label: toTrimmedString(current.label, toTrimmedString(groupKey, 'Option')),
++            type: ['color', 'size', 'image', 'text'].includes(toTrimmedString(current.type || current.axis, 'text').toLowerCase())
++                ? toTrimmedString(current.type || current.axis, 'text').toLowerCase()
++                : 'text',
++            required: current.required !== false,
++            optionTokens: Array.isArray(current.optionTokens)
++                ? current.optionTokens.map((entry) => toTrimmedString(entry)).filter(Boolean)
++                : Array.isArray(current.options)
++                  ? current.options.map((entry) => toTrimmedString(entry)).filter(Boolean)
++                  : []
++        };
++    });
++
++    return {
++        enabled: Boolean(source?.enabled),
++        optionMode: toTrimmedString(source?.optionMode, 'structured'),
++        imagePerColor: Boolean(source?.imagePerColor),
++        pricingPerVariant: Boolean(source?.pricingPerVariant),
++        inventoryReady: Boolean(source?.inventoryReady),
++        skuPerVariant: Boolean(source?.skuPerVariant),
++        groups
++    };
++}
++
++function buildAttributesFromVariantFoundation(variantFoundation, fallbackAttributes = []) {
++    const foundation = normalizeVariantFoundation(variantFoundation, fallbackAttributes);
++
++    return Object.entries(foundation.groups)
++        .map(([groupKey, group]) => {
++            if (!group.enabled) {
++                return null;
++            }
++
++            const options = normalizeVariantOptions(group.optionTokens.map((token) => splitVariantToken(token).join('|')), group.type)
++                .map((option) => ({
++                    label: option.label,
++                    value: option.value,
++                    stock: option.stock,
++                    image: group.type === 'color' ? option.image : option.image,
++                    swatch: group.type === 'color' ? option.swatch : option.swatch,
++                    sku: option.sku,
++                    code: option.code,
++                    availability: option.availability,
++                    isDefault: option.isDefault,
++                    priceDelta: option.priceDelta
++                }))
++                .filter((option) => option.value);
++
++            if (!group.label || !options.length) {
++                return null;
++            }
++
++            return {
++                name: group.label,
++                key: groupKey,
++                axis: group.type,
++                type: group.type,
++                required: group.required !== false,
++                options
++            };
++        })
++        .filter(Boolean);
++}
+*** End Patch
 function parseCatalogId(value) {
     const parsed = Number(value);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
@@ -121,6 +262,8 @@ function normalizePayload(payload) {
     const price = toNonNegativeNumber(payload?.price, 0);
     const mainImage = toTrimmedString(payload?.mainImage || payload?.image);
     const oldPrice = toNonNegativeNumber(payload?.oldPrice, 0);
+    const variantFoundation = normalizeVariantFoundation(payload?.variants, payload?.attributes);
+    const normalizedAttributes = buildAttributesFromVariantFoundation(variantFoundation, payload?.attributes);
 
     return {
         name,
@@ -140,7 +283,8 @@ function normalizePayload(payload) {
         highlights: toStringArray(payload?.highlights),
         trust: toStringArray(payload?.trust),
         specs: normalizeSpecs(payload?.specs),
-        attributes: normalizeAttributes(payload?.attributes),
+        attributes: normalizedAttributes.length ? normalizedAttributes : normalizeAttributes(payload?.attributes),
+        variants: variantFoundation,
         visibility: normalizeVisibility(payload?.visibility),
         priority: normalizePriority(payload?.priority),
         orderIndex: toNonNegativeNumber(payload?.orderIndex, 0),
@@ -155,6 +299,10 @@ function serializeProduct(product) {
         ? product.toObject({ versionKey: false })
         : { ...(product || {}) };
     const catalogId = Number(source.catalogId || source.id || 0);
+    const variants = normalizeVariantFoundation(source.variants, source.attributes);
+    const attributes = Array.isArray(source.attributes) && source.attributes.length
+        ? normalizeAttributes(source.attributes)
+        : buildAttributesFromVariantFoundation(variants, source.attributes);
 
     return {
         ...source,
@@ -169,6 +317,8 @@ function serializeProduct(product) {
         specs: Array.isArray(source.specs)
             ? source.specs.map((entry) => [toTrimmedString(entry.label), toTrimmedString(entry.value)]).filter((entry) => entry[0] && entry[1])
             : [],
+        attributes,
+        variants,
         url: source.url || buildProductUrl(catalogId),
         page: DEFAULT_DETAIL_PAGE,
         catalogId
@@ -180,17 +330,31 @@ async function getNextCatalogId() {
     return Number(latest?.catalogId || 0) + 1;
 }
 
-async function findProductByIdentifier(identifier) {
+async function findProductByIdentifier(identifier, projection = null) {
     const catalogId = parseCatalogId(identifier);
     if (catalogId) {
-        const product = await Product.findOne({ catalogId });
+        let query = Product.findOne({ catalogId });
+        if (projection) {
+            query = query.select(projection);
+        }
+
+        if (projection) {
+            return query.lean();
+        }
+
+        const product = await query;
         if (product) {
             return product;
         }
     }
 
     if (mongoose.Types.ObjectId.isValid(String(identifier || ''))) {
-        return Product.findById(identifier);
+        let query = Product.findById(identifier);
+        if (projection) {
+            query = query.select(projection);
+        }
+
+        return projection ? query.lean() : query;
     }
 
     return null;
@@ -252,7 +416,7 @@ exports.bootstrapCatalog = async (req, res) => {
             ), { slowThresholdMs: 700 });
         }
 
-        const products = await monitorAsyncOperation(logger, 'database.product.list_after_bootstrap', { adminId: req.admin?.id || '' }, () => Product.find({}).sort(buildSort()), { slowThresholdMs: 900 });
+        const products = await monitorAsyncOperation(logger, 'database.product.list_after_bootstrap', { adminId: req.admin?.id || '' }, () => Product.find({}).sort(buildSort()).lean(), { slowThresholdMs: 900 });
         logger.info('inventory.bootstrap_completed', { adminId: req.admin?.id || '', count: products.length });
         return res.json({ success: true, products: products.map(serializeProduct) });
     } catch (error) {
@@ -306,7 +470,7 @@ exports.getAllProducts = async (req, res) => {
         const page = Math.max(1, Number(req.query?.page || 1) || 1);
         const skip = (page - 1) * limit;
 
-        const products = await monitorAsyncOperation(logger, 'database.product.list', { category: filter.category || '', limit, page }, () => Product.find(filter).sort(buildSort()).skip(skip).limit(limit).select('catalogId name title description shortDescription category price oldPrice stock image mainImage gallery keywords specs visibility priority orderIndex highlightTag status url page updatedAt createdAt').lean(), { slowThresholdMs: 900 });
+        const products = await monitorAsyncOperation(logger, 'database.product.list', { category: filter.category || '', limit, page }, () => Product.find(filter).sort(buildSort()).skip(skip).limit(limit).select('catalogId name title description shortDescription category price oldPrice stock image mainImage gallery keywords specs attributes variants visibility priority orderIndex highlightTag status url page updatedAt createdAt').lean(), { slowThresholdMs: 900 });
         return res.json({ success: true, products: products.map(serializeProduct) });
     } catch (error) {
         logger.error('inventory.product_list_failed', { error, category: req.query?.category || '' });
@@ -317,7 +481,7 @@ exports.getAllProducts = async (req, res) => {
 exports.getProductById = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'inventory' });
     try {
-        const product = await monitorAsyncOperation(logger, 'database.product.find', { requestedProductId: req.params.id }, () => findProductByIdentifier(req.params.id), { slowThresholdMs: 700 });
+        const product = await monitorAsyncOperation(logger, 'database.product.find', { requestedProductId: req.params.id }, () => findProductByIdentifier(req.params.id, 'catalogId name title description shortDescription category price oldPrice stock image mainImage gallery keywords specs attributes variants visibility priority orderIndex highlightTag status url page updatedAt createdAt'), { slowThresholdMs: 700 });
         if (!product) {
             return res.status(404).json({ success: false, message: 'Product not found' });
         }

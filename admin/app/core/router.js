@@ -38,7 +38,8 @@ function persistRoute(routeKey) {
 
 function setHashForRoute(routeKey) {
   const targetHash = `#/${normalizeRouteKey(routeKey)}`;
-  if (window.location.hash !== targetHash) {
+  const currentRouteHash = `#/${normalizeRouteKey(routeFromHash(window.location.hash) || "")}`;
+  if (currentRouteHash !== targetHash) {
     window.location.hash = targetHash;
   }
 }

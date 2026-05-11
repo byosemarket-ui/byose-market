@@ -21,6 +21,27 @@ function normalizePhone(value) {
     return normalizeText(value).replace(/\s+/g, '');
 }
 
+const PAYMENT_STATES = new Set(['pending', 'authorized', 'paid', 'failed', 'refunded', 'cancelled']);
+
+function normalizePaymentMethod(value) {
+    return normalizeText(value).toLowerCase();
+}
+
+function normalizePaymentState(value) {
+    const normalized = normalizeText(value).toLowerCase();
+    return PAYMENT_STATES.has(normalized) ? normalized : 'pending';
+}
+
+function resolvePaymentStatusLabel(paymentState) {
+    const state = normalizePaymentState(paymentState);
+    if (state === 'authorized') return 'Authorized';
+    if (state === 'paid') return 'Paid';
+    if (state === 'failed') return 'Failed';
+    if (state === 'refunded') return 'Refunded';
+    if (state === 'cancelled') return 'Cancelled';
+    return 'Pending';
+}
+
 function normalizeItems(items) {
     const source = Array.isArray(items) ? items : [];
 
@@ -53,6 +74,12 @@ function normalizeStorefrontOrder(payload, user) {
     const shippingFee = Number(source.shippingFee ?? source.deliveryFee ?? 0) || 0;
     const codFee = Number(source.codFee || 0) || 0;
     const total = Number(source.total ?? source.totalAmount ?? (subtotal + shippingFee + codFee)) || 0;
+    const paymentMethod = normalizePaymentMethod(source.paymentMethod || source.payment?.method);
+    const paymentStatus = normalizePaymentState(source.paymentStatus || source.payment?.status || source.payment?.transaction?.state);
+    const paymentStatusLabel = normalizeText(source.paymentStatusLabel || source.payment?.statusLabel) || resolvePaymentStatusLabel(paymentStatus);
+    const paymentTransaction = source.payment?.transaction && typeof source.payment.transaction === 'object'
+        ? source.payment.transaction
+        : {};
 
     return {
         id: normalizeText(source.id || source.orderId),
@@ -70,9 +97,9 @@ function normalizeStorefrontOrder(payload, user) {
         customerImage: normalizeText(source.customerImage || customer.avatar || customer.image),
         status: normalizeText(source.status) || 'Pending',
         orderStatus: normalizeText(source.orderStatus) || 'pending',
-        paymentStatus: normalizeText(source.paymentStatus) || 'pending',
-        paymentStatusLabel: normalizeText(source.paymentStatusLabel),
-        paymentMethod: normalizeText(source.paymentMethod || source.payment?.method),
+        paymentStatus,
+        paymentStatusLabel,
+        paymentMethod,
         paymentType: normalizeText(source.paymentType || source.payment?.type),
         note: normalizeText(source.note || source.payment?.note),
         subtotal,
@@ -89,7 +116,25 @@ function normalizeStorefrontOrder(payload, user) {
         shippingAddress,
         fullAddress: source.fullAddress && typeof source.fullAddress === 'object' ? source.fullAddress : {},
         gpsLocation: source.gpsLocation && typeof source.gpsLocation === 'object' ? source.gpsLocation : {},
-        payment: source.payment && typeof source.payment === 'object' ? source.payment : {},
+        payment: source.payment && typeof source.payment === 'object'
+            ? {
+                ...source.payment,
+                method: paymentMethod,
+                status: paymentStatus,
+                statusLabel: paymentStatusLabel,
+                transaction: paymentTransaction && typeof paymentTransaction === 'object'
+                    ? {
+                        ...paymentTransaction,
+                        state: normalizePaymentState(paymentTransaction.state || paymentStatus)
+                    }
+                    : { state: paymentStatus }
+            }
+            : {
+                method: paymentMethod,
+                status: paymentStatus,
+                statusLabel: paymentStatusLabel,
+                transaction: { state: paymentStatus }
+            },
         customer: customer && typeof customer === 'object' ? customer : {},
         statusHistory: Array.isArray(source.statusHistory) ? source.statusHistory : [],
         createdAt: new Date(createdAt),

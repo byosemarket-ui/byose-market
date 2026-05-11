@@ -1,0 +1,488 @@
+/**
+ * STEP 3N: Admin Inventory Styling
+ * Enterprise-grade inventory controls in add-product workspace
+ */
+
+/* ===========================
+   INVENTORY SECTION
+=========================== */
+
+.inventory-section {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 20px;
+  background-color: #fafafa;
+}
+
+.inventory-section .editor-legend {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #00B894;
+}
+
+.inventory-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.inventory-fields[hidden] {
+  display: none;
+}
+
+/* ===========================
+   SKU INPUT GROUP
+=========================== */
+
+.sku-input-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.sku-input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.95rem;
+  font-weight: 500;
+  background-color: #f5f5f5;
+  color: #333;
+}
+
+.sku-input:readonly {
+  background-color: #f0f0f0;
+  color: #666;
+}
+
+.sku-regenerate-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background-color: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  color: #555;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.sku-regenerate-btn:hover {
+  background-color: #e8e8e8;
+  border-color: #999;
+  color: #00B894;
+}
+
+.sku-regenerate-btn i {
+  font-size: 0.9em;
+}
+
+/* ===========================
+   THRESHOLD INPUT GROUP
+=========================== */
+
+.threshold-input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.threshold-input-group .field-input {
+  width: 100px;
+}
+
+.threshold-input-group .unit {
+  font-size: 0.9rem;
+  color: #666;
+  font-weight: 500;
+}
+
+/* ===========================
+   INVENTORY SUMMARY CARD
+=========================== */
+
+.inventory-summary-card {
+  padding: 16px;
+  background-color: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  border-left: 4px solid #00B894;
+  margin-top: 16px;
+}
+
+.inventory-summary-card .summary-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.summary-label {
+  font-size: 0.85rem;
+  color: #666;
+  font-weight: 500;
+}
+
+.summary-value {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #333;
+}
+
+.summary-value.status-badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  text-align: center;
+  width: fit-content;
+}
+
+.summary-value[data-status="in_stock"] {
+  background-color: rgba(0, 184, 148, 0.1);
+  color: #00B894;
+}
+
+.summary-value[data-status="low_stock"] {
+  background-color: rgba(240, 173, 78, 0.1);
+  color: #D68910;
+}
+
+.summary-value[data-status="out_of_stock"] {
+  background-color: rgba(231, 76, 60, 0.1);
+  color: #E74C3C;
+}
+
+/* ===========================
+   ADVANCED INVENTORY
+=========================== */
+
+.inventory-advanced-section {
+  padding: 16px;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  border-left: 3px solid #3498DB;
+  margin-top: 16px;
+}
+
+.inventory-advanced-section[hidden] {
+  display: none;
+}
+
+.advanced-header {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+/* ===========================
+   VARIANT INVENTORY
+=========================== */
+
+.variant-inventory-section {
+  padding: 16px;
+  background-color: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  margin-top: 16px;
+}
+
+.variant-inventory-section h4 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.variant-inventory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.variant-inventory-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  background-color: #f9f9f9;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.variant-inventory-item:hover {
+  background-color: #f5f5f5;
+  border-color: #ddd;
+}
+
+.variant-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 150px;
+}
+
+.variant-label {
+  font-weight: 600;
+  color: #333;
+  font-size: 0.95rem;
+}
+
+.variant-sku {
+  font-size: 0.85rem;
+  color: #999;
+  font-family: 'Courier New', monospace;
+}
+
+.variant-stock-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.variant-stock-input .variant-stock-input {
+  width: 80px;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  text-align: center;
+  font-weight: 500;
+}
+
+.stock-status {
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.stock-status[data-status="in_stock"] {
+  background-color: rgba(0, 184, 148, 0.1);
+  color: #00B894;
+}
+
+.stock-status[data-status="low_stock"] {
+  background-color: rgba(240, 173, 78, 0.1);
+  color: #D68910;
+}
+
+.stock-status[data-status="out_of_stock"] {
+  background-color: rgba(231, 76, 60, 0.1);
+  color: #E74C3C;
+}
+
+/* ===========================
+   RESPONSIVE ADJUSTMENTS
+=========================== */
+
+@media (max-width: 768px) {
+  .inventory-section {
+    padding: 16px;
+  }
+  
+  .sku-input-group {
+    flex-direction: column;
+  }
+  
+  .sku-regenerate-btn {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .variant-inventory-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .variant-stock-input {
+    width: 100%;
+    justify-content: space-between;
+  }
+  
+  .variant-stock-input .variant-stock-input {
+    width: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .inventory-section {
+    padding: 12px;
+  }
+  
+  .inventory-section .editor-legend {
+    font-size: 1rem;
+  }
+  
+  .inventory-summary-card {
+    padding: 12px;
+  }
+  
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .summary-value {
+    font-size: 1.1rem;
+  }
+  
+  .variant-inventory-section {
+    padding: 12px;
+  }
+  
+  .inventory-advanced-section {
+    padding: 12px;
+  }
+}
+
+/* ===========================
+   DARK MODE SUPPORT
+=========================== */
+
+@media (prefers-color-scheme: dark) {
+  .inventory-section {
+    background-color: #1a1a1a;
+    border-color: #333;
+  }
+  
+  .inventory-summary-card {
+    background-color: #222;
+    border-color: #333;
+    border-left-color: #00B894;
+  }
+  
+  .inventory-summary-card .summary-title {
+    border-bottom-color: #333;
+    color: #e0e0e0;
+  }
+  
+  .summary-label {
+    color: #999;
+  }
+  
+  .summary-value {
+    color: #e0e0e0;
+  }
+  
+  .inventory-advanced-section {
+    background-color: #1a1a1a;
+    border-left-color: #3498DB;
+  }
+  
+  .advanced-header {
+    color: #e0e0e0;
+    border-bottom-color: #333;
+  }
+  
+  .variant-inventory-section {
+    background-color: #222;
+    border-color: #333;
+  }
+  
+  .variant-inventory-section h4 {
+    border-bottom-color: #333;
+    color: #e0e0e0;
+  }
+  
+  .variant-inventory-item {
+    background-color: #2a2a2a;
+    border-color: #333;
+  }
+  
+  .variant-inventory-item:hover {
+    background-color: #333;
+    border-color: #444;
+  }
+  
+  .variant-label {
+    color: #e0e0e0;
+  }
+  
+  .variant-sku {
+    color: #666;
+  }
+  
+  .sku-input {
+    background-color: #333;
+    border-color: #444;
+    color: #e0e0e0;
+  }
+  
+  .sku-regenerate-btn {
+    background-color: #333;
+    border-color: #444;
+    color: #ccc;
+  }
+  
+  .sku-regenerate-btn:hover {
+    background-color: #444;
+    border-color: #555;
+  }
+}
+
+/* ===========================
+   FOCUS & ACCESSIBILITY
+=========================== */
+
+.sku-input:focus,
+.field-input:focus,
+.variant-stock-input:focus,
+.sku-regenerate-btn:focus {
+  outline: 2px solid #00B894;
+  outline-offset: 2px;
+}
+
+/* ===========================
+   ANIMATIONS
+=========================== */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.inventory-fields {
+  animation: fadeIn 0.2s ease-out;
+}

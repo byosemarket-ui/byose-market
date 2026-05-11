@@ -30,12 +30,15 @@ function formatList(values) {
 }
 
 function chooseVisualAttribute(attributes) {
-  return attributes.find(attribute => attribute.type === 'image') || null;
+  return attributes.find(attribute => attribute.type === 'color')
+    || attributes.find(attribute => attribute.axis === 'color')
+    || attributes.find(attribute => attribute.type === 'image')
+    || null;
 }
 
 function chooseQuantityAttribute(attributes, visualAttribute) {
   const candidates = attributes.filter(attribute => attribute !== visualAttribute);
-  const textCandidates = candidates.filter(attribute => attribute.type === 'text');
+  const textCandidates = candidates.filter(attribute => attribute.type === 'size' || attribute.axis === 'size' || attribute.type === 'text');
   const pool = textCandidates.length ? textCandidates : [];
 
   if (!pool.length) {

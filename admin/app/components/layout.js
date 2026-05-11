@@ -26,7 +26,7 @@ const HEADER_NOTIFICATIONS = [
 
 const HEADER_QUICK_ACTIONS = [
   { id: "quick-orders", label: "Open Orders", href: "#/orders", detail: "Fulfillment and status operations" },
-  { id: "quick-products", label: "Add Product", href: resolveAdminHref("products/create.html"), detail: "Create a new catalog item" },
+  { id: "quick-products", label: "Add Product", href: "#/products?view=create", detail: "Create a new catalog item" },
   { id: "quick-settings", label: "Admin Settings", href: "#/settings?panel=profile", detail: "Profile and access controls" }
 ];
 

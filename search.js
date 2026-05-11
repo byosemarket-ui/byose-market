@@ -1,9 +1,10 @@
 (function () {
-  document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener('DOMContentLoaded', async () => {
     const utils = window.ByoseSearchUtils;
     const shopApi = window.ByoseShop;
     const imageApi = window.ByoseImageSearch;
     const aiApi = window.ByoseSearchAI;
+    const productCatalog = window.ByoseProductCatalog;
 
     const elements = {
       form: document.getElementById('searchPageForm'),
@@ -27,9 +28,21 @@
       return;
     }
 
+    const getCatalogSnapshot = () => {
+      if (productCatalog && typeof productCatalog.getStorefrontCatalog === 'function') {
+        return productCatalog.getStorefrontCatalog();
+      }
+
+      if (Array.isArray(window.products)) {
+        return window.products.slice();
+      }
+
+      return [];
+    };
+
     const state = {
       activeImageAnalysis: null,
-      catalog: utils.getCatalog(window.products),
+      catalog: getCatalogSnapshot(),
       panelHideTimer: null,
       requestId: 0
     };
@@ -177,8 +190,16 @@
       }
     }
 
-    function refreshCatalog() {
-      state.catalog = utils.getCatalog(window.products);
+    async function refreshCatalog() {
+      if (productCatalog && typeof productCatalog.refreshCatalog === 'function') {
+        try {
+          await productCatalog.refreshCatalog({ silent: true, force: false });
+        } catch (_error) {
+          // Keep the last known catalog snapshot if refresh fails.
+        }
+      }
+
+      state.catalog = getCatalogSnapshot();
 
       if (state.activeImageAnalysis) {
         runCombinedSearch(elements.input.value);
@@ -191,7 +212,7 @@
       }
 
       hideResults();
-      }
+    }
 
     async function runCombinedSearch(query) {
       const trimmedQuery = String(query || '').trim();
@@ -325,7 +346,17 @@
       elements.imageReset.addEventListener('click', resetVisualSearch);
     }
 
-    window.addEventListener('byose:products-changed', refreshCatalog);
+    const syncEvents = [
+      'byose:products-synchronized',
+      'byose:products-changed',
+      'byose:storefront-products-updated'
+    ];
+
+    syncEvents.forEach((eventName) => {
+      window.addEventListener(eventName, refreshCatalog);
+    });
+
+    await refreshCatalog();
 
     const initialQuery = new URLSearchParams(window.location.search).get('q') || '';
 

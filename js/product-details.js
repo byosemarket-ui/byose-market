@@ -2,6 +2,33 @@
    PRODUCT DETAILS PAGE LOGIC
    ======================================== */
 
+function getCentralizedCatalog() {
+  const service = window.ByoseProductCatalog;
+  if (service && typeof service.getStorefrontCatalog === 'function') {
+    return service.getStorefrontCatalog();
+  }
+
+  return Array.isArray(window.products) ? window.products : [];
+}
+
+const ProductsDB = {
+  getById(productId) {
+    return getCentralizedCatalog().find(product => Number(product.id) === Number(productId)) || null;
+  },
+  getByCategory(category) {
+    const normalized = String(category || '').toLowerCase();
+    return getCentralizedCatalog().filter(product => String(product.category || '').toLowerCase() === normalized);
+  },
+  getDiscount(price, oldPrice) {
+    const current = Number(price || 0);
+    const previous = Number(oldPrice || 0);
+    if (previous <= current || previous <= 0) {
+      return 0;
+    }
+    return Math.round(((previous - current) / previous) * 100);
+  }
+};
+
 const ProductDetail = {
   product: null,
   selectedColor: null,
