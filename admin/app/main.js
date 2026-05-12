@@ -206,4 +206,11 @@ window.addEventListener("beforeunload", () => {
   }
 });
 
-bootstrap();
+bootstrap().catch((error) => {
+  console.error("[Admin] Bootstrap failed:", error);
+
+  const fallbackTarget = document.getElementById("appPageContent") || document.getElementById("appRoot");
+  if (fallbackTarget) {
+    fallbackTarget.innerHTML = errorState("The admin dashboard could not initialize. Please reload the page.");
+  }
+});
