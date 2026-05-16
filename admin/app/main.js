@@ -33,6 +33,7 @@ let activeRouteSignature = "";
 let autoRefreshTimer = null;
 let inAppSyncRefreshTimer = null;
 let stopRealtimeSync = null;
+let bootstrapFailureHandled = false;
 
 const REFRESHABLE_ROUTES = new Set(["dashboard", "enterprise", "orders", "customers", "products", "analytics", "inventory", "activity"]);
 const ROUTE_SCOPE_MAP = {
@@ -71,6 +72,61 @@ function installSessionRefreshGuard() {
       logout();
     }
   });
+}
+
+function mountBootstrapFailure(message) {
+  const fallbackMessage = String(message || "The admin dashboard could not initialize. Please reload the page.");
+  const contentTarget = document.getElementById("appPageContent");
+  if (contentTarget) {
+    contentTarget.innerHTML = errorState(fallbackMessage);
+    return;
+  }
+
+  const appRoot = document.getElementById("appRoot");
+  if (appRoot) {
+    appRoot.innerHTML = `
+      <section class="admin-bootstrap-fallback" style="padding: 24px; font-family: Manrope, Segoe UI, sans-serif; color: #12212b;">
+        ${errorState(fallbackMessage)}
+      </section>
+    `;
+  }
+}
+
+function handleBootstrapFailure(message, error) {
+  if (bootstrapFailureHandled) {
+    return;
+  }
+
+  bootstrapFailureHandled = true;
+  if (error) {
+    console.error("[Admin] Bootstrap failed:", error);
+  } else {
+    console.error("[Admin] Bootstrap failed:", message);
+  }
+  mountBootstrapFailure(message);
+}
+
+function installGlobalRuntimeGuards() {
+  const onWindowError = (event) => {
+    if (bootstrapFailureHandled) {
+      return;
+    }
+
+    const errorMessage = event?.error?.message || event?.message || "A runtime error interrupted dashboard startup.";
+    handleBootstrapFailure(errorMessage, event?.error);
+  };
+
+  const onUnhandledRejection = (event) => {
+    if (bootstrapFailureHandled) {
+      return;
+    }
+
+    const reasonMessage = event?.reason?.message || String(event?.reason || "").trim();
+    handleBootstrapFailure(reasonMessage || "An unexpected startup promise failed.", event?.reason);
+  };
+
+  window.addEventListener("error", onWindowError);
+  window.addEventListener("unhandledrejection", onUnhandledRejection);
 }
 
 async function renderRoute(routeKey, store, options = {}) {
@@ -173,12 +229,15 @@ function installAutoRefresh(store) {
 }
 
 async function bootstrap() {
-  if (!ensureAuthenticated()) {
-    return;
-  }
+  installGlobalRuntimeGuards();
 
   const appRoot = document.getElementById("appRoot");
   if (!appRoot) {
+    throw new Error("Missing #appRoot mount container.");
+  }
+
+  if (!ensureAuthenticated()) {
+    mountBootstrapFailure("Validating admin session and redirecting to login...");
     return;
   }
 
@@ -207,10 +266,5 @@ window.addEventListener("beforeunload", () => {
 });
 
 bootstrap().catch((error) => {
-  console.error("[Admin] Bootstrap failed:", error);
-
-  const fallbackTarget = document.getElementById("appPageContent") || document.getElementById("appRoot");
-  if (fallbackTarget) {
-    fallbackTarget.innerHTML = errorState("The admin dashboard could not initialize. Please reload the page.");
-  }
+  handleBootstrapFailure("The admin dashboard could not initialize. Please reload the page.", error);
 });

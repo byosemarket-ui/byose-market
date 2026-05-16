@@ -18,6 +18,7 @@ const SYNC_INTERVAL_MS = 35000;
 const STALE_THRESHOLD_MS = 45000;
 const GLOBAL_SYNC_EVENT = 'byose:products-synchronized';
 const PRODUCT_CHANGED_EVENT = 'byose:products-changed';
+const FALLBACK_STORAGE_KEY = 'byose_market_products_catalog_v1';
 
 // In-memory cache (NOT canonical - only for rendering performance)
 let cachedProducts = [];
@@ -25,6 +26,39 @@ let lastFetchedAt = 0;
 let isFetching = false;
 let fetchPromise = null;
 let syncTimerId = null;
+
+function readFallbackCatalog() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return [];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(FALLBACK_STORAGE_KEY);
+    return Array.isArray(JSON.parse(raw || '[]')) ? JSON.parse(raw || '[]') : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function mergeProducts(primaryProducts, fallbackProducts) {
+  const merged = new Map();
+
+  normalizeProducts(primaryProducts).forEach((product) => {
+    const key = String(product.id || product.catalogId || '').trim();
+    if (key) {
+      merged.set(key, product);
+    }
+  });
+
+  normalizeProducts(fallbackProducts).forEach((product) => {
+    const key = String(product.id || product.catalogId || '').trim();
+    if (key) {
+      merged.set(key, product);
+    }
+  });
+
+  return Array.from(merged.values());
+}
 
 /**
  * Fetch products from backend API (canonical source)
@@ -60,12 +94,20 @@ export async function fetchProductsFromBackend() {
 
       const data = await response.json();
       const products = Array.isArray(data?.products) ? data.products : Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+      const fallbackProducts = readFallbackCatalog();
 
-      cachedProducts = normalizeProducts(products);
+	      cachedProducts = mergeProducts(products, fallbackProducts);
       lastFetchedAt = Date.now();
 
       return cachedProducts;
     } catch (error) {
+	      const fallbackProducts = mergeProducts([], readFallbackCatalog());
+	      if (fallbackProducts.length) {
+	        cachedProducts = fallbackProducts;
+	        lastFetchedAt = Date.now();
+	        return cachedProducts;
+	      }
+
       console.error('[Byose Products] Backend fetch failed:', error);
       throw error;
     }
@@ -212,6 +254,20 @@ export async function handleAdminProductUpdate() {
 if (typeof window !== 'undefined') {
   window.addEventListener('load', () => {
     startBackgroundSync();
+  });
+
+  window.addEventListener('storage', (event) => {
+    if (event?.key && event.key !== FALLBACK_STORAGE_KEY) {
+      return;
+    }
+
+    cachedProducts = mergeProducts(cachedProducts, readFallbackCatalog());
+    publishProductSync(cachedProducts);
+  });
+
+  window.addEventListener(PRODUCT_CHANGED_EVENT, () => {
+    cachedProducts = mergeProducts(cachedProducts, readFallbackCatalog());
+    publishProductSync(cachedProducts);
   });
 
   // Cleanup on page unload

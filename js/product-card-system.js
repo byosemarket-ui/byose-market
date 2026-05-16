@@ -11,6 +11,7 @@ export const ProductCardSystem = (() => {
   // Constants
   const FALLBACK_IMAGE = 'img/logo.png';
   const DEFAULT_DETAIL_PAGE = 'product-details1.html';
+  const DEFAULT_LOW_STOCK_THRESHOLD = 5;
   const BADGE_TYPES = {
     featured: 'featured',
     hot: 'hot',
@@ -52,25 +53,89 @@ export const ProductCardSystem = (() => {
       .join(' ');
   }
 
-    function getInventorySnapshot(product) {
-      const inventory = product?.inventory && typeof product.inventory === 'object' ? product.inventory : {};
-      const available = Number(
-        inventory.available
-        ?? inventory.totalAvailable
-        ?? product?.availableStock
-        ?? product?.stock
-        ?? 0
-      );
+  function getProductDescription(product) {
+    if (!product || typeof product !== 'object') {
+      return '';
+    }
 
-      const status = String(inventory.status || product?.availability || (available > 0 ? 'in_stock' : 'out_of_stock'))
-        .toLowerCase()
-        .trim();
+    const directDescription = String(product.shortDescription || product.description || '').trim();
+    if (directDescription) {
+      return directDescription;
+    }
 
+    if (Array.isArray(product.highlights) && product.highlights.length) {
+      return String(product.highlights.find(Boolean) || '').trim();
+    }
+
+    if (Array.isArray(product.trust) && product.trust.length) {
+      return String(product.trust.find(Boolean) || '').trim();
+    }
+
+    return '';
+  }
+
+  function normalizeInventoryStatus(available, status, lowStockThreshold = DEFAULT_LOW_STOCK_THRESHOLD) {
+    const safeAvailable = Number.isFinite(Number(available)) ? Math.max(0, Number(available)) : 0;
+    const safeThreshold = Number.isFinite(Number(lowStockThreshold)) ? Math.max(1, Number(lowStockThreshold)) : DEFAULT_LOW_STOCK_THRESHOLD;
+    const normalizedStatus = String(status || '').toLowerCase().trim();
+
+    if (normalizedStatus === 'discontinued') {
+      return 'discontinued';
+    }
+
+    if (safeAvailable <= 0) {
+      return 'out_of_stock';
+    }
+
+    if (safeAvailable <= safeThreshold) {
+      return 'low_stock';
+    }
+
+    return 'in_stock';
+  }
+
+  function getInventorySnapshot(product) {
+    const inventory = product?.inventory && typeof product.inventory === 'object' ? product.inventory : {};
+    const available = Number(
+      inventory.available
+      ?? inventory.totalAvailable
+      ?? product?.availableStock
+      ?? product?.stock
+      ?? 0
+    );
+    const lowStockThreshold = Number(inventory.lowStockThreshold ?? product?.lowStockThreshold ?? DEFAULT_LOW_STOCK_THRESHOLD);
+    const safeAvailable = Number.isFinite(available) ? Math.max(0, available) : 0;
+    const status = normalizeInventoryStatus(safeAvailable, inventory.status || product?.availability, lowStockThreshold);
+
+    return {
+      available: safeAvailable,
+      status,
+      lowStockThreshold: Number.isFinite(lowStockThreshold) ? Math.max(1, lowStockThreshold) : DEFAULT_LOW_STOCK_THRESHOLD
+    };
+  }
+
+  function getInventoryBadgeModel(snapshot) {
+    const safeSnapshot = snapshot && typeof snapshot === 'object' ? snapshot : { available: 0, status: 'out_of_stock' };
+
+    if (safeSnapshot.status === 'out_of_stock' || safeSnapshot.available <= 0) {
       return {
-        available: Number.isFinite(available) ? Math.max(0, available) : 0,
-        status: status || 'in_stock'
+        className: 'byose-product-stock byose-product-stock--empty',
+        label: 'Out of Stock'
       };
     }
+
+    if (safeSnapshot.status === 'low_stock') {
+      return {
+        className: 'byose-product-stock byose-product-stock--low',
+        label: 'Low Stock'
+      };
+    }
+
+    return {
+      className: 'byose-product-stock byose-product-stock--healthy',
+      label: 'In Stock'
+    };
+  }
 
   /**
    * Get safe image URL
@@ -129,15 +194,15 @@ export const ProductCardSystem = (() => {
    * Render discount/save percentage badge
    */
   function renderDiscountBadge(product) {
-    if (!product || !product.oldPrice || !product.price) return '';
+    if (!product) return '';
 
-    const oldPrice = Number(product.oldPrice);
-    const price = Number(product.price);
+    const oldPrice = Number(product.oldPrice ?? product.compareAtPrice ?? 0);
+    const price = Number(product.price ?? product.currentPrice ?? 0);
 
     if (oldPrice <= price) return '';
 
     const discount = Math.round(((oldPrice - price) / oldPrice) * 100);
-    return `<span class="byose-product-badge byose-product-badge--discount">-${discount}%</span>`;
+    return `<span class="byose-product-badge byose-product-badge--discount" aria-label="Save ${discount} percent">-${discount}%</span>`;
   }
 
   /**
@@ -146,8 +211,8 @@ export const ProductCardSystem = (() => {
   function renderPricing(product) {
     if (!product) return '';
 
-    const price = Number(product.price || 0);
-    const oldPrice = Number(product.oldPrice || 0);
+    const price = Number(product.price ?? product.currentPrice ?? 0);
+    const oldPrice = Number(product.oldPrice ?? product.compareAtPrice ?? 0);
     const hasDiscount = oldPrice > price;
 
     let priceHtml = `<span class="byose-product-price">${formatCurrency(price)}</span>`;
@@ -179,23 +244,26 @@ export const ProductCardSystem = (() => {
     } = options;
 
     const productId = escapeHtml(product.id || product.catalogId);
-    const productName = escapeHtml(product.name);
+    const productName = escapeHtml(product.name || product.title || 'Product');
     const productCategory = formatCategoryLabel(product.category || 'General');
     const productImage = getSafeImageUrl(product.mainImage || product.image);
     const productDetailUrl = getProductDetailUrl(productId);
+    const productDescription = getProductDescription(product);
     const highlightTag = String(product.highlightTag || '').toLowerCase();
     const highlightLabel = highlightTag === 'featured' ? 'Featured' :
                           highlightTag === 'trending' ? 'Trending' :
                           highlightTag === 'new' ? 'New' : productCategory;
 
     const cardClass = featured ? 'byose-product-card--featured' : '';
-    const description = includeDescription && product.shortDescription ?
-      `<p class="byose-product-description">${escapeHtml(product.shortDescription)}</p>` : '';
+    const description = includeDescription && productDescription
+      ? `<p class="byose-product-description">${escapeHtml(productDescription)}</p>`
+      : '';
 
     const badge = renderBadge(product);
     const discountBadge = renderDiscountBadge(product);
     const pricing = renderPricing(product);
     const inventorySnapshot = getInventorySnapshot(product);
+    const inventoryBadge = getInventoryBadgeModel(inventorySnapshot);
     const canQuickAdd = includeQuickAdd && inventorySnapshot.status !== 'out_of_stock' && inventorySnapshot.status !== 'discontinued';
     const quickAddLabel = inventorySnapshot.available > 0 ? 'Quick Add' : 'Quick Add';
 
@@ -203,7 +271,10 @@ export const ProductCardSystem = (() => {
     if (includeFooter) {
       footer = `
         <div class="byose-product-footer">
-          <span class="byose-product-meta">${highlightLabel}</span>
+          <div class="byose-product-footer-top">
+            <span class="${inventoryBadge.className}">${inventoryBadge.label}</span>
+            <span class="byose-product-meta">${highlightLabel}</span>
+          </div>
           <div class="byose-product-footer-actions">
             ${canQuickAdd ? `
               <button
@@ -247,14 +318,16 @@ export const ProductCardSystem = (() => {
             ${badge}
             ${discountBadge}
           </div>
-          <div class="byose-product-content">
+        </a>
+        <div class="byose-product-content">
+          <a class="byose-product-content-link" href="${escapeHtml(productDetailUrl)}" aria-label="Open ${productName}">
             <span class="byose-product-category">${productCategory}</span>
             <h3 class="byose-product-title">${productName}</h3>
             ${description}
             ${pricing}
-            ${footer}
-          </div>
-        </a>
+          </a>
+          ${footer}
+        </div>
       </article>
     `;
   }
@@ -342,13 +415,35 @@ export const ProductCardSystem = (() => {
     // Update title
     const titleElement = cardElement.querySelector('.byose-product-title');
     if (titleElement) {
-      titleElement.textContent = product.name;
+      titleElement.textContent = product.name || product.title || 'Product';
+    }
+
+    const categoryElement = cardElement.querySelector('.byose-product-category');
+    if (categoryElement) {
+      categoryElement.textContent = formatCategoryLabel(product.category || 'General');
+    }
+
+    const descriptionElement = cardElement.querySelector('.byose-product-description');
+    const nextDescription = getProductDescription(product);
+    if (descriptionElement) {
+      if (nextDescription) {
+        descriptionElement.textContent = nextDescription;
+      } else {
+        descriptionElement.remove();
+      }
     }
 
     // Update pricing
     const pricingElement = cardElement.querySelector('.byose-product-pricing');
     if (pricingElement) {
-      pricingElement.innerHTML = renderPricing(product);
+      pricingElement.outerHTML = renderPricing(product);
+    }
+
+    const stockElement = cardElement.querySelector('.byose-product-stock');
+    if (stockElement) {
+      const inventoryBadge = getInventoryBadgeModel(getInventorySnapshot(product));
+      stockElement.className = inventoryBadge.className;
+      stockElement.textContent = inventoryBadge.label;
     }
 
     // Update badges

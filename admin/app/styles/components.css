@@ -10,26 +10,26 @@
 .panel {
   min-width: 0;
   display: grid;
-  gap: var(--app-space-4);
+  gap: var(--app-space-3);
   align-content: start;
-  padding: var(--app-space-5);
+  padding: 0.92rem;
 }
 
 .panel-header {
   display: grid;
-  gap: 0.3rem;
+  gap: 0.2rem;
 }
 
 .panel-header h2 {
   margin: 0;
-  font-size: 1.06rem;
+  font-size: 0.98rem;
   color: var(--app-heading);
 }
 
 .panel-header p {
-  margin: 0.35rem 0 0;
+  margin: 0.16rem 0 0;
   color: var(--app-muted);
-  font-size: 0.86rem;
+  font-size: 0.78rem;
 }
 
 .panel-body {
@@ -40,11 +40,11 @@
 .stat-card {
   position: relative;
   overflow: hidden;
-  min-height: 152px;
+  min-height: 124px;
   display: grid;
   align-content: start;
-  gap: 0.35rem;
-  padding: var(--app-space-5);
+  gap: 0.24rem;
+  padding: 0.9rem;
 }
 
 .stat-card::after {
@@ -60,19 +60,19 @@
 
 .stat-label {
   color: var(--app-muted);
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   margin: 0;
 }
 
 .stat-value {
-  margin: 0.45rem 0;
+  margin: 0.22rem 0;
   color: var(--app-heading);
-  font-size: 1.45rem;
+  font-size: 1.26rem;
 }
 
 .stat-note {
   color: var(--app-muted);
-  font-size: 0.8rem;
+  font-size: 0.74rem;
   margin: 0;
 }
 

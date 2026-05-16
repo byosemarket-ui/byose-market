@@ -1,70 +1,541 @@
 import { formatCurrency } from "../components/ui.js";
-import { getProducts } from "../services/admin-data.service.js";
-import {
-  CAMPAIGN_GROUP_OPTIONS,
-  CAMPAIGN_SLOT_OPTIONS,
-  CATEGORY_OPTIONS,
-  CATEGORY_INHERITANCE_OPTIONS,
-  CATEGORY_RELATIONSHIP_OPTIONS,
-  COLLECTION_GROUP_OPTIONS,
-  CURRENCY_OPTIONS,
-  DEFAULT_IMAGE,
-  FEATURED_PLACEMENT_OPTIONS,
-  FEATURED_TAG_OPTIONS,
-  FILTER_PRIORITY_OPTIONS,
-  getCategorySubcategoryOptions,
-  HOMEPAGE_GROUP_OPTIONS,
-  HOMEPAGE_PLACEMENT_OPTIONS,
-  LABEL_SUGGESTIONS,
-  ORDERING_MODE_OPTIONS,
-  POSITION_OPTIONS,
-  RECOMMENDATION_GROUP_OPTIONS,
-  RECOMMENDATION_FLOW_OPTIONS,
-  SEARCH_BOOST_OPTIONS,
-  SEASONAL_GROUP_OPTIONS,
-  SHOP_PLACEMENT_OPTIONS,
-  SORTING_STRATEGY_OPTIONS,
-  STATUS_OPTIONS,
-  TAG_SUGGESTIONS,
-  addDraftToken,
-  buildProductFoundation,
-  createDefaultProductDraft,
-  getActivePrice,
-  getCompareAtPrice,
-  getDraftBadgeLabel,
-  getDraftPositionLabel,
-  getDraftStatusLabel,
-  getDraftValue,
-  getDraftVisibilityLabel,
-  getPrimaryImage,
-  removeDraftToken,
-  resolveAdminImage,
-  setDraftValue,
-  updateMerchandisingSurface,
-  updateMerchandisingVisibilityPreset
-} from "./products/product-draft.js";
-import {
-  MEDIA_ACCEPTED_TYPES,
-  MEDIA_MAX_FILE_SIZE_BYTES,
-  MEDIA_MAX_GALLERY_ITEMS,
-  applyMediaSelection,
-  buildMediaCompatibilitySummary,
-  getMediaMetrics,
-  moveGalleryAsset,
-  promoteMediaAssetToMain,
-  removeMediaAsset
-} from "./products/product-media.js";
-import { validateProductDraft } from "./products/product-validation.js";
+import { createProductAndSync, getProducts, updateProductAndSync } from "../services/admin-data.service.js";
 
-let draftState = createDefaultProductDraft();
+const FALLBACK_IMAGE = "../img/logo.png";
+const DRAFT_STORAGE_KEY = "byose-admin-product-draft-v2";
+const PROGRESS_STORAGE_KEY = "byose-admin-product-progress-v2";
+const LOW_STOCK_THRESHOLD = 5;
+const WORKFLOW_RESET_DELAY_MS = 900;
+const CATEGORY_OPTIONS = ["fashion", "electronics", "shoes", "bags", "watches", "phones"];
+const VISIBILITY_OPTIONS = [
+  {
+    value: "home",
+    label: "Home",
+    description: "Show only in homepage merchandising sections."
+  },
+  {
+    value: "shop",
+    label: "Shop",
+    description: "Render only in the shop storefront catalog."
+  },
+  {
+    value: "all",
+    label: "All",
+    description: "Publish to both homepage and shop surfaces."
+  }
+];
+const POSITION_OPTIONS = [
+  {
+    value: "top",
+    label: "Top",
+    description: "Prioritize this product above the rest."
+  },
+  {
+    value: "middle",
+    label: "Middle",
+    description: "Place this product between top and lower items."
+  },
+  {
+    value: "bottom",
+    label: "Bottom",
+    description: "Keep this product lower in the storefront stack."
+  }
+];
+
 let latestProducts = [];
 let latestProductsError = "";
-let uiNotice = {
+let productDraft = readDraft();
+let workflowFeedback = {
   tone: "neutral",
-  message: "STEP 3G turns the Add Product workspace into an enterprise category, classification, and product-organization architecture while backend persistence remains deferred."
+  message: "Create the product foundation, then continue to Product Details to finish the ecommerce listing."
 };
-let mediaUiState = createDefaultMediaUiState();
-let validationState = validateProductDraft(draftState, { existingProducts: [] });
+
+function readJsonStorage(key) {
+  try {
+    const rawValue = window.sessionStorage.getItem(key) || window.localStorage.getItem(key);
+    return rawValue ? JSON.parse(rawValue) : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function writeJsonStorage(key, value) {
+  const serialized = JSON.stringify(value);
+  try {
+    window.sessionStorage.setItem(key, serialized);
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+  try {
+    window.localStorage.setItem(key, serialized);
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+function clearJsonStorage(key) {
+  try {
+    window.sessionStorage.removeItem(key);
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+  try {
+    window.localStorage.removeItem(key);
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+function getProductType(category) {
+  const normalized = String(category || "").toLowerCase();
+  if (normalized === "shoes") {
+    return "shoes";
+  }
+  if (["phones", "electronics", "watches"].includes(normalized)) {
+    return "electronics";
+  }
+  return "fashion";
+}
+
+function getAdaptiveSizeOptions(category) {
+  const productType = getProductType(category);
+  if (productType === "shoes") {
+    return ["38", "39", "40", "41", "42", "43", "44", "45"];
+  }
+  if (productType === "fashion") {
+    return ["XS", "S", "M", "L", "XL", "XXL"];
+  }
+  return [];
+}
+
+function getAdaptiveSpecTemplate(category) {
+  const productType = getProductType(category);
+  if (productType === "shoes") {
+    return [
+      { label: "Upper Material", value: "" },
+      { label: "Sole", value: "" },
+      { label: "Closure", value: "" }
+    ];
+  }
+  if (productType === "electronics") {
+    return [
+      { label: "Model", value: "" },
+      { label: "Storage", value: "" },
+      { label: "Battery", value: "" }
+    ];
+  }
+  return [
+    { label: "Material", value: "" },
+    { label: "Fit", value: "" },
+    { label: "Care", value: "" }
+  ];
+}
+
+function inferColorHex(colorName) {
+  const normalized = String(colorName || "").trim().toLowerCase();
+  const lookup = {
+    black: "#111111",
+    white: "#f5f5f5",
+    red: "#d92d20",
+    blue: "#1d4ed8",
+    green: "#15803d",
+    yellow: "#eab308",
+    pink: "#ec4899",
+    purple: "#7c3aed",
+    brown: "#7c4a21",
+    beige: "#d6c3a5",
+    grey: "#6b7280",
+    gray: "#6b7280",
+    silver: "#c0c0c0",
+    gold: "#d4a017"
+  };
+  return lookup[normalized] || "#111111";
+}
+
+function createDefaultDraft() {
+  return {
+    productId: "",
+    page1: {
+      image: "",
+      productName: "",
+      currentPrice: "",
+      oldPrice: "",
+      stock: "0",
+      category: "fashion",
+      visibility: "all",
+      positioning: "middle"
+    },
+    details: {
+      description: "",
+      gallery: [],
+      colors: [],
+      selectedSizes: [],
+      specRows: getAdaptiveSpecTemplate("fashion"),
+      extraInfo: {
+        warranty: "",
+        delivery: "",
+        material: "",
+        usage: "",
+        extraSpecifications: ""
+      }
+    }
+  };
+}
+
+function sanitizeDraft(input) {
+  const defaults = createDefaultDraft();
+  const draft = input && typeof input === "object" ? input : {};
+  const page1 = draft.page1 && typeof draft.page1 === "object" ? draft.page1 : {};
+  const details = draft.details && typeof draft.details === "object" ? draft.details : {};
+  const extraInfo = details.extraInfo && typeof details.extraInfo === "object" ? details.extraInfo : {};
+  const category = CATEGORY_OPTIONS.includes(String(page1.category || "").toLowerCase())
+    ? String(page1.category).toLowerCase()
+    : defaults.page1.category;
+  const visibility = ["home", "shop", "all"].includes(String(page1.visibility || "").toLowerCase())
+    ? String(page1.visibility).toLowerCase()
+    : defaults.page1.visibility;
+  const positioning = ["top", "middle", "bottom"].includes(String(page1.positioning || "").toLowerCase())
+    ? String(page1.positioning).toLowerCase()
+    : defaults.page1.positioning;
+  const sizeOptions = getAdaptiveSizeOptions(category);
+  const specRows = Array.isArray(details.specRows) && details.specRows.length
+    ? details.specRows.map((entry) => ({
+        label: String(entry?.label || ""),
+        value: String(entry?.value || "")
+      }))
+    : getAdaptiveSpecTemplate(category);
+
+  return {
+    productId: String(draft.productId || ""),
+    page1: {
+      image: String(page1.image || ""),
+      productName: String(page1.productName || ""),
+      currentPrice: String(page1.currentPrice || ""),
+      oldPrice: String(page1.oldPrice || ""),
+      stock: String(Math.max(0, Math.floor(toNumber(page1.stock)))) || "0",
+      category,
+      visibility,
+      positioning
+    },
+    details: {
+      description: String(details.description || ""),
+      gallery: Array.isArray(details.gallery) ? details.gallery.map((entry) => String(entry || "")).filter(Boolean) : [],
+      colors: Array.isArray(details.colors)
+        ? details.colors
+            .map((entry) => ({
+              name: String(entry?.name || "").trim(),
+              hex: String(entry?.hex || inferColorHex(entry?.name)).trim() || inferColorHex(entry?.name)
+            }))
+            .filter((entry) => entry.name)
+        : [],
+      selectedSizes: Array.isArray(details.selectedSizes)
+        ? details.selectedSizes.map((entry) => String(entry || "")).filter((entry) => !sizeOptions.length || sizeOptions.includes(entry))
+        : [],
+      specRows,
+      extraInfo: {
+        warranty: String(extraInfo.warranty || ""),
+        delivery: String(extraInfo.delivery || ""),
+        material: String(extraInfo.material || ""),
+        usage: String(extraInfo.usage || ""),
+        extraSpecifications: String(extraInfo.extraSpecifications || "")
+      }
+    }
+  };
+}
+
+function readDraft() {
+  return sanitizeDraft(readJsonStorage(DRAFT_STORAGE_KEY));
+}
+
+function writeDraft(draft) {
+  writeJsonStorage(DRAFT_STORAGE_KEY, sanitizeDraft(draft));
+}
+
+function writeProgress(progress) {
+  writeJsonStorage(PROGRESS_STORAGE_KEY, progress || {});
+}
+
+function clearProgress() {
+  clearJsonStorage(PROGRESS_STORAGE_KEY);
+}
+
+function buildPage1Payload(draft) {
+  const safeDraft = sanitizeDraft(draft);
+  const price = Number(safeDraft.page1.currentPrice) || 0;
+  const oldPrice = Number(safeDraft.page1.oldPrice) || 0;
+  const stock = Math.max(0, Math.floor(toNumber(safeDraft.page1.stock)));
+  const inventoryStatus = getStockPresentation(stock).status;
+  const positioning = safeDraft.page1.positioning;
+
+  return {
+    name: safeDraft.page1.productName.trim(),
+    title: safeDraft.page1.productName.trim(),
+    price,
+    oldPrice: oldPrice > price ? oldPrice : 0,
+    stock,
+    availableStock: stock,
+    availability: inventoryStatus,
+    inventory: {
+      available: stock,
+      totalAvailable: stock,
+      status: inventoryStatus,
+      lowStockThreshold: LOW_STOCK_THRESHOLD
+    },
+    category: safeDraft.page1.category,
+    visibility: safeDraft.page1.visibility === "all" ? "both" : safeDraft.page1.visibility,
+    priority: positioning === "top" ? "top" : "normal",
+    orderIndex: positioning === "top" ? 300 : positioning === "bottom" ? 100 : 200,
+    mainImage: safeDraft.page1.image || undefined,
+    image: safeDraft.page1.image || undefined,
+    status: "draft"
+  };
+}
+
+function buildLongDescription(description, extraInfo) {
+  const paragraphs = String(description || "")
+    .split(/\n{2,}/)
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean);
+
+  const supplemental = [
+    extraInfo?.material ? `Material: ${String(extraInfo.material).trim()}` : "",
+    extraInfo?.usage ? `Usage: ${String(extraInfo.usage).trim()}` : "",
+    extraInfo?.extraSpecifications ? String(extraInfo.extraSpecifications).trim() : ""
+  ].filter(Boolean);
+
+  const merged = [...paragraphs, ...supplemental];
+  return merged.length ? merged : ["Product details will appear here after the admin adds the detailed description."];
+}
+
+function buildHighlights(extraInfo, activeSpecs) {
+  const highlights = [
+    extraInfo?.material ? `Material: ${String(extraInfo.material).trim()}` : "",
+    extraInfo?.usage ? `Usage: ${String(extraInfo.usage).trim()}` : "",
+    ...activeSpecs.slice(0, 2).map((entry) => `${String(entry.label || "").trim()}: ${String(entry.value || "").trim()}`)
+  ].filter(Boolean);
+
+  return highlights.slice(0, 4);
+}
+
+function buildTrust(extraInfo) {
+  const trust = [
+    extraInfo?.delivery ? `Delivery: ${String(extraInfo.delivery).trim()}` : "",
+    extraInfo?.warranty ? `Warranty: ${String(extraInfo.warranty).trim()}` : ""
+  ].filter(Boolean);
+
+  return trust;
+}
+
+function buildAttributesFromDraft(draft) {
+  const safeDraft = sanitizeDraft(draft);
+  const stock = Math.max(0, Math.floor(toNumber(safeDraft.page1.stock)));
+  const attributes = [];
+
+  if (safeDraft.details.colors.length) {
+    attributes.push({
+      name: "Color",
+      key: "color",
+      axis: "color",
+      type: "color",
+      required: true,
+      options: safeDraft.details.colors.map((color, index) => ({
+        label: color.name,
+        value: color.name,
+        stock,
+        image: index === 0 ? safeDraft.page1.image || safeDraft.details.gallery[0] || "" : "",
+        swatch: color.hex,
+        availability: stock > 0 ? "available" : "out_of_stock",
+        isDefault: index === 0,
+        priceDelta: 0
+      }))
+    });
+  }
+
+  if (safeDraft.details.selectedSizes.length) {
+    attributes.push({
+      name: "Size",
+      key: "size",
+      axis: "size",
+      type: "size",
+      required: true,
+      options: safeDraft.details.selectedSizes.map((size, index) => ({
+        label: size,
+        value: size,
+        stock,
+        availability: stock > 0 ? "available" : "out_of_stock",
+        isDefault: index === 0,
+        priceDelta: 0
+      }))
+    });
+  }
+
+  return attributes;
+}
+
+function normalizeSpecRows(value, category = productDraft.page1.category) {
+  if (!Array.isArray(value) || !value.length) {
+    return getAdaptiveSpecTemplate(category);
+  }
+
+  return value
+    .map((entry) => {
+      if (Array.isArray(entry) && entry.length >= 2) {
+        return {
+          label: String(entry[0] || ""),
+          value: String(entry[1] || "")
+        };
+      }
+
+      if (entry && typeof entry === "object") {
+        return {
+          label: String(entry.label || entry.name || ""),
+          value: String(entry.value || "")
+        };
+      }
+
+      return null;
+    })
+    .filter(Boolean);
+}
+
+function extractDraftColors(product) {
+  const attributes = Array.isArray(product?.attributes) ? product.attributes : [];
+  const colorAttribute = attributes.find((attribute) => {
+    const key = String(attribute?.key || attribute?.name || attribute?.axis || "").toLowerCase();
+    const type = String(attribute?.type || attribute?.axis || "").toLowerCase();
+    return key === "color" || type === "color";
+  });
+
+  if (!colorAttribute || !Array.isArray(colorAttribute.options)) {
+    return [];
+  }
+
+  return colorAttribute.options
+    .map((option) => ({
+      name: String(option?.label || option?.value || "").trim(),
+      hex: String(option?.swatch || option?.hex || inferColorHex(option?.label || option?.value)).trim() || inferColorHex(option?.label || option?.value)
+    }))
+    .filter((entry) => entry.name);
+}
+
+function extractDraftSizes(product) {
+  const attributes = Array.isArray(product?.attributes) ? product.attributes : [];
+  const sizeAttribute = attributes.find((attribute) => {
+    const key = String(attribute?.key || attribute?.name || attribute?.axis || "").toLowerCase();
+    const type = String(attribute?.type || attribute?.axis || "").toLowerCase();
+    return key === "size" || type === "size";
+  });
+
+  if (!sizeAttribute || !Array.isArray(sizeAttribute.options)) {
+    return [];
+  }
+
+  return sizeAttribute.options
+    .map((option) => String(option?.value || option?.label || "").trim())
+    .filter(Boolean);
+}
+
+function getPositioningValue(product) {
+  if (String(product?.priority || "").toLowerCase() === "top") {
+    return "top";
+  }
+
+  const orderIndex = toNumber(product?.orderIndex);
+  if (orderIndex > 0 && orderIndex <= 100) {
+    return "bottom";
+  }
+
+  return "middle";
+}
+
+function hydrateDraftFromProduct(product) {
+  if (!product || typeof product !== "object") {
+    return productDraft;
+  }
+
+  const currentDraft = sanitizeDraft(productDraft);
+  const activeSpecs = normalizeSpecRows(product.specs, product.category || currentDraft.page1.category);
+  const gallery = Array.isArray(product.gallery)
+    ? product.gallery.filter((image) => String(image || "").trim() && String(image || "").trim() !== String(product.mainImage || product.image || "").trim())
+    : [];
+
+  return sanitizeDraft({
+    ...currentDraft,
+    productId: String(product.id || product.catalogId || currentDraft.productId || ""),
+    page1: {
+      ...currentDraft.page1,
+      image: String(product.mainImage || product.image || currentDraft.page1.image || ""),
+      productName: String(product.name || product.title || currentDraft.page1.productName || ""),
+      currentPrice: String(toNumber(product.price || currentDraft.page1.currentPrice)),
+      oldPrice: String(toNumber(product.oldPrice || currentDraft.page1.oldPrice)),
+      stock: String(Math.max(0, Math.floor(toNumber(product.stock ?? currentDraft.page1.stock)))),
+      category: String(product.category || currentDraft.page1.category || "fashion").toLowerCase(),
+      visibility: String(product.visibility || currentDraft.page1.visibility || "all").toLowerCase() === "both"
+        ? "all"
+        : String(product.visibility || currentDraft.page1.visibility || "all").toLowerCase(),
+      positioning: getPositioningValue(product)
+    },
+    details: {
+      ...currentDraft.details,
+      description: String(product.description || product.shortDescription || currentDraft.details.description || ""),
+      gallery,
+      colors: extractDraftColors(product),
+      selectedSizes: extractDraftSizes(product),
+      specRows: activeSpecs,
+      extraInfo: {
+        ...currentDraft.details.extraInfo,
+        ...(product.extraInfo && typeof product.extraInfo === "object" ? product.extraInfo : {})
+      }
+    }
+  });
+}
+
+function buildDetailsPayload(draft) {
+  const safeDraft = sanitizeDraft(draft);
+  const page1Payload = buildPage1Payload(safeDraft);
+  const activeSpecs = safeDraft.details.specRows.filter((entry) => String(entry.label || "").trim() && String(entry.value || "").trim());
+  const attributes = buildAttributesFromDraft(safeDraft);
+  const longDescription = buildLongDescription(safeDraft.details.description, safeDraft.details.extraInfo);
+  const highlights = buildHighlights(safeDraft.details.extraInfo, activeSpecs);
+  const trust = buildTrust(safeDraft.details.extraInfo);
+
+  return {
+    ...page1Payload,
+    description: safeDraft.details.description.trim(),
+    shortDescription: safeDraft.details.description.trim(),
+    longDescription,
+    gallery: safeDraft.details.gallery,
+    highlights,
+    trust,
+    specs: activeSpecs,
+    attributes,
+    variants: {
+      enabled: attributes.length > 0,
+      optionMode: attributes.length > 0 ? "structured" : "simple",
+      imagePerColor: attributes.some((attribute) => String(attribute.type || "").toLowerCase() === "color"),
+      pricingPerVariant: false,
+      inventoryReady: true,
+      skuPerVariant: false,
+      groups: attributes.reduce((result, attribute) => {
+        const key = String(attribute.key || attribute.name || "option").toLowerCase();
+        result[key] = {
+          enabled: true,
+          label: attribute.name,
+          type: attribute.type,
+          required: attribute.required !== false,
+          optionTokens: Array.isArray(attribute.options)
+            ? attribute.options.map((option) => [option.label || option.value, option.value, option.swatch, option.image].filter(Boolean).join("|"))
+            : []
+        };
+        return result;
+      }, {})
+    },
+    extraInfo: {
+      ...safeDraft.details.extraInfo
+    },
+    status: "active"
+  };
+}
 
 function escapeHtml(value) {
   return String(value || "")
@@ -75,8 +546,18 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function slugToLabel(value) {
-  return String(value || "general")
+function toNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toLabel(value, fallback = "General") {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return fallback;
+  }
+
+  return normalized
     .replace(/[-_]+/g, " ")
     .replace(/(^\w|\s\w)/g, (match) => match.toUpperCase());
 }
@@ -91,784 +572,823 @@ function getProductsView() {
   return parseHashParams().get("view") === "create" ? "create" : "overview";
 }
 
-function formatBytes(size) {
-  const bytes = Number(size || 0);
-  if (!bytes) {
-    return "0 KB";
-  }
-
-  if (bytes >= 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
-  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+function getCreateStep() {
+  return parseHashParams().get("step") === "details" ? "details" : "basics";
 }
 
-function createDefaultMediaUiState() {
+function getRouteProductId() {
+  return String(parseHashParams().get("productId") || productDraft.productId || "").trim();
+}
+
+function setWorkflowFeedback(tone, message) {
+  workflowFeedback = { tone, message };
+}
+
+function persistDraft() {
+  writeDraft(productDraft);
+}
+
+function clearPersistedDraft() {
+  clearJsonStorage(DRAFT_STORAGE_KEY);
+}
+
+function resetProductCreationState(successMessage) {
+  productDraft = createDefaultDraft();
+  clearPersistedDraft();
+  clearProgress();
+  setWorkflowFeedback(
+    "success",
+    successMessage || "Product saved successfully. The workflow has been reset and Page 1 is ready for a new product."
+  );
+}
+
+function transitionToFreshProductWorkflow(container, successMessage) {
+  if (container) {
+    container.classList.add("products-workflow-resetting");
+  }
+
+  window.setTimeout(() => {
+    resetProductCreationState(successMessage);
+    window.location.hash = getCreateBasicsHash();
+
+    if (container && container.isConnected) {
+      container.classList.remove("products-workflow-resetting");
+      rerenderCreateWorkspace(container);
+    }
+
+    if (typeof window.scrollTo === "function") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, WORKFLOW_RESET_DELAY_MS);
+}
+
+function syncAdaptiveDetails(previousCategory, nextCategory) {
+  if (previousCategory === nextCategory) {
+    return;
+  }
+
+  const previousType = getProductType(previousCategory);
+  const nextType = getProductType(nextCategory);
+  const sizeOptions = getAdaptiveSizeOptions(nextCategory);
+
+  productDraft.details.selectedSizes = productDraft.details.selectedSizes.filter((size) => !sizeOptions.length || sizeOptions.includes(size));
+
+  if (previousType !== nextType) {
+    productDraft.details.specRows = getAdaptiveSpecTemplate(nextCategory);
+    if (!sizeOptions.length) {
+      productDraft.details.selectedSizes = [];
+    }
+  }
+}
+
+function resolveProductImage(source) {
+  const value = String(source || "").trim();
+  if (!value) {
+    return FALLBACK_IMAGE;
+  }
+
+  if (/^(?:https?:|data:|blob:|\/)/i.test(value)) {
+    return value;
+  }
+
+  if (value.startsWith("../") || value.startsWith("./")) {
+    return value;
+  }
+
+  return `../${value.replace(/^\.\//, "")}`;
+}
+
+function getCurrentPrice() {
+  return toNumber(productDraft.page1.currentPrice);
+}
+
+function getOldPrice() {
+  return toNumber(productDraft.page1.oldPrice);
+}
+
+function getDiscountPercentage() {
+  const currentPrice = getCurrentPrice();
+  const oldPrice = getOldPrice();
+  if (currentPrice <= 0 || oldPrice <= currentPrice) {
+    return 0;
+  }
+
+  return Math.round(((oldPrice - currentPrice) / oldPrice) * 100);
+}
+
+function getStockQuantity(value = productDraft.page1.stock) {
+  return Math.max(0, Math.floor(toNumber(value)));
+}
+
+function getStockPresentation(quantity = getStockQuantity()) {
+  const available = Math.max(0, Math.floor(toNumber(quantity)));
+
+  if (available <= 0) {
+    return {
+      available,
+      status: "out_of_stock",
+      tone: "empty",
+      label: "Out of Stock",
+      detail: "No units available. Storefront cards will disable quick add automatically."
+    };
+  }
+
+  if (available <= LOW_STOCK_THRESHOLD) {
+    return {
+      available,
+      status: "low_stock",
+      tone: "low",
+      label: "Low Stock",
+      detail: `${available} unit${available === 1 ? "" : "s"} remaining. Storefront cards will surface a low stock warning.`
+    };
+  }
+
   return {
-    phase: "idle",
-    target: "",
-    tone: "neutral",
-    message: `Supports ${MEDIA_ACCEPTED_TYPES.map((type) => type.replace("image/", "").toUpperCase()).join(", ")} up to ${formatBytes(MEDIA_MAX_FILE_SIZE_BYTES)} each.`,
-    issues: []
+    available,
+    status: "in_stock",
+    tone: "healthy",
+    label: "In Stock",
+    detail: `${available} units available. Storefront cards will render a healthy inventory state.`
   };
 }
 
-function setUiNotice(message, tone = "neutral") {
-  uiNotice = { tone, message };
-}
-
-function setMediaUiState(nextState) {
-  mediaUiState = {
-    ...createDefaultMediaUiState(),
-    ...mediaUiState,
-    ...nextState
-  };
-}
-
-function recomputeValidation() {
-  validationState = validateProductDraft(draftState, { existingProducts: latestProducts });
-}
-
-function getFieldIssue(path) {
-  if (validationState.errors[path]) {
-    return { tone: "error", message: validationState.errors[path] };
+function getVisibilityLabel(value = productDraft.page1.visibility) {
+  if (value === "home") {
+    return "Home";
   }
-
-  if (validationState.warnings[path]) {
-    return { tone: "warning", message: validationState.warnings[path] };
+  if (value === "shop") {
+    return "Shop";
   }
-
-  return { tone: "default", message: "" };
+  return "All";
 }
 
-function getFieldHint(path, fallbackMessage) {
-  const issue = getFieldIssue(path);
-  return issue.message || fallbackMessage;
+function getPositioningLabel(value = productDraft.page1.positioning) {
+  if (value === "top") {
+    return "Top priority";
+  }
+  if (value === "bottom") {
+    return "Bottom priority";
+  }
+  return "Middle priority";
 }
 
-function getFieldClass(path, baseClass = "editor-field") {
-  const issue = getFieldIssue(path);
-  if (issue.tone === "error") {
-    return `${baseClass} is-invalid`;
-  }
-
-  if (issue.tone === "warning") {
-    return `${baseClass} is-warning`;
-  }
-
-  const value = getDraftValue(draftState, path);
-  const hasValue = Array.isArray(value) ? value.length > 0 : Boolean(String(value || "").trim());
-  return hasValue ? `${baseClass} is-valid` : baseClass;
+function getDetailsHash(productId) {
+  return `#/products?view=create&step=details&productId=${encodeURIComponent(String(productId || ""))}`;
 }
 
-function buildChoiceCards(field, selectedValue, options) {
+function getCreateBasicsHash() {
+  return "#/products?view=create";
+}
+
+function buildSelectionCards(name, options, currentValue) {
   return options.map((option) => `
-    <label class="editor-choice-card${option.value === selectedValue ? " is-selected" : ""}">
-      <input type="radio" name="${field}" value="${option.value}" data-field="${field}" ${option.value === selectedValue ? "checked" : ""}>
-      <strong>${escapeHtml(option.label)}</strong>
-      <span>${escapeHtml(option.description)}</span>
+    <label class="products-choice-card${option.value === currentValue ? " is-selected" : ""}">
+      <input class="products-choice-card__input" type="radio" name="${escapeHtml(name)}" value="${escapeHtml(option.value)}" ${option.value === currentValue ? "checked" : ""}>
+      <span class="products-choice-card__content">
+        <strong>${escapeHtml(option.label)}</strong>
+        <span>${escapeHtml(option.description)}</span>
+      </span>
     </label>
   `).join("");
 }
 
-const VARIANT_GROUP_TYPE_OPTIONS = [
-  { value: "color", label: "Color", description: "Visual palette and swatch-first option rendering." },
-  { value: "size", label: "Size", description: "Size scale, fit groups, and sizing buttons." },
-  { value: "text", label: "Text", description: "Plain textual option buttons for general attributes." },
-  { value: "image", label: "Image", description: "Image-led option cards for future gallery-linked variants." }
-];
-
-function buildVariantGroupMarkup(groupKey, groupTitle, groupDescription, suggestionValues = []) {
-  const groupPath = `variants.groups.${groupKey}`;
-  const enabled = Boolean(getDraftValue(draftState, `${groupPath}.enabled`));
-  const labelValue = getDraftValue(draftState, `${groupPath}.label`) || groupTitle;
-  const typeValue = getDraftValue(draftState, `${groupPath}.type`) || (groupKey === "color" ? "color" : groupKey === "size" ? "size" : "text");
-  const requiredValue = Boolean(getDraftValue(draftState, `${groupPath}.required`) ?? true);
-
-  return `
-    <article class="editor-subsection editor-variant-group${enabled ? " is-active" : ""}">
-      <div class="editor-subsection-heading editor-subsection-heading--split">
-        <div>
-          <h4>${escapeHtml(groupTitle)}</h4>
-          <p>${escapeHtml(groupDescription)}</p>
-        </div>
-        <label class="editor-toggle-pill">
-          <input type="checkbox" data-field="${groupPath}.enabled" ${enabled ? "checked" : ""}>
-          <span>Enable</span>
-        </label>
-      </div>
-      <div class="products-form-grid products-form-grid--compact">
-        <label class="${getFieldClass(`${groupPath}.label`)}">
-          <span>Group Label</span>
-          <input type="text" data-field="${groupPath}.label" value="${escapeHtml(labelValue)}" placeholder="${escapeHtml(groupTitle)}">
-        </label>
-        <label class="${getFieldClass(`${groupPath}.type`)}">
-          <span>Option Type</span>
-          <select data-field="${groupPath}.type">
-            ${VARIANT_GROUP_TYPE_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}" ${String(typeValue) === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-          </select>
-        </label>
-        <label class="editor-toggle-pill ${getFieldClass(`${groupPath}.required`, "editor-field editor-field--checkbox")}">
-          <input type="checkbox" data-field="${groupPath}.required" ${requiredValue ? "checked" : ""}>
-          <span>Required selection</span>
-        </label>
-      </div>
-      <div class="editor-tag-input-row">
-        <input type="text" data-token-input="${groupPath}.optionTokens" placeholder="Label|value|#hex or Label|value">
-        <button type="button" class="products-secondary-link" data-add-token="${groupPath}.optionTokens">Add option</button>
-      </div>
-      <div class="editor-suggestion-list">
-        ${suggestionValues.map((token) => `<button type="button" class="editor-suggestion-chip" data-token-suggestion="${groupPath}.optionTokens" data-token-value="${escapeHtml(token)}">${escapeHtml(splitVariantTokenPreview(token))}</button>`).join("")}
-      </div>
-      <div class="editor-tag-list" data-token-list="${groupPath}.optionTokens">${buildTokenMarkup(`${groupPath}.optionTokens`, `No ${groupTitle.toLowerCase()} options staged yet. Add structured options to prepare the storefront foundation.`)}</div>
-      <small class="editor-field-message" data-field-message="${groupPath}.optionTokens">${escapeHtml(getFieldHint(`${groupPath}.optionTokens`, `Use structured token values so the storefront can derive labels, values, swatches, and future inventory-compatible option data.`))}</small>
-    </article>
-  `;
-}
-
-function splitVariantTokenPreview(token) {
-  const parts = String(token || "").split("|").map((entry) => String(entry || "").trim()).filter(Boolean);
-  return parts[0] || token;
-}
-
-function buildVariantFoundationMarkup() {
-  const foundation = validationState.foundation;
-  const variants = foundation.variants || {};
-  const enabled = Boolean(variants.enabled);
-  const variantGroups = variants.groups || {};
-  const activeGroupCount = Object.values(variantGroups).filter((group) => Boolean(group?.enabled)).length;
-  const activeOptionCount = (foundation.futurePayload.attributes || []).reduce((sum, attribute) => sum + (Array.isArray(attribute.options) ? attribute.options.length : 0), 0);
-
-  return `
-    <section class="editor-section-card">
-      <div class="editor-section-heading editor-section-heading--split">
-        <div>
-          <h3>Product Variant Foundation</h3>
-          <p>Build color, size, and future option-group scaffolding with clean rendering tokens that can later power inventory, SKU, and availability layers.</p>
-        </div>
-        <label class="editor-toggle-pill">
-          <input type="checkbox" data-field="variants.enabled" ${enabled ? "checked" : ""}>
-          <span>Enable variant foundation</span>
-        </label>
-      </div>
-      <div class="editor-variant-summary-grid">
-        <article class="editor-variant-summary-card">
-          <span>Enabled groups</span>
-          <strong>${escapeHtml(String(activeGroupCount))}</strong>
-          <small>Structured groups prepared for future selection UI.</small>
-        </article>
-        <article class="editor-variant-summary-card">
-          <span>Rendered attributes</span>
-          <strong>${escapeHtml(String(activeOptionCount))}</strong>
-          <small>Normalized option records ready for the storefront contract.</small>
-        </article>
-        <article class="editor-variant-summary-card">
-          <span>Variant readiness</span>
-          <strong>${escapeHtml(foundation.readiness.supportsVariants ? "Prepared" : "Pending")}</strong>
-          <small>Future inventory and pricing hooks remain intentionally deferred.</small>
-        </article>
-      </div>
-      ${buildVariantGroupMarkup("color", "Color Variants", "Premium swatch-led color rendering for detail pages, cards, and future image-per-color switching.", ["Black|black|#111111", "White|white|#f7f7f7", "Emerald|emerald|#00b894", "Sand|sand|#e9dcc8"])}
-      ${buildVariantGroupMarkup("size", "Size Variants", "Scalable size buttons for apparel, footwear, and future custom sizing systems.", ["XS|xs", "S|s", "M|m", "L|l", "XL|xl"])}
-      ${buildVariantGroupMarkup("style", "Style / Material Variants", "An expandable text-based option group for materials, fits, or future style families.", ["Classic|classic", "Regular|regular", "Premium|premium", "Relaxed|relaxed"])}
-    </section>
-  `;
-}
-
-function buildVisibilityPresetMarkup() {
-  const visibility = validationState.foundation.merchandising.visibility;
-  const presets = [
-    { value: "both", label: "Show Everywhere", description: "Render on Home and Shop." },
-    { value: "home", label: "Home only", description: "Keep the product exclusive to homepage storytelling." },
-    { value: "shop", label: "Shop only", description: "Limit the product to catalog and category browsing." },
-    { value: "hidden", label: "Hide all surfaces", description: "Reserve the product for hidden or pre-publish workflows." }
-  ];
-
-  return presets.map((preset) => `
-    <label class="editor-segmented-option${preset.value === visibility ? " is-active" : ""}" data-visibility-preset-option data-preset-value="${preset.value}">
-      <input type="radio" name="merchandising-visibility" value="${preset.value}" data-field="merchandising.visibility" ${preset.value === visibility ? "checked" : ""}>
-      <strong>${escapeHtml(preset.label)}</strong>
-      <span>${escapeHtml(preset.description)}</span>
-    </label>
-  `).join("");
-}
-
-function buildSurfaceToggleMarkup() {
-  const foundation = validationState.foundation;
-  const surfaces = foundation.merchandising.surfaces || { home: true, shop: true };
-  const items = [
-    {
-      path: "merchandising.surfaces.home",
-      label: "Show in Home",
-      description: "Homepage spotlight rows, featured storytelling, and premium hero merchandising.",
-      enabled: Boolean(surfaces.home)
-    },
-    {
-      path: "merchandising.surfaces.shop",
-      label: "Show in Shop",
-      description: "Shop grid cards, category pages, filter results, and browsing discovery.",
-      enabled: Boolean(surfaces.shop)
-    }
-  ];
-
-  return items.map((item) => `
-    <label class="editor-surface-toggle${item.enabled ? " is-active" : ""}">
-      <input type="checkbox" data-field="${item.path}" ${item.enabled ? "checked" : ""}>
-      <div>
-        <strong>${escapeHtml(item.label)}</strong>
-        <span>${escapeHtml(item.description)}</span>
-      </div>
-    </label>
-  `).join("");
-}
-
-function buildMerchandisingSummaryMarkup() {
-  const foundation = validationState.foundation;
-  const merchandising = foundation.merchandising;
-  const cards = [
-    {
-      label: "Publishing",
-      value: merchandising.labels.status,
-      detail: foundation.workflow.isScheduled
-        ? merchandising.scheduleAt || "Waiting for schedule"
-        : foundation.workflow.isPublished
-          ? "Ready for storefront release"
-          : foundation.workflow.isHidden
-            ? "Storefront hidden"
-            : "Internal draft"
-    },
-    {
-      label: "Surface scope",
-      value: merchandising.labels.visibility,
-      detail: foundation.rendering.showEverywhere
-        ? "Home, Shop, category, and search ready"
-        : foundation.rendering.showInHome
-          ? "Homepage-focused placement"
-          : foundation.rendering.showInShop
-            ? "Shop and browse-focused placement"
-            : "Hidden until visibility is restored"
-    },
-    {
-      label: "Featured treatment",
-      value: merchandising.labels.featuredTag,
-      detail: foundation.rendering.featuredPlacement
-        ? "Prepared for spotlight and promoted sections"
-        : "Standard catalog treatment"
-    },
-    {
-      label: "Ordering",
-      value: `${merchandising.labels.position} / ${merchandising.labels.orderingMode}`,
-      detail: `Derived order index ${foundation.futurePayload.orderIndex} • score ${foundation.rendering.merchandisingScore || 0}`
-    }
-  ];
-
-  return `
-    <div class="editor-merch-summary-grid">
-      ${cards.map((card) => `
-        <article class="editor-merch-summary-card">
-          <span>${escapeHtml(card.label)}</span>
-          <strong>${escapeHtml(card.value)}</strong>
-          <small>${escapeHtml(card.detail)}</small>
-        </article>
-      `).join("")}
-    </div>
-  `;
-}
-
-function formatOrderIndicator(value, fallbackLabel = "Auto") {
-  const sequence = Number(value || 0);
-  return sequence > 0 ? `#${sequence}` : fallbackLabel;
-}
-
-function buildPositioningEngineMarkup() {
-  const foundation = validationState.foundation;
-  const positioning = foundation.merchandising.positioning;
-  const cards = [
-    {
-      label: "Merchandising score",
-      value: String(positioning.ranking.merchandisingScore || 0),
-      detail: `${positioning.labels.sortStrategy} priority foundation`
-    },
-    {
-      label: "Homepage sequence",
-      value: `${positioning.labels.homePlacement} ${formatOrderIndicator(positioning.homeOrder, "Auto")}`,
-      detail: `Weight ${positioning.ranking.homeWeight}`
-    },
-    {
-      label: "Shop sequence",
-      value: `${positioning.labels.shopPlacement} ${formatOrderIndicator(positioning.shopOrder, "Auto")}`,
-      detail: `Weight ${positioning.ranking.shopWeight}`
-    },
-    {
-      label: "Featured sequence",
-      value: `${positioning.labels.featuredPlacement} ${formatOrderIndicator(positioning.featuredOrder, "Off")}`,
-      detail: `Weight ${positioning.ranking.featuredWeight}`
-    },
-    {
-      label: "Category order",
-      value: formatOrderIndicator(positioning.categoryOrder, "Auto"),
-      detail: `Weight ${positioning.ranking.categoryWeight}`
-    },
-    {
-      label: "Recommendation flow",
-      value: positioning.labels.recommendationFlow,
-      detail: `${formatOrderIndicator(positioning.recommendationOrder, "Auto")} • weight ${positioning.ranking.recommendationWeight}`
-    }
-  ];
-
-  return `
-    <div class="editor-positioning-grid">
-      ${cards.map((card) => `
-        <article class="editor-positioning-card">
-          <span>${escapeHtml(card.label)}</span>
-          <strong>${escapeHtml(card.value)}</strong>
-          <small>${escapeHtml(card.detail)}</small>
-        </article>
-      `).join("")}
-    </div>
-  `;
-}
-
-function buildSubcategorySelectMarkup(primaryCategory, selectedSubcategory) {
-  const options = getCategorySubcategoryOptions(primaryCategory);
-  if (!options.length) {
-    return `<option value="">No mapped subcategories yet</option>`;
+function buildGalleryCards() {
+  if (!productDraft.details.gallery.length) {
+    return `<div class="products-empty-card">Upload additional product images to build the gallery preview.</div>`;
   }
 
-  return [`<option value="">Select subcategory</option>`, ...options.map((option) => (
-    `<option value="${escapeHtml(option.value)}" ${option.value === selectedSubcategory ? "selected" : ""}>${escapeHtml(option.label)}</option>`
-  ))].join("");
-}
-
-function buildClassificationArchitectureMarkup() {
-  const classification = validationState.foundation.classification;
-  const cards = [
-    {
-      label: "Primary category",
-      value: classification.optionLabels.primaryCategory,
-      detail: classification.subcategory
-        ? `Subcategory ${slugToLabel(classification.subcategory)}`
-        : "Subcategory not selected"
-    },
-    {
-      label: "Relationship",
-      value: classification.labels.relationship,
-      detail: `${classification.categoryTree.secondary.length} secondary categor${classification.categoryTree.secondary.length === 1 ? "y" : "ies"}`
-    },
-    {
-      label: "Inheritance",
-      value: classification.labels.inheritance,
-      detail: `${classification.search.filterTokens.length} derived filter tokens`
-    },
-    {
-      label: "Collection architecture",
-      value: classification.labels.collectionGroup,
-      detail: `${classification.labels.seasonalGroup} / ${classification.labels.campaignGroup}`
-    }
-  ];
-
-  return `
-    <div class="editor-classification-grid">
-      ${cards.map((card) => `
-        <article class="editor-classification-card">
-          <span>${escapeHtml(card.label)}</span>
-          <strong>${escapeHtml(card.value)}</strong>
-          <small>${escapeHtml(card.detail)}</small>
-        </article>
-      `).join("")}
-    </div>
-  `;
-}
-
-function buildOrganizationArchitectureMarkup() {
-  const classification = validationState.foundation.classification;
-  const cards = [
-    {
-      label: "Homepage group",
-      value: classification.labels.homepageGroup,
-      detail: classification.rendering.homeCategory
-    },
-    {
-      label: "Recommendation group",
-      value: classification.labels.recommendationGroup,
-      detail: classification.grouping.recommendationGroup
-    },
-    {
-      label: "Search weighting",
-      value: classification.labels.searchBoost,
-      detail: classification.labels.filterPriority
-    },
-    {
-      label: "Category path",
-      value: classification.rendering.categoryPagePath,
-      detail: `${classification.categoryTree.all.length} navigable category token${classification.categoryTree.all.length === 1 ? "" : "s"}`
-    }
-  ];
-
-  return `
-    <div class="editor-classification-grid editor-classification-grid--tight">
-      ${cards.map((card) => `
-        <article class="editor-classification-card">
-          <span>${escapeHtml(card.label)}</span>
-          <strong>${escapeHtml(slugToLabel(card.value))}</strong>
-          <small>${escapeHtml(slugToLabel(card.detail))}</small>
-        </article>
-      `).join("")}
-    </div>
-  `;
-}
-
-function buildTokenMarkup(path, emptyMessage) {
-  const values = Array.isArray(getDraftValue(draftState, path)) ? getDraftValue(draftState, path) : [];
-  if (!values.length) {
-    return `<div class="editor-tags-empty">${escapeHtml(emptyMessage)}</div>`;
-  }
-
-  return values.map((value) => `
-    <span class="editor-tag-chip">
-      ${escapeHtml(value)}
-      <button type="button" data-remove-token="${escapeHtml(path)}" data-token-value="${escapeHtml(value)}" aria-label="Remove ${escapeHtml(value)}">×</button>
-    </span>
-  `).join("");
-}
-
-function buildMediaIssuesMarkup() {
-  if (!mediaUiState.issues.length) {
-    return `
-      <div class="editor-media-feedback editor-media-feedback--${escapeHtml(mediaUiState.tone)}">
-        <strong>Media workspace status</strong>
-        <p>${escapeHtml(mediaUiState.message)}</p>
+  return productDraft.details.gallery.map((image, index) => `
+    <article class="products-gallery-card">
+      <div class="products-gallery-card__media">
+        <img src="${escapeHtml(resolveProductImage(image))}" alt="Gallery image ${index + 1}">
       </div>
-    `;
-  }
-
-  return `
-    <div class="editor-media-feedback editor-media-feedback--${escapeHtml(mediaUiState.tone)}">
-      <strong>${escapeHtml(mediaUiState.message)}</strong>
-      <ul class="editor-media-issue-list">
-        ${mediaUiState.issues.map((issue) => `
-          <li class="editor-media-issue editor-media-issue--${escapeHtml(issue.tone || "error")}">
-            <span class="editor-media-issue__tone">${escapeHtml(issue.tone === "warning" ? "Advisory" : "Blocked")}</span>
-            <div>
-              <strong>${escapeHtml(issue.fileName || "Media file")}</strong>
-              <p>${escapeHtml(issue.message || "This file could not be staged.")}</p>
-            </div>
-          </li>
-        `).join("")}
-      </ul>
-    </div>
-  `;
-}
-
-function buildMediaManagementMarkup() {
-  const metrics = getMediaMetrics(draftState);
-  const compatibility = buildMediaCompatibilitySummary(draftState);
-
-  return `
-    <div class="editor-media-management-grid">
-      <article class="editor-media-stat-card">
-        <span>Featured image</span>
-        <strong>${metrics.hasMainImage ? "Ready" : "Required"}</strong>
-        <small>${metrics.hasMainImage ? "Prepared for cards, search, and detail hero rendering." : "Stage one featured image to unlock storefront-safe rendering."}</small>
-      </article>
-      <article class="editor-media-stat-card">
-        <span>Gallery staged</span>
-        <strong>${escapeHtml(String(metrics.galleryCount))} / ${escapeHtml(String(MEDIA_MAX_GALLERY_ITEMS))}</strong>
-        <small>${escapeHtml(String(metrics.remainingGallerySlots))} additional gallery slot${metrics.remainingGallerySlots === 1 ? "" : "s"} available.</small>
-      </article>
-      <article class="editor-media-stat-card">
-        <span>Total media weight</span>
-        <strong>${escapeHtml(formatBytes(metrics.totalBytes))}</strong>
-        <small>Local preview footprint only. Cloud optimization is intentionally deferred.</small>
-      </article>
-      <article class="editor-media-stat-card">
-        <span>Compatibility</span>
-        <strong>${compatibility.detailReady ? "Ready" : "In progress"}</strong>
-        <small>${compatibility.galleryReady ? "Prepared for future detail galleries and thumbnails." : "Gallery foundations remain optional until additional images are staged."}</small>
-      </article>
-    </div>
-  `;
-}
-
-function buildGalleryFoundationPreviewMarkup() {
-  const images = [draftState.media.mainImage, ...(draftState.media.gallery || [])].filter(Boolean);
-  if (!images.length) {
-    return `
-      <article class="product-preview-card product-preview-card--detail">
-        <p class="product-preview-eyebrow">Gallery Foundation Preview</p>
-        <div class="products-empty-card">Stage a featured image or gallery images to preview future detail-gallery behavior.</div>
-      </article>
-    `;
-  }
-
-  return `
-    <article class="product-preview-card product-preview-card--detail">
-      <p class="product-preview-eyebrow">Gallery Foundation Preview</p>
-      <div class="editor-gallery-foundation-stage">
-        <img src="${escapeHtml(resolveAdminImage(images[0].src))}" alt="Gallery foundation primary image">
-      </div>
-      <div class="editor-gallery-foundation-strip">
-        ${images.slice(0, 4).map((image, index) => `
-          <div class="editor-gallery-foundation-thumb${index === 0 ? " is-active" : ""}">
-            <img src="${escapeHtml(resolveAdminImage(image.src))}" alt="Gallery foundation thumbnail ${index + 1}">
-          </div>
-        `).join("")}
+      <div class="products-gallery-card__meta">
+        <strong>Gallery image ${index + 1}</strong>
+        <button class="products-remove-button products-remove-button--compact" type="button" data-gallery-remove-index="${index}">Remove</button>
       </div>
     </article>
-  `;
+  `).join("");
 }
 
-function buildMainImageStage() {
-  const mainImage = draftState.media.mainImage;
-  const metrics = getMediaMetrics(draftState);
-  if (!mainImage) {
-    return `
-      <div class="editor-main-image-empty">
-        <strong>Main image preview</strong>
-        <span>${escapeHtml(getFieldHint("media.mainImage", "Drop a hero image here to validate crop safety across admin, home, shop, and detail previews."))}</span>
-        <small>${escapeHtml(metrics.galleryCount ? `A gallery is already staged. Promote the best image to featured if needed.` : `Use one high-quality image for cards and add gallery assets for future detail experiences.`)}</small>
-      </div>
-    `;
+function buildColorChips() {
+  if (!productDraft.details.colors.length) {
+    return `<div class="products-empty-card">Add colors such as Black, White, Red, Blue, or Green to prepare color-based selling options.</div>`;
   }
+
+  return productDraft.details.colors.map((color, index) => `
+    <article class="products-color-chip">
+      <span class="products-color-chip__swatch" style="background:${escapeHtml(color.hex)}"></span>
+      <strong>${escapeHtml(color.name)}</strong>
+      <button type="button" data-color-remove-index="${index}" aria-label="Remove ${escapeHtml(color.name)}">×</button>
+    </article>
+  `).join("");
+}
+
+function buildAdaptiveControls() {
+  const sizeOptions = getAdaptiveSizeOptions(productDraft.page1.category);
+  const productType = getProductType(productDraft.page1.category);
 
   return `
-    <div class="editor-main-image-preview-card">
-      <img src="${escapeHtml(resolveAdminImage(mainImage.src))}" alt="Main product preview">
-      <div class="editor-main-image-preview-meta">
-        <div>
-          <strong>${escapeHtml(mainImage.name || "Featured image")}</strong>
-          <small>Used for Home, Shop, Search, Featured rows, and detail hero rendering.</small>
-        </div>
-        <div class="editor-media-pill-row">
-          <span class="editor-media-pill editor-media-pill--success">Ready</span>
-          <span class="editor-media-pill">${escapeHtml(formatBytes(mainImage.size))}</span>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function buildGalleryMarkup() {
-  if (!draftState.media.gallery.length) {
-    return `<div class="editor-gallery-empty">${escapeHtml(getFieldHint("media.gallery", "Gallery images will appear here as responsive preview cards. Gallery persistence remains deferred after STEP 3D."))}</div>`;
-  }
-
-  return draftState.media.gallery.map((image, index) => `
-    <article class="editor-gallery-card">
-      <div class="editor-gallery-card__media">
-        <img src="${escapeHtml(resolveAdminImage(image.src))}" alt="${escapeHtml(image.name || "Gallery image")}">
-        <span class="editor-gallery-card__index">${escapeHtml(String(index + 1))}</span>
-      </div>
-      <div class="editor-gallery-card__body">
-        <div class="editor-gallery-card__meta">
+    ${sizeOptions.length ? `
+      <div class="products-adaptive-block">
+        <div class="products-section-head products-section-head--stacked">
           <div>
-            <strong>${escapeHtml(image.name || "Image")}</strong>
-            <small>${escapeHtml(formatBytes(image.size))}</small>
+            <p class="dashboard-eyebrow">Adaptive Sizes</p>
+            <h3>${escapeHtml(productType === "shoes" ? "Shoe sizes" : "Clothing sizes")}</h3>
+            <p>Choose the available sizes for this product type.</p>
           </div>
-          <span class="editor-media-pill">${escapeHtml(image.status || "ready")}</span>
         </div>
-        <div class="editor-gallery-card__actions">
-          <button type="button" class="products-secondary-link" data-set-main-image="${escapeHtml(image.id)}">Use as main</button>
-          <button type="button" class="products-secondary-link" data-move-image="${escapeHtml(image.id)}" data-direction="up" ${index === 0 ? "disabled" : ""}>Move earlier</button>
-          <button type="button" class="products-secondary-link" data-move-image="${escapeHtml(image.id)}" data-direction="down" ${index === draftState.media.gallery.length - 1 ? "disabled" : ""}>Move later</button>
-          <button type="button" class="products-danger-button" data-remove-image="${escapeHtml(image.id)}">Remove</button>
+        <div class="products-toggle-grid">
+          ${sizeOptions.map((size) => `
+            <button class="products-toggle-chip${productDraft.details.selectedSizes.includes(size) ? " is-selected" : ""}" type="button" data-size-option="${escapeHtml(size)}">${escapeHtml(size)}</button>
+          `).join("")}
         </div>
       </div>
-    </article>
+    ` : `
+      <div class="products-adaptive-note">
+        <strong>Electronics attribute mode</strong>
+        <span>For phones and electronics, use the specification rows below for RAM, storage, battery, capacity, and other technical details.</span>
+      </div>
+    `}
+
+    <div class="products-adaptive-block">
+      <div class="products-section-head products-section-head--stacked">
+        <div>
+          <p class="dashboard-eyebrow">Adaptive Specifications</p>
+          <h3>Specifications &amp; Attributes</h3>
+          <p>The specification table adapts to the selected product type so the storefront detail page stays consistent.</p>
+        </div>
+      </div>
+      <div class="products-spec-list">
+        ${productDraft.details.specRows.map((row, index) => `
+          <div class="products-spec-row">
+            <input class="products-input" type="text" value="${escapeHtml(row.label)}" placeholder="Label" data-spec-label-index="${index}">
+            <input class="products-input" type="text" value="${escapeHtml(row.value)}" placeholder="Value" data-spec-value-index="${index}">
+            <button class="products-remove-button products-remove-button--compact" type="button" data-spec-remove-index="${index}">Remove</button>
+          </div>
+        `).join("")}
+      </div>
+      <button class="products-secondary-link products-secondary-link--button" type="button" data-spec-add>Add Specification</button>
+    </div>
+  `;
+}
+
+function buildDetailsPreviewGallery() {
+  const images = [productDraft.page1.image, ...productDraft.details.gallery].filter(Boolean).slice(0, 4);
+  if (!images.length) {
+    return `<div class="products-preview-gallery-empty">Gallery preview will appear here after uploads.</div>`;
+  }
+
+  return images.map((image, index) => `
+    <div class="products-preview-thumb${index === 0 ? " is-active" : ""}">
+      <img src="${escapeHtml(resolveProductImage(image))}" alt="Preview gallery ${index + 1}">
+    </div>
   `).join("");
 }
 
-function buildPreviewSurfaceMarkup() {
-  const foundation = validationState.foundation;
-  return `
-    <article class="preview-surface-item${foundation.rendering.showInHome ? " is-active" : ""}">
-      <strong>Home Rendering</strong>
-      <small>${foundation.rendering.showInHome ? `Eligible for homepage spotlight and curated merchandising. Sequence ${formatOrderIndicator(foundation.merchandising.positioning.homeOrder, "auto")} in ${foundation.merchandising.positioning.labels.homePlacement}.` : "Currently excluded from homepage rendering."}</small>
-    </article>
-    <article class="preview-surface-item${foundation.rendering.showInShop ? " is-active" : ""}">
-      <strong>Shop Rendering</strong>
-      <small>${foundation.rendering.showInShop ? `Eligible for shop grid cards, collections, and filtering. Sequence ${formatOrderIndicator(foundation.merchandising.positioning.shopOrder, "auto")} in ${foundation.merchandising.positioning.labels.shopPlacement}.` : "Currently excluded from shop rendering."}</small>
-    </article>
-    <article class="preview-surface-item${foundation.rendering.featuredPlacement ? " is-active" : ""}">
-      <strong>Featured Placement</strong>
-      <small>${foundation.rendering.featuredPlacement ? `Prepared for featured rows, spotlight sections, and highlighted merchandising. Sequence ${formatOrderIndicator(foundation.merchandising.positioning.featuredOrder, "auto")}.` : "Standard placement only until a featured treatment is selected."}</small>
-    </article>
-    <article class="preview-surface-item${foundation.rendering.showInShop ? " is-active" : ""}">
-      <strong>Category & Search</strong>
-      <small>${foundation.rendering.showInShop ? `Prepared for category pages, filters, and search result inclusion. Path ${slugToLabel(foundation.classification.rendering.categoryPagePath)} with category order ${formatOrderIndicator(foundation.merchandising.positioning.categoryOrder, "auto")}.` : "Category and search discovery stay suppressed while Shop visibility is off."}</small>
-    </article>
-    <article class="preview-surface-item is-active">
-      <strong>Recommendations</strong>
-      <small>${escapeHtml(`${foundation.merchandising.positioning.labels.recommendationFlow} flow with ${formatOrderIndicator(foundation.merchandising.positioning.recommendationOrder, "auto")} sequencing foundation.`)}</small>
-    </article>
-    <article class="preview-surface-item is-active">
-      <strong>Detail Layout</strong>
-      <small>Prepared for detail-page summary, long-form content, badges, and structured merchandising fields.</small>
-    </article>
-  `;
+function buildDetailsPreviewColors() {
+  if (!productDraft.details.colors.length) {
+    return `<span class="products-preview-empty-pill">No colors added</span>`;
+  }
+
+  return productDraft.details.colors.map((color) => `
+    <span class="products-preview-color-pill"><i style="background:${escapeHtml(color.hex)}"></i>${escapeHtml(color.name)}</span>
+  `).join("");
 }
 
-function buildStorefrontPreview() {
-  const foundation = validationState.foundation;
-  const name = foundation.basic.name || "New Product Title";
-  const category = slugToLabel(foundation.classification.category);
-  const shortDescription = foundation.basic.shortDescription || "Short storefront copy will appear here to validate card density and hierarchy.";
-  const activePrice = getActivePrice(draftState);
-  const compareAtPrice = getCompareAtPrice(draftState);
+function buildDetailsPreviewSpecs() {
+  const rows = productDraft.details.specRows.filter((entry) => String(entry?.label || "").trim() || String(entry?.value || "").trim()).slice(0, 4);
+  if (!rows.length) {
+    return `<div class="products-preview-empty-pill">No specifications added</div>`;
+  }
 
-  return `
-    <article class="product-preview-card product-preview-card--storefront">
-      <p class="product-preview-eyebrow">Storefront Card Preview</p>
-      <div class="storefront-card-preview">
-        <div class="storefront-card-preview__media">
-          <img src="${escapeHtml(getPrimaryImage(draftState))}" alt="${escapeHtml(name)} preview">
-          <span class="storefront-card-preview__badge">${escapeHtml(getDraftBadgeLabel(draftState))}</span>
-        </div>
-        <div class="storefront-card-preview__body">
-          <span class="storefront-card-preview__category">${escapeHtml(category)}</span>
-          <h3>${escapeHtml(name)}</h3>
-          <p>${escapeHtml(shortDescription)}</p>
-          <div class="product-preview-price-group">
-            <strong>${escapeHtml(formatCurrency(activePrice))}</strong>
-            ${compareAtPrice ? `<span class="product-preview-old-price">${escapeHtml(formatCurrency(compareAtPrice))}</span>` : ""}
-          </div>
-          <div class="storefront-card-preview__meta">
-            <span class="product-preview-badge">${escapeHtml(getDraftVisibilityLabel(draftState))}</span>
-            <span class="view-link-pill">${escapeHtml(`Score ${foundation.rendering.merchandisingScore || 0}`)}</span>
-          </div>
-        </div>
-      </div>
-    </article>
-  `;
+  return rows.map((row) => `
+    <div class="products-preview-spec-row">
+      <span>${escapeHtml(row.label || "Detail")}</span>
+      <strong>${escapeHtml(row.value || "Pending")}</strong>
+    </div>
+  `).join("");
 }
 
-function buildDetailPreview() {
-  const foundation = validationState.foundation;
-  const name = foundation.basic.name || "New Product Title";
-  const activePrice = getActivePrice(draftState);
-  const compareAtPrice = getCompareAtPrice(draftState);
+function buildPage1Markup() {
+  const previewImage = resolveProductImage(productDraft.page1.image || FALLBACK_IMAGE);
+  const productName = productDraft.page1.productName.trim() || "Homepage Feature Product";
+  const currentPrice = getCurrentPrice();
+  const oldPrice = getOldPrice();
+  const discountPercentage = getDiscountPercentage();
+  const stockPresentation = getStockPresentation();
+  const visibilityLabel = getVisibilityLabel();
+  const positionLabel = getPositioningLabel();
+  const saveLabel = productDraft.productId ? "SAVE & NEXT" : "CREATE PRODUCT & NEXT";
 
   return `
-    <article class="product-preview-card product-preview-card--detail">
-      <p class="product-preview-eyebrow">Product Detail Foundation</p>
-      <img src="${escapeHtml(getPrimaryImage(draftState))}" alt="Detail preview image">
-      <div class="product-preview-stack">
-        <div class="product-preview-meta">
-          <span class="product-preview-badge">${escapeHtml(getDraftStatusLabel(draftState))}</span>
-          <span class="view-link-pill">${escapeHtml(slugToLabel(foundation.classification.category))}</span>
-        </div>
-        <h3>${escapeHtml(name)}</h3>
-        <div class="product-preview-price-group">
-          <strong>${escapeHtml(formatCurrency(activePrice))}</strong>
-          ${compareAtPrice ? `<span class="product-preview-old-price">${escapeHtml(formatCurrency(compareAtPrice))}</span>` : ""}
-        </div>
-        <p>${escapeHtml(foundation.basic.summary || foundation.basic.fullDescription || "Long-form detail content will appear here once connected to future detail data systems.")}</p>
-        <ul class="product-preview-detail-list">
-          <li><span>Brand</span><strong>${escapeHtml(foundation.basic.brand || "Brand pending")}</strong></li>
-          <li><span>SKU</span><strong>${escapeHtml(foundation.basic.sku || "SKU pending")}</strong></li>
-          <li><span>Product Code</span><strong>${escapeHtml(foundation.basic.productCode || "Code pending")}</strong></li>
-          <li><span>Visibility</span><strong>${escapeHtml(getDraftVisibilityLabel(draftState))}</strong></li>
-        </ul>
-      </div>
-    </article>
-  `;
-}
-
-function buildValidationSummaryMarkup() {
-  const summaryTone = validationState.errorCount ? "danger" : validationState.warningCount ? "warn" : "success";
-  const primaryMessage = validationState.errorCount
-    ? `${validationState.errorCount} validation issue${validationState.errorCount === 1 ? "" : "s"} must be resolved before future publishing.`
-    : validationState.warningCount
-      ? `${validationState.warningCount} advisory issue${validationState.warningCount === 1 ? "" : "s"} should be reviewed before publication.`
-      : "All structured product information fields are currently valid for the STEP 3G category, organization, and positioning foundation.";
-  const issueList = [
-    ...Object.entries(validationState.errors).slice(0, 3).map(([, message]) => message),
-    ...Object.entries(validationState.warnings).slice(0, Math.max(0, 3 - Math.min(3, Object.keys(validationState.errors).length))).map(([, message]) => message)
-  ];
-
-  return `
-    <article class="editor-validation-summary editor-validation-summary--${summaryTone}" data-validation-summary>
-      <div class="editor-validation-summary__header">
+    <div class="products-dashboard-grid products-create-grid">
+      <section class="dashboard-panel products-create-header">
         <div>
-          <span class="editor-validation-summary__eyebrow">Validation status</span>
-          <strong>${escapeHtml(primaryMessage)}</strong>
+          <p class="dashboard-eyebrow">Admin Product Workflow</p>
+          <h2>ADD PRODUCTS</h2>
+          <p>Page 1 creates the basic product record, storefront placement, homepage and shop visibility, and ordering priority before the Product Details workflow opens.</p>
         </div>
-        <div class="editor-validation-summary__meta">
-          <span>${escapeHtml(String(validationState.completion))}% complete</span>
-          <span>${escapeHtml(String(validationState.errorCount))} errors</span>
-          <span>${escapeHtml(String(validationState.warningCount))} warnings</span>
+        <div class="products-create-header__meta">
+          <span class="products-inline-pill">Page 1 of 2</span>
+          <p>Premium merchandising workspace for the first save that prepares the product to render immediately across the website.</p>
         </div>
+      </section>
+
+      ${latestProductsError ? `<section class="dashboard-panel products-load-banner products-load-banner--warn">${escapeHtml(latestProductsError)}</section>` : ""}
+
+      <div class="products-create-shell">
+        <form class="products-create-form" data-products-page1-form>
+          <section class="dashboard-panel products-create-section">
+            <div class="products-section-head products-section-head--stacked">
+              <div>
+                <p class="dashboard-eyebrow">Section 1</p>
+                <h3>Product Image Upload</h3>
+                <p>Upload from phone, tablet, or computer. The image stays centered, responsive, and professionally fitted.</p>
+              </div>
+            </div>
+
+            <div class="products-image-workspace">
+              <div class="products-image-stage">
+                <div class="products-image-stage__frame">
+                  <img data-upload-preview-image src="${escapeHtml(previewImage)}" alt="Product preview image">
+                  <div class="products-image-stage__empty${productDraft.page1.image ? " is-hidden" : ""}" data-upload-empty-state>
+                    <strong>Ready for storefront preview</strong>
+                    <span>Upload a hero product image for homepage cards and shop listings.</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="products-upload-panel">
+                <input class="products-image-input" id="productsCreateImageInput" type="file" accept="image/*" data-products-image-input>
+                <label class="products-upload-button" for="productsCreateImageInput">Click to Upload Image</label>
+                <p class="products-upload-hint">Supports mobile camera uploads, tablet file picking, and desktop browser uploads.</p>
+                <button class="products-remove-button${productDraft.page1.image ? "" : " is-hidden"}" type="button" data-products-remove-image>Remove Image</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="dashboard-panel products-create-section">
+            <div class="products-section-head products-section-head--stacked">
+              <div>
+                <p class="dashboard-eyebrow">Section 2</p>
+                <h3>Product Name</h3>
+                <p>This storefront-facing name will appear on the homepage, inside the shop, and across product cards.</p>
+              </div>
+            </div>
+
+            <label class="products-field">
+              <span>Product Name</span>
+              <input class="products-input" type="text" name="productName" value="${escapeHtml(productDraft.page1.productName)}" placeholder="Enter a clean storefront-facing product name" autocomplete="off">
+            </label>
+          </section>
+
+          <section class="dashboard-panel products-create-section">
+            <div class="products-section-head products-section-head--stacked">
+              <div>
+                <p class="dashboard-eyebrow">Section 3</p>
+                <h3>Product Pricing</h3>
+                <p>Use Rwanda franc pricing with optional compare-at pricing to communicate discount value instantly.</p>
+              </div>
+            </div>
+
+            <div class="products-fields-grid products-fields-grid--pricing">
+              <label class="products-field">
+                <span>Current Price</span>
+                <div class="products-input-wrap">
+                  <span class="products-input-prefix">RWF</span>
+                  <input class="products-input" type="number" inputmode="numeric" min="0" step="100" name="currentPrice" value="${escapeHtml(productDraft.page1.currentPrice)}" placeholder="35000">
+                </div>
+              </label>
+              <label class="products-field">
+                <span>Old Price</span>
+                <div class="products-input-wrap">
+                  <span class="products-input-prefix">RWF</span>
+                  <input class="products-input" type="number" inputmode="numeric" min="0" step="100" name="oldPrice" value="${escapeHtml(productDraft.page1.oldPrice)}" placeholder="50000">
+                </div>
+              </label>
+            </div>
+
+            <div class="products-pricing-note" data-pricing-note>
+              ${discountPercentage > 0
+                ? `<strong>${escapeHtml(String(discountPercentage))}% discount feel ready</strong><span>The storefront preview will show the current price beside a crossed-out old price.</span>`
+                : `<strong>Discount support enabled</strong><span>Add an old price higher than the current price when you want the storefront to show a markdown.</span>`}
+            </div>
+          </section>
+
+          <section class="dashboard-panel products-create-section">
+            <div class="products-section-head products-section-head--stacked">
+              <div>
+                <p class="dashboard-eyebrow">Section 4</p>
+                <h3>Product Stock Management</h3>
+                <p>Set the available quantity once so the storefront can switch automatically between In Stock, Low Stock, and Out of Stock states.</p>
+              </div>
+            </div>
+
+            <div class="products-fields-grid products-fields-grid--stock">
+              <label class="products-field">
+                <span>Stock Quantity</span>
+                <div class="products-input-wrap products-input-wrap--stock">
+                  <span class="products-input-prefix products-input-prefix--neutral">Units</span>
+                  <input class="products-input" type="number" inputmode="numeric" min="0" step="1" name="stock" value="${escapeHtml(productDraft.page1.stock)}" placeholder="25">
+                </div>
+                <small class="products-field-hint">0 = Out of Stock, 1-5 = Low Stock, 6+ = In Stock.</small>
+              </label>
+
+              <div class="products-stock-note products-stock-note--${escapeHtml(stockPresentation.tone)}" data-stock-note>
+                <strong>${escapeHtml(stockPresentation.label)}</strong>
+                <span>${escapeHtml(stockPresentation.detail)}</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="dashboard-panel products-create-section">
+            <div class="products-section-head products-section-head--stacked">
+              <div>
+                <p class="dashboard-eyebrow">Section 5</p>
+                <h3>Product Category</h3>
+                <p>Select the storefront category now so the next details page can adapt intelligently for the product type.</p>
+              </div>
+            </div>
+
+            <label class="products-field">
+              <span>Category</span>
+              <select class="products-input products-select" name="category">
+                ${CATEGORY_OPTIONS.map((category) => `<option value="${escapeHtml(category)}" ${category === productDraft.page1.category ? "selected" : ""}>${escapeHtml(toLabel(category))}</option>`).join("")}
+              </select>
+            </label>
+          </section>
+
+          <section class="dashboard-panel products-create-section">
+            <div class="products-section-head products-section-head--stacked">
+              <div>
+                <p class="dashboard-eyebrow">Section 6</p>
+                <h3>Product Visibility</h3>
+                <p>Choose whether the product appears on the homepage, in the shop, or everywhere.</p>
+              </div>
+            </div>
+
+            <div class="products-choice-grid">
+              ${buildSelectionCards("visibility", VISIBILITY_OPTIONS, productDraft.page1.visibility)}
+            </div>
+          </section>
+
+          <section class="dashboard-panel products-create-section">
+            <div class="products-section-head products-section-head--stacked">
+              <div>
+                <p class="dashboard-eyebrow">Section 7</p>
+                <h3>Product Positioning</h3>
+                <p>Set the product priority so the storefront sort order is ready before Product Details opens.</p>
+              </div>
+            </div>
+
+            <div class="products-choice-grid">
+              ${buildSelectionCards("positioning", POSITION_OPTIONS, productDraft.page1.positioning)}
+            </div>
+          </section>
+
+          <section class="dashboard-panel products-create-section products-create-section--submit">
+            <div class="products-create-submit-row">
+              <div>
+                <p class="dashboard-eyebrow">Section 8</p>
+                <h3>Save &amp; Next</h3>
+                <p>Saving Page 1 stores the product, pushes it into storefront rendering immediately, and opens Product Details without 404 failures.</p>
+              </div>
+              <button class="products-submit-button" type="submit" data-products-submit>${escapeHtml(saveLabel)}</button>
+            </div>
+            <div class="products-feedback products-feedback--${escapeHtml(workflowFeedback.tone)}" data-products-feedback>${escapeHtml(workflowFeedback.message)}</div>
+          </section>
+        </form>
+
+        <aside class="products-preview-column">
+          <div class="dashboard-panel products-preview-panel">
+            <div class="products-section-head products-section-head--stacked">
+              <div>
+                <p class="dashboard-eyebrow">Live Preview</p>
+                <h3>Storefront product card</h3>
+                <p>Preview updates instantly as the admin changes image, title, price, stock, category, visibility, and priority.</p>
+              </div>
+            </div>
+
+            <article class="products-live-card">
+              <div class="products-live-card__media">
+                <img data-preview-image src="${escapeHtml(previewImage)}" alt="Storefront card preview image">
+              </div>
+              <div class="products-live-card__body">
+                <div class="products-live-card__meta-row">
+                  <span class="products-live-card__category" data-preview-category>${escapeHtml(toLabel(productDraft.page1.category))}</span>
+                  <span class="products-live-card__visibility" data-preview-visibility>${escapeHtml(visibilityLabel)}</span>
+                </div>
+                <h4 data-preview-title>${escapeHtml(productName)}</h4>
+                <div class="products-live-card__pricing">
+                  <strong data-preview-current-price>${escapeHtml(formatCurrency(currentPrice))}</strong>
+                  <span class="products-live-card__old-price${oldPrice > currentPrice && oldPrice > 0 ? "" : " is-hidden"}" data-preview-old-price>${escapeHtml(formatCurrency(oldPrice))}</span>
+                  <span class="products-live-card__discount${discountPercentage > 0 ? "" : " is-hidden"}" data-preview-discount>${escapeHtml(`${discountPercentage}% OFF`)}</span>
+                </div>
+                <div class="products-live-card__stock-row">
+                  <span class="stock-pill stock-pill--${escapeHtml(stockPresentation.tone)}" data-preview-stock-status>${escapeHtml(stockPresentation.label)}</span>
+                  <span class="products-live-card__stock-count" data-preview-stock-count>${escapeHtml(`${stockPresentation.available} units ready`)}</span>
+                </div>
+                <div class="products-live-card__footer">
+                  <span class="products-live-card__priority" data-preview-priority>${escapeHtml(positionLabel)}</span>
+                  <span class="products-live-card__surface">Homepage + Shop ready</span>
+                </div>
+              </div>
+            </article>
+
+            <div class="products-preview-summary">
+              <div>
+                <span>Storefront routing</span>
+                <strong data-preview-routing>${escapeHtml(visibilityLabel === "All" ? "Homepage and Shop" : visibilityLabel === "Home" ? "Homepage only" : "Shop only")}</strong>
+              </div>
+              <div>
+                <span>Display order</span>
+                <strong data-preview-order>${escapeHtml(positionLabel)}</strong>
+              </div>
+              <div>
+                <span>Inventory status</span>
+                <strong data-preview-stock-summary>${escapeHtml(`${stockPresentation.label} • ${stockPresentation.available} units`)}</strong>
+              </div>
+            </div>
+          </div>
+        </aside>
       </div>
-      <div class="editor-validation-summary__body">
-        <div class="editor-validation-summary__progress"><span style="width:${Math.max(6, validationState.completion)}%"></span></div>
-        <ul class="editor-validation-summary__list">
-          ${issueList.length ? issueList.map((message) => `<li>${escapeHtml(message)}</li>`).join("") : "<li>Required product information, pricing logic, identifiers, visibility, and positioning are all aligned.</li>"}
-        </ul>
-      </div>
-    </article>
+    </div>
   `;
 }
 
-function buildFoundationPreviewMarkup() {
-  const foundation = validationState.foundation;
-  const payload = JSON.stringify(foundation.futurePayload, null, 2);
-  return `
-    <article class="product-preview-card product-preview-card--detail">
-      <p class="product-preview-eyebrow">Structured Product Data Foundation</p>
-      <div class="products-foundation-grid">
-        <div class="products-foundation-stat">
-          <span>Priority strategy</span>
-          <strong>${escapeHtml(foundation.merchandising.positioning.labels.sortStrategy)}</strong>
-        </div>
-        <div class="products-foundation-stat">
-          <span>Merch score</span>
-          <strong>${escapeHtml(String(foundation.rendering.merchandisingScore || 0))}</strong>
-        </div>
-        <div class="products-foundation-stat">
-          <span>Primary category</span>
-          <strong>${escapeHtml(foundation.classification.labels.primaryCategory)}</strong>
-        </div>
-        <div class="products-foundation-stat">
-          <span>Category path</span>
-          <strong>${escapeHtml(slugToLabel(foundation.classification.rendering.categoryPagePath))}</strong>
-        </div>
-        <div class="products-foundation-stat">
-          <span>Homepage order</span>
-          <strong>${escapeHtml(formatOrderIndicator(foundation.merchandising.positioning.homeOrder, "Auto"))}</strong>
-        </div>
-        <div class="products-foundation-stat">
-          <span>Derived order index</span>
-          <strong>${escapeHtml(String(foundation.futurePayload.orderIndex))}</strong>
-        </div>
+function buildDetailsMarkup() {
+  const productId = getRouteProductId();
+  if (!productId) {
+    return `
+      <div class="products-dashboard-grid products-create-grid">
+        <section class="dashboard-panel products-create-header">
+          <div>
+            <p class="dashboard-eyebrow">Product Details Workflow</p>
+            <h2>PRODUCT DETAILS</h2>
+            <p>Page 2 requires a saved Page 1 product foundation before detailed editing can continue.</p>
+          </div>
+        </section>
+        <section class="dashboard-panel products-reset-state">
+          <p class="dashboard-eyebrow">Workflow Guard</p>
+          <h3>Start from Page 1 first</h3>
+          <p>Create the product foundation, save it, and then the workflow will route here automatically.</p>
+          <a class="products-secondary-link products-secondary-link--button" href="#/products?view=create">Back to Page 1</a>
+        </section>
       </div>
-      <pre class="products-foundation-code" data-foundation-code>${escapeHtml(payload)}</pre>
-    </article>
+    `;
+  }
+
+  const mainPreviewImage = resolveProductImage(productDraft.page1.image || productDraft.details.gallery[0] || FALLBACK_IMAGE);
+  const productName = productDraft.page1.productName.trim() || "Storefront product";
+  const currentPrice = getCurrentPrice();
+  const oldPrice = getOldPrice();
+  const discountPercentage = getDiscountPercentage();
+  const visibilityLabel = getVisibilityLabel();
+  const positionLabel = getPositioningLabel();
+
+  return `
+    <div class="products-dashboard-grid products-create-grid">
+      <section class="dashboard-panel products-create-header">
+        <div>
+          <p class="dashboard-eyebrow">Admin Product Workflow</p>
+          <h2>PRODUCT DETAILS</h2>
+          <p>Page 2 completes the deeper ecommerce information: gallery, descriptions, variants, specifications, attributes, and extra product information.</p>
+        </div>
+        <div class="products-create-header__meta">
+          <span class="products-inline-pill">Page 2 of 2</span>
+          <p>Enterprise product editor designed to finish the listing while keeping homepage and shop rendering synchronized.</p>
+        </div>
+      </section>
+
+      <div class="products-create-shell products-create-shell--details">
+        <form class="products-create-form" data-products-details-form>
+          <section class="dashboard-panel products-create-section">
+            <div class="products-section-head products-section-head--stacked">
+              <div>
+                <p class="dashboard-eyebrow">Section 1</p>
+                <h3>Product Gallery</h3>
+                <p>Upload multiple images, color-based images, and angle shots. Drag and drop is supported and all images stay centered without stretching.</p>
+              </div>
+            </div>
+
+            <div class="products-dropzone" data-gallery-dropzone>
+              <input class="products-image-input" id="productsDetailsGalleryInput" type="file" accept="image/*" multiple data-products-gallery-input>
+              <label class="products-upload-button" for="productsDetailsGalleryInput">Upload Gallery Images</label>
+              <p class="products-upload-hint">Drag files into this area or use the upload action to add portraits, landscape images, square images, and product angle images.</p>
+            </div>
+
+            <div class="products-gallery-grid">
+              ${buildGalleryCards()}
+            </div>
+          </section>
+
+          <section class="dashboard-panel products-create-section">
+            <div class="products-section-head products-section-head--stacked">
+              <div>
+                <p class="dashboard-eyebrow">Section 2</p>
+                <h3>Product Name &amp; Pricing</h3>
+                <p>These fields are prefilled from Page 1 and remain editable here so the final details page stays aligned with storefront pricing.</p>
+              </div>
+            </div>
+
+            <div class="products-fields-grid products-fields-grid--details-top">
+              <label class="products-field">
+                <span>Product Name</span>
+                <input class="products-input" type="text" name="productName" value="${escapeHtml(productDraft.page1.productName)}" placeholder="Storefront product name">
+              </label>
+              <label class="products-field">
+                <span>Current Price</span>
+                <div class="products-input-wrap">
+                  <span class="products-input-prefix">RWF</span>
+                  <input class="products-input" type="number" name="currentPrice" value="${escapeHtml(productDraft.page1.currentPrice)}" min="0" step="100" placeholder="35000">
+                </div>
+              </label>
+              <label class="products-field">
+                <span>Old Price</span>
+                <div class="products-input-wrap">
+                  <span class="products-input-prefix">RWF</span>
+                  <input class="products-input" type="number" name="oldPrice" value="${escapeHtml(productDraft.page1.oldPrice)}" min="0" step="100" placeholder="50000">
+                </div>
+              </label>
+            </div>
+          </section>
+
+          <section class="dashboard-panel products-create-section">
+            <div class="products-section-head products-section-head--stacked">
+              <div>
+                <p class="dashboard-eyebrow">Section 3</p>
+                <h3>Product Description</h3>
+                <p>Add the detailed selling description, usage guidance, and rich product information that should appear on the detail page.</p>
+              </div>
+            </div>
+
+            <label class="products-field">
+              <span>Detailed Description</span>
+              <textarea class="products-textarea" name="description" rows="8" placeholder="Write the full product details, materials, selling points, usage guidance, and customer-facing product information.">${escapeHtml(productDraft.details.description)}</textarea>
+            </label>
+          </section>
+
+          <section class="dashboard-panel products-create-section">
+            <div class="products-section-head products-section-head--stacked">
+              <div>
+                <p class="dashboard-eyebrow">Section 4</p>
+                <h3>Product Colors</h3>
+                <p>Add and remove available colors, preview swatches, and prepare the gallery for color-image matching later.</p>
+              </div>
+            </div>
+
+            <div class="products-color-entry">
+              <input class="products-input" type="text" placeholder="Color name e.g. Black" data-color-name>
+              <input class="products-color-picker" type="color" value="#111111" data-color-hex>
+              <button class="products-submit-button products-submit-button--compact" type="button" data-color-add>Add Color</button>
+            </div>
+
+            <div class="products-color-list">
+              ${buildColorChips()}
+            </div>
+          </section>
+
+          <section class="dashboard-panel products-create-section">
+            <div class="products-section-head products-section-head--stacked">
+              <div>
+                <p class="dashboard-eyebrow">Section 5</p>
+                <h3>Product Sizes / Attributes</h3>
+                <p>The attribute workspace adapts to the selected product type so shoes, fashion, phones, and electronics get the right controls.</p>
+              </div>
+            </div>
+            ${buildAdaptiveControls()}
+          </section>
+
+          <section class="dashboard-panel products-create-section">
+            <div class="products-section-head products-section-head--stacked">
+              <div>
+                <p class="dashboard-eyebrow">Section 6</p>
+                <h3>Extra Product Information</h3>
+                <p>Add warranty information, delivery guidance, materials, usage notes, and extra specifications for the product detail page.</p>
+              </div>
+            </div>
+
+            <div class="products-fields-grid products-fields-grid--extras">
+              <label class="products-field">
+                <span>Warranty Info</span>
+                <input class="products-input" type="text" name="extraWarranty" value="${escapeHtml(productDraft.details.extraInfo.warranty)}" placeholder="e.g. 12 months manufacturer warranty">
+              </label>
+              <label class="products-field">
+                <span>Delivery Info</span>
+                <input class="products-input" type="text" name="extraDelivery" value="${escapeHtml(productDraft.details.extraInfo.delivery)}" placeholder="e.g. Same-day Kigali delivery available">
+              </label>
+              <label class="products-field">
+                <span>Material Info</span>
+                <input class="products-input" type="text" name="extraMaterial" value="${escapeHtml(productDraft.details.extraInfo.material)}" placeholder="e.g. Premium leather upper">
+              </label>
+              <label class="products-field">
+                <span>Usage Notes</span>
+                <input class="products-input" type="text" name="extraUsage" value="${escapeHtml(productDraft.details.extraInfo.usage)}" placeholder="e.g. Ideal for daily wear or gifting">
+              </label>
+            </div>
+
+            <label class="products-field">
+              <span>Extra Specifications</span>
+              <textarea class="products-textarea" name="extraSpecifications" rows="4" placeholder="Add extra specification notes, handling instructions, or technical details.">${escapeHtml(productDraft.details.extraInfo.extraSpecifications)}</textarea>
+            </label>
+          </section>
+
+          <section class="dashboard-panel products-create-section products-create-section--submit">
+            <div class="products-create-submit-row">
+              <div>
+                <p class="dashboard-eyebrow">Section 8</p>
+                <h3>Final Save</h3>
+                <p>Saving completes the product, updates storefront rendering instantly, and applies the category, placement, visibility, and ordering rules from Page 1.</p>
+              </div>
+              <button class="products-submit-button" type="submit" data-products-details-submit>SAVE</button>
+            </div>
+            <div class="products-feedback products-feedback--${escapeHtml(workflowFeedback.tone)}" data-products-details-feedback>${escapeHtml(workflowFeedback.message)}</div>
+          </section>
+        </form>
+
+        <aside class="products-preview-column">
+          <div class="dashboard-panel products-preview-panel products-preview-panel--details">
+            <div class="products-section-head products-section-head--stacked">
+              <div>
+                <p class="dashboard-eyebrow">Live Details Preview</p>
+                <h3>Storefront product details card</h3>
+                <p>The preview reflects gallery, colors, prices, description, specifications, and placement data in real time.</p>
+              </div>
+            </div>
+
+            <article class="products-live-card products-live-card--details">
+              <div class="products-live-card__media products-live-card__media--details">
+                <img data-details-preview-image src="${escapeHtml(mainPreviewImage)}" alt="Product details preview image">
+              </div>
+              <div class="products-preview-gallery-strip" data-details-preview-gallery>
+                ${buildDetailsPreviewGallery()}
+              </div>
+              <div class="products-live-card__body">
+                <div class="products-live-card__meta-row">
+                  <span class="products-live-card__category" data-details-preview-category>${escapeHtml(toLabel(productDraft.page1.category))}</span>
+                  <span class="products-live-card__visibility" data-details-preview-visibility>${escapeHtml(visibilityLabel)}</span>
+                </div>
+                <h4 data-details-preview-title>${escapeHtml(productName)}</h4>
+                <div class="products-live-card__pricing">
+                  <strong data-details-preview-price>${escapeHtml(formatCurrency(currentPrice))}</strong>
+                  <span class="products-live-card__old-price${oldPrice > currentPrice && oldPrice > 0 ? "" : " is-hidden"}" data-details-preview-old-price>${escapeHtml(formatCurrency(oldPrice))}</span>
+                  <span class="products-live-card__discount${discountPercentage > 0 ? "" : " is-hidden"}" data-details-preview-discount>${escapeHtml(`${discountPercentage}% OFF`)}</span>
+                </div>
+                <p class="products-details-preview-copy" data-details-preview-description>${escapeHtml(productDraft.details.description.trim() || "Detailed description preview will appear here as the admin types.")}</p>
+              </div>
+            </article>
+
+            <div class="products-preview-summary products-preview-summary--details">
+              <div>
+                <span>Colors</span>
+                <div class="products-preview-chip-group" data-details-preview-colors>${buildDetailsPreviewColors()}</div>
+              </div>
+              <div>
+                <span>Positioning</span>
+                <strong data-details-preview-order>${escapeHtml(positionLabel)}</strong>
+              </div>
+              <div>
+                <span>Sizes</span>
+                <div class="products-preview-chip-group" data-details-preview-sizes>${productDraft.details.selectedSizes.length ? productDraft.details.selectedSizes.map((size) => `<span class="products-preview-empty-pill">${escapeHtml(size)}</span>`).join("") : `<span class="products-preview-empty-pill">No sizes selected</span>`}</div>
+              </div>
+              <div>
+                <span>Specifications</span>
+                <div class="products-preview-spec-list" data-details-preview-specs>${buildDetailsPreviewSpecs()}</div>
+              </div>
+              <div>
+                <span>Storefront routing</span>
+                <strong data-details-preview-routing>${escapeHtml(visibilityLabel === "All" ? "Homepage and Shop" : visibilityLabel === "Home" ? "Homepage only" : "Shop only")}</strong>
+              </div>
+              <div>
+                <span>Saved product id</span>
+                <strong>${escapeHtml(productId)}</strong>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
   `;
 }
 
 function buildRecentProductsMarkup() {
   if (!latestProducts.length) {
-    const emptyMessage = latestProductsError
-      ? latestProductsError
-      : "No live products found yet. The STEP 3G product workspace still renders normally for architecture work.";
-    return `<div class="products-empty-card">${escapeHtml(emptyMessage)}</div>`;
+    return `<div class="products-empty-card">${escapeHtml(latestProductsError || "No catalog products are available yet.")}</div>`;
   }
 
-  return latestProducts.slice(0, 4).map((product) => `
+  return latestProducts.slice(0, 6).map((product) => `
     <article class="product-list-card">
       <div class="product-list-card__media">
-        <img src="${escapeHtml(resolveAdminImage(product?.mainImage || product?.image || DEFAULT_IMAGE))}" alt="${escapeHtml(product?.name || product?.title || "Product")}">
+        <img src="${escapeHtml(resolveProductImage(product?.mainImage || product?.image))}" alt="${escapeHtml(product?.name || product?.title || "Product")}">
       </div>
       <div class="product-list-card__body">
         <div class="product-list-card__heading">
           <div>
-            <p class="product-list-card__category">${escapeHtml(slugToLabel(product?.category || "general"))}</p>
-            <h3>${escapeHtml(product?.name || product?.title || "Product")}</h3>
+            <p class="product-list-card__category">${escapeHtml(toLabel(product?.category))}</p>
+            <h3>${escapeHtml(product?.name || product?.title || "Untitled Product")}</h3>
           </div>
-          <div class="product-list-card__actions">
-            <span class="stock-pill stock-pill--${Number(product?.stock || 0) > 5 ? "healthy" : Number(product?.stock || 0) > 0 ? "low" : "empty"}">${escapeHtml(String(product?.stock ?? 0))}</span>
-          </div>
+          <span class="stock-pill stock-pill--${Number(product?.stock || 0) > 5 ? "healthy" : Number(product?.stock || 0) > 0 ? "low" : "empty"}">${escapeHtml(String(product?.stock ?? 0))}</span>
         </div>
         <div class="product-list-card__meta">
           <div>
@@ -879,1178 +1399,721 @@ function buildRecentProductsMarkup() {
             <p class="product-list-card__label">SKU</p>
             <strong>${escapeHtml(product?.sku || product?.catalogId || "-")}</strong>
           </div>
+          <div>
+            <p class="product-list-card__label">Visibility</p>
+            <strong>${escapeHtml(toLabel(product?.visibility || "both", "Both"))}</strong>
+          </div>
         </div>
       </div>
     </article>
   `).join("");
 }
 
-function buildProductsMarkup() {
-  const createMode = getProductsView() === "create";
+function buildOverviewMarkup() {
   const totalProducts = latestProducts.length;
   const featuredProducts = latestProducts.filter((product) => Boolean(String(product?.highlightTag || "").trim()) || String(product?.status || "").toLowerCase() === "featured").length;
   const homeVisibleProducts = latestProducts.filter((product) => ["home", "both"].includes(String(product?.visibility || "both").toLowerCase())).length;
   const topPriorityProducts = latestProducts.filter((product) => String(product?.priority || "").toLowerCase() === "top").length;
 
   return `
-    <div class="products-dashboard-grid" data-products-create-root>
-      <section class="dashboard-panel products-hero-card products-hero-card--studio editor-step-banner">
-        <p class="dashboard-eyebrow">STEP 3G Category & Organization Engine</p>
+    <div class="products-dashboard-grid">
+      <section class="dashboard-panel products-hero-card">
+        <p class="dashboard-eyebrow">Products Workspace</p>
         <div class="products-hero-intro">
           <div class="products-hero-copy">
-            <h2>${createMode ? "Enterprise Add Product Workspace" : "Products Workspace"}</h2>
-            <p>Enterprise category architecture, hierarchy relationships, product organization grouping, rendering/search foundations, and positioning controls layered onto the existing product architecture without introducing backend persistence yet.</p>
+            <h2>Products Overview</h2>
+            <p>The products overview remains available while the Add Product workflow now runs as a two-step admin editor inside this route.</p>
           </div>
           <div class="products-hero-actions">
             <a class="products-primary-link" href="#/products?view=create">Open Add Product</a>
-            <a class="products-secondary-link" href="#/products">Workspace Overview</a>
+            <a class="products-secondary-link" href="#/products">Refresh Overview</a>
           </div>
-        </div>
-        <div class="products-chip-list">
-          <span class="products-hero-chip">Classification engine live</span>
-          <span class="products-hero-chip">Category hierarchy active</span>
-          <span class="products-hero-chip">Organization grouping ready</span>
-          <span class="products-hero-chip">Surface sequencing preserved</span>
         </div>
         <div class="products-kpi-row">
           <article class="products-kpi-card">
-            <span>Live catalog records</span>
+            <span>Catalog records</span>
             <strong>${escapeHtml(String(totalProducts))}</strong>
-            <small>Current backend-backed product count visible to the admin app.</small>
+            <small>Live products currently available to the admin dashboard.</small>
           </article>
           <article class="products-kpi-card">
             <span>Home-ready items</span>
             <strong>${escapeHtml(String(homeVisibleProducts))}</strong>
-            <small>Products already configured for homepage visibility.</small>
+            <small>Products configured to appear on homepage surfaces.</small>
           </article>
           <article class="products-kpi-card">
             <span>Featured signals</span>
             <strong>${escapeHtml(String(featuredProducts))}</strong>
-            <small>Existing products marked for premium merchandising.</small>
+            <small>Products marked for premium merchandising.</small>
           </article>
           <article class="products-kpi-card">
             <span>Top priority</span>
             <strong>${escapeHtml(String(topPriorityProducts))}</strong>
-            <small>Products currently sorted with top rendering priority.</small>
+            <small>Products sorted with top storefront priority.</small>
           </article>
         </div>
       </section>
 
       ${latestProductsError ? `<section class="dashboard-panel products-load-banner products-load-banner--warn">${escapeHtml(latestProductsError)}</section>` : ""}
 
-      <div class="products-editor-layout">
-        <div class="products-create-flow">
-          <section class="dashboard-panel products-editor-panel">
-            <header class="products-form-header">
-              <div>
-                <p class="dashboard-eyebrow">Product Entry</p>
-                <h2>Structured product information, media, and publishing</h2>
-                <p>Build a stable, validated product record with enterprise publishing, visibility, featured placement, and rendering controls that stay compatible with the existing storefront contract.</p>
-              </div>
-            </header>
-
-            ${buildValidationSummaryMarkup()}
-
-            <form class="products-editor-form" data-products-form novalidate>
-              <section class="editor-section-card">
-                <div class="editor-section-heading">
-                  <div>
-                    <h3>Core Product Information</h3>
-                    <p>Structured identity, descriptions, and identifiers aligned with future rendering and persistence needs.</p>
-                  </div>
-                </div>
-                <div class="products-form-grid">
-                  <label class="${getFieldClass("basic.name", "editor-field editor-field--span-2")}">
-                    <span>Product Name</span>
-                    <input type="text" data-field="basic.name" value="${escapeHtml(getDraftValue(draftState, "basic.name") || "")}" placeholder="Example: Byose Signature Travel Bag">
-                    <small class="editor-field-message" data-field-message="basic.name">${escapeHtml(getFieldHint("basic.name", "Use the customer-facing title that should appear on cards and detail pages."))}</small>
-                  </label>
-                  <label class="${getFieldClass("basic.brand")}">
-                    <span>Brand</span>
-                    <input type="text" data-field="basic.brand" value="${escapeHtml(getDraftValue(draftState, "basic.brand") || "")}" placeholder="Byose Studio">
-                    <small class="editor-field-message" data-field-message="basic.brand">${escapeHtml(getFieldHint("basic.brand", "Brand metadata supports detail pages, filters, and merchandising."))}</small>
-                  </label>
-                  <label class="${getFieldClass("basic.sku")}">
-                    <span>SKU</span>
-                    <input type="text" data-field="basic.sku" value="${escapeHtml(getDraftValue(draftState, "basic.sku") || "")}" placeholder="BM-TRAVEL-001">
-                    <small class="editor-field-message" data-field-message="basic.sku">${escapeHtml(getFieldHint("basic.sku", "Use a unique stock keeping unit for inventory and operational tracking."))}</small>
-                  </label>
-                  <label class="${getFieldClass("basic.productCode")}">
-                    <span>Product Code</span>
-                    <input type="text" data-field="basic.productCode" value="${escapeHtml(getDraftValue(draftState, "basic.productCode") || "")}" placeholder="PDC-TRAVEL-001">
-                    <small class="editor-field-message" data-field-message="basic.productCode">${escapeHtml(getFieldHint("basic.productCode", "Unique merchandising identifier for future integrations and analytics."))}</small>
-                  </label>
-                  <label class="${getFieldClass("basic.summary")}">
-                    <span>Product Summary</span>
-                    <textarea rows="3" data-field="basic.summary" placeholder="Short structured summary for detail pages, SEO foundations, and recommendation systems.">${escapeHtml(getDraftValue(draftState, "basic.summary") || "")}</textarea>
-                    <small class="editor-field-message" data-field-message="basic.summary">${escapeHtml(getFieldHint("basic.summary", "This powers structured product summaries beyond the storefront card copy."))}</small>
-                  </label>
-                  <label class="${getFieldClass("basic.shortDescription", "editor-field editor-field--span-2")}">
-                    <span>Short Description</span>
-                    <textarea rows="3" data-field="basic.shortDescription" placeholder="Compact summary for cards, previews, and quick storefront scanning.">${escapeHtml(getDraftValue(draftState, "basic.shortDescription") || "")}</textarea>
-                    <small class="editor-field-message" data-field-message="basic.shortDescription">${escapeHtml(getFieldHint("basic.shortDescription", "Target concise card-ready copy for home and shop surfaces."))}</small>
-                  </label>
-                  <label class="${getFieldClass("basic.fullDescription", "editor-field editor-field--span-2")}">
-                    <span>Full Description</span>
-                    <textarea rows="6" data-field="basic.fullDescription" placeholder="Long-form product storytelling, value proposition, care notes, or specification guidance.">${escapeHtml(getDraftValue(draftState, "basic.fullDescription") || "")}</textarea>
-                    <small class="editor-field-message" data-field-message="basic.fullDescription">${escapeHtml(getFieldHint("basic.fullDescription", "Prepare the long-form product story for future detail layouts and content modules."))}</small>
-                  </label>
-                </div>
-              </section>
-
-              <section class="editor-section-card">
-                <div class="editor-section-heading editor-section-heading--split">
-                  <div>
-                    <h3>Pricing Information</h3>
-                    <p>Professional price validation and merchandising-safe pricing logic.</p>
-                  </div>
-                  <label class="editor-toggle-pill">
-                    <input type="checkbox" data-field="pricing.saleEnabled" ${getDraftValue(draftState, "pricing.saleEnabled") ? "checked" : ""}>
-                    <span>Sale status enabled</span>
-                  </label>
-                </div>
-                <div class="products-form-grid">
-                  <label class="${getFieldClass("pricing.originalPrice")}">
-                    <span>Original Price</span>
-                    <input type="number" min="0" step="100" data-field="pricing.originalPrice" value="${escapeHtml(getDraftValue(draftState, "pricing.originalPrice") || "")}" placeholder="25000">
-                    <small class="editor-field-message" data-field-message="pricing.originalPrice">${escapeHtml(getFieldHint("pricing.originalPrice", "Base price used for catalog display and analytics foundations."))}</small>
-                  </label>
-                  <label class="${getFieldClass("pricing.discountPrice")}">
-                    <span>Discount Price</span>
-                    <input type="number" min="0" step="100" data-field="pricing.discountPrice" value="${escapeHtml(getDraftValue(draftState, "pricing.discountPrice") || "")}" placeholder="19000" ${getDraftValue(draftState, "pricing.saleEnabled") ? "" : "disabled"}>
-                    <small class="editor-field-message" data-field-message="pricing.discountPrice">${escapeHtml(getFieldHint("pricing.discountPrice", "Required only when sale status is enabled."))}</small>
-                  </label>
-                  <label class="${getFieldClass("pricing.currency")}">
-                    <span>Currency</span>
-                    <select data-field="pricing.currency">
-                      ${CURRENCY_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}" ${getDraftValue(draftState, "pricing.currency") === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-                    </select>
-                    <small class="editor-field-message" data-field-message="pricing.currency">${escapeHtml(getFieldHint("pricing.currency", "Currency foundation for future publishing and market support."))}</small>
-                  </label>
-                  <div class="editor-inline-summary">
-                    <strong>Rendered price preview</strong>
-                    <span>${escapeHtml(formatCurrency(getActivePrice(draftState)))}</span>
-                    <small>${getCompareAtPrice(draftState) ? `Compare at ${escapeHtml(formatCurrency(getCompareAtPrice(draftState)))}` : "No compare-at price active."}</small>
-                  </div>
-                </div>
-              </section>
-
-              <section class="editor-section-card">
-                <div class="editor-section-heading">
-                  <div>
-                    <h3>Product Variant Foundation</h3>
-                    <p>Build color, size, and future option-group scaffolding with clean rendering tokens that can later power inventory, SKU, and availability layers.</p>
-                  </div>
-                  <label class="editor-toggle-pill">
-                    <input type="checkbox" data-field="variants.enabled" ${getDraftValue(draftState, "variants.enabled") ? "checked" : ""}>
-                    <span>Enable variant foundation</span>
-                  </label>
-                </div>
-                <div class="editor-variant-summary-grid">
-                  <article class="editor-variant-summary-card">
-                    <span>Enabled groups</span>
-                    <strong>${escapeHtml(String(Object.values(getDraftValue(draftState, "variants.groups") || {}).filter((group) => Boolean(group?.enabled)).length))}</strong>
-                    <small>Structured groups prepared for future selection UI.</small>
-                  </article>
-                  <article class="editor-variant-summary-card">
-                    <span>Rendered attributes</span>
-                    <strong>${escapeHtml(String((validationState.foundation.futurePayload.attributes || []).length))}</strong>
-                    <small>Normalized option records ready for the storefront contract.</small>
-                  </article>
-                  <article class="editor-variant-summary-card">
-                    <span>Variant readiness</span>
-                    <strong>${escapeHtml(validationState.foundation.readiness.supportsVariants ? "Prepared" : "Pending")}</strong>
-                    <small>Future inventory and pricing hooks remain intentionally deferred.</small>
-                  </article>
-                </div>
-                ${buildVariantGroupMarkup("color", "Color Variants", "Premium swatch-led color rendering for detail pages, cards, and future image-per-color switching.", ["Black|black|#111111", "White|white|#f7f7f7", "Emerald|emerald|#00b894", "Sand|sand|#e9dcc8"])}
-                ${buildVariantGroupMarkup("size", "Size Variants", "Scalable size buttons for apparel, footwear, and future custom sizing systems.", ["XS|xs", "S|s", "M|m", "L|l", "XL|xl"])}
-                ${buildVariantGroupMarkup("style", "Style / Material Variants", "An expandable text-based option group for materials, fits, or future style families.", ["Classic|classic", "Regular|regular", "Premium|premium", "Relaxed|relaxed"])}
-              </section>
-
-              <section class="editor-section-card">
-                <div class="editor-section-heading">
-                  <div>
-                    <h3>Enterprise Category Architecture</h3>
-                    <p>Build complete category systems, hierarchy relationships, inheritance profiles, and product classification foundations while preserving current storefront contracts.</p>
-                  </div>
-                </div>
-                <div class="products-form-grid">
-                  <label class="${getFieldClass("classification.category")}">
-                    <span>Primary Category (Compatibility)</span>
-                    <select data-field="classification.category">
-                      ${CATEGORY_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}" ${getDraftValue(draftState, "classification.category") === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-                    </select>
-                    <small class="editor-field-message" data-field-message="classification.category">${escapeHtml(getFieldHint("classification.category", "This stays mapped to existing storefront flat category routing and filters."))}</small>
-                  </label>
-                  <label class="${getFieldClass("classification.taxonomy.primaryCategory")}">
-                    <span>Primary Category (Enterprise Taxonomy)</span>
-                    <select data-field="classification.taxonomy.primaryCategory">
-                      ${CATEGORY_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}" ${getDraftValue(draftState, "classification.taxonomy.primaryCategory") === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-                    </select>
-                    <small class="editor-field-message" data-field-message="classification.taxonomy.primaryCategory">${escapeHtml(getFieldHint("classification.taxonomy.primaryCategory", "Canonical taxonomy root for enterprise category management."))}</small>
-                  </label>
-                  <label class="${getFieldClass("classification.subcategory")}">
-                    <span>Subcategory</span>
-                    <select data-field="classification.subcategory">
-                      ${buildSubcategorySelectMarkup(
-                        getDraftValue(draftState, "classification.taxonomy.primaryCategory") || getDraftValue(draftState, "classification.category"),
-                        getDraftValue(draftState, "classification.subcategory") || ""
-                      )}
-                    </select>
-                    <small class="editor-field-message" data-field-message="classification.subcategory">${escapeHtml(getFieldHint("classification.subcategory", "Subcategory options are scoped to the selected primary taxonomy category."))}</small>
-                  </label>
-                  <label class="${getFieldClass("classification.taxonomy.relationship")}">
-                    <span>Category Relationship</span>
-                    <select data-field="classification.taxonomy.relationship">
-                      ${CATEGORY_RELATIONSHIP_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}" ${getDraftValue(draftState, "classification.taxonomy.relationship") === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-                    </select>
-                    <small class="editor-field-message" data-field-message="classification.taxonomy.relationship">${escapeHtml(getFieldHint("classification.taxonomy.relationship", "Controls direct, nested, or cross-category assignment behavior."))}</small>
-                  </label>
-                  <label class="${getFieldClass("classification.taxonomy.inheritance")}">
-                    <span>Inheritance Strategy</span>
-                    <select data-field="classification.taxonomy.inheritance">
-                      ${CATEGORY_INHERITANCE_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}" ${getDraftValue(draftState, "classification.taxonomy.inheritance") === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-                    </select>
-                    <small class="editor-field-message" data-field-message="classification.taxonomy.inheritance">${escapeHtml(getFieldHint("classification.taxonomy.inheritance", "Controls inherited keywords and labels in future search and filtering engines."))}</small>
-                  </label>
-                </div>
-                <div class="editor-subsection">
-                  <div class="editor-subsection-heading">
-                    <div>
-                      <h4>Secondary Category Assignments</h4>
-                      <p>Assign cross-category coverage without changing the storefront flat category contract yet.</p>
-                    </div>
-                  </div>
-                  <div class="editor-tag-input-row">
-                    <input type="text" data-token-input="classification.taxonomy.secondaryCategories" placeholder="Add secondary category slug and press Enter">
-                    <button type="button" class="products-secondary-link" data-add-token="classification.taxonomy.secondaryCategories">Add secondary category</button>
-                  </div>
-                  <div class="editor-suggestion-list">
-                    ${CATEGORY_OPTIONS.map((category) => `<button type="button" class="editor-suggestion-chip" data-token-suggestion="classification.taxonomy.secondaryCategories" data-token-value="${escapeHtml(category.value)}">${escapeHtml(category.label)}</button>`).join("")}
-                  </div>
-                  <div class="editor-tag-list" data-token-list="classification.taxonomy.secondaryCategories">${buildTokenMarkup("classification.taxonomy.secondaryCategories", "No secondary categories assigned. Add optional cross-category coverage as needed.")}</div>
-                  <small class="editor-field-message" data-field-message="classification.taxonomy.secondaryCategories">${escapeHtml(getFieldHint("classification.taxonomy.secondaryCategories", "Optional. Use for recommendation overlap, cross-category browse paths, and future campaign grouping."))}</small>
-                </div>
-                ${buildClassificationArchitectureMarkup()}
-                <div class="editor-subsection">
-                  <div class="editor-subsection-heading">
-                    <div>
-                      <h4>Product Tags</h4>
-                      <p>Search and filter descriptors normalized for future catalog matching.</p>
-                    </div>
-                  </div>
-                  <div class="editor-tag-input-row">
-                    <input type="text" data-token-input="classification.tags" placeholder="Type a tag and press Enter">
-                    <button type="button" class="products-secondary-link" data-add-token="classification.tags">Add tag</button>
-                  </div>
-                  <div class="editor-suggestion-list">
-                    ${TAG_SUGGESTIONS.map((tag) => `<button type="button" class="editor-suggestion-chip" data-token-suggestion="classification.tags" data-token-value="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join("")}
-                  </div>
-                  <div class="editor-tag-list" data-token-list="classification.tags">${buildTokenMarkup("classification.tags", "No product tags added yet. Use tags to prepare search and filter foundations.")}</div>
-                  <small class="editor-field-message" data-field-message="classification.tags">${escapeHtml(getFieldHint("classification.tags", "Optional, but useful for future search and filtering intelligence."))}</small>
-                </div>
-                <div class="editor-subsection">
-                  <div class="editor-subsection-heading">
-                    <div>
-                      <h4>Product Labels</h4>
-                      <p>Merchandising labels for badges, featured blocks, and campaign alignment.</p>
-                    </div>
-                  </div>
-                  <div class="editor-tag-input-row">
-                    <input type="text" data-token-input="classification.labels" placeholder="Type a label and press Enter">
-                    <button type="button" class="products-secondary-link" data-add-token="classification.labels">Add label</button>
-                  </div>
-                  <div class="editor-suggestion-list">
-                    ${LABEL_SUGGESTIONS.map((label) => `<button type="button" class="editor-suggestion-chip" data-token-suggestion="classification.labels" data-token-value="${escapeHtml(label)}">${escapeHtml(label)}</button>`).join("")}
-                  </div>
-                  <div class="editor-tag-list" data-token-list="classification.labels">${buildTokenMarkup("classification.labels", "No labels added yet. Labels influence badges and merchandising language.")}</div>
-                  <small class="editor-field-message" data-field-message="classification.labels">${escapeHtml(getFieldHint("classification.labels", "Labels later support badges, promotions, and featured merchandising rules."))}</small>
-                </div>
-              </section>
-
-              <section class="editor-section-card">
-                <div class="editor-section-heading">
-                  <div>
-                    <h3>Product Organization Architecture</h3>
-                    <p>Define collection, seasonality, campaign, homepage, recommendation, and search/filter foundations for enterprise product structuring.</p>
-                  </div>
-                </div>
-                <div class="products-form-grid">
-                  <label class="${getFieldClass("classification.organization.collectionGroup")}">
-                    <span>Collection Group</span>
-                    <select data-field="classification.organization.collectionGroup">
-                      ${COLLECTION_GROUP_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}" ${getDraftValue(draftState, "classification.organization.collectionGroup") === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-                    </select>
-                    <small class="editor-field-message" data-field-message="classification.organization.collectionGroup">${escapeHtml(getFieldHint("classification.organization.collectionGroup", "Groups products into core, editorial, premium, and discovery catalog architectures."))}</small>
-                  </label>
-                  <label class="${getFieldClass("classification.organization.seasonalGroup")}">
-                    <span>Seasonal Group</span>
-                    <select data-field="classification.organization.seasonalGroup">
-                      ${SEASONAL_GROUP_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}" ${getDraftValue(draftState, "classification.organization.seasonalGroup") === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-                    </select>
-                    <small class="editor-field-message" data-field-message="classification.organization.seasonalGroup">${escapeHtml(getFieldHint("classification.organization.seasonalGroup", "Seasonal assignment supports campaign and storefront organization planning."))}</small>
-                  </label>
-                  <label class="${getFieldClass("classification.organization.campaignGroup")}">
-                    <span>Campaign Group</span>
-                    <select data-field="classification.organization.campaignGroup">
-                      ${CAMPAIGN_GROUP_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}" ${getDraftValue(draftState, "classification.organization.campaignGroup") === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-                    </select>
-                    <small class="editor-field-message" data-field-message="classification.organization.campaignGroup">${escapeHtml(getFieldHint("classification.organization.campaignGroup", "Groups product into launch, promotion, and clearance campaign architectures."))}</small>
-                  </label>
-                  <label class="${getFieldClass("classification.organization.homepageGroup")}">
-                    <span>Homepage Group</span>
-                    <select data-field="classification.organization.homepageGroup">
-                      ${HOMEPAGE_GROUP_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}" ${getDraftValue(draftState, "classification.organization.homepageGroup") === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-                    </select>
-                    <small class="editor-field-message" data-field-message="classification.organization.homepageGroup">${escapeHtml(getFieldHint("classification.organization.homepageGroup", "Controls homepage grouping profile for future modules and curated surfaces."))}</small>
-                  </label>
-                  <label class="${getFieldClass("classification.organization.recommendationGroup")}">
-                    <span>Recommendation Group</span>
-                    <select data-field="classification.organization.recommendationGroup">
-                      ${RECOMMENDATION_GROUP_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}" ${getDraftValue(draftState, "classification.organization.recommendationGroup") === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-                    </select>
-                    <small class="editor-field-message" data-field-message="classification.organization.recommendationGroup">${escapeHtml(getFieldHint("classification.organization.recommendationGroup", "Sets recommendation structuring profile for future similarity and upsell engines."))}</small>
-                  </label>
-                  <label class="${getFieldClass("classification.organization.searchBoost")}">
-                    <span>Search Boost Profile</span>
-                    <select data-field="classification.organization.searchBoost">
-                      ${SEARCH_BOOST_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}" ${getDraftValue(draftState, "classification.organization.searchBoost") === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-                    </select>
-                    <small class="editor-field-message" data-field-message="classification.organization.searchBoost">${escapeHtml(getFieldHint("classification.organization.searchBoost", "Prepared search weighting profile for future search ranking layers."))}</small>
-                  </label>
-                  <label class="${getFieldClass("classification.organization.filterPriority")}">
-                    <span>Filter Priority Profile</span>
-                    <select data-field="classification.organization.filterPriority">
-                      ${FILTER_PRIORITY_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}" ${getDraftValue(draftState, "classification.organization.filterPriority") === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-                    </select>
-                    <small class="editor-field-message" data-field-message="classification.organization.filterPriority">${escapeHtml(getFieldHint("classification.organization.filterPriority", "Prepared category filter positioning profile for future layered filtering systems."))}</small>
-                  </label>
-                </div>
-                ${buildOrganizationArchitectureMarkup()}
-              </section>
-
-              <section class="editor-section-card">
-                <div class="editor-section-heading">
-                  <div>
-                    <h3>Publishing Workflow</h3>
-                    <p>Choose the operational state used for draft, published, hidden, scheduled, and premium featured release paths.</p>
-                  </div>
-                </div>
-                <div class="editor-choice-grid" data-choice-group="merchandising.status">
-                  ${buildChoiceCards("merchandising.status", getDraftValue(draftState, "merchandising.status"), STATUS_OPTIONS)}
-                </div>
-                <div class="products-form-grid products-form-grid--compact">
-                  <label class="${getFieldClass("merchandising.scheduleAt")}">
-                    <span>Scheduled Publish Foundation</span>
-                    <input type="datetime-local" data-field="merchandising.scheduleAt" value="${escapeHtml(getDraftValue(draftState, "merchandising.scheduleAt") || "")}">
-                    <small class="editor-field-message" data-field-message="merchandising.scheduleAt">${escapeHtml(getFieldHint("merchandising.scheduleAt", "Optional until scheduled status is selected. This stores the future publishing window foundation only."))}</small>
-                  </label>
-                </div>
-              </section>
-
-              <section class="editor-section-card">
-                <div class="editor-section-heading">
-                  <div>
-                    <h3>Product Visibility Engine</h3>
-                    <p>Control homepage and shop surface exposure without breaking the existing home, shop, category, search, and detail rendering contract.</p>
-                  </div>
-                </div>
-                <div class="editor-segmented-grid">
-                  ${buildVisibilityPresetMarkup()}
-                </div>
-                <div class="editor-surface-grid">
-                  ${buildSurfaceToggleMarkup()}
-                </div>
-                <small class="editor-field-message" data-field-message="merchandising.visibility">${escapeHtml(getFieldHint("merchandising.visibility", "Use presets for quick routing, then refine Home and Shop exposure with the individual surface toggles."))}</small>
-                ${buildMerchandisingSummaryMarkup()}
-              </section>
-
-              <section class="editor-section-card">
-                <div class="editor-section-heading">
-                  <div>
-                    <h3>Featured Product Controls</h3>
-                    <p>Define whether the product should stay standard, appear as a featured hero, surface as highlighted, or behave like a promoted launch.</p>
-                  </div>
-                </div>
-                <div class="editor-choice-grid" data-choice-group="merchandising.featuredTag">
-                  ${buildChoiceCards("merchandising.featuredTag", getDraftValue(draftState, "merchandising.featuredTag"), FEATURED_TAG_OPTIONS)}
-                </div>
-                <small class="editor-field-message" data-field-message="merchandising.featuredTag">${escapeHtml(getFieldHint("merchandising.featuredTag", "Featured treatments map directly to existing storefront highlight tags used by home and shop rendering."))}</small>
-              </section>
-
-              <section class="editor-section-card">
-                <div class="editor-section-heading">
-                  <div>
-                    <h3>Product Positioning Engine</h3>
-                    <p>Set the global merchandising bucket used to anchor homepage priority, shop sequencing, featured display ordering, and future recommendation hierarchy.</p>
-                  </div>
-                </div>
-                <div class="editor-choice-grid" data-choice-group="merchandising.position">
-                  ${buildChoiceCards("merchandising.position", getDraftValue(draftState, "merchandising.position"), POSITION_OPTIONS)}
-                </div>
-                <div class="editor-choice-grid" data-choice-group="merchandising.orderingMode">
-                  ${buildChoiceCards("merchandising.orderingMode", getDraftValue(draftState, "merchandising.orderingMode"), ORDERING_MODE_OPTIONS)}
-                </div>
-                <small class="editor-field-message" data-field-message="merchandising.orderingMode">${escapeHtml(getFieldHint("merchandising.orderingMode", "Automatic mode derives existing backend-compatible priority and orderIndex values. Manual mode reserves a stronger future ordering foundation."))}</small>
-                ${buildPositioningEngineMarkup()}
-              </section>
-
-              <section class="editor-section-card">
-                <div class="editor-section-heading">
-                  <div>
-                    <h3>Rendering Priority System</h3>
-                    <p>Choose the ranking strategy that will later drive weighted ordering, analytics-led sequencing, featured-first merchandising, and manual ranking control.</p>
-                  </div>
-                </div>
-                <div class="editor-choice-grid" data-choice-group="merchandising.positioning.sortStrategy">
-                  ${buildChoiceCards("merchandising.positioning.sortStrategy", getDraftValue(draftState, "merchandising.positioning.sortStrategy"), SORTING_STRATEGY_OPTIONS)}
-                </div>
-                <small class="editor-field-message" data-field-message="merchandising.positioning.sortStrategy">${escapeHtml(getFieldHint("merchandising.positioning.sortStrategy", "This does not change storefront sorting yet. It builds the clean strategy foundation for future manual, featured-first, popularity, sales, and recency-driven ranking."))}</small>
-              </section>
-
-              <section class="editor-section-card">
-                <div class="editor-section-heading">
-                  <div>
-                    <h3>Homepage Product Ordering Foundation</h3>
-                    <p>Prepare homepage hero, featured-row, standard-grid, and trailing-grid positioning with explicit sequence support for later drag sorting and analytics-driven ordering.</p>
-                  </div>
-                </div>
-                <div class="editor-choice-grid" data-choice-group="merchandising.positioning.homePlacement">
-                  ${buildChoiceCards("merchandising.positioning.homePlacement", getDraftValue(draftState, "merchandising.positioning.homePlacement"), HOMEPAGE_PLACEMENT_OPTIONS)}
-                </div>
-                <div class="products-form-grid products-form-grid--compact">
-                  <label class="${getFieldClass("merchandising.positioning.homeOrder")}">
-                    <span>Homepage Sequence</span>
-                    <input type="number" min="0" step="1" data-field="merchandising.positioning.homeOrder" value="${escapeHtml(String(getDraftValue(draftState, "merchandising.positioning.homeOrder") || 0))}" placeholder="0">
-                    <small class="editor-field-message" data-field-message="merchandising.positioning.homeOrder">${escapeHtml(getFieldHint("merchandising.positioning.homeOrder", "Use 0 for automatic weighting. Lower future sequence numbers represent earlier homepage ordering."))}</small>
-                  </label>
-                </div>
-              </section>
-
-              <section class="editor-section-card">
-                <div class="editor-section-heading">
-                  <div>
-                    <h3>Shop Product Ordering Foundation</h3>
-                    <p>Prepare clean shop-grid sequencing for featured-first, top-grid, standard-grid, and trailing-grid product flows without changing the stable shop renderer yet.</p>
-                  </div>
-                </div>
-                <div class="editor-choice-grid" data-choice-group="merchandising.positioning.shopPlacement">
-                  ${buildChoiceCards("merchandising.positioning.shopPlacement", getDraftValue(draftState, "merchandising.positioning.shopPlacement"), SHOP_PLACEMENT_OPTIONS)}
-                </div>
-                <div class="products-form-grid products-form-grid--compact">
-                  <label class="${getFieldClass("merchandising.positioning.shopOrder")}">
-                    <span>Shop Sequence</span>
-                    <input type="number" min="0" step="1" data-field="merchandising.positioning.shopOrder" value="${escapeHtml(String(getDraftValue(draftState, "merchandising.positioning.shopOrder") || 0))}" placeholder="0">
-                    <small class="editor-field-message" data-field-message="merchandising.positioning.shopOrder">${escapeHtml(getFieldHint("merchandising.positioning.shopOrder", "Use 0 for automatic weighting. Lower future sequence numbers represent earlier shop ordering."))}</small>
-                  </label>
-                </div>
-              </section>
-
-              <section class="editor-section-card">
-                <div class="editor-section-heading">
-                  <div>
-                    <h3>Featured Product Priority System</h3>
-                    <p>Prepare featured hero, spotlight, and supporting placement hierarchy with explicit ordering controls for future homepage and shop featured sections.</p>
-                  </div>
-                </div>
-                <div class="editor-choice-grid" data-choice-group="merchandising.positioning.featuredPlacement">
-                  ${buildChoiceCards("merchandising.positioning.featuredPlacement", getDraftValue(draftState, "merchandising.positioning.featuredPlacement"), FEATURED_PLACEMENT_OPTIONS)}
-                </div>
-                <div class="products-form-grid products-form-grid--compact">
-                  <label class="${getFieldClass("merchandising.positioning.featuredOrder")}">
-                    <span>Featured Sequence</span>
-                    <input type="number" min="0" step="1" data-field="merchandising.positioning.featuredOrder" value="${escapeHtml(String(getDraftValue(draftState, "merchandising.positioning.featuredOrder") || 0))}" placeholder="0">
-                    <small class="editor-field-message" data-field-message="merchandising.positioning.featuredOrder">${escapeHtml(getFieldHint("merchandising.positioning.featuredOrder", "Use 0 for automatic weighting. Lower future sequence numbers represent earlier featured placement."))}</small>
-                  </label>
-                </div>
-              </section>
-
-              <section class="editor-section-card">
-                <div class="editor-section-heading">
-                  <div>
-                    <h3>Enterprise Merchandising Structure</h3>
-                    <p>Prepare campaign slots, category sequence, recommendation flow, and recommendation order foundations for future banners, seasonal campaigns, dynamic merchandising, and personalization.</p>
-                  </div>
-                </div>
-                <div class="editor-choice-grid" data-choice-group="merchandising.positioning.campaignSlot">
-                  ${buildChoiceCards("merchandising.positioning.campaignSlot", getDraftValue(draftState, "merchandising.positioning.campaignSlot"), CAMPAIGN_SLOT_OPTIONS)}
-                </div>
-                <div class="editor-choice-grid" data-choice-group="merchandising.positioning.recommendationFlow">
-                  ${buildChoiceCards("merchandising.positioning.recommendationFlow", getDraftValue(draftState, "merchandising.positioning.recommendationFlow"), RECOMMENDATION_FLOW_OPTIONS)}
-                </div>
-                <div class="products-form-grid products-form-grid--compact products-form-grid--ordering">
-                  <label class="${getFieldClass("merchandising.positioning.categoryOrder")}">
-                    <span>Category Sequence</span>
-                    <input type="number" min="0" step="1" data-field="merchandising.positioning.categoryOrder" value="${escapeHtml(String(getDraftValue(draftState, "merchandising.positioning.categoryOrder") || 0))}" placeholder="0">
-                    <small class="editor-field-message" data-field-message="merchandising.positioning.categoryOrder">${escapeHtml(getFieldHint("merchandising.positioning.categoryOrder", "Future category order foundation. Lower sequence numbers represent earlier category-grid placement."))}</small>
-                  </label>
-                  <label class="${getFieldClass("merchandising.positioning.recommendationOrder")}">
-                    <span>Recommendation Sequence</span>
-                    <input type="number" min="0" step="1" data-field="merchandising.positioning.recommendationOrder" value="${escapeHtml(String(getDraftValue(draftState, "merchandising.positioning.recommendationOrder") || 0))}" placeholder="0">
-                    <small class="editor-field-message" data-field-message="merchandising.positioning.recommendationOrder">${escapeHtml(getFieldHint("merchandising.positioning.recommendationOrder", "Future recommendation order foundation. Lower sequence numbers represent earlier recommendation placement."))}</small>
-                  </label>
-                </div>
-              </section>
-
-              <section class="editor-section-card">
-                <div class="editor-section-heading editor-section-heading--split">
-                  <div>
-                    <h3>Enterprise Media Management</h3>
-                    <p>Premium upload staging for featured images, gallery foundations, responsive preview handling, and future-ready product media architecture.</p>
-                  </div>
-                  <div class="editor-upload-row">
-                    <button type="button" class="products-secondary-link" data-upload-browse="main">Browse main image</button>
-                    <button type="button" class="products-secondary-link" data-upload-browse="gallery">Add gallery images</button>
-                  </div>
-                </div>
-
-                <input type="file" accept="${escapeHtml(MEDIA_ACCEPTED_TYPES.join(","))}" data-image-input="main" hidden>
-                <input type="file" accept="${escapeHtml(MEDIA_ACCEPTED_TYPES.join(","))}" data-image-input="gallery" hidden multiple>
-
-                ${buildMediaManagementMarkup()}
-
-                <div class="editor-media-grid">
-                  <div class="editor-upload-stack ${getFieldClass("media.mainImage", "editor-upload-stack")}">
-                    <div class="editor-main-image-stage" data-main-image-stage>
-                      ${buildMainImageStage()}
-                    </div>
-                    <div class="editor-main-image-controls">
-                      <div class="upload-dropzone${mediaUiState.phase === "loading" && mediaUiState.target === "main" ? " is-loading" : ""}" data-upload-zone="main" tabindex="0" role="button" aria-label="Upload main image">
-                        <div class="upload-dropzone__icon">Main</div>
-                        <div class="upload-dropzone__copy">
-                          <strong>Hero image drop zone</strong>
-                          <p>${mediaUiState.phase === "loading" && mediaUiState.target === "main" ? "Reading featured image selection..." : "Drop one image here or browse from your device. Any dimensions are fitted safely for admin review."}</p>
-                        </div>
-                        <div class="upload-dropzone__meta">
-                          <span>${escapeHtml(MEDIA_ACCEPTED_TYPES.map((type) => type.replace("image/", "").toUpperCase()).join(" / "))}</span>
-                          <span>${draftState.media.mainImage ? "Featured image ready" : "Featured image required"}</span>
-                        </div>
-                      </div>
-                      <small class="editor-field-message" data-field-message="media.mainImage">${escapeHtml(getFieldHint("media.mainImage", "A main image is required for safe storefront rendering and validation."))}</small>
-                      ${draftState.media.mainImage ? `<button type="button" class="products-danger-button" data-clear-main-image>Remove main image</button>` : ""}
-                    </div>
-                  </div>
-
-                  <div class="editor-upload-stack">
-                    <div class="upload-dropzone upload-dropzone--gallery${mediaUiState.phase === "loading" && mediaUiState.target === "gallery" ? " is-loading" : ""}" data-upload-zone="gallery" tabindex="0" role="button" aria-label="Upload gallery images">
-                      <div class="upload-dropzone__icon">Gallery</div>
-                      <div class="upload-dropzone__copy">
-                        <strong>Drag gallery images here</strong>
-                        <p>${mediaUiState.phase === "loading" && mediaUiState.target === "gallery" ? "Reading gallery selection..." : "Create a responsive preview grid for future carousel, detail, and alternate-view rendering."}</p>
-                      </div>
-                      <div class="upload-dropzone__meta">
-                        <span>Multi-select enabled</span>
-                        <span>${escapeHtml(String(draftState.media.gallery.length))} / ${escapeHtml(String(MEDIA_MAX_GALLERY_ITEMS))} staged</span>
-                      </div>
-                    </div>
-                    <div class="editor-gallery-grid" data-gallery-grid>${buildGalleryMarkup()}</div>
-                    <small class="editor-field-message" data-field-message="media.gallery">${escapeHtml(getFieldHint("media.gallery", "Gallery assets remain optional in STEP 3D but are structured for future detail-page use."))}</small>
-                  </div>
-                </div>
-
-                ${buildMediaIssuesMarkup()}
-              </section>
-
-              <div class="products-form-actions products-form-actions--split">
-                <div class="products-form-status" data-form-status data-state="${escapeHtml(uiNotice.tone)}">${escapeHtml(uiNotice.message)}</div>
-                <div class="products-action-stack">
-                  <button type="button" class="products-secondary-link" data-action="reset">Reset form</button>
-                  <button type="button" class="products-secondary-link" data-action="save">Save local draft</button>
-                  <button type="button" class="products-primary-button" data-action="prepare">Validate foundation</button>
-                </div>
-              </div>
-            </form>
-          </section>
-
-          <section class="dashboard-panel products-table-panel">
-            <div class="editor-section-heading editor-section-heading--split">
-              <div>
-                <h3>Catalog Snapshot</h3>
-                <p>Existing live products stay visible here so duplicate checks and information architecture remain grounded in the active catalog.</p>
-              </div>
-              <span class="products-inline-pill">${escapeHtml(String(latestProducts.length))} products</span>
+      <div class="products-workspace-grid">
+        <section class="dashboard-panel products-overview-panel">
+          <div class="products-section-head">
+            <div>
+              <p class="dashboard-eyebrow">Catalog Snapshot</p>
+              <h3>Recent products</h3>
+              <p>The admin route keeps the live catalog snapshot available while new products are created and detailed.</p>
             </div>
-            <div class="products-recent-grid">
-              ${buildRecentProductsMarkup()}
-            </div>
-          </section>
-        </div>
-
-        <aside class="dashboard-panel products-preview-panel products-preview-panel--full">
-          <div class="products-preview-stack">
-            ${buildStorefrontPreview()}
-            ${buildDetailPreview()}
-            ${buildGalleryFoundationPreviewMarkup()}
-            <article class="product-preview-card product-preview-card--detail">
-              <p class="product-preview-eyebrow">Visibility & Rendering Readiness</p>
-              <div class="preview-surface-grid">
-                ${buildPreviewSurfaceMarkup()}
-              </div>
-            </article>
-            ${buildFoundationPreviewMarkup()}
-            <article class="product-preview-card product-preview-card--detail">
-              <p class="product-preview-eyebrow">Future-Ready Compatibility</p>
-              <ul class="product-preview-detail-list">
-                <li><span>Gallery systems</span><strong>Prepared</strong></li>
-                <li><span>Variants & attributes</span><strong>Prepared</strong></li>
-                <li><span>Inventory & analytics</span><strong>Prepared</strong></li>
-                <li><span>Search / filters / SEO</span><strong>Prepared</strong></li>
-                <li><span>Category taxonomy / grouping</span><strong>Prepared</strong></li>
-              </ul>
-            </article>
+            <span class="products-inline-pill">${escapeHtml(String(totalProducts))} products</span>
           </div>
+          <div class="products-recent-grid">
+            ${buildRecentProductsMarkup()}
+          </div>
+        </section>
+
+        <aside class="dashboard-panel products-reset-panel">
+          <div class="products-section-head">
+            <div>
+              <p class="dashboard-eyebrow">Workflow Status</p>
+              <h3>Two-step Add Product workflow</h3>
+              <p>Page 1 handles the basic product foundation, while Page 2 completes gallery, descriptions, attributes, and final storefront detail content.</p>
+            </div>
+          </div>
+          <ul class="products-reset-checklist">
+            <li>Page 1 saves basic product setup</li>
+            <li>Page 1 now routes directly to Product Details</li>
+            <li>Page 2 manages gallery, attributes, and product information</li>
+            <li>Fallback save prevents create-route 404 failures</li>
+            <li>Homepage and shop visibility stay synchronized</li>
+          </ul>
         </aside>
       </div>
     </div>
   `;
 }
 
-function syncChoiceCards(root) {
-  root.querySelectorAll("[data-choice-group]").forEach((group) => {
-    group.querySelectorAll(".editor-choice-card").forEach((card) => {
-      const input = card.querySelector("input");
-      card.classList.toggle("is-selected", Boolean(input?.checked));
+function buildProductsMarkup() {
+  if (getProductsView() !== "create") {
+    return buildOverviewMarkup();
+  }
+
+  return getCreateStep() === "details" ? buildDetailsMarkup() : buildPage1Markup();
+}
+
+function rerenderCreateWorkspace(container) {
+  container.innerHTML = buildProductsMarkup();
+  mountCreateWorkspace(container);
+}
+
+function updatePage1Preview(container) {
+  const previewImage = resolveProductImage(productDraft.page1.image || FALLBACK_IMAGE);
+  const currentPrice = getCurrentPrice();
+  const oldPrice = getOldPrice();
+  const discountPercentage = getDiscountPercentage();
+  const stockPresentation = getStockPresentation();
+  const visibilityLabel = getVisibilityLabel();
+  const positionLabel = getPositioningLabel();
+  const title = productDraft.page1.productName.trim() || "Homepage Feature Product";
+
+  const uploadPreviewImage = container.querySelector("[data-upload-preview-image]");
+  const previewImageNode = container.querySelector("[data-preview-image]");
+  const uploadEmptyState = container.querySelector("[data-upload-empty-state]");
+  const removeButton = container.querySelector("[data-products-remove-image]");
+  const previewTitle = container.querySelector("[data-preview-title]");
+  const previewCurrentPrice = container.querySelector("[data-preview-current-price]");
+  const previewOldPrice = container.querySelector("[data-preview-old-price]");
+  const previewDiscount = container.querySelector("[data-preview-discount]");
+  const previewCategory = container.querySelector("[data-preview-category]");
+  const previewVisibility = container.querySelector("[data-preview-visibility]");
+  const previewStockStatus = container.querySelector("[data-preview-stock-status]");
+  const previewStockCount = container.querySelector("[data-preview-stock-count]");
+  const previewStockSummary = container.querySelector("[data-preview-stock-summary]");
+  const previewPriority = container.querySelector("[data-preview-priority]");
+  const previewRouting = container.querySelector("[data-preview-routing]");
+  const previewOrder = container.querySelector("[data-preview-order]");
+  const pricingNote = container.querySelector("[data-pricing-note]");
+  const stockNote = container.querySelector("[data-stock-note]");
+  const feedback = container.querySelector("[data-products-feedback]");
+  const submitButton = container.querySelector("[data-products-submit]");
+
+  if (uploadPreviewImage) uploadPreviewImage.src = previewImage;
+  if (previewImageNode) previewImageNode.src = previewImage;
+  if (uploadEmptyState) uploadEmptyState.classList.toggle("is-hidden", Boolean(productDraft.page1.image));
+  if (removeButton) removeButton.classList.toggle("is-hidden", !productDraft.page1.image);
+  if (previewTitle) previewTitle.textContent = title;
+  if (previewCurrentPrice) previewCurrentPrice.textContent = formatCurrency(currentPrice);
+  if (previewOldPrice) {
+    previewOldPrice.textContent = formatCurrency(oldPrice);
+    previewOldPrice.classList.toggle("is-hidden", !(oldPrice > currentPrice && oldPrice > 0));
+  }
+  if (previewDiscount) {
+    previewDiscount.textContent = `${discountPercentage}% OFF`;
+    previewDiscount.classList.toggle("is-hidden", discountPercentage <= 0);
+  }
+  if (previewCategory) previewCategory.textContent = toLabel(productDraft.page1.category);
+  if (previewVisibility) previewVisibility.textContent = visibilityLabel;
+  if (previewStockStatus) {
+    previewStockStatus.textContent = stockPresentation.label;
+    previewStockStatus.className = `stock-pill stock-pill--${stockPresentation.tone}`;
+  }
+  if (previewStockCount) previewStockCount.textContent = `${stockPresentation.available} units ready`;
+  if (previewStockSummary) previewStockSummary.textContent = `${stockPresentation.label} • ${stockPresentation.available} units`;
+  if (previewPriority) previewPriority.textContent = positionLabel;
+  if (previewRouting) previewRouting.textContent = visibilityLabel === "All" ? "Homepage and Shop" : visibilityLabel === "Home" ? "Homepage only" : "Shop only";
+  if (previewOrder) previewOrder.textContent = positionLabel;
+  if (pricingNote) {
+    pricingNote.innerHTML = discountPercentage > 0
+      ? `<strong>${escapeHtml(String(discountPercentage))}% discount feel ready</strong><span>The storefront preview will show the current price beside a crossed-out old price.</span>`
+      : `<strong>Discount support enabled</strong><span>Add an old price higher than the current price when you want the storefront to show a markdown.</span>`;
+  }
+  if (stockNote) {
+    stockNote.className = `products-stock-note products-stock-note--${stockPresentation.tone}`;
+    stockNote.innerHTML = `<strong>${escapeHtml(stockPresentation.label)}</strong><span>${escapeHtml(stockPresentation.detail)}</span>`;
+  }
+  if (feedback) {
+    feedback.className = `products-feedback products-feedback--${workflowFeedback.tone}`;
+    feedback.textContent = workflowFeedback.message;
+  }
+  if (submitButton) {
+    submitButton.textContent = workflowFeedback.tone === "saving"
+      ? "Saving Page 1..."
+      : productDraft.productId
+        ? "SAVE & NEXT"
+        : "CREATE PRODUCT & NEXT";
+    submitButton.disabled = workflowFeedback.tone === "saving";
+  }
+
+  container.querySelectorAll(".products-choice-card").forEach((card) => {
+    const input = card.querySelector("input[type='radio']");
+    card.classList.toggle("is-selected", Boolean(input?.checked));
+  });
+}
+
+function updateDetailsPreview(container) {
+  const mainImage = resolveProductImage(productDraft.page1.image || productDraft.details.gallery[0] || FALLBACK_IMAGE);
+  const currentPrice = getCurrentPrice();
+  const oldPrice = getOldPrice();
+  const discountPercentage = getDiscountPercentage();
+  const previewImage = container.querySelector("[data-details-preview-image]");
+  const previewTitle = container.querySelector("[data-details-preview-title]");
+  const previewCategory = container.querySelector("[data-details-preview-category]");
+  const previewVisibility = container.querySelector("[data-details-preview-visibility]");
+  const previewPrice = container.querySelector("[data-details-preview-price]");
+  const previewOldPrice = container.querySelector("[data-details-preview-old-price]");
+  const previewDiscount = container.querySelector("[data-details-preview-discount]");
+  const previewDescription = container.querySelector("[data-details-preview-description]");
+  const previewGallery = container.querySelector("[data-details-preview-gallery]");
+  const previewColors = container.querySelector("[data-details-preview-colors]");
+  const previewSizes = container.querySelector("[data-details-preview-sizes]");
+  const previewSpecs = container.querySelector("[data-details-preview-specs]");
+  const previewRouting = container.querySelector("[data-details-preview-routing]");
+  const previewOrder = container.querySelector("[data-details-preview-order]");
+  const feedback = container.querySelector("[data-products-details-feedback]");
+  const submitButton = container.querySelector("[data-products-details-submit]");
+
+  if (previewImage) previewImage.src = mainImage;
+  if (previewTitle) previewTitle.textContent = productDraft.page1.productName.trim() || "Storefront product";
+  if (previewCategory) previewCategory.textContent = toLabel(productDraft.page1.category);
+  if (previewVisibility) previewVisibility.textContent = getVisibilityLabel();
+  if (previewPrice) previewPrice.textContent = formatCurrency(currentPrice);
+  if (previewOldPrice) {
+    previewOldPrice.textContent = formatCurrency(oldPrice);
+    previewOldPrice.classList.toggle("is-hidden", !(oldPrice > currentPrice && oldPrice > 0));
+  }
+  if (previewDiscount) {
+    previewDiscount.textContent = `${discountPercentage}% OFF`;
+    previewDiscount.classList.toggle("is-hidden", discountPercentage <= 0);
+  }
+  if (previewDescription) {
+    previewDescription.textContent = productDraft.details.description.trim() || "Detailed description preview will appear here as the admin types.";
+  }
+  if (previewGallery) previewGallery.innerHTML = buildDetailsPreviewGallery();
+  if (previewColors) previewColors.innerHTML = buildDetailsPreviewColors();
+  if (previewSizes) {
+    previewSizes.innerHTML = productDraft.details.selectedSizes.length
+      ? productDraft.details.selectedSizes.map((size) => `<span class="products-preview-empty-pill">${escapeHtml(size)}</span>`).join("")
+      : `<span class="products-preview-empty-pill">No sizes selected</span>`;
+  }
+  if (previewSpecs) previewSpecs.innerHTML = buildDetailsPreviewSpecs();
+  if (previewRouting) previewRouting.textContent = getVisibilityLabel() === "All" ? "Homepage and Shop" : getVisibilityLabel() === "Home" ? "Homepage only" : "Shop only";
+  if (previewOrder) previewOrder.textContent = getPositioningLabel();
+  if (feedback) {
+    feedback.className = `products-feedback products-feedback--${workflowFeedback.tone}`;
+    feedback.textContent = workflowFeedback.message;
+  }
+  if (submitButton) {
+    submitButton.textContent = workflowFeedback.tone === "saving" ? "Saving product..." : "SAVE";
+    submitButton.disabled = workflowFeedback.tone === "saving";
+  }
+}
+
+function validatePage1Draft() {
+  if (!productDraft.page1.productName.trim()) {
+    return "Enter the product name before continuing to Product Details.";
+  }
+
+  if (getCurrentPrice() <= 0) {
+    return "Enter a valid current price in RWF before saving Page 1.";
+  }
+
+  if (getOldPrice() > 0 && getOldPrice() <= getCurrentPrice()) {
+    return "Old price must be higher than the current price to support storefront discount rendering.";
+  }
+
+  if (getStockQuantity() < 0) {
+    return "Stock quantity cannot be negative.";
+  }
+
+  return "";
+}
+
+function validateDetailsDraft() {
+  if (!productDraft.productId) {
+    return "Save Page 1 first so Product Details can attach to a saved product.";
+  }
+
+  if (!productDraft.details.description.trim()) {
+    return "Add the detailed product description before the final save.";
+  }
+
+  const activeSpecs = productDraft.details.specRows.filter((entry) => String(entry?.label || "").trim() && String(entry?.value || "").trim());
+  if (!activeSpecs.length) {
+    return "Add at least one specification or attribute value before saving the product details.";
+  }
+
+  return "";
+}
+
+async function readFilesAsDataUrls(files) {
+  const images = [];
+  for (const file of Array.from(files || [])) {
+    const image = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("Image upload failed. Try another file."));
+      reader.readAsDataURL(file);
     });
-  });
+    images.push(image);
+  }
+
+  return images;
 }
 
-function syncFieldStates(root) {
-  root.querySelectorAll("[data-field]").forEach((input) => {
-    const label = input.closest(".editor-field, .editor-toggle-pill");
-    if (!label) {
-      return;
-    }
+function updatePage1Field(target) {
+  const fieldName = String(target?.name || "");
+  if (!fieldName) {
+    return false;
+  }
 
-    const field = input.dataset.field;
-    label.classList.remove("is-invalid", "is-warning", "is-valid");
-    const issue = getFieldIssue(field);
+  if (["productName", "currentPrice", "oldPrice", "stock"].includes(fieldName)) {
+    productDraft.page1[fieldName] = String(target.value || "");
+    return true;
+  }
 
-    if (issue.tone === "error") {
-      label.classList.add("is-invalid");
-      return;
-    }
+  if (fieldName === "category") {
+    const previousCategory = productDraft.page1.category;
+    const nextCategory = String(target.value || "fashion").toLowerCase();
+    productDraft.page1.category = nextCategory;
+    syncAdaptiveDetails(previousCategory, nextCategory);
+    return true;
+  }
 
-    if (issue.tone === "warning") {
-      label.classList.add("is-warning");
-      return;
-    }
+  if (fieldName === "visibility") {
+    productDraft.page1.visibility = String(target.value || "all").toLowerCase();
+    return true;
+  }
 
-    const value = getDraftValue(draftState, field);
-    const hasValue = Array.isArray(value) ? value.length > 0 : Boolean(String(value || "").trim());
-    if (hasValue) {
-      label.classList.add("is-valid");
-    }
-  });
+  if (fieldName === "positioning") {
+    productDraft.page1.positioning = String(target.value || "middle").toLowerCase();
+    return true;
+  }
 
-  root.querySelectorAll("[data-field-message]").forEach((messageNode) => {
-    const field = messageNode.dataset.fieldMessage;
-    messageNode.classList.remove("is-error", "is-warning");
-    const issue = getFieldIssue(field);
-    if (issue.tone === "error") {
-      messageNode.classList.add("is-error");
-    }
-    if (issue.tone === "warning") {
-      messageNode.classList.add("is-warning");
-    }
-  });
+  return false;
 }
 
-function syncUi(root) {
-  recomputeValidation();
-
-  const galleryGrid = root.querySelector("[data-gallery-grid]");
-  const mainImageStage = root.querySelector("[data-main-image-stage]");
-  const formStatus = root.querySelector("[data-form-status]");
-  const discountInput = root.querySelector('[data-field="pricing.discountPrice"]');
-  const previewStack = root.querySelector(".products-preview-stack");
-  const validationSummary = root.querySelector("[data-validation-summary]");
-  const foundationCode = root.querySelector("[data-foundation-code]");
-  const inlineSummaryValue = root.querySelector(".editor-inline-summary span");
-  const inlineSummarySmall = root.querySelector(".editor-inline-summary small");
-
-  ["classification.tags", "classification.labels", "classification.taxonomy.secondaryCategories", "variants.groups.color.optionTokens", "variants.groups.size.optionTokens", "variants.groups.style.optionTokens"].forEach((path) => {
-    const tokenList = root.querySelector(`[data-token-list="${path}"]`);
-    if (tokenList) {
-      tokenList.innerHTML = buildTokenMarkup(
-        path,
-        path === "classification.tags"
-          ? "No product tags added yet. Use tags to prepare search and filter foundations."
-          : path === "classification.labels"
-            ? "No labels added yet. Labels influence badges and merchandising language."
-            : path === "classification.taxonomy.secondaryCategories"
-              ? "No secondary categories assigned. Add optional cross-category coverage as needed."
-              : path === "variants.groups.color.optionTokens"
-                ? "No color options staged yet. Add structured color tokens to prepare swatches and future image switching."
-                : path === "variants.groups.size.optionTokens"
-                  ? "No size options staged yet. Add structured size tokens to prepare size selectors."
-                  : "No style or material options staged yet. Add structured text tokens for expandable option families."
-      );
-    }
-  });
-
-  const variantSummaryCards = root.querySelectorAll(".editor-variant-summary-card strong");
-  if (variantSummaryCards[0]) {
-    variantSummaryCards[0].textContent = String(Object.values(getDraftValue(draftState, "variants.groups") || {}).filter((group) => Boolean(group?.enabled)).length);
-  }
-  if (variantSummaryCards[1]) {
-    variantSummaryCards[1].textContent = String((validationState.foundation.futurePayload.attributes || []).length);
-  }
-  if (variantSummaryCards[2]) {
-    variantSummaryCards[2].textContent = validationState.foundation.readiness.supportsVariants ? "Prepared" : "Pending";
+function updateDetailsField(target) {
+  if (updatePage1Field(target)) {
+    return true;
   }
 
-  if (galleryGrid) {
-    galleryGrid.innerHTML = buildGalleryMarkup();
+  const fieldName = String(target?.name || "");
+  if (fieldName === "description") {
+    productDraft.details.description = String(target.value || "");
+    return true;
   }
 
-  if (mainImageStage) {
-    mainImageStage.innerHTML = buildMainImageStage();
+  if (fieldName === "extraWarranty") {
+    productDraft.details.extraInfo.warranty = String(target.value || "");
+    return true;
+  }
+  if (fieldName === "extraDelivery") {
+    productDraft.details.extraInfo.delivery = String(target.value || "");
+    return true;
+  }
+  if (fieldName === "extraMaterial") {
+    productDraft.details.extraInfo.material = String(target.value || "");
+    return true;
+  }
+  if (fieldName === "extraUsage") {
+    productDraft.details.extraInfo.usage = String(target.value || "");
+    return true;
+  }
+  if (fieldName === "extraSpecifications") {
+    productDraft.details.extraInfo.extraSpecifications = String(target.value || "");
+    return true;
   }
 
-  if (discountInput) {
-    discountInput.disabled = !getDraftValue(draftState, "pricing.saleEnabled");
+  const specLabelIndex = target?.dataset?.specLabelIndex;
+  if (specLabelIndex !== undefined) {
+    productDraft.details.specRows[Number(specLabelIndex)].label = String(target.value || "");
+    return true;
   }
 
-  if (validationSummary) {
-    validationSummary.outerHTML = buildValidationSummaryMarkup();
+  const specValueIndex = target?.dataset?.specValueIndex;
+  if (specValueIndex !== undefined) {
+    productDraft.details.specRows[Number(specValueIndex)].value = String(target.value || "");
+    return true;
   }
 
-  if (foundationCode) {
-    foundationCode.textContent = JSON.stringify(validationState.foundation.futurePayload, null, 2);
-  }
-
-  if (inlineSummaryValue) {
-    inlineSummaryValue.textContent = formatCurrency(getActivePrice(draftState));
-  }
-
-  if (inlineSummarySmall) {
-    inlineSummarySmall.textContent = getCompareAtPrice(draftState)
-      ? `Compare at ${formatCurrency(getCompareAtPrice(draftState))}`
-      : "No compare-at price active.";
-  }
-
-  if (formStatus) {
-    formStatus.textContent = uiNotice.message;
-    formStatus.dataset.state = uiNotice.tone;
-  }
-
-  if (previewStack) {
-    previewStack.innerHTML = `
-      ${buildStorefrontPreview()}
-      ${buildDetailPreview()}
-      ${buildGalleryFoundationPreviewMarkup()}
-      <article class="product-preview-card product-preview-card--detail">
-        <p class="product-preview-eyebrow">Visibility & Rendering Readiness</p>
-        <div class="preview-surface-grid">
-          ${buildPreviewSurfaceMarkup()}
-        </div>
-      </article>
-      ${buildFoundationPreviewMarkup()}
-      <article class="product-preview-card product-preview-card--detail">
-        <p class="product-preview-eyebrow">Future-Ready Compatibility</p>
-        <ul class="product-preview-detail-list">
-          <li><span>Gallery systems</span><strong>Prepared</strong></li>
-          <li><span>Variants & attributes</span><strong>Prepared</strong></li>
-          <li><span>Inventory & analytics</span><strong>Prepared</strong></li>
-          <li><span>Search / filters / SEO</span><strong>Prepared</strong></li>
-          <li><span>Category taxonomy / grouping</span><strong>Prepared</strong></li>
-        </ul>
-      </article>
-    `;
-  }
-
-  syncChoiceCards(root);
-  syncFieldStates(root);
+  return false;
 }
 
-function readFilesAsDataUrls(fileList) {
-  if (window.AdminImagePicker && typeof window.AdminImagePicker.readFilesAsDataUrls === "function") {
-    return window.AdminImagePicker.readFilesAsDataUrls(fileList);
-  }
-
-  return Promise.all(Array.from(fileList || []).map((file) => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve({
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      dataUrl: String(reader.result || "")
-    });
-    reader.onerror = () => reject(reader.error || new Error("Unable to read file."));
-    reader.readAsDataURL(file);
-  })));
-}
-
-function buildMediaWorkspaceMessage(target, result) {
-  const targetLabel = target === "main" ? "featured image" : "gallery";
-  if (!result.attemptedCount) {
-    return "No media files were selected.";
-  }
-
-  if (result.acceptedCount && !result.rejectedCount) {
-    return `${result.acceptedCount} ${targetLabel} image${result.acceptedCount === 1 ? "" : "s"} staged successfully for responsive preview.`;
-  }
-
-  if (result.acceptedCount) {
-    return `${result.acceptedCount} ${targetLabel} image${result.acceptedCount === 1 ? "" : "s"} staged, while ${result.rejectedCount} selection${result.rejectedCount === 1 ? " was" : "s were"} blocked or skipped.`;
-  }
-
-  return `No ${targetLabel} files were staged. Review the media issues and try again.`;
-}
-
-async function stageMediaFiles(container, target, files) {
-  const selection = Array.from(files || []);
-  if (!selection.length) {
+async function handlePage1Submit(container) {
+  const validationMessage = validatePage1Draft();
+  if (validationMessage) {
+    setWorkflowFeedback("error", validationMessage);
+    updatePage1Preview(container);
     return;
   }
 
-  setMediaUiState({
-    phase: "loading",
-    target,
-    tone: "neutral",
-    message: `Reading ${selection.length} ${target === "main" ? "featured" : "gallery"} image${selection.length === 1 ? "" : "s"}...`,
-    issues: []
-  });
-  mountProductsPage(container);
+  setWorkflowFeedback("saving", "Saving Page 1, updating storefront placement, and opening Product Details...");
+  updatePage1Preview(container);
 
   try {
-    const fileData = await readFilesAsDataUrls(selection);
-    const applied = applyMediaSelection(draftState, target, fileData);
-    draftState = applied.draft;
+    const payload = buildPage1Payload(productDraft);
+    const response = productDraft.productId
+      ? await updateProductAndSync(productDraft.productId, payload)
+      : await createProductAndSync(payload);
 
-    const tone = applied.result.hasBlockingIssue
-      ? "error"
-      : applied.result.hasAdvisoryIssue
-        ? "warn"
-        : "success";
-    const message = buildMediaWorkspaceMessage(target, applied.result);
-
-    setMediaUiState({
-      phase: "ready",
-      target,
-      tone,
-      message,
-      issues: applied.result.issues
+    productDraft = sanitizeDraft({
+      ...productDraft,
+      productId: String(response?.id || response?._id || response?.catalogId || productDraft.productId || "")
     });
-    setUiNotice(message, tone);
+    persistDraft();
+    writeProgress({ step: "page-1-complete", productId: productDraft.productId, nextStep: "page-2" });
+    window.location.hash = getDetailsHash(productDraft.productId);
   } catch (error) {
-    const message = error?.message || "Unable to stage the selected media files.";
-    setMediaUiState({
-      phase: "error",
-      target,
-      tone: "error",
-      message,
-      issues: [{ tone: "error", fileName: "Upload", message }]
-    });
-    setUiNotice(message, "error");
+    const message = String(error?.message || "").trim() || "Page 1 save failed. Check the current environment and try again.";
+    setWorkflowFeedback("error", message);
+    updatePage1Preview(container);
   }
-
-  mountProductsPage(container);
 }
 
-function mountProductsPage(container) {
-  recomputeValidation();
-  container.innerHTML = buildProductsMarkup();
-  const root = container.querySelector("[data-products-create-root]");
-  if (!root) {
+async function handleDetailsSubmit(container) {
+  const validationMessage = validateDetailsDraft();
+  if (validationMessage) {
+    setWorkflowFeedback("error", validationMessage);
+    updateDetailsPreview(container);
     return;
   }
 
-  function applyFieldUpdate(field, nextValue) {
-    if (field === "merchandising.surfaces.home") {
-      draftState = updateMerchandisingSurface(draftState, "home", nextValue);
-    } else if (field === "merchandising.surfaces.shop") {
-      draftState = updateMerchandisingSurface(draftState, "shop", nextValue);
-    } else if (field === "merchandising.visibility") {
-      draftState = updateMerchandisingVisibilityPreset(draftState, nextValue);
-    } else {
-      draftState = setDraftValue(draftState, field, nextValue);
-    }
+  setWorkflowFeedback("saving", "Saving Product Details, syncing storefront rendering, and finalizing the product...");
+  updateDetailsPreview(container);
 
-    if (field === "classification.category") {
-      draftState = setDraftValue(draftState, "classification.taxonomy.primaryCategory", nextValue);
-    }
+  try {
+    const payload = buildDetailsPayload(productDraft);
+    const response = await updateProductAndSync(productDraft.productId, payload);
+    productDraft = sanitizeDraft({
+      ...productDraft,
+      productId: String(response?.id || response?._id || response?.catalogId || productDraft.productId || "")
+    });
+    persistDraft();
+    setWorkflowFeedback("success", "Product saved and published successfully. Storefront cards, homepage sections, shop listings, and product details are synchronized. Preparing a fresh Page 1 workspace for the next product...");
+    updateDetailsPreview(container);
+    transitionToFreshProductWorkflow(container, "Product saved successfully. Start the next product from a fresh Page 1 workspace.");
+  } catch (error) {
+    const message = String(error?.message || "").trim() || "Final product save failed. Check the current environment and try again.";
+    setWorkflowFeedback("error", message);
+    updateDetailsPreview(container);
+  }
+}
 
-    if (field === "classification.taxonomy.primaryCategory") {
-      draftState = setDraftValue(draftState, "classification.category", nextValue);
-    }
-
-    if (
-      field.startsWith("merchandising.")
-      || field === "classification.category"
-      || field === "classification.subcategory"
-      || field.startsWith("classification.taxonomy")
-      || field.startsWith("classification.organization")
-    ) {
-      mountProductsPage(container);
-      return;
-    }
-
-    syncUi(root);
+function mountPage1(container) {
+  const form = container.querySelector("[data-products-page1-form]");
+  if (!form) {
+    return;
   }
 
-  root.addEventListener("input", (event) => {
-    const field = event.target?.dataset?.field;
-    if (!field) {
+  form.addEventListener("input", (event) => {
+    if (!updatePage1Field(event.target)) {
       return;
     }
 
-    const nextValue = event.target.type === "checkbox"
-      ? event.target.checked
-      : event.target.value;
-    applyFieldUpdate(field, nextValue);
+    setWorkflowFeedback("neutral", "Page 1 saves the product foundation and then routes directly to Product Details.");
+    persistDraft();
+    updatePage1Preview(container);
   });
 
-  root.addEventListener("change", async (event) => {
-    const imageTarget = event.target?.dataset?.imageInput;
-    if (imageTarget) {
+  form.addEventListener("change", async (event) => {
+    const target = event.target;
+    if (target?.matches("[data-products-image-input]")) {
+      const file = target.files?.[0];
+      if (!file) {
+        return;
+      }
+
       try {
-        await stageMediaFiles(container, imageTarget, event.target.files || []);
-      } finally {
-        event.target.value = "";
+        productDraft.page1.image = (await readFilesAsDataUrls([file]))[0] || "";
+        setWorkflowFeedback("neutral", "Hero image staged and ready for storefront save.");
+        persistDraft();
+        updatePage1Preview(container);
+      } catch (error) {
+        setWorkflowFeedback("error", String(error?.message || "Image upload failed."));
+        updatePage1Preview(container);
       }
+
+      target.value = "";
       return;
     }
 
-    const field = event.target?.dataset?.field;
-    if (!field) {
-      return;
-    }
-
-    const nextValue = event.target.type === "checkbox"
-      ? event.target.checked
-      : event.target.value;
-    applyFieldUpdate(field, nextValue);
-  });
-
-  root.addEventListener("keydown", (event) => {
-    const tokenInput = event.target.closest("[data-token-input]");
-    if (tokenInput && event.key === "Enter") {
-      event.preventDefault();
-      const path = tokenInput.dataset.tokenInput;
-      const preserveCase = path === "classification.labels";
-      const nextDraft = addDraftToken(draftState, path, tokenInput.value, { preserveCase });
-      if (nextDraft !== draftState) {
-        draftState = nextDraft;
-        const tokenLabel = path === "classification.labels"
-          ? "Label"
-          : path === "classification.taxonomy.secondaryCategories"
-            ? "Secondary category"
-            : "Tag";
-        setUiNotice(`${tokenLabel} added to the product foundation.`, "success");
-      }
-      tokenInput.value = "";
-      syncUi(root);
-      return;
-    }
-
-    const uploadZone = event.target.closest("[data-upload-zone]");
-    if (uploadZone && (event.key === "Enter" || event.key === " ")) {
-      event.preventDefault();
-      root.querySelector(`[data-image-input="${uploadZone.dataset.uploadZone}"]`)?.click();
+    if (updatePage1Field(target)) {
+      setWorkflowFeedback("neutral", "Page 1 saves the product foundation and then routes directly to Product Details.");
+      persistDraft();
+      updatePage1Preview(container);
     }
   });
 
-  root.querySelectorAll("[data-visibility-preset-option]").forEach((option) => {
-    option.addEventListener("click", (event) => {
-      event.preventDefault();
-      draftState = updateMerchandisingVisibilityPreset(draftState, option.dataset.presetValue);
-      setUiNotice("Product visibility routing updated for the merchandising foundation.", "success");
-      mountProductsPage(container);
-    });
+  form.addEventListener("click", (event) => {
+    if (!event.target.closest("[data-products-remove-image]")) {
+      return;
+    }
+
+    productDraft.page1.image = "";
+    persistDraft();
+    setWorkflowFeedback("neutral", "Hero image removed from the Page 1 workspace.");
+    updatePage1Preview(container);
   });
 
-  root.addEventListener("click", (event) => {
-    const addTokenTrigger = event.target.closest("[data-add-token]");
-    if (addTokenTrigger) {
-      const path = addTokenTrigger.dataset.addToken;
-      const tokenInput = root.querySelector(`[data-token-input="${path}"]`);
-      if (tokenInput) {
-        const preserveCase = path === "classification.labels";
-        const nextDraft = addDraftToken(draftState, path, tokenInput.value, { preserveCase });
-        if (nextDraft !== draftState) {
-          draftState = nextDraft;
-          const tokenLabel = path === "classification.labels"
-            ? "Label"
-            : path === "classification.taxonomy.secondaryCategories"
-              ? "Secondary category"
-              : "Tag";
-          setUiNotice(`${tokenLabel} added to the product foundation.`, "success");
-        }
-        tokenInput.value = "";
-        syncUi(root);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await handlePage1Submit(container);
+  });
+
+  updatePage1Preview(container);
+}
+
+function mountDetails(container) {
+  const form = container.querySelector("[data-products-details-form]");
+  if (!form) {
+    return;
+  }
+
+  form.addEventListener("input", (event) => {
+    if (!updateDetailsField(event.target)) {
+      return;
+    }
+
+    setWorkflowFeedback("neutral", "Product Details updates are staged live and will sync to the storefront on save.");
+    persistDraft();
+    updateDetailsPreview(container);
+  });
+
+  form.addEventListener("change", async (event) => {
+    const target = event.target;
+    if (target?.matches("[data-products-gallery-input]")) {
+      const files = Array.from(target.files || []);
+      if (!files.length) {
+        return;
       }
+
+      try {
+        const images = await readFilesAsDataUrls(files);
+        productDraft.details.gallery = [...productDraft.details.gallery, ...images];
+        setWorkflowFeedback("neutral", `${images.length} gallery image${images.length === 1 ? "" : "s"} added to Product Details.`);
+        persistDraft();
+        rerenderCreateWorkspace(container);
+      } catch (error) {
+        setWorkflowFeedback("error", String(error?.message || "Gallery upload failed."));
+        updateDetailsPreview(container);
+      }
+
+      target.value = "";
       return;
     }
 
-    const tokenSuggestion = event.target.closest("[data-token-suggestion]");
-    if (tokenSuggestion) {
-      const path = tokenSuggestion.dataset.tokenSuggestion;
-      const preserveCase = path === "classification.labels";
-      draftState = addDraftToken(draftState, path, tokenSuggestion.dataset.tokenValue || "", { preserveCase });
-      const suggestionLabel = path === "classification.labels"
-        ? "Suggested label"
-        : path === "classification.taxonomy.secondaryCategories"
-          ? "Suggested secondary category"
-          : "Suggested tag";
-      setUiNotice(`${suggestionLabel} added.`, "success");
-      syncUi(root);
+    if (updateDetailsField(target)) {
+      setWorkflowFeedback("neutral", "Product Details updates are staged live and will sync to the storefront on save.");
+      persistDraft();
+      updateDetailsPreview(container);
+    }
+  });
+
+  form.addEventListener("dragover", (event) => {
+    const dropzone = event.target.closest("[data-gallery-dropzone]");
+    if (!dropzone) {
       return;
     }
 
-    const removeTokenTrigger = event.target.closest("[data-remove-token]");
-    if (removeTokenTrigger) {
-      draftState = removeDraftToken(draftState, removeTokenTrigger.dataset.removeToken, removeTokenTrigger.dataset.tokenValue);
-      setUiNotice("List token removed from the product foundation.", "neutral");
-      syncUi(root);
+    event.preventDefault();
+    dropzone.classList.add("is-dragover");
+  });
+
+  form.addEventListener("dragleave", (event) => {
+    const dropzone = event.target.closest("[data-gallery-dropzone]");
+    if (!dropzone) {
       return;
     }
 
-    const browseTrigger = event.target.closest("[data-upload-browse]");
-    if (browseTrigger) {
-      root.querySelector(`[data-image-input="${browseTrigger.dataset.uploadBrowse}"]`)?.click();
+    dropzone.classList.remove("is-dragover");
+  });
+
+  form.addEventListener("drop", async (event) => {
+    const dropzone = event.target.closest("[data-gallery-dropzone]");
+    if (!dropzone) {
       return;
     }
 
-    const uploadZone = event.target.closest("[data-upload-zone]");
-    if (uploadZone) {
-      root.querySelector(`[data-image-input="${uploadZone.dataset.uploadZone}"]`)?.click();
+    event.preventDefault();
+    dropzone.classList.remove("is-dragover");
+    const files = Array.from(event.dataTransfer?.files || []).filter((file) => String(file.type || "").startsWith("image/"));
+    if (!files.length) {
       return;
     }
 
-    const removeImageTrigger = event.target.closest("[data-remove-image]");
-    if (removeImageTrigger) {
-      draftState = removeMediaAsset(draftState, "gallery", removeImageTrigger.dataset.removeImage);
-      setMediaUiState({
-        phase: "ready",
-        target: "gallery",
-        tone: "neutral",
-        message: "Gallery image removed from the staged media set.",
-        issues: []
+    try {
+      const images = await readFilesAsDataUrls(files);
+      productDraft.details.gallery = [...productDraft.details.gallery, ...images];
+      setWorkflowFeedback("neutral", `${images.length} gallery image${images.length === 1 ? "" : "s"} added from drag and drop.`);
+      persistDraft();
+      rerenderCreateWorkspace(container);
+    } catch (error) {
+      setWorkflowFeedback("error", String(error?.message || "Gallery upload failed."));
+      updateDetailsPreview(container);
+    }
+  });
+
+  form.addEventListener("click", (event) => {
+    const removeGalleryButton = event.target.closest("[data-gallery-remove-index]");
+    if (removeGalleryButton) {
+      const index = Number(removeGalleryButton.dataset.galleryRemoveIndex);
+      productDraft.details.gallery.splice(index, 1);
+      persistDraft();
+      setWorkflowFeedback("neutral", "Gallery image removed from Product Details.");
+      rerenderCreateWorkspace(container);
+      return;
+    }
+
+    const addColorButton = event.target.closest("[data-color-add]");
+    if (addColorButton) {
+      const colorNameInput = form.querySelector("[data-color-name]");
+      const colorHexInput = form.querySelector("[data-color-hex]");
+      const colorName = String(colorNameInput?.value || "").trim();
+      if (!colorName) {
+        setWorkflowFeedback("error", "Enter a color name before adding it.");
+        updateDetailsPreview(container);
+        return;
+      }
+
+      productDraft.details.colors.push({
+        name: colorName,
+        hex: String(colorHexInput?.value || inferColorHex(colorName)).trim() || inferColorHex(colorName)
       });
-      setUiNotice("Gallery image removed from the staged foundation preview.", "neutral");
-      mountProductsPage(container);
+      persistDraft();
+      setWorkflowFeedback("neutral", `${colorName} added to the product colors.`);
+      rerenderCreateWorkspace(container);
       return;
     }
 
-    const setMainTrigger = event.target.closest("[data-set-main-image]");
-    if (setMainTrigger) {
-      draftState = promoteMediaAssetToMain(draftState, setMainTrigger.dataset.setMainImage);
-      setMediaUiState({
-        phase: "ready",
-        target: "main",
-        tone: "success",
-        message: "Selected gallery image promoted to the featured image slot.",
-        issues: []
-      });
-      setUiNotice("Selected gallery image promoted to the main product image.", "success");
-      mountProductsPage(container);
+    const removeColorButton = event.target.closest("[data-color-remove-index]");
+    if (removeColorButton) {
+      const index = Number(removeColorButton.dataset.colorRemoveIndex);
+      productDraft.details.colors.splice(index, 1);
+      persistDraft();
+      setWorkflowFeedback("neutral", "Color removed from the product.");
+      rerenderCreateWorkspace(container);
       return;
     }
 
-    const moveImageTrigger = event.target.closest("[data-move-image]");
-    if (moveImageTrigger) {
-      draftState = moveGalleryAsset(draftState, moveImageTrigger.dataset.moveImage, moveImageTrigger.dataset.direction);
-      setMediaUiState({
-        phase: "ready",
-        target: "gallery",
-        tone: "neutral",
-        message: "Gallery order updated for future detail-page thumbnails and carousel foundations.",
-        issues: []
-      });
-      setUiNotice("Gallery order updated for the future media foundation.", "success");
-      mountProductsPage(container);
-      return;
-    }
-
-    if (event.target.closest("[data-clear-main-image]")) {
-      draftState = removeMediaAsset(draftState, "main");
-      setMediaUiState({
-        phase: "ready",
-        target: "main",
-        tone: "neutral",
-        message: "Featured image cleared. Stage a replacement to restore storefront-ready rendering.",
-        issues: []
-      });
-      setUiNotice("Main image cleared from the product foundation.", "neutral");
-      mountProductsPage(container);
-      return;
-    }
-
-    const actionTrigger = event.target.closest("[data-action]");
-    if (!actionTrigger) {
-      return;
-    }
-
-    const action = actionTrigger.dataset.action;
-    if (action === "reset") {
-      draftState = createDefaultProductDraft();
-      mediaUiState = createDefaultMediaUiState();
-      setUiNotice("The product information draft has been reset. No persisted data was changed.", "neutral");
-      mountProductsPage(container);
-      return;
-    }
-
-    if (action === "save") {
-      recomputeValidation();
-      setUiNotice(
-        validationState.isValid
-          ? "Structured product draft captured locally for this session. Publishing, visibility, and ordering foundations remain browser-local until a later API step."
-          : `Structured draft captured locally, but ${validationState.errorCount} validation issue${validationState.errorCount === 1 ? "" : "s"} still require attention.`,
-        validationState.isValid ? "success" : "warn"
-      );
-      syncUi(root);
-      return;
-    }
-
-    if (action === "prepare") {
-      recomputeValidation();
-      if (!validationState.isValid) {
-        setUiNotice(`Resolve ${validationState.errorCount} validation issue${validationState.errorCount === 1 ? "" : "s"} before the product foundation can progress to publishing workflows.`, "error");
+    const sizeButton = event.target.closest("[data-size-option]");
+    if (sizeButton) {
+      const size = String(sizeButton.dataset.sizeOption || "");
+      if (productDraft.details.selectedSizes.includes(size)) {
+        productDraft.details.selectedSizes = productDraft.details.selectedSizes.filter((entry) => entry !== size);
       } else {
-        setUiNotice("Product information, category organization, media, and merchandising foundations are valid and ready for future publish, sync, and persistence wiring. No API request was executed in STEP 3G.", validationState.warningCount ? "warn" : "success");
+        productDraft.details.selectedSizes = [...productDraft.details.selectedSizes, size];
       }
-      syncUi(root);
+      persistDraft();
+      setWorkflowFeedback("neutral", "Available sizes updated for the product.");
+      rerenderCreateWorkspace(container);
+      return;
+    }
+
+    const addSpecButton = event.target.closest("[data-spec-add]");
+    if (addSpecButton) {
+      productDraft.details.specRows.push({ label: "", value: "" });
+      persistDraft();
+      rerenderCreateWorkspace(container);
+      return;
+    }
+
+    const removeSpecButton = event.target.closest("[data-spec-remove-index]");
+    if (removeSpecButton) {
+      const index = Number(removeSpecButton.dataset.specRemoveIndex);
+      productDraft.details.specRows.splice(index, 1);
+      if (!productDraft.details.specRows.length) {
+        productDraft.details.specRows = getAdaptiveSpecTemplate(productDraft.page1.category);
+      }
+      persistDraft();
+      rerenderCreateWorkspace(container);
     }
   });
 
-  root.querySelectorAll("[data-upload-zone]").forEach((zone) => {
-    ["dragenter", "dragover"].forEach((eventName) => {
-      zone.addEventListener(eventName, (event) => {
-        event.preventDefault();
-        zone.classList.add("is-dragover");
-      });
-    });
-
-    ["dragleave", "dragend", "drop"].forEach((eventName) => {
-      zone.addEventListener(eventName, () => {
-        zone.classList.remove("is-dragover");
-      });
-    });
-
-    zone.addEventListener("drop", async (event) => {
-      event.preventDefault();
-      await stageMediaFiles(container, zone.dataset.uploadZone, event.dataTransfer?.files || []);
-    });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await handleDetailsSubmit(container);
   });
 
-  syncUi(root);
+  updateDetailsPreview(container);
+}
+
+function mountCreateWorkspace(container) {
+  if (getCreateStep() === "details") {
+    mountDetails(container);
+    return;
+  }
+
+  mountPage1(container);
 }
 
 export async function renderProducts(container) {
   latestProducts = [];
   latestProductsError = "";
+  productDraft = sanitizeDraft(readDraft());
+
+  const routeProductId = getRouteProductId();
+  if (routeProductId) {
+    productDraft.productId = routeProductId;
+  }
 
   try {
     latestProducts = await getProducts({ preferCache: true, allowCacheFallback: true });
+
+    if (routeProductId) {
+      const matchedProduct = latestProducts.find((product) => Number(product?.id || product?.catalogId) === Number(routeProductId));
+      if (matchedProduct) {
+        productDraft = hydrateDraftFromProduct(matchedProduct);
+        persistDraft();
+      }
+    }
   } catch (error) {
     const rawMessage = String(error?.message || "").trim();
     latestProductsError = /404|failed|network|fetch|request/i.test(rawMessage)
-      ? "Live catalog snapshot is unavailable in this environment. The STEP 3G category workspace remains fully usable while backend persistence stays deferred."
-      : rawMessage || "Live catalog data could not be loaded. The creation interface remains available.";
+      ? "Live catalog snapshot is unavailable in this environment. The admin workflow remains stable and local storefront synchronization is still active."
+      : rawMessage || "Live catalog data could not be loaded.";
   }
 
-  recomputeValidation();
-  mountProductsPage(container);
+  container.innerHTML = buildProductsMarkup();
+
+  if (getProductsView() === "create") {
+    mountCreateWorkspace(container);
+  }
 }

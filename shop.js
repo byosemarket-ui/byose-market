@@ -259,19 +259,26 @@
 
   async function createProductGridMarkup(items, emptyMessage) {
     if (!Array.isArray(items) || !items.length) {
-      const cardSystem = await loadProductCardSystem();
-      return cardSystem.renderGrid([], {
-        gridClass: 'byose-product-grid',
-        emptyMessage: emptyMessage || "No products available right now."
-      });
+      return `
+        <div class="byose-product-grid-empty">
+          <div class="byose-product-grid-empty-icon">📭</div>
+          <p class="byose-product-grid-empty-text">${escapeHtml(emptyMessage || "No products available right now.")}</p>
+        </div>
+      `;
     }
 
     // Build all cards asynchronously
     const cardsPromises = items.map(item => buildProductCard(item));
     const cardsHtml = await Promise.all(cardsPromises);
-    
-    // Wrap with unified grid classes
-    return `<div class="byose-product-grid byose-product-grid--4col">${cardsHtml.join('')}</div>`;
+    return cardsHtml.join('');
+  }
+
+  function applyStorefrontGridClasses(targetGrid) {
+    if (!targetGrid) {
+      return;
+    }
+
+    targetGrid.classList.add('byose-product-grid', 'byose-product-grid--storefront', 'byose-product-grid--shop');
   }
 
   function bindGridImageFallback(targetGrid) {
@@ -297,6 +304,7 @@
       return;
     }
 
+    applyStorefrontGridClasses(targetGrid);
     bindGridImageFallback(targetGrid);
     targetGrid.setAttribute('aria-busy', 'true');
     const markup = await createProductGridMarkup(items, emptyMessage);
@@ -376,6 +384,7 @@
       state.markupCache.set(state.currentFilter, markup);
     }
 
+    applyStorefrontGridClasses(elements.grid);
     bindGridImageFallback(elements.grid);
     elements.grid.setAttribute('aria-busy', 'false');
     elements.grid.innerHTML = state.markupCache.get(state.currentFilter) || "";

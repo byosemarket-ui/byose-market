@@ -222,7 +222,7 @@ class RealtimeSyncService {
     try {
       console.log("[Realtime] Connecting via SSE...");
       const apiBase = String(window.AdminConfig?.apiBaseUrl || "").replace(/\/+$/, "") || window.location.origin;
-      const eventSourceUrl = `${apiBase}/api/realtime/stream`;
+      const eventSourceUrl = `${apiBase}/realtime/stream`;
       this.activeTransport = "sse";
 
       this.sseConnection = new EventSource(eventSourceUrl);

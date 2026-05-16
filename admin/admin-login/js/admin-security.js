@@ -299,7 +299,7 @@
   }
 
   function getLoginUrl() {
-    return window.location.origin + getAdminBasePath() + "admin-login.html";
+    return window.location.origin + getAdminBasePath() + "admin-login/admin-login.html";
   }
 
   function getDashboardUrl() {

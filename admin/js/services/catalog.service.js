@@ -329,7 +329,11 @@ function normalizeSpecs(specs) {
 	}
 
 	function readPersistedCatalog() {
-		return [];
+		if (!canUseStorage()) {
+			return [];
+		}
+
+		return safeParse(global.localStorage.getItem(STORAGE_KEY) || "[]", []);
 	}
 
 	function dispatchChange(detail) {
@@ -346,6 +350,14 @@ function normalizeSpecs(specs) {
 
 	function persistCatalog(catalog, metadata) {
 		inMemoryCatalog = normalizeCatalog(catalog);
+
+		if (canUseStorage()) {
+			try {
+				global.localStorage.setItem(STORAGE_KEY, JSON.stringify(inMemoryCatalog));
+			} catch (_error) {
+				// Ignore storage failures.
+			}
+		}
 
 		if (!metadata?.silent) {
 			dispatchChange(metadata || {});
@@ -399,9 +411,11 @@ function normalizeSpecs(specs) {
 			try {
 				const payload = await requestRemote("", { method: "GET" });
 				const remoteProducts = Array.isArray(payload?.products) ? payload.products : [];
+				const persistedProducts = readPersistedCatalog();
+				const mergedProducts = [...persistedProducts, ...remoteProducts];
 
-				if (remoteProducts.length) {
-					persistCatalog(remoteProducts, { action: config.action || "refresh" });
+				if (mergedProducts.length) {
+					persistCatalog(mergedProducts, { action: config.action || "refresh" });
 					return clone(inMemoryCatalog);
 				}
 

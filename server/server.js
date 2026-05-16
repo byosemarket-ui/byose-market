@@ -80,6 +80,19 @@ function getCorsOptions() {
         return incoming.toLowerCase() === expected.toLowerCase();
     }
 
+    function isAllowedDevelopmentOrigin(requestOrigin) {
+        if (process.env.NODE_ENV === 'production') {
+            return false;
+        }
+
+        try {
+            const parsed = new URL(String(requestOrigin || '').trim());
+            return ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname);
+        } catch (_error) {
+            return false;
+        }
+    }
+
     if (!configuredOrigins.length) {
         return {
             origin: true,
@@ -91,7 +104,11 @@ function getCorsOptions() {
 
     return {
         origin(origin, callback) {
-            if (!origin || configuredOrigins.some((configuredOrigin) => matchesConfiguredOrigin(configuredOrigin, origin))) {
+            if (
+                !origin
+                || isAllowedDevelopmentOrigin(origin)
+                || configuredOrigins.some((configuredOrigin) => matchesConfiguredOrigin(configuredOrigin, origin))
+            ) {
                 return callback(null, true);
             }
 
@@ -103,7 +120,6 @@ function getCorsOptions() {
     };
 }
 
-app.use(cors(getCorsOptions()));
 app.use(bodyParser.json({ limit: '200kb' }));
 app.use(securityHeaders);
 app.use(requestLogger);
@@ -137,6 +153,7 @@ const realtimeRateLimiter = createRateLimiter({
 
 // Connect to database
 // ROUTES
+app.use('/api', cors(getCorsOptions()));
 app.use('/api/admin/customers', requireDatabase, adminCustomerRoutes);
 app.use('/api/admin/carts', requireDatabase, adminCartRoutes);
 app.use('/api/admin/dashboard', requireDatabase, adminDashboardRoutes);

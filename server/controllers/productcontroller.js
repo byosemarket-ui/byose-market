@@ -152,102 +152,102 @@ function normalizeAttributes(value) {
         })
         .filter(Boolean);
 }
-+
-+function normalizeVariantFoundation(source, fallbackAttributes = []) {
-+    const groupsSource = source && typeof source === 'object' ? source.groups : {};
-+    const fallbackGroups = Array.isArray(fallbackAttributes) && fallbackAttributes.length
-+        ? fallbackAttributes.reduce((result, attribute) => {
-+            const key = toTrimmedString(attribute?.key || attribute?.axis || attribute?.name, 'option').toLowerCase();
-+            result[key] = {
-+                enabled: true,
-+                label: toTrimmedString(attribute?.name || key),
-+                type: toTrimmedString(attribute?.type || attribute?.axis || 'text', 'text').toLowerCase(),
-+                required: attribute?.required !== false,
-+                optionTokens: Array.isArray(attribute?.options)
-+                    ? attribute.options.map((option) => {
-+                        const value = toTrimmedString(option?.value || option?.label);
-+                        const swatch = toTrimmedString(option?.swatch || option?.hex || option?.color);
-+                        const image = toTrimmedString(option?.image || option?.thumbnail);
-+                        return [toTrimmedString(option?.label || value), value, swatch, image].filter(Boolean).join('|');
-+                    })
-+                    : []
-+            };
-+            return result;
-+        }, {})
-+        : {};
-+
-+    const groups = {};
-+    const sourceGroups = groupsSource && typeof groupsSource === 'object' ? groupsSource : {};
-+    const groupEntries = Object.keys({ ...fallbackGroups, ...sourceGroups });
-+
-+    groupEntries.forEach((groupKey) => {
-+        const current = sourceGroups[groupKey] || fallbackGroups[groupKey] || {};
-+        groups[groupKey] = {
-+            enabled: Boolean(current.enabled),
-+            label: toTrimmedString(current.label, toTrimmedString(groupKey, 'Option')),
-+            type: ['color', 'size', 'image', 'text'].includes(toTrimmedString(current.type || current.axis, 'text').toLowerCase())
-+                ? toTrimmedString(current.type || current.axis, 'text').toLowerCase()
-+                : 'text',
-+            required: current.required !== false,
-+            optionTokens: Array.isArray(current.optionTokens)
-+                ? current.optionTokens.map((entry) => toTrimmedString(entry)).filter(Boolean)
-+                : Array.isArray(current.options)
-+                  ? current.options.map((entry) => toTrimmedString(entry)).filter(Boolean)
-+                  : []
-+        };
-+    });
-+
-+    return {
-+        enabled: Boolean(source?.enabled),
-+        optionMode: toTrimmedString(source?.optionMode, 'structured'),
-+        imagePerColor: Boolean(source?.imagePerColor),
-+        pricingPerVariant: Boolean(source?.pricingPerVariant),
-+        inventoryReady: Boolean(source?.inventoryReady),
-+        skuPerVariant: Boolean(source?.skuPerVariant),
-+        groups
-+    };
-+}
-+
-+function buildAttributesFromVariantFoundation(variantFoundation, fallbackAttributes = []) {
-+    const foundation = normalizeVariantFoundation(variantFoundation, fallbackAttributes);
-+
-+    return Object.entries(foundation.groups)
-+        .map(([groupKey, group]) => {
-+            if (!group.enabled) {
-+                return null;
-+            }
-+
-+            const options = normalizeVariantOptions(group.optionTokens.map((token) => splitVariantToken(token).join('|')), group.type)
-+                .map((option) => ({
-+                    label: option.label,
-+                    value: option.value,
-+                    stock: option.stock,
-+                    image: group.type === 'color' ? option.image : option.image,
-+                    swatch: group.type === 'color' ? option.swatch : option.swatch,
-+                    sku: option.sku,
-+                    code: option.code,
-+                    availability: option.availability,
-+                    isDefault: option.isDefault,
-+                    priceDelta: option.priceDelta
-+                }))
-+                .filter((option) => option.value);
-+
-+            if (!group.label || !options.length) {
-+                return null;
-+            }
-+
-+            return {
-+                name: group.label,
-+                key: groupKey,
-+                axis: group.type,
-+                type: group.type,
-+                required: group.required !== false,
-+                options
-+            };
-+        })
-+        .filter(Boolean);
-+}
-*** End Patch
+
+function normalizeVariantFoundation(source, fallbackAttributes = []) {
+    const groupsSource = source && typeof source === 'object' ? source.groups : {};
+    const fallbackGroups = Array.isArray(fallbackAttributes) && fallbackAttributes.length
+        ? fallbackAttributes.reduce((result, attribute) => {
+            const key = toTrimmedString(attribute?.key || attribute?.axis || attribute?.name, 'option').toLowerCase();
+            result[key] = {
+                enabled: true,
+                label: toTrimmedString(attribute?.name || key),
+                type: toTrimmedString(attribute?.type || attribute?.axis || 'text', 'text').toLowerCase(),
+                required: attribute?.required !== false,
+                optionTokens: Array.isArray(attribute?.options)
+                    ? attribute.options.map((option) => {
+                        const value = toTrimmedString(option?.value || option?.label);
+                        const swatch = toTrimmedString(option?.swatch || option?.hex || option?.color);
+                        const image = toTrimmedString(option?.image || option?.thumbnail);
+                        return [toTrimmedString(option?.label || value), value, swatch, image].filter(Boolean).join('|');
+                    })
+                    : []
+            };
+            return result;
+        }, {})
+        : {};
+
+    const groups = {};
+    const sourceGroups = groupsSource && typeof groupsSource === 'object' ? groupsSource : {};
+    const groupEntries = Object.keys({ ...fallbackGroups, ...sourceGroups });
+
+    groupEntries.forEach((groupKey) => {
+        const current = sourceGroups[groupKey] || fallbackGroups[groupKey] || {};
+        groups[groupKey] = {
+            enabled: Boolean(current.enabled),
+            label: toTrimmedString(current.label, toTrimmedString(groupKey, 'Option')),
+            type: ['color', 'size', 'image', 'text'].includes(toTrimmedString(current.type || current.axis, 'text').toLowerCase())
+                ? toTrimmedString(current.type || current.axis, 'text').toLowerCase()
+                : 'text',
+            required: current.required !== false,
+            optionTokens: Array.isArray(current.optionTokens)
+                ? current.optionTokens.map((entry) => toTrimmedString(entry)).filter(Boolean)
+                : Array.isArray(current.options)
+                  ? current.options.map((entry) => toTrimmedString(entry)).filter(Boolean)
+                  : []
+        };
+    });
+
+    return {
+        enabled: Boolean(source?.enabled),
+        optionMode: toTrimmedString(source?.optionMode, 'structured'),
+        imagePerColor: Boolean(source?.imagePerColor),
+        pricingPerVariant: Boolean(source?.pricingPerVariant),
+        inventoryReady: Boolean(source?.inventoryReady),
+        skuPerVariant: Boolean(source?.skuPerVariant),
+        groups
+    };
+}
+
+function buildAttributesFromVariantFoundation(variantFoundation, fallbackAttributes = []) {
+    const foundation = normalizeVariantFoundation(variantFoundation, fallbackAttributes);
+
+    return Object.entries(foundation.groups)
+        .map(([groupKey, group]) => {
+            if (!group.enabled) {
+                return null;
+            }
+
+            const options = normalizeVariantOptions(group.optionTokens.map((token) => splitVariantToken(token).join('|')), group.type)
+                .map((option) => ({
+                    label: option.label,
+                    value: option.value,
+                    stock: option.stock,
+                    image: group.type === 'color' ? option.image : option.image,
+                    swatch: group.type === 'color' ? option.swatch : option.swatch,
+                    sku: option.sku,
+                    code: option.code,
+                    availability: option.availability,
+                    isDefault: option.isDefault,
+                    priceDelta: option.priceDelta
+                }))
+                .filter((option) => option.value);
+
+            if (!group.label || !options.length) {
+                return null;
+            }
+
+            return {
+                name: group.label,
+                key: groupKey,
+                axis: group.type,
+                type: group.type,
+                required: group.required !== false,
+                options
+            };
+        })
+        .filter(Boolean);
+}
+
 function parseCatalogId(value) {
     const parsed = Number(value);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
@@ -470,7 +470,7 @@ exports.getAllProducts = async (req, res) => {
         const page = Math.max(1, Number(req.query?.page || 1) || 1);
         const skip = (page - 1) * limit;
 
-        const products = await monitorAsyncOperation(logger, 'database.product.list', { category: filter.category || '', limit, page }, () => Product.find(filter).sort(buildSort()).skip(skip).limit(limit).select('catalogId name title description shortDescription category price oldPrice stock image mainImage gallery keywords specs attributes variants visibility priority orderIndex highlightTag status url page updatedAt createdAt').lean(), { slowThresholdMs: 900 });
+        const products = await monitorAsyncOperation(logger, 'database.product.list', { category: filter.category || '', limit, page }, () => Product.find(filter).sort(buildSort()).skip(skip).limit(limit).select('catalogId name title description shortDescription longDescription badge category price oldPrice stock image mainImage gallery keywords highlights trust specs attributes variants visibility priority orderIndex highlightTag status url page updatedAt createdAt').lean(), { slowThresholdMs: 900 });
         return res.json({ success: true, products: products.map(serializeProduct) });
     } catch (error) {
         logger.error('inventory.product_list_failed', { error, category: req.query?.category || '' });
@@ -481,7 +481,7 @@ exports.getAllProducts = async (req, res) => {
 exports.getProductById = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'inventory' });
     try {
-        const product = await monitorAsyncOperation(logger, 'database.product.find', { requestedProductId: req.params.id }, () => findProductByIdentifier(req.params.id, 'catalogId name title description shortDescription category price oldPrice stock image mainImage gallery keywords specs attributes variants visibility priority orderIndex highlightTag status url page updatedAt createdAt'), { slowThresholdMs: 700 });
+        const product = await monitorAsyncOperation(logger, 'database.product.find', { requestedProductId: req.params.id }, () => findProductByIdentifier(req.params.id, 'catalogId name title description shortDescription longDescription badge category price oldPrice stock image mainImage gallery keywords highlights trust specs attributes variants visibility priority orderIndex highlightTag status url page updatedAt createdAt'), { slowThresholdMs: 700 });
         if (!product) {
             return res.status(404).json({ success: false, message: 'Product not found' });
         }

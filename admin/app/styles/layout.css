@@ -21,7 +21,7 @@ body.admin-nav-locked {
   min-width: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: var(--app-section-gap);
+  gap: clamp(0.58rem, 1vw, 0.86rem);
   min-height: 100svh;
   padding: var(--app-shell-gutter);
   position: relative;
@@ -31,7 +31,7 @@ body.admin-nav-locked {
   min-width: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: var(--app-section-gap);
+  gap: clamp(0.58rem, 1vw, 0.9rem);
   width: 100%;
   max-width: calc(var(--app-content-max) + (var(--app-shell-gutter) * 2));
   margin: 0 auto;
@@ -91,7 +91,7 @@ body.admin-nav-locked {
   min-width: 0;
   display: grid;
   width: 100%;
-  padding-bottom: var(--app-space-8);
+  padding-bottom: var(--app-space-6);
 }
 
 .admin-page-container {
@@ -112,7 +112,7 @@ body.admin-nav-locked {
 .admin-page-content {
   min-width: 0;
   display: grid;
-  gap: var(--app-section-gap);
+  gap: clamp(0.75rem, 1.1vw, 1rem);
 }
 
 .admin-page-surface[data-route="dashboard"] .admin-page-content {

@@ -37,14 +37,14 @@
   --app-space-7: 1.75rem;
   --app-space-8: 2rem;
   --app-space-9: 2.5rem;
-  --app-shell-gutter: clamp(0.8rem, 1.5vw, 1.4rem);
-  --app-section-gap: clamp(1rem, 1.8vw, 1.5rem);
+  --app-shell-gutter: clamp(0.65rem, 1.2vw, 1.1rem);
+  --app-section-gap: clamp(0.78rem, 1.25vw, 1.15rem);
   --app-content-max: 1640px;
   --app-reading-max: 1560px;
   --app-sidebar-width: 304px;
   --app-sidebar-collapsed-width: 112px;
-  --app-header-height: 76px;
-  --app-header-offset: clamp(0.45rem, 0.9vw, 0.8rem);
+  --app-header-height: 62px;
+  --app-header-offset: clamp(0.32rem, 0.7vw, 0.58rem);
 }
 
 @media (prefers-reduced-motion: reduce) {

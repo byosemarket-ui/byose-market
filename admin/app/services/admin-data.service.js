@@ -15,6 +15,7 @@ const MAX_PRODUCTS_ITEMS = 500;
 const MAX_ACTIVITY_ITEMS = 200;
 const MAX_MESSAGES_ITEMS = 200;
 const MAX_CARTS_ITEMS = 300;
+const STOREFRONT_CATALOG_STORAGE_KEY = "byose_market_products_catalog_v1";
 
 export const ADMIN_SYNC_EVENT = "byose:admin-sync-updated";
 
@@ -78,6 +79,19 @@ function readCache(scope) {
   }
 }
 
+function readJsonStorage(key, fallbackValue) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return fallbackValue;
+    }
+
+    return JSON.parse(raw);
+  } catch (_error) {
+    return fallbackValue;
+  }
+}
+
 function readMemoryCache(scope, ttlMs = IN_MEMORY_CACHE_TTL_MS) {
   const entry = scopeMemoryCache.get(scope);
   if (!entry) {
@@ -131,6 +145,14 @@ function writeCache(scope, payload) {
   }
 }
 
+function writeJsonStorage(key, value) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch (_error) {
+    // Ignore storage write failures.
+  }
+}
+
 function emitSync(scope, payload) {
   const event = {
     scope,
@@ -145,6 +167,108 @@ function emitSync(scope, payload) {
   }));
 
   publishRealtime(event);
+}
+
+function getCurrentProductCache() {
+  const adminProducts = asArray(getCachedScopePayload("products") || []).map(normalizeProduct);
+  const storefrontProducts = asArray(readJsonStorage(STOREFRONT_CATALOG_STORAGE_KEY, [])).map(normalizeProduct);
+  const merged = new Map();
+
+  storefrontProducts.forEach((product) => {
+    const key = normalizeText(product?.id || product?.catalogId || product?.sku);
+    if (key) {
+      merged.set(key, product);
+    }
+  });
+
+  adminProducts.forEach((product) => {
+    const key = normalizeText(product?.id || product?.catalogId || product?.sku);
+    if (key) {
+      merged.set(key, product);
+    }
+  });
+
+  return Array.from(merged.values());
+}
+
+function syncLocalProductCaches(products, options = {}) {
+  const normalized = capArray(asArray(products).map(normalizeProduct), options?.maxItems || MAX_PRODUCTS_ITEMS);
+  writeCache("products", normalized);
+  writeMemoryCache("products", normalized);
+  writeJsonStorage(STOREFRONT_CATALOG_STORAGE_KEY, normalized);
+
+  if (options?.emit !== false) {
+    emitSync("products", normalized);
+    publishGlobalProductSync(normalized);
+  }
+
+  return normalized;
+}
+
+function getNextLocalProductId(products) {
+  return asArray(products).reduce((highest, product) => {
+    const productId = toNumber(product?.id || product?.catalogId);
+    return productId > highest ? productId : highest;
+  }, 0) + 1;
+}
+
+function shouldUseLocalProductFallback(error) {
+  const status = Number(error?.status || error?.cause?.status || 0);
+  const message = String(error?.message || error?.cause?.message || "").toLowerCase();
+
+  if (status === 401 || status === 403) {
+    return false;
+  }
+
+  return status === 404
+    || status === 0
+    || /404|network|fetch|request failed|timed out|unable to sync|failed to fetch/.test(message);
+}
+
+function createLocalProductFallback(productData) {
+  const currentProducts = getCurrentProductCache();
+  const nextId = getNextLocalProductId(currentProducts);
+  const timestamp = new Date().toISOString();
+  const fallbackProduct = normalizeProduct({
+    ...productData,
+    id: nextId,
+    catalogId: nextId,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  });
+
+  syncLocalProductCaches([...currentProducts.filter((product) => Number(product?.id) !== Number(fallbackProduct.id)), fallbackProduct]);
+  return fallbackProduct;
+}
+
+function updateLocalProductFallback(productId, productData) {
+  const currentProducts = getCurrentProductCache();
+  const existingProduct = currentProducts.find((product) => Number(product?.id) === Number(productId));
+  const timestamp = new Date().toISOString();
+  const fallbackProduct = normalizeProduct({
+    ...(existingProduct || {}),
+    ...productData,
+    id: Number(productId) || toNumber(existingProduct?.id || existingProduct?.catalogId),
+    catalogId: Number(productId) || toNumber(existingProduct?.catalogId || existingProduct?.id),
+    createdAt: existingProduct?.createdAt || timestamp,
+    updatedAt: timestamp
+  });
+
+  syncLocalProductCaches([...currentProducts.filter((product) => Number(product?.id) !== Number(fallbackProduct.id)), fallbackProduct]);
+  return fallbackProduct;
+}
+
+function deleteLocalProductFallback(productId) {
+  const currentProducts = getCurrentProductCache();
+  syncLocalProductCaches(currentProducts.filter((product) => Number(product?.id) !== Number(productId)));
+  return { id: productId };
+}
+
+function upsertProductIntoLocalCaches(productData) {
+  const normalizedProduct = normalizeProduct(productData);
+  const currentProducts = getCurrentProductCache();
+  syncLocalProductCaches([...currentProducts.filter((product) => Number(product?.id) !== Number(normalizedProduct.id)), normalizedProduct], { emit: false });
+  return normalizedProduct;
 }
 
 function wait(ms) {
@@ -225,14 +349,25 @@ function normalizeCustomer(customer) {
 
 function normalizeProduct(product) {
   return {
+    ...(product && typeof product === "object" ? product : {}),
     id: normalizeText(product?.id || product?.catalogId || product?._id),
     catalogId: toNumber(product?.catalogId || product?.id),
     name: normalizeText(product?.name || product?.title || "Product"),
     title: normalizeText(product?.title || product?.name || "Product"),
+    description: normalizeText(product?.description || product?.shortDescription),
+    shortDescription: normalizeText(product?.shortDescription || product?.description),
+    longDescription: asArray(product?.longDescription),
+    badge: normalizeText(product?.badge),
     category: normalizeText(product?.category || "general").toLowerCase(),
     price: toNumber(product?.price),
     oldPrice: toNumber(product?.oldPrice),
     stock: toNumber(product?.stock),
+    gallery: asArray(product?.gallery),
+    highlights: asArray(product?.highlights),
+    trust: asArray(product?.trust),
+    specs: asArray(product?.specs),
+    attributes: asArray(product?.attributes),
+    variants: asObject(product?.variants),
     visibility: normalizeText(product?.visibility || "both").toLowerCase(),
     sku: normalizeText(product?.sku || product?.catalogId || product?.id),
     productCode: normalizeText(product?.productCode || product?.catalogId || product?.id),
@@ -244,6 +379,8 @@ function normalizeProduct(product) {
     highlightTag: normalizeText(product?.highlightTag).toLowerCase(),
     mainImage: normalizeText(product?.mainImage || product?.image),
     image: normalizeText(product?.image || product?.mainImage),
+    url: normalizeText(product?.url),
+    page: normalizeText(product?.page || "product-details1.html"),
     updatedAt: product?.updatedAt || product?.createdAt || new Date().toISOString(),
     createdAt: product?.createdAt || new Date().toISOString()
   };
@@ -1254,6 +1391,8 @@ export async function createProductAndSync(productData) {
     const response = await withRetry('admin/products/create', () =>
       api.post('products', productData)
     );
+
+    upsertProductIntoLocalCaches(response?.product || response || productData);
     
     // Clear cache and re-fetch
     await resyncEnterpriseScopes(['products']);
@@ -1263,6 +1402,10 @@ export async function createProductAndSync(productData) {
     
     return response?.product || response;
   } catch (error) {
+    if (shouldUseLocalProductFallback(error)) {
+      return createLocalProductFallback(productData);
+    }
+
     console.error('[Admin Data] Product creation failed:', error);
     throw error;
   }
@@ -1274,6 +1417,12 @@ export async function updateProductAndSync(productId, productData) {
     const response = await withRetry('admin/products/update', () =>
       api.put(`products/${encodeURIComponent(productId)}`, productData)
     );
+
+    upsertProductIntoLocalCaches({
+      ...(response?.product || response || productData),
+      id: productId,
+      catalogId: productId
+    });
     
     // Clear cache and re-fetch
     await resyncEnterpriseScopes(['products']);
@@ -1283,6 +1432,10 @@ export async function updateProductAndSync(productId, productData) {
     
     return response?.product || response;
   } catch (error) {
+    if (shouldUseLocalProductFallback(error)) {
+      return updateLocalProductFallback(productId, productData);
+    }
+
     console.error('[Admin Data] Product update failed:', error);
     throw error;
   }
@@ -1303,6 +1456,10 @@ export async function deleteProductAndSync(productId) {
     
     return response || { id: productId };
   } catch (error) {
+    if (shouldUseLocalProductFallback(error)) {
+      return deleteLocalProductFallback(productId);
+    }
+
     console.error('[Admin Data] Product deletion failed:', error);
     throw error;
   }

@@ -15,16 +15,16 @@
 .enterprise-shortcut-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 0.75rem;
-  margin-top: 0.65rem;
+  gap: 0.58rem;
+  margin-top: 0.45rem;
 }
 
 .enterprise-shortcut {
   min-width: 0;
-  min-height: 82px;
+  min-height: 68px;
   display: grid;
-  gap: 0.25rem;
-  padding: 0.68rem 0.82rem;
+  gap: 0.16rem;
+  padding: 0.52rem 0.66rem;
   border: 1px solid var(--app-border);
   border-radius: 14px;
   background: linear-gradient(180deg, rgba(248, 255, 253, 0.96) 0%, rgba(237, 249, 245, 0.96) 100%);
@@ -37,12 +37,12 @@
 }
 
 .enterprise-shortcut strong {
-  font-size: 0.95rem;
+  font-size: 0.86rem;
 }
 
 .enterprise-shortcut span {
   color: var(--app-muted);
-  font-size: 0.8rem;
+  font-size: 0.74rem;
 }
 
 .enterprise-hero {
@@ -198,31 +198,31 @@
 .hero-overview {
   display: grid;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.54rem;
   grid-template-columns: minmax(0, 1.3fr) minmax(220px, auto);
-  padding: 0.95rem 1rem;
+  padding: 0.68rem 0.78rem;
   color: #effef8;
   background: linear-gradient(135deg, #062f28 0%, #0b5749 54%, #00b894 100%);
 }
 
 .hero-overview h1 {
   margin: 0;
-  font-size: clamp(1.05rem, 1.8vw, 1.35rem);
-  line-height: 1.16;
+  font-size: clamp(0.96rem, 1.3vw, 1.15rem);
+  line-height: 1.12;
 }
 
 .hero-overview p {
-  margin: 0.28rem 0 0;
-  max-width: 62ch;
+  margin: 0.16rem 0 0;
+  max-width: 54ch;
   color: rgba(239, 254, 248, 0.84);
-  font-size: 0.83rem;
-  line-height: 1.36;
+  font-size: 0.76rem;
+  line-height: 1.24;
 }
 
 .hero-eyebrow {
   margin: 0;
   color: rgba(223, 253, 244, 0.84);
-  font-size: 0.68rem;
+  font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -234,17 +234,17 @@
   align-content: flex-start;
   align-items: flex-start;
   flex-wrap: wrap;
-  gap: 0.45rem;
+  gap: 0.3rem;
 }
 
 .hero-chip {
   display: inline-flex;
-  padding: 0.24rem 0.54rem;
+  padding: 0.16rem 0.4rem;
   border: 1px solid rgba(223, 253, 244, 0.3);
   border-radius: 999px;
   background: rgba(223, 253, 244, 0.12);
   color: #e6fff8;
-  font-size: 0.7rem;
+  font-size: 0.62rem;
   font-weight: 700;
 }
 

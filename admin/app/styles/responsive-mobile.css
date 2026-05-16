@@ -4,13 +4,13 @@
   }
 
   .admin-main {
-    padding: 0.6rem;
+    padding: 0.48rem;
   }
 
   .admin-header {
     grid-template-columns: 1fr;
-    gap: 0.7rem;
-    padding: 0.8rem 0.85rem;
+    gap: 0.48rem;
+    padding: 0.56rem 0.58rem;
   }
 
   .admin-header-leading {
@@ -35,7 +35,7 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 0.55rem;
+    gap: 0.4rem;
     justify-self: stretch;
   }
 
@@ -47,7 +47,7 @@
   .header-action-cluster {
     justify-content: flex-start;
     flex-wrap: wrap;
-    gap: 0.4rem;
+    gap: 0.32rem;
   }
 
   .header-profile {
@@ -64,14 +64,14 @@
   .header-panel {
     position: static;
     width: 100%;
-    margin-top: 0.6rem;
+    margin-top: 0.42rem;
   }
 
   .menu-toggle {
     display: inline-flex;
     align-self: flex-start;
-    min-width: 48px;
-    min-height: 44px;
+    min-width: 40px;
+    min-height: 36px;
   }
 
   .admin-sidebar {
@@ -148,7 +148,7 @@
   .hero-overview,
   .enterprise-hero {
     grid-template-columns: 1fr;
-    padding: 0.9rem;
+    padding: 0.62rem;
   }
 
   .hero-chip-grid {
@@ -170,6 +170,10 @@
 
   .header-search-caption,
   .header-route-badge {
+    display: none;
+  }
+
+  .header-route-summary {
     display: none;
   }
 

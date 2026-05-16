@@ -270,10 +270,21 @@ function bindGridImageFallback(grid) {
   ProductCardSystem.bindImageFallback(grid);
 }
 
+function applyStorefrontGridClasses(grid) {
+  if (!grid) {
+    return;
+  }
+
+  grid.classList.add('byose-product-grid', 'byose-product-grid--storefront');
+  grid.classList.toggle('byose-product-grid--spotlight', grid.id === 'spotlightGrid');
+}
+
 function renderGrid(grid, cacheKey, items) {
   if (!grid) {
     return;
   }
+
+  applyStorefrontGridClasses(grid);
 
   // Use unified product card system's grid rendering
   if (items.length === 0) {
@@ -293,12 +304,9 @@ function renderGrid(grid, cacheKey, items) {
     return;
   }
 
-  // Wrap with unified grid classes
-  const gridHtml = `<div class="byose-product-grid byose-product-grid--4col">${markup}</div>`;
-
   bindGridImageFallback(grid);
   grid.setAttribute('aria-busy', 'true');
-  grid.innerHTML = gridHtml;
+  grid.innerHTML = markup;
   grid.dataset.renderKey = cacheKey;
   grid.dataset.renderMarkup = markup;
   grid.removeAttribute('aria-busy');
