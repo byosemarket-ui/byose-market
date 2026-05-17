@@ -45,10 +45,34 @@ const POSITION_OPTIONS = [
 let latestProducts = [];
 let latestProductsError = "";
 let productDraft = readDraft();
+let page1SaveInFlight = false;
 let workflowFeedback = {
   tone: "neutral",
   message: "Create the product foundation, then continue to Product Details to finish the ecommerce listing."
 };
+
+function createTimeoutError(label, timeoutMs) {
+  const error = new Error(`${label} timed out after ${Math.ceil(timeoutMs / 1000)} seconds.`);
+  error.code = "OPERATION_TIMEOUT";
+  return error;
+}
+
+async function withTimeout(label, promise, timeoutMs) {
+  let timerId = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timerId = window.setTimeout(() => reject(createTimeoutError(label, timeoutMs)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timerId) {
+      window.clearTimeout(timerId);
+    }
+  }
+}
 
 function readJsonStorage(key) {
   try {
@@ -1786,6 +1810,10 @@ function updateDetailsField(target) {
 }
 
 async function handlePage1Submit(container) {
+  if (page1SaveInFlight) {
+    return;
+  }
+
   const validationMessage = validatePage1Draft();
   if (validationMessage) {
     setWorkflowFeedback("error", validationMessage);
@@ -1793,14 +1821,25 @@ async function handlePage1Submit(container) {
     return;
   }
 
+  page1SaveInFlight = true;
   setWorkflowFeedback("saving", "Saving Page 1, updating storefront placement, and opening Product Details...");
+  persistDraft();
   updatePage1Preview(container);
 
   try {
     const payload = buildPage1Payload(productDraft);
+    console.info("[Admin Products] upload started", {
+      hasHeroImage: Boolean(productDraft.page1.image),
+      category: payload.category,
+      visibility: payload.visibility
+    });
     const response = productDraft.productId
-      ? await updateProductAndSync(productDraft.productId, payload)
-      : await createProductAndSync(payload);
+      ? await withTimeout("Save Page 1 update", updateProductAndSync(productDraft.productId, payload), 25000)
+      : await withTimeout("Save Page 1 create", createProductAndSync(payload), 25000);
+
+    console.info("[Admin Products] upload finished", {
+      productId: response?.id || response?.catalogId || productDraft.productId || ""
+    });
 
     productDraft = response ? hydrateDraftFromProduct(response) : sanitizeDraft({
       ...productDraft,
@@ -1808,10 +1847,16 @@ async function handlePage1Submit(container) {
     });
     persistDraft();
     writeProgress({ step: "page-1-complete", productId: productDraft.productId, nextStep: "page-2" });
+    console.info("[Admin Products] firestore save success", { productId: productDraft.productId });
+    console.info("[Admin Products] redirecting to page 2", { hash: getDetailsHash(productDraft.productId) });
     window.location.hash = getDetailsHash(productDraft.productId);
   } catch (error) {
+    console.error("[Admin Products] Save Page 1 failed:", error);
     const message = String(error?.message || "").trim() || "Page 1 save failed. Check the current environment and try again.";
     setWorkflowFeedback("error", message);
+    updatePage1Preview(container);
+  } finally {
+    page1SaveInFlight = false;
     updatePage1Preview(container);
   }
 }

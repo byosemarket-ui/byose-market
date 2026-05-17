@@ -13,7 +13,7 @@ import {
   deleteObject,
   getDownloadURL,
   ref,
-  uploadString
+  uploadBytesResumable
 } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-storage.js";
 import { db, getFirebaseAnalytics, storage } from "../firebase.js";
 
@@ -22,6 +22,10 @@ const GLOBAL_SYNC_EVENT = "byose:products-synchronized";
 const PRODUCT_CHANGED_EVENT = "byose:products-changed";
 const DEFAULT_DETAIL_PAGE = "product-details1.html";
 const FALLBACK_IMAGE = "img/logo.png";
+const FIRESTORE_WRITE_TIMEOUT_MS = 15000;
+const STORAGE_UPLOAD_TIMEOUT_MS = 30000;
+const STORAGE_DELETE_TIMEOUT_MS = 12000;
+const FIRESTORE_REFRESH_TIMEOUT_MS = 12000;
 
 let cachedProducts = [];
 let lastSnapshotAt = 0;
@@ -30,6 +34,41 @@ let sharedSnapshotPromise = null;
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function logFirebaseStep(message, details) {
+  if (details !== undefined) {
+    console.info(`[Firebase Products] ${message}`, details);
+    return;
+  }
+
+  console.info(`[Firebase Products] ${message}`);
+}
+
+function createTimeoutError(label, timeoutMs) {
+  const error = new Error(`${label} timed out after ${Math.ceil(timeoutMs / 1000)} seconds.`);
+  error.code = "OPERATION_TIMEOUT";
+  error.timeoutMs = timeoutMs;
+  return error;
+}
+
+async function withTimeout(label, promise, timeoutMs) {
+  let timerId = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timerId = window.setTimeout(() => {
+          reject(createTimeoutError(label, timeoutMs));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timerId) {
+      window.clearTimeout(timerId);
+    }
+  }
 }
 
 function normalizeText(value, fallback = "") {
@@ -174,9 +213,24 @@ function publishProducts(products, source = "firebase") {
 }
 
 async function uploadDataUrl(path, dataUrl) {
+  logFirebaseStep("upload started", { path });
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
   const storageRef = ref(storage, path);
-  await uploadString(storageRef, dataUrl, "data_url");
+  await withTimeout(
+    `Firebase Storage upload for ${path}`,
+    new Promise((resolve, reject) => {
+      const uploadTask = uploadBytesResumable(storageRef, blob, {
+        contentType: blob.type || "image/jpeg",
+        cacheControl: "public,max-age=31536000,immutable"
+      });
+
+      uploadTask.on("state_changed", undefined, reject, () => resolve());
+    }),
+    STORAGE_UPLOAD_TIMEOUT_MS
+  );
   const url = await getDownloadURL(storageRef);
+  logFirebaseStep("upload finished", { path, bytes: blob.size });
   return {
     path,
     url
@@ -190,13 +244,48 @@ async function safeDeleteStoragePath(path) {
   }
 
   try {
-    await deleteObject(ref(storage, normalizedPath));
+    await withTimeout(`Firebase Storage delete for ${normalizedPath}`, deleteObject(ref(storage, normalizedPath)), STORAGE_DELETE_TIMEOUT_MS);
   } catch (error) {
     const code = String(error?.code || "");
     if (code !== "storage/object-not-found") {
       console.warn("[Firebase Products] Failed to delete storage object:", normalizedPath, error);
     }
   }
+}
+
+function buildFirestorePayload(productId, productData, assets, previousProduct = {}) {
+  const nowIso = new Date().toISOString();
+  const normalized = normalizeProductRecord({
+    ...previousProduct,
+    ...productData,
+    id: productId,
+    catalogId: productId,
+    mainImage: assets.image || productData?.mainImage || productData?.image || previousProduct?.mainImage || previousProduct?.image,
+    image: assets.image || productData?.mainImage || productData?.image || previousProduct?.mainImage || previousProduct?.image,
+    gallery: assets.gallery,
+    mainImageStoragePath: assets.storagePath,
+    galleryStoragePaths: assets.galleryStoragePaths,
+    createdAt: previousProduct?.createdAt || nowIso,
+    updatedAt: nowIso
+  }, productId);
+
+  return {
+    ...normalized,
+    mainImageStoragePath: assets.storagePath,
+    galleryStoragePaths: assets.galleryStoragePaths,
+    createdAt: previousProduct?.createdAt || serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    clientCreatedAt: previousProduct?.clientCreatedAt || previousProduct?.createdAt || nowIso,
+    clientUpdatedAt: nowIso
+  };
+}
+
+function toLocalProduct(record, documentId) {
+  return normalizeProductRecord({
+    ...record,
+    createdAt: record?.clientCreatedAt || record?.createdAt,
+    updatedAt: record?.clientUpdatedAt || record?.updatedAt
+  }, documentId);
 }
 
 function isDataUrl(value) {
@@ -277,33 +366,9 @@ async function resolveGalleryImages(productId, nextGallery, previousProduct) {
   };
 }
 
-function buildProductPayload(productId, productData, assets, previousProduct = {}) {
-  const normalized = normalizeProductRecord({
-    ...previousProduct,
-    ...productData,
-    id: productId,
-    catalogId: productId,
-    mainImage: assets.image || productData?.mainImage || productData?.image || previousProduct?.mainImage || previousProduct?.image,
-    image: assets.image || productData?.mainImage || productData?.image || previousProduct?.mainImage || previousProduct?.image,
-    gallery: assets.gallery,
-    mainImageStoragePath: assets.storagePath,
-    galleryStoragePaths: assets.galleryStoragePaths,
-    createdAt: previousProduct?.createdAt || serverTimestamp(),
-    updatedAt: serverTimestamp()
-  }, productId);
-
-  return {
-    ...normalized,
-    mainImageStoragePath: assets.storagePath,
-    galleryStoragePaths: assets.galleryStoragePaths,
-    createdAt: previousProduct?.createdAt || serverTimestamp(),
-    updatedAt: serverTimestamp()
-  };
-}
-
 async function fetchProductDocuments() {
   const productsQuery = query(collection(db, PRODUCTS_COLLECTION), orderBy("updatedAt", "desc"));
-  const snapshot = await getDocs(productsQuery);
+  const snapshot = await withTimeout("Firestore products refresh", getDocs(productsQuery), FIRESTORE_REFRESH_TIMEOUT_MS);
   const products = snapshot.docs.map((snapshotDoc) => normalizeProductRecord(snapshotDoc.data(), snapshotDoc.id));
   return publishProducts(products, "firebase-fetch");
 }
@@ -369,16 +434,23 @@ export function stopProductLiveSync() {
 export async function createProduct(productData = {}) {
   const docRef = doc(collection(db, PRODUCTS_COLLECTION));
   const productId = docRef.id;
+  logFirebaseStep("creating product", { productId, name: productData?.name || productData?.title || "Untitled product" });
   const heroImage = await resolveHeroImage(productId, productData?.mainImage || productData?.image, null);
   const galleryAssets = await resolveGalleryImages(productId, productData?.gallery, null);
-  const payload = buildProductPayload(productId, productData, {
+  const payload = buildFirestorePayload(productId, productData, {
     ...heroImage,
     ...galleryAssets
   });
+  const localProduct = toLocalProduct(payload, productId);
 
-  await setDoc(docRef, payload);
+  await withTimeout(`Firestore product save for ${productId}`, setDoc(docRef, payload), FIRESTORE_WRITE_TIMEOUT_MS);
+  logFirebaseStep("firestore save success", { productId });
+  publishProducts([...cachedProducts.filter((product) => product.id !== productId), localProduct], "firebase-create");
+  void forceRefreshProducts().catch((error) => {
+    console.warn("[Firebase Products] Background refresh after create failed:", error);
+  });
   await getFirebaseAnalytics();
-  return forceRefreshProducts().then((products) => products.find((product) => product.id === productId) || normalizeProductRecord(payload, productId));
+  return localProduct;
 }
 
 export async function updateProduct(productId, productData = {}) {
@@ -388,15 +460,22 @@ export async function updateProduct(productId, productData = {}) {
   }
 
   const previousProduct = (await getProducts()).find((product) => product.id === id || product.catalogId === id) || {};
+  logFirebaseStep("updating product", { productId: id, name: productData?.name || previousProduct?.name || "Untitled product" });
   const heroImage = await resolveHeroImage(id, productData?.mainImage || productData?.image, previousProduct);
   const galleryAssets = await resolveGalleryImages(id, Object.prototype.hasOwnProperty.call(productData, "gallery") ? productData.gallery : previousProduct?.gallery, previousProduct);
-  const payload = buildProductPayload(id, productData, {
+  const payload = buildFirestorePayload(id, productData, {
     ...heroImage,
     ...galleryAssets
   }, previousProduct);
+  const localProduct = toLocalProduct(payload, id);
 
-  await setDoc(doc(db, PRODUCTS_COLLECTION, id), payload, { merge: true });
-  return forceRefreshProducts().then((products) => products.find((product) => product.id === id) || normalizeProductRecord(payload, id));
+  await withTimeout(`Firestore product update for ${id}`, setDoc(doc(db, PRODUCTS_COLLECTION, id), payload, { merge: true }), FIRESTORE_WRITE_TIMEOUT_MS);
+  logFirebaseStep("firestore save success", { productId: id });
+  publishProducts([...cachedProducts.filter((product) => product.id !== id), localProduct], "firebase-update");
+  void forceRefreshProducts().catch((error) => {
+    console.warn("[Firebase Products] Background refresh after update failed:", error);
+  });
+  return localProduct;
 }
 
 export async function deleteProduct(productId) {
@@ -410,8 +489,12 @@ export async function deleteProduct(productId) {
     safeDeleteStoragePath(existingProduct?.mainImageStoragePath),
     ...asArray(existingProduct?.galleryStoragePaths).map((path) => safeDeleteStoragePath(path))
   ]);
-  await deleteDoc(doc(db, PRODUCTS_COLLECTION, id));
-  const products = await forceRefreshProducts();
+  await withTimeout(`Firestore product delete for ${id}`, deleteDoc(doc(db, PRODUCTS_COLLECTION, id)), FIRESTORE_WRITE_TIMEOUT_MS);
+  const products = cachedProducts.filter((product) => product.id !== id);
+  publishProducts(products, "firebase-delete");
+  void forceRefreshProducts().catch((error) => {
+    console.warn("[Firebase Products] Background refresh after delete failed:", error);
+  });
   return {
     id,
     products

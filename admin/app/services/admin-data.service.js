@@ -1380,8 +1380,7 @@ export async function createProductAndSync(productData) {
   try {
     ensureFirebaseProductSync();
     const response = await firebaseProductsService.createProduct(productData);
-    const products = await firebaseProductsService.forceRefreshProducts();
-    syncLocalProductCaches(products, { emit: true });
+    syncLocalProductCaches(firebaseProductsService.getCachedProducts(), { emit: true });
     return response;
   } catch (error) {
     console.error('[Admin Data] Product creation failed:', error);
@@ -1393,8 +1392,7 @@ export async function updateProductAndSync(productId, productData) {
   try {
     ensureFirebaseProductSync();
     const response = await firebaseProductsService.updateProduct(productId, productData);
-    const products = await firebaseProductsService.forceRefreshProducts();
-    syncLocalProductCaches(products, { emit: true });
+    syncLocalProductCaches(firebaseProductsService.getCachedProducts(), { emit: true });
     return response;
   } catch (error) {
     console.error('[Admin Data] Product update failed:', error);
