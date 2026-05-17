@@ -1,5 +1,5 @@
 import { formatCurrency } from "../components/ui.js";
-import { createProductAndSync, getProducts, updateProductAndSync } from "../services/admin-data.service.js";
+import { createProductAndSync, deleteProductAndSync, getProducts, updateProductAndSync } from "../services/admin-data.service.js";
 
 const FALLBACK_IMAGE = "../img/logo.png";
 const DRAFT_STORAGE_KEY = "byose-admin-product-draft-v2";
@@ -578,6 +578,10 @@ function getCreateStep() {
 
 function getRouteProductId() {
   return String(parseHashParams().get("productId") || productDraft.productId || "").trim();
+}
+
+function getProductIdentity(product) {
+  return String(product?.id || product?.catalogId || "").trim();
 }
 
 function setWorkflowFeedback(tone, message) {
@@ -1404,6 +1408,10 @@ function buildRecentProductsMarkup() {
             <strong>${escapeHtml(toLabel(product?.visibility || "both", "Both"))}</strong>
           </div>
         </div>
+        <div class="product-list-card__meta">
+          <button class="products-secondary-link" type="button" data-product-edit="${escapeHtml(getProductIdentity(product))}">Edit</button>
+          <button class="products-secondary-link" type="button" data-product-delete="${escapeHtml(getProductIdentity(product))}">Delete</button>
+        </div>
       </div>
     </article>
   `).join("");
@@ -1794,7 +1802,7 @@ async function handlePage1Submit(container) {
       ? await updateProductAndSync(productDraft.productId, payload)
       : await createProductAndSync(payload);
 
-    productDraft = sanitizeDraft({
+    productDraft = response ? hydrateDraftFromProduct(response) : sanitizeDraft({
       ...productDraft,
       productId: String(response?.id || response?._id || response?.catalogId || productDraft.productId || "")
     });
@@ -1822,7 +1830,7 @@ async function handleDetailsSubmit(container) {
   try {
     const payload = buildDetailsPayload(productDraft);
     const response = await updateProductAndSync(productDraft.productId, payload);
-    productDraft = sanitizeDraft({
+    productDraft = response ? hydrateDraftFromProduct(response) : sanitizeDraft({
       ...productDraft,
       productId: String(response?.id || response?._id || response?.catalogId || productDraft.productId || "")
     });
@@ -2084,6 +2092,48 @@ function mountCreateWorkspace(container) {
   mountPage1(container);
 }
 
+function mountOverviewWorkspace(container) {
+  container.addEventListener("click", async (event) => {
+    const editButton = event.target.closest("[data-product-edit]");
+    if (editButton) {
+      const productId = String(editButton.dataset.productEdit || "").trim();
+      if (!productId) {
+        return;
+      }
+
+      window.location.hash = `#/products?view=create&productId=${encodeURIComponent(productId)}`;
+      return;
+    }
+
+    const deleteButton = event.target.closest("[data-product-delete]");
+    if (!deleteButton) {
+      return;
+    }
+
+    const productId = String(deleteButton.dataset.productDelete || "").trim();
+    if (!productId) {
+      return;
+    }
+
+    const matchedProduct = latestProducts.find((product) => getProductIdentity(product) === productId);
+    const confirmed = window.confirm(`Delete ${matchedProduct?.name || "this product"} from the live catalog? This also removes Firebase Storage images.`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      deleteButton.disabled = true;
+      await deleteProductAndSync(productId);
+      latestProducts = latestProducts.filter((product) => getProductIdentity(product) !== productId);
+      container.innerHTML = buildProductsMarkup();
+      mountOverviewWorkspace(container);
+    } catch (error) {
+      deleteButton.disabled = false;
+      window.alert(String(error?.message || "Unable to delete the product."));
+    }
+  });
+}
+
 export async function renderProducts(container) {
   latestProducts = [];
   latestProductsError = "";
@@ -2098,7 +2148,7 @@ export async function renderProducts(container) {
     latestProducts = await getProducts({ preferCache: true, allowCacheFallback: true });
 
     if (routeProductId) {
-      const matchedProduct = latestProducts.find((product) => Number(product?.id || product?.catalogId) === Number(routeProductId));
+      const matchedProduct = latestProducts.find((product) => getProductIdentity(product) === routeProductId);
       if (matchedProduct) {
         productDraft = hydrateDraftFromProduct(matchedProduct);
         persistDraft();
@@ -2115,5 +2165,8 @@ export async function renderProducts(container) {
 
   if (getProductsView() === "create") {
     mountCreateWorkspace(container);
+    return;
   }
+
+  mountOverviewWorkspace(container);
 }

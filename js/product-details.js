@@ -13,7 +13,8 @@ function getCentralizedCatalog() {
 
 const ProductsDB = {
   getById(productId) {
-    return getCentralizedCatalog().find(product => Number(product.id) === Number(productId)) || null;
+    const requestedId = String(productId || '').trim();
+    return getCentralizedCatalog().find((product) => String(product?.id || product?.catalogId || '').trim() === requestedId) || null;
   },
   getByCategory(category) {
     const normalized = String(category || '').toLowerCase();

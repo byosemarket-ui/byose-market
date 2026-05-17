@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Shop | Byose Market</title>
-  <meta name="description" content="Browse compact fashion, shoes, electronics and daily deals on Byose Market.">
+  <title>Products | Byose Market</title>
+  <meta name="description" content="Browse the live Firebase-backed BYOSE Market product catalog.">
   <link rel="icon" href="img/logo.png" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -38,9 +38,9 @@
           <i class="fa-solid fa-house" aria-hidden="true"></i>
           <span>Home</span>
         </a>
-        <a href="shop.html" class="nav-link active" data-page="shop">
+        <a href="products.html" class="nav-link active" data-page="shop">
           <i class="fa-solid fa-store" aria-hidden="true"></i>
-          <span>Shop</span>
+          <span>Products</span>
         </a>
         <a href="contact.html" class="nav-link" data-page="contact">
           <i class="fa-regular fa-envelope" aria-hidden="true"></i>
@@ -71,7 +71,7 @@
 
       <div class="header-search header-search-mobile-redirect" id="homeSearchRedirect" role="button" tabindex="0" aria-label="Open search page">
         <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-        <input id="homeSearchInput" type="search" placeholder="Search shoes..." aria-label="Search products" readonly tabindex="-1" inputmode="none">
+        <input id="homeSearchInput" type="search" placeholder="Search products..." aria-label="Search products" readonly tabindex="-1" inputmode="none">
       </div>
     </div>
   </header>
@@ -80,8 +80,8 @@
     <section class="container shop-toolbar-wrap">
       <div class="shop-toolbar card-surface">
         <div class="shop-toolbar-copy">
-          <span class="section-kicker">Quick filters</span>
-          <h2>Find products fast</h2>
+          <span class="section-kicker">Live catalog</span>
+          <h2>Products from Firebase</h2>
         </div>
 
         <div class="filters" role="tablist" aria-label="Product filters">
@@ -93,11 +93,11 @@
       </div>
     </section>
 
-    <section class="products-section container shop-products-section" aria-labelledby="shop-products-title">
+    <section class="products-section container shop-products-section" aria-labelledby="products-title">
       <div class="section-heading compact-heading shop-results-head">
         <div>
-          <span class="section-kicker">Browse products</span>
-          <h2 id="shop-products-title">Shop the latest picks</h2>
+          <span class="section-kicker">Realtime</span>
+          <h2 id="products-title">Explore BYOSE Market products</h2>
         </div>
         <p class="shop-results" id="resultsSummary" aria-live="polite"></p>
       </div>
@@ -107,7 +107,7 @@
   </main>
 
   <script src="js/products.js"></script>
-  <script src="shop.js"></script>
+  <script type="module" src="products.js"></script>
   <script src="js/mobile-nav.js"></script>
   <script src="js/search.js"></script>
   <script src="shared/storage.js"></script>

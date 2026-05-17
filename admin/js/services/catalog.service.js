@@ -2,6 +2,7 @@
 	"use strict";
 
 	const STORAGE_KEY = "byose_market_products_catalog_v1";
+	const STORAGE_META_KEY = "byose_market_products_catalog_meta_v1";
 	const EVENT_NAME = "byose:products-changed";
 	const PRODUCTS_API_PATH = "/products";
 	const FALLBACK_IMAGE = "img/logo.png";
@@ -333,6 +334,11 @@ function normalizeSpecs(specs) {
 			return [];
 		}
 
+		const metadata = safeParse(global.localStorage.getItem(STORAGE_META_KEY) || "{}", {});
+		if (metadata?.source !== "backend") {
+			return [];
+		}
+
 		return safeParse(global.localStorage.getItem(STORAGE_KEY) || "[]", []);
 	}
 
@@ -354,6 +360,10 @@ function normalizeSpecs(specs) {
 		if (canUseStorage()) {
 			try {
 				global.localStorage.setItem(STORAGE_KEY, JSON.stringify(inMemoryCatalog));
+				global.localStorage.setItem(STORAGE_META_KEY, JSON.stringify({
+					source: "backend",
+					updatedAt: new Date().toISOString()
+				}));
 			} catch (_error) {
 				// Ignore storage failures.
 			}
@@ -411,11 +421,9 @@ function normalizeSpecs(specs) {
 			try {
 				const payload = await requestRemote("", { method: "GET" });
 				const remoteProducts = Array.isArray(payload?.products) ? payload.products : [];
-				const persistedProducts = readPersistedCatalog();
-				const mergedProducts = [...persistedProducts, ...remoteProducts];
 
-				if (mergedProducts.length) {
-					persistCatalog(mergedProducts, { action: config.action || "refresh" });
+				if (remoteProducts.length) {
+					persistCatalog(remoteProducts, { action: config.action || "refresh" });
 					return clone(inMemoryCatalog);
 				}
 

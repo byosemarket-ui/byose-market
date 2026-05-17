@@ -1,5 +1,6 @@
 import * as api from "../core/api.js";
 import { publishRealtime } from "../core/realtime-adapter.js";
+import firebaseProductsService from "../../../services/firebase-products.service.js";
 
 const CACHE_PREFIX = "byose_admin_api_cache_v2";
 const DEFAULT_RETRY_COUNT = 2;
@@ -28,6 +29,28 @@ let inFlightSyncPromise = null;
 let pendingVisibilityRefresh = null;
 const scopeMemoryCache = new Map();
 const scopeInFlight = new Map();
+let removeFirebaseProductSync = null;
+
+function ensureFirebaseProductSync() {
+  if (removeFirebaseProductSync || typeof window === "undefined") {
+    return;
+  }
+
+  removeFirebaseProductSync = firebaseProductsService.subscribeToProducts((products) => {
+    const normalized = syncLocalProductCaches(products, { emit: false });
+    emitSync("products", normalized);
+    publishGlobalProductSync(normalized);
+  }, (error) => {
+    console.error("[Admin Data] Firebase product sync failed:", error);
+  });
+
+  window.addEventListener("beforeunload", () => {
+    if (typeof removeFirebaseProductSync === "function") {
+      removeFirebaseProductSync();
+      removeFirebaseProductSync = null;
+    }
+  }, { once: true });
+}
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -205,14 +228,7 @@ function syncLocalProductCaches(products, options = {}) {
   return normalized;
 }
 
-function getNextLocalProductId(products) {
-  return asArray(products).reduce((highest, product) => {
-    const productId = toNumber(product?.id || product?.catalogId);
-    return productId > highest ? productId : highest;
-  }, 0) + 1;
-}
-
-function shouldUseLocalProductFallback(error) {
+function isSharedProductApiUnavailable(error) {
   const status = Number(error?.status || error?.cause?.status || 0);
   const message = String(error?.message || error?.cause?.message || "").toLowerCase();
 
@@ -222,46 +238,20 @@ function shouldUseLocalProductFallback(error) {
 
   return status === 404
     || status === 0
+    || status === 503
     || /404|network|fetch|request failed|timed out|unable to sync|failed to fetch/.test(message);
 }
 
-function createLocalProductFallback(productData) {
-  const currentProducts = getCurrentProductCache();
-  const nextId = getNextLocalProductId(currentProducts);
-  const timestamp = new Date().toISOString();
-  const fallbackProduct = normalizeProduct({
-    ...productData,
-    id: nextId,
-    catalogId: nextId,
-    createdAt: timestamp,
-    updatedAt: timestamp
-  });
+function createSharedProductPersistenceError(action, error) {
+  if (!isSharedProductApiUnavailable(error)) {
+    return error;
+  }
 
-  syncLocalProductCaches([...currentProducts.filter((product) => Number(product?.id) !== Number(fallbackProduct.id)), fallbackProduct]);
-  return fallbackProduct;
-}
-
-function updateLocalProductFallback(productId, productData) {
-  const currentProducts = getCurrentProductCache();
-  const existingProduct = currentProducts.find((product) => Number(product?.id) === Number(productId));
-  const timestamp = new Date().toISOString();
-  const fallbackProduct = normalizeProduct({
-    ...(existingProduct || {}),
-    ...productData,
-    id: Number(productId) || toNumber(existingProduct?.id || existingProduct?.catalogId),
-    catalogId: Number(productId) || toNumber(existingProduct?.catalogId || existingProduct?.id),
-    createdAt: existingProduct?.createdAt || timestamp,
-    updatedAt: timestamp
-  });
-
-  syncLocalProductCaches([...currentProducts.filter((product) => Number(product?.id) !== Number(fallbackProduct.id)), fallbackProduct]);
-  return fallbackProduct;
-}
-
-function deleteLocalProductFallback(productId) {
-  const currentProducts = getCurrentProductCache();
-  syncLocalProductCaches(currentProducts.filter((product) => Number(product?.id) !== Number(productId)));
-  return { id: productId };
+  const normalized = new Error(`Product ${action} failed because the shared online product API is unavailable. The product was not saved globally.`);
+  normalized.status = Number(error?.status || error?.cause?.status || 0) || 0;
+  normalized.code = "PRODUCT_SYNC_UNAVAILABLE";
+  normalized.cause = error;
+  return normalized;
 }
 
 function upsertProductIntoLocalCaches(productData) {
@@ -793,12 +783,13 @@ export async function getProducts(options = {}) {
 
   const promise = (async () => {
     try {
-      const payload = await withRetry("products", () => api.get("products"));
-      const products = capArray(asArray(payload?.products || payload?.data || payload).map(normalizeProduct), options?.maxItems || MAX_PRODUCTS_ITEMS);
+      ensureFirebaseProductSync();
+      const products = capArray((await firebaseProductsService.getProducts()).map(normalizeProduct), options?.maxItems || MAX_PRODUCTS_ITEMS);
       writeMemoryCache(scope, products);
       writeCache(scope, products);
       if (options?.emit !== false) {
         emitSync(scope, products);
+        publishGlobalProductSync(products);
       }
       return products;
     } catch (error) {
@@ -1387,80 +1378,38 @@ export async function notifyStorefrontProductUpdate() {
 
 export async function createProductAndSync(productData) {
   try {
-    // Call backend to create product
-    const response = await withRetry('admin/products/create', () =>
-      api.post('products', productData)
-    );
-
-    upsertProductIntoLocalCaches(response?.product || response || productData);
-    
-    // Clear cache and re-fetch
-    await resyncEnterpriseScopes(['products']);
-    
-    // Notify storefront of changes
-    await notifyStorefrontProductUpdate();
-    
-    return response?.product || response;
+    ensureFirebaseProductSync();
+    const response = await firebaseProductsService.createProduct(productData);
+    const products = await firebaseProductsService.forceRefreshProducts();
+    syncLocalProductCaches(products, { emit: true });
+    return response;
   } catch (error) {
-    if (shouldUseLocalProductFallback(error)) {
-      return createLocalProductFallback(productData);
-    }
-
     console.error('[Admin Data] Product creation failed:', error);
-    throw error;
+        throw createSharedProductPersistenceError("creation", error);
   }
 }
 
 export async function updateProductAndSync(productId, productData) {
   try {
-    // Call backend to update product
-    const response = await withRetry('admin/products/update', () =>
-      api.put(`products/${encodeURIComponent(productId)}`, productData)
-    );
-
-    upsertProductIntoLocalCaches({
-      ...(response?.product || response || productData),
-      id: productId,
-      catalogId: productId
-    });
-    
-    // Clear cache and re-fetch
-    await resyncEnterpriseScopes(['products']);
-    
-    // Notify storefront of changes
-    await notifyStorefrontProductUpdate();
-    
-    return response?.product || response;
+    ensureFirebaseProductSync();
+    const response = await firebaseProductsService.updateProduct(productId, productData);
+    const products = await firebaseProductsService.forceRefreshProducts();
+    syncLocalProductCaches(products, { emit: true });
+    return response;
   } catch (error) {
-    if (shouldUseLocalProductFallback(error)) {
-      return updateLocalProductFallback(productId, productData);
-    }
-
     console.error('[Admin Data] Product update failed:', error);
-    throw error;
+        throw createSharedProductPersistenceError("update", error);
   }
 }
 
 export async function deleteProductAndSync(productId) {
   try {
-    // Call backend to delete product
-    const response = await withRetry('admin/products/delete', () =>
-      api.remove(`products/${encodeURIComponent(productId)}`)
-    );
-    
-    // Clear cache and re-fetch
-    await resyncEnterpriseScopes(['products']);
-    
-    // Notify storefront of changes
-    await notifyStorefrontProductUpdate();
-    
+    ensureFirebaseProductSync();
+    const response = await firebaseProductsService.deleteProduct(productId);
+    syncLocalProductCaches(response?.products || [], { emit: true });
     return response || { id: productId };
   } catch (error) {
-    if (shouldUseLocalProductFallback(error)) {
-      return deleteLocalProductFallback(productId);
-    }
-
     console.error('[Admin Data] Product deletion failed:', error);
-    throw error;
+        throw createSharedProductPersistenceError("deletion", error);
   }
 }

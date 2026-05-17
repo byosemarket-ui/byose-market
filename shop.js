@@ -159,8 +159,8 @@
       return rawUrl;
     }
 
-    const id = Number(product && product.id);
-    if (Number.isFinite(id) && id > 0) {
+    const id = String(product && (product.id || product.catalogId) ? (product.id || product.catalogId) : "").trim();
+    if (id) {
       return `${DEFAULT_DETAIL_PAGE}?id=${encodeURIComponent(id)}`;
     }
 
@@ -173,8 +173,8 @@
   }
 
   function normalizeProduct(product, index) {
-    const fallbackId = index + 1;
-    const id = toPositiveNumber(product && product.id, fallbackId) || fallbackId;
+    const fallbackId = `product-${index + 1}`;
+    const id = String(product && (product.id || product.catalogId) ? (product.id || product.catalogId) : fallbackId).trim() || fallbackId;
     const price = toPositiveNumber(product && product.price, 0);
     const oldPrice = toPositiveNumber(product && product.oldPrice, 0);
     const name = String(product && product.name ? product.name : "").trim() || `Product ${id}`;
