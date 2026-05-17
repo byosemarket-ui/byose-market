@@ -1,11 +1,12 @@
 /* categories.js
 	 Dynamically renders category cards and handles interactions.
-	 - Uses modern ES6
+	 - Uses the shared product catalog when available
+	 - Falls back to a curated static list when the live catalog is unavailable
 	 - Adds click/keyboard handlers to redirect to shop.html?category=slug
 	 - Includes client-side search/filter
 */
 
-const categories = [
+const FALLBACK_CATEGORIES = [
 	{ name: 'Shoes', slug: 'shoes', count: 124, image: 'https://images.unsplash.com/photo-1600180758890-6ffa1b3dfd30?q=80&w=1200&auto=format&fit=crop&ixlib=rb-4.0.3&s=1' },
 	{ name: 'Bags', slug: 'bags', count: 88, image: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=1200&auto=format&fit=crop&ixlib=rb-4.0.3&s=2' },
 	{ name: 'Clothes', slug: 'clothes', count: 320, image: 'https://images.unsplash.com/photo-1520975698517-2c3c3f8b2f12?q=80&w=1200&auto=format&fit=crop&ixlib=rb-4.0.3&s=3' },
@@ -20,8 +21,114 @@ const categories = [
 	{ name: 'Gaming', slug: 'gaming', count: 43, image: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1200&auto=format&fit=crop&ixlib=rb-4.0.3&s=12' }
 ];
 
+const CATEGORY_ALIASES = {
+	apparel: 'fashion',
+	bag: 'bags',
+	bags: 'bags',
+	clothes: 'fashion',
+	clothing: 'fashion',
+	fashion: 'fashion',
+	footwear: 'shoes',
+	phone: 'phones',
+	phones: 'phones',
+	shoe: 'shoes',
+	shoes: 'shoes',
+	smartphone: 'phones',
+	smartphones: 'phones',
+	watch: 'watches',
+	watches: 'watches'
+};
+
+const CATEGORY_IMAGE_FALLBACKS = FALLBACK_CATEGORIES.reduce((result, category) => {
+	result[category.slug] = category.image;
+	return result;
+}, {});
+
+let categories = FALLBACK_CATEGORIES.slice();
+let catalogServicePromise = null;
+
 const grid = document.getElementById('categoriesGrid');
 const searchInput = document.getElementById('categorySearch');
+
+function normalizeText(value) {
+	return String(value || '')
+		.toLowerCase()
+		.trim()
+		.replace(/[^a-z0-9]+/g, ' ')
+		.trim();
+}
+
+function normalizeCategorySlug(value) {
+	const normalized = normalizeText(value).replace(/\s+/g, '-');
+	return CATEGORY_ALIASES[normalized] || normalized || 'general';
+}
+
+function toCategoryLabel(slug) {
+	return String(slug || 'general')
+		.replace(/-/g, ' ')
+		.replace(/(^\w|\s\w)/g, (match) => match.toUpperCase());
+}
+
+function normalizeVisibility(value) {
+	const normalized = normalizeText(value).replace(/\s+/g, '-');
+	if (normalized === 'home' || normalized === 'shop' || normalized === 'both') {
+		return normalized;
+	}
+
+	if (normalized === 'all') {
+		return 'both';
+	}
+
+	return 'both';
+}
+
+function getProductImage(product, slug) {
+	const candidate = String(product?.mainImage || product?.image || '').trim();
+	if (candidate) {
+		return candidate;
+	}
+
+	return CATEGORY_IMAGE_FALLBACKS[slug] || 'img/logo.png';
+}
+
+function buildLiveCategories(products) {
+	const grouped = new Map();
+
+	(products || [])
+		.filter((product) => {
+			const visibility = normalizeVisibility(product?.visibility);
+			return visibility === 'shop' || visibility === 'both';
+		})
+		.forEach((product) => {
+			const slug = normalizeCategorySlug(product?.category);
+			const current = grouped.get(slug) || {
+				name: toCategoryLabel(slug),
+				slug,
+				count: 0,
+				image: getProductImage(product, slug)
+			};
+
+			current.count += 1;
+			if (!current.image || current.image === CATEGORY_IMAGE_FALLBACKS[slug]) {
+				current.image = getProductImage(product, slug);
+			}
+
+			grouped.set(slug, current);
+		});
+
+	const liveCategories = Array.from(grouped.values()).sort((left, right) => left.name.localeCompare(right.name));
+	return liveCategories.length ? liveCategories : FALLBACK_CATEGORIES.slice();
+}
+
+function loadCatalogService() {
+	if (!catalogServicePromise) {
+		catalogServicePromise = import('./services/centralized-products.service.js')
+			.then((module) => module.default || module)
+			.catch(() => null);
+	}
+
+	return catalogServicePromise;
+}
 
 /** createCard - builds DOM for a single category */
 const createCard = (cat, index) => {
@@ -62,12 +169,52 @@ const createCard = (cat, index) => {
 
 /** render - places category cards in the grid */
 const render = (items) => {
+	if (!grid) {
+		return;
+	}
+
 	grid.innerHTML = '';
 	items.forEach((c, i) => grid.appendChild(createCard(c, i)));
 };
 
+function filterCategories(query) {
+	const normalizedQuery = String(query || '').trim().toLowerCase();
+	if (!normalizedQuery) {
+		return categories.slice();
+	}
+
+	return categories.filter((category) => category.name.toLowerCase().includes(normalizedQuery) || category.slug.toLowerCase().includes(normalizedQuery));
+}
+
+async function syncCategories() {
+	render(categories);
+
+	const service = await loadCatalogService();
+	if (!service || typeof service.getProductsWithRetry !== 'function') {
+		return;
+	}
+
+	try {
+		const products = await service.getProductsWithRetry();
+		categories = buildLiveCategories(products);
+		render(filterCategories(searchInput?.value || ''));
+	} catch (_error) {
+		const cached = typeof service.getCachedProducts === 'function' ? service.getCachedProducts() : [];
+		categories = buildLiveCategories(cached);
+		render(filterCategories(searchInput?.value || ''));
+	}
+
+	if (typeof window !== 'undefined' && service.GLOBAL_SYNC_EVENT) {
+		window.addEventListener(service.GLOBAL_SYNC_EVENT, (event) => {
+			categories = buildLiveCategories(event?.detail?.products || []);
+			render(filterCategories(searchInput?.value || ''));
+		});
+	}
+}
+
 // initial render
 render(categories);
+void syncCategories();
 
 // set current year in footer
 const yearEl = document.getElementById('year');
@@ -76,10 +223,7 @@ if (yearEl) yearEl.textContent = new Date().getFullYear();
 // search/filter behavior
 if (searchInput) {
 	searchInput.addEventListener('input', (e) => {
-		const q = e.target.value.trim().toLowerCase();
-		if (!q) { render(categories); return; }
-		const filtered = categories.filter(c => c.name.toLowerCase().includes(q) || c.slug.toLowerCase().includes(q));
-		render(filtered);
+		render(filterCategories(e.target.value));
 	});
 }
 

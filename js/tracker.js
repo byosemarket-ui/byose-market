@@ -24,6 +24,11 @@ const Tracker = (function(){
     return base.endsWith('/api') ? `${base}/activity` : `${base}/api/activity`;
   }
 
+  function shouldSkipActivityApi() {
+	const hostname = String(window.location?.hostname || '').toLowerCase();
+	return hostname === '127.0.0.1' || hostname === 'localhost';
+  }
+
   function readCurrentUser(){
     try {
       if (window.authService && typeof window.authService.getCurrentUser === 'function') {
@@ -47,6 +52,10 @@ const Tracker = (function(){
   }
 
   async function recordVisitOnServer(visit) {
+    if (shouldSkipActivityApi()) {
+      return null;
+    }
+
     const endpoint = getActivityApiUrl();
     if (!endpoint) {
       return null;
@@ -89,12 +98,18 @@ const Tracker = (function(){
 
       return await response.json().catch(() => null);
     } catch (error) {
-      console.warn('Unable to record visit on the API.', error);
+	  if (!shouldSilenceActivityError(error)) {
+		console.warn('Unable to record visit on the API.', error);
+	  }
       return null;
     }
   }
 
   async function updateVisitOnServer(visit) {
+    if (shouldSkipActivityApi()) {
+      return null;
+    }
+
     const endpoint = getActivityApiUrl();
     if (!endpoint || !visit?.id) {
       return null;
@@ -129,9 +144,16 @@ const Tracker = (function(){
 
       return await response.json().catch(() => null);
     } catch (error) {
-      console.warn('Unable to update visit on the API.', error);
+	  if (!shouldSilenceActivityError(error)) {
+		console.warn('Unable to update visit on the API.', error);
+	  }
       return null;
     }
+  }
+
+  function shouldSilenceActivityError(error) {
+	const message = String(error?.message || error || '').toLowerCase();
+	return /status 404|failed to fetch|networkerror|load failed|err_aborted/.test(message);
   }
 
   async function startVisit(){

@@ -6,6 +6,7 @@ const DRAFT_STORAGE_KEY = "byose-admin-product-draft-v2";
 const PROGRESS_STORAGE_KEY = "byose-admin-product-progress-v2";
 const LOW_STOCK_THRESHOLD = 5;
 const WORKFLOW_RESET_DELAY_MS = 900;
+const PRODUCT_SAVE_TIMEOUT_MS = 120000;
 const CATEGORY_OPTIONS = ["fashion", "electronics", "shoes", "bags", "watches", "phones"];
 const VISIBILITY_OPTIONS = [
   {
@@ -1828,14 +1829,19 @@ async function handlePage1Submit(container) {
 
   try {
     const payload = buildPage1Payload(productDraft);
+    const handleProgress = (event) => {
+      const message = String(event?.message || "Saving Page 1 to Supabase...").trim();
+      setWorkflowFeedback("saving", message);
+      updatePage1Preview(container);
+    };
     console.info("[Admin Products] upload started", {
       hasHeroImage: Boolean(productDraft.page1.image),
       category: payload.category,
       visibility: payload.visibility
     });
     const response = productDraft.productId
-      ? await withTimeout("Save Page 1 update", updateProductAndSync(productDraft.productId, payload), 25000)
-      : await withTimeout("Save Page 1 create", createProductAndSync(payload), 25000);
+      ? await withTimeout("Save Page 1 update", updateProductAndSync(productDraft.productId, payload, { onProgress: handleProgress }), PRODUCT_SAVE_TIMEOUT_MS)
+      : await withTimeout("Save Page 1 create", createProductAndSync(payload, { onProgress: handleProgress }), PRODUCT_SAVE_TIMEOUT_MS);
 
     console.info("[Admin Products] upload finished", {
       productId: response?.id || response?.catalogId || productDraft.productId || ""
@@ -1847,7 +1853,7 @@ async function handlePage1Submit(container) {
     });
     persistDraft();
     writeProgress({ step: "page-1-complete", productId: productDraft.productId, nextStep: "page-2" });
-    console.info("[Admin Products] firestore save success", { productId: productDraft.productId });
+    console.info("[Admin Products] product save success", { productId: productDraft.productId });
     console.info("[Admin Products] redirecting to page 2", { hash: getDetailsHash(productDraft.productId) });
     window.location.hash = getDetailsHash(productDraft.productId);
   } catch (error) {
@@ -1874,7 +1880,12 @@ async function handleDetailsSubmit(container) {
 
   try {
     const payload = buildDetailsPayload(productDraft);
-    const response = await updateProductAndSync(productDraft.productId, payload);
+    const handleProgress = (event) => {
+      const message = String(event?.message || "Saving Product Details to Supabase...").trim();
+      setWorkflowFeedback("saving", message);
+      updateDetailsPreview(container);
+    };
+    const response = await withTimeout("Save Product Details", updateProductAndSync(productDraft.productId, payload, { onProgress: handleProgress }), PRODUCT_SAVE_TIMEOUT_MS);
     productDraft = response ? hydrateDraftFromProduct(response) : sanitizeDraft({
       ...productDraft,
       productId: String(response?.id || response?._id || response?.catalogId || productDraft.productId || "")
@@ -1916,7 +1927,7 @@ function mountPage1(container) {
 
       try {
         productDraft.page1.image = (await readFilesAsDataUrls([file]))[0] || "";
-        setWorkflowFeedback("neutral", "Hero image staged and ready for storefront save.");
+        setWorkflowFeedback("neutral", "Hero image staged and ready for Supabase upload.");
         persistDraft();
         updatePage1Preview(container);
       } catch (error) {
@@ -1981,7 +1992,7 @@ function mountDetails(container) {
       try {
         const images = await readFilesAsDataUrls(files);
         productDraft.details.gallery = [...productDraft.details.gallery, ...images];
-        setWorkflowFeedback("neutral", `${images.length} gallery image${images.length === 1 ? "" : "s"} added to Product Details.`);
+        setWorkflowFeedback("neutral", `${images.length} gallery image${images.length === 1 ? "" : "s"} staged and ready for Supabase upload.`);
         persistDraft();
         rerenderCreateWorkspace(container);
       } catch (error) {
@@ -2161,7 +2172,7 @@ function mountOverviewWorkspace(container) {
     }
 
     const matchedProduct = latestProducts.find((product) => getProductIdentity(product) === productId);
-    const confirmed = window.confirm(`Delete ${matchedProduct?.name || "this product"} from the live catalog? This also removes Firebase Storage images.`);
+    const confirmed = window.confirm(`Delete ${matchedProduct?.name || "this product"} from the live catalog?`);
     if (!confirmed) {
       return;
     }

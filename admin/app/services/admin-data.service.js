@@ -1,6 +1,6 @@
 import * as api from "../core/api.js";
 import { publishRealtime } from "../core/realtime-adapter.js";
-import firebaseProductsService from "../../../services/firebase-products.service.js";
+import productCatalogService from "../../../services/centralized-products.service.js";
 
 const CACHE_PREFIX = "byose_admin_api_cache_v2";
 const DEFAULT_RETRY_COUNT = 2;
@@ -29,25 +29,25 @@ let inFlightSyncPromise = null;
 let pendingVisibilityRefresh = null;
 const scopeMemoryCache = new Map();
 const scopeInFlight = new Map();
-let removeFirebaseProductSync = null;
+let removeProductCatalogSync = null;
 
-function ensureFirebaseProductSync() {
-  if (removeFirebaseProductSync || typeof window === "undefined") {
+function ensureProductCatalogSync() {
+  if (removeProductCatalogSync || typeof window === "undefined") {
     return;
   }
 
-  removeFirebaseProductSync = firebaseProductsService.subscribeToProducts((products) => {
+  removeProductCatalogSync = productCatalogService.subscribeToProducts((products) => {
     const normalized = syncLocalProductCaches(products, { emit: false });
     emitSync("products", normalized);
     publishGlobalProductSync(normalized);
   }, (error) => {
-    console.error("[Admin Data] Firebase product sync failed:", error);
+    console.error("[Admin Data] Product catalog sync failed:", error);
   });
 
   window.addEventListener("beforeunload", () => {
-    if (typeof removeFirebaseProductSync === "function") {
-      removeFirebaseProductSync();
-      removeFirebaseProductSync = null;
+    if (typeof removeProductCatalogSync === "function") {
+      removeProductCatalogSync();
+      removeProductCatalogSync = null;
     }
   }, { once: true });
 }
@@ -247,7 +247,7 @@ function createSharedProductPersistenceError(action, error) {
     return error;
   }
 
-  const normalized = new Error(`Product ${action} failed because the shared online product API is unavailable. The product was not saved globally.`);
+  const normalized = new Error(`Product ${action} failed because the shared product catalog is unavailable. The product was not saved.`);
   normalized.status = Number(error?.status || error?.cause?.status || 0) || 0;
   normalized.code = "PRODUCT_SYNC_UNAVAILABLE";
   normalized.cause = error;
@@ -783,8 +783,8 @@ export async function getProducts(options = {}) {
 
   const promise = (async () => {
     try {
-      ensureFirebaseProductSync();
-      const products = capArray((await firebaseProductsService.getProducts()).map(normalizeProduct), options?.maxItems || MAX_PRODUCTS_ITEMS);
+      ensureProductCatalogSync();
+      const products = capArray((await productCatalogService.getProducts()).map(normalizeProduct), options?.maxItems || MAX_PRODUCTS_ITEMS);
       writeMemoryCache(scope, products);
       writeCache(scope, products);
       if (options?.emit !== false) {
@@ -1376,11 +1376,11 @@ export async function notifyStorefrontProductUpdate() {
   }
 }
 
-export async function createProductAndSync(productData) {
+export async function createProductAndSync(productData, options = {}) {
   try {
-    ensureFirebaseProductSync();
-    const response = await firebaseProductsService.createProduct(productData);
-    syncLocalProductCaches(firebaseProductsService.getCachedProducts(), { emit: true });
+    ensureProductCatalogSync();
+    const response = await productCatalogService.createProduct(productData, options);
+    syncLocalProductCaches(productCatalogService.getCachedProducts(), { emit: true });
     return response;
   } catch (error) {
     console.error('[Admin Data] Product creation failed:', error);
@@ -1388,11 +1388,11 @@ export async function createProductAndSync(productData) {
   }
 }
 
-export async function updateProductAndSync(productId, productData) {
+export async function updateProductAndSync(productId, productData, options = {}) {
   try {
-    ensureFirebaseProductSync();
-    const response = await firebaseProductsService.updateProduct(productId, productData);
-    syncLocalProductCaches(firebaseProductsService.getCachedProducts(), { emit: true });
+    ensureProductCatalogSync();
+    const response = await productCatalogService.updateProduct(productId, productData, options);
+    syncLocalProductCaches(productCatalogService.getCachedProducts(), { emit: true });
     return response;
   } catch (error) {
     console.error('[Admin Data] Product update failed:', error);
@@ -1400,10 +1400,10 @@ export async function updateProductAndSync(productId, productData) {
   }
 }
 
-export async function deleteProductAndSync(productId) {
+export async function deleteProductAndSync(productId, options = {}) {
   try {
-    ensureFirebaseProductSync();
-    const response = await firebaseProductsService.deleteProduct(productId);
+    ensureProductCatalogSync();
+    const response = await productCatalogService.deleteProduct(productId, options);
     syncLocalProductCaches(response?.products || [], { emit: true });
     return response || { id: productId };
   } catch (error) {

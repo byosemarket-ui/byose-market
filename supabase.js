@@ -1,0 +1,1 @@
+export { default, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, getSupabaseClient } from "./config/supabase.js";

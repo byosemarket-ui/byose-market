@@ -165,10 +165,8 @@ function buildSpecs(product, profile) {
 }
 
 function mergeProductContent(product) {
-  const detailContent = getProductContentById(product.id) || {};
   const mergedProduct = {
-    ...product,
-    ...detailContent
+    ...product
   };
   const mainImage = resolveAssetPath(mergedProduct.mainImage || mergedProduct.image || product.mainImage || product.image);
   const gallery = normalizeGallery(mainImage, mergedProduct.gallery || product.gallery);
