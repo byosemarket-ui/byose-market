@@ -31,7 +31,31 @@ function normalizeVisibility(value) {
 }
 
 function normalizePriority(value) {
-    return toTrimmedString(value, 'normal').toLowerCase() === 'top' ? 'top' : 'normal';
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        const normalized = Math.floor(value);
+        return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
+    }
+
+    const normalizedText = toTrimmedString(value).toLowerCase();
+    if (!normalizedText || normalizedText === 'normal') {
+        return 0;
+    }
+
+    if (normalizedText === 'top') {
+        return 1;
+    }
+
+    if (normalizedText === 'featured') {
+        return 2;
+    }
+
+    const parsed = Number(normalizedText);
+    if (Number.isFinite(parsed)) {
+        const normalized = Math.floor(parsed);
+        return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
+    }
+
+    return 0;
 }
 
 function normalizeHighlightTag(value) {
@@ -307,6 +331,7 @@ function serializeProduct(product) {
     return {
         ...source,
         id: catalogId,
+        priority: normalizePriority(source.priority),
         title: source.title || source.name,
         description: source.description || source.shortDescription || '',
         shortDescription: source.shortDescription || source.description || '',
@@ -323,6 +348,30 @@ function serializeProduct(product) {
         page: DEFAULT_DETAIL_PAGE,
         catalogId
     };
+}
+
+function sortSerializedProducts(products) {
+    return products.slice().sort((left, right) => {
+        const leftPriority = normalizePriority(left?.priority);
+        const rightPriority = normalizePriority(right?.priority);
+        if (leftPriority !== rightPriority) {
+            return rightPriority - leftPriority;
+        }
+
+        const leftOrder = toNonNegativeNumber(left?.orderIndex, 0);
+        const rightOrder = toNonNegativeNumber(right?.orderIndex, 0);
+        if (leftOrder !== rightOrder) {
+            return rightOrder - leftOrder;
+        }
+
+        const rightUpdatedAt = new Date(right?.updatedAt || right?.createdAt || 0).getTime();
+        const leftUpdatedAt = new Date(left?.updatedAt || left?.createdAt || 0).getTime();
+        if (leftUpdatedAt !== rightUpdatedAt) {
+            return rightUpdatedAt - leftUpdatedAt;
+        }
+
+        return toNonNegativeNumber(left?.catalogId, 0) - toNonNegativeNumber(right?.catalogId, 0);
+    });
 }
 
 async function getNextCatalogId() {
@@ -418,7 +467,7 @@ exports.bootstrapCatalog = async (req, res) => {
 
         const products = await monitorAsyncOperation(logger, 'database.product.list_after_bootstrap', { adminId: req.admin?.id || '' }, () => Product.find({}).sort(buildSort()).lean(), { slowThresholdMs: 900 });
         logger.info('inventory.bootstrap_completed', { adminId: req.admin?.id || '', count: products.length });
-        return res.json({ success: true, products: products.map(serializeProduct) });
+        return res.json({ success: true, products: sortSerializedProducts(products.map(serializeProduct)) });
     } catch (error) {
         logger.error('inventory.bootstrap_failed', { error });
         return res.status(500).json({ success: false, message: 'Server error' });
@@ -471,7 +520,7 @@ exports.getAllProducts = async (req, res) => {
         const skip = (page - 1) * limit;
 
         const products = await monitorAsyncOperation(logger, 'database.product.list', { category: filter.category || '', limit, page }, () => Product.find(filter).sort(buildSort()).skip(skip).limit(limit).select('catalogId name title description shortDescription longDescription badge category price oldPrice stock image mainImage gallery keywords highlights trust specs attributes variants visibility priority orderIndex highlightTag status url page updatedAt createdAt').lean(), { slowThresholdMs: 900 });
-        return res.json({ success: true, products: products.map(serializeProduct) });
+        return res.json({ success: true, products: sortSerializedProducts(products.map(serializeProduct)) });
     } catch (error) {
         logger.error('inventory.product_list_failed', { error, category: req.query?.category || '' });
         return res.status(500).json({ success: false, message: 'Server error' });

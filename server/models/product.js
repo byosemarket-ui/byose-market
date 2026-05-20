@@ -49,7 +49,7 @@ const ProductSchema = new mongoose.Schema({
     attributes: { type: [AttributeSchema], default: [] },
     variants: { type: mongoose.Schema.Types.Mixed, default: {} },
     visibility: { type: String, default: 'both', trim: true },
-    priority: { type: String, default: 'normal', trim: true },
+    priority: { type: mongoose.Schema.Types.Mixed, default: 0 },
     orderIndex: { type: Number, default: 0 },
     highlightTag: { type: String, default: '', trim: true },
     status: { type: String, default: 'active', trim: true },

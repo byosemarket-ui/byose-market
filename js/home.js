@@ -11,9 +11,29 @@ function getCentralizedCatalog() {
   return Array.isArray(window.products) ? window.products : [];
 }
 
+function normalizePriority(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const normalized = Math.floor(value);
+    return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
+  }
+
+  const normalizedText = String(value || '').trim().toLowerCase();
+  if (!normalizedText || normalizedText === 'normal') return 0;
+  if (normalizedText === 'top') return 1;
+  if (normalizedText === 'featured') return 2;
+
+  const parsed = Number(normalizedText);
+  if (Number.isFinite(parsed)) {
+    const normalized = Math.floor(parsed);
+    return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
+  }
+
+  return 0;
+}
+
 const ProductsDB = {
   getFeatured() {
-    return getCentralizedCatalog().filter(product => product && (product.highlightTag || product.badge || '').toLowerCase() === 'featured' || String(product.priority || '').toLowerCase() === 'top');
+    return getCentralizedCatalog().filter(product => product && ((product.highlightTag || product.badge || '').toLowerCase() === 'featured' || normalizePriority(product.priority) >= 1));
   },
   getTopRated() {
     return getCentralizedCatalog().slice().sort((left, right) => Number(right.rating || 0) - Number(left.rating || 0));

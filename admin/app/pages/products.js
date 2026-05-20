@@ -308,7 +308,7 @@ function buildPage1Payload(draft) {
     },
     category: safeDraft.page1.category,
     visibility: safeDraft.page1.visibility === "all" ? "both" : safeDraft.page1.visibility,
-    priority: positioning === "top" ? "top" : "normal",
+    priority: positioning === "top" ? 1 : 0,
     orderIndex: positioning === "top" ? 300 : positioning === "bottom" ? 100 : 200,
     mainImage: safeDraft.page1.image || undefined,
     image: safeDraft.page1.image || undefined,
@@ -460,8 +460,36 @@ function extractDraftSizes(product) {
     .filter(Boolean);
 }
 
+function normalizePriorityCode(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const normalized = Math.floor(value);
+    return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
+  }
+
+  const normalizedText = String(value || "").trim().toLowerCase();
+  if (!normalizedText || normalizedText === "normal") {
+    return 0;
+  }
+
+  if (normalizedText === "top") {
+    return 1;
+  }
+
+  if (normalizedText === "featured") {
+    return 2;
+  }
+
+  const parsed = Number(normalizedText);
+  if (Number.isFinite(parsed)) {
+    const normalized = Math.floor(parsed);
+    return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
+  }
+
+  return 0;
+}
+
 function getPositioningValue(product) {
-  if (String(product?.priority || "").toLowerCase() === "top") {
+  if (normalizePriorityCode(product?.priority) >= 1) {
     return "top";
   }
 
@@ -1446,7 +1474,7 @@ function buildOverviewMarkup() {
   const totalProducts = latestProducts.length;
   const featuredProducts = latestProducts.filter((product) => Boolean(String(product?.highlightTag || "").trim()) || String(product?.status || "").toLowerCase() === "featured").length;
   const homeVisibleProducts = latestProducts.filter((product) => ["home", "both"].includes(String(product?.visibility || "both").toLowerCase())).length;
-  const topPriorityProducts = latestProducts.filter((product) => String(product?.priority || "").toLowerCase() === "top").length;
+  const topPriorityProducts = latestProducts.filter((product) => normalizePriorityCode(product?.priority) >= 1).length;
 
   return `
     <div class="products-dashboard-grid">

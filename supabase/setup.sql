@@ -39,7 +39,7 @@ create table if not exists public.products (
   attributes jsonb not null default '[]'::jsonb,
   variants jsonb not null default '{}'::jsonb,
   visibility text not null default 'both',
-  priority text not null default 'normal',
+  priority integer not null default 0,
   order_index integer not null default 0,
   highlight_tag text not null default '',
   status text not null default 'active',

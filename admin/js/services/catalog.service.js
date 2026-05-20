@@ -89,7 +89,31 @@
 	}
 
 	function normalizePriority(value) {
-		return normalizeText(value) === "top" ? "top" : "normal";
+		if (typeof value === "number" && Number.isFinite(value)) {
+			const normalized = Math.floor(value);
+			return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
+		}
+
+		const normalizedText = normalizeText(value);
+		if (!normalizedText || normalizedText === "normal") {
+			return 0;
+		}
+
+		if (normalizedText === "top") {
+			return 1;
+		}
+
+		if (normalizedText === "featured") {
+			return 2;
+		}
+
+		const parsed = Number(normalizedText);
+		if (Number.isFinite(parsed)) {
+			const normalized = Math.floor(parsed);
+			return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
+		}
+
+		return 0;
 	}
 
 	function normalizeHighlightTag(value) {

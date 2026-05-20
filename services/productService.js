@@ -10,12 +10,14 @@ const STOREFRONT_CATALOG_STORAGE_KEY = "byose_market_products_catalog_v1";
 const STALE_THRESHOLD_MS = 45000;
 const DEFAULT_RETRY_COUNT = 2;
 const DEFAULT_TIMEOUT_MS = 90000;
+const OPTIONAL_PRODUCT_COLUMNS = ["name", "updated_at"];
 
 let cachedProducts = [];
 let lastSnapshotAt = 0;
 let hasHydratedCatalog = false;
 let realtimeChannel = null;
 let realtimeStarted = false;
+let optionalProductColumnsPromise = null;
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -54,7 +56,31 @@ function normalizeVisibility(value) {
 }
 
 function normalizePriority(value) {
-  return normalizeText(value, "normal").toLowerCase() === "top" ? "top" : "normal";
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const normalized = Math.floor(value);
+    return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
+  }
+
+  const normalizedText = normalizeText(value).toLowerCase();
+  if (!normalizedText || normalizedText === "normal") {
+    return 0;
+  }
+
+  if (normalizedText === "top") {
+    return 1;
+  }
+
+  if (normalizedText === "featured") {
+    return 2;
+  }
+
+  const parsed = Number(normalizedText);
+  if (Number.isFinite(parsed)) {
+    const normalized = Math.floor(parsed);
+    return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
+  }
+
+  return 0;
 }
 
 function buildKeywords(product) {
@@ -191,6 +217,58 @@ function mapSupabaseError(error, fallbackMessage) {
   return error instanceof Error ? error : new Error(message || fallbackMessage || "Supabase request failed.");
 }
 
+function extractMissingColumn(error) {
+  const match = String(error?.message || "").match(/column\s+products\.([a-z0-9_]+)\s+does not exist/i);
+  return match ? String(match[1]).toLowerCase() : "";
+}
+
+async function resolveOptionalProductColumns() {
+  if (optionalProductColumnsPromise) {
+    return optionalProductColumnsPromise;
+  }
+
+  optionalProductColumnsPromise = (async () => {
+    const support = Object.fromEntries(OPTIONAL_PRODUCT_COLUMNS.map((column) => [column, true]));
+    const remaining = [...OPTIONAL_PRODUCT_COLUMNS];
+
+    while (remaining.length) {
+      const { error } = await withTimeout("Supabase product schema probe", supabase
+        .from(PRODUCTS_TABLE)
+        .select(remaining.join(","))
+        .limit(1));
+
+      if (!error) {
+        break;
+      }
+
+      const missingColumn = extractMissingColumn(error);
+      if (!missingColumn || !remaining.includes(missingColumn)) {
+        break;
+      }
+
+      support[missingColumn] = false;
+      remaining.splice(remaining.indexOf(missingColumn), 1);
+    }
+
+    return support;
+  })().catch((_error) => Object.fromEntries(OPTIONAL_PRODUCT_COLUMNS.map((column) => [column, true])));
+
+  return optionalProductColumnsPromise;
+}
+
+async function toWritableProductPayload(payload) {
+  const support = await resolveOptionalProductColumns();
+  const normalized = { ...payload };
+
+  OPTIONAL_PRODUCT_COLUMNS.forEach((column) => {
+    if (support[column] === false) {
+      delete normalized[column];
+    }
+  });
+
+  return normalized;
+}
+
 function normalizeProductRecord(record) {
   const source = asObject(record);
   const catalogId = Math.max(0, Math.floor(toNumber(source.catalog_id ?? source.catalogId ?? source.id, 0)));
@@ -249,8 +327,8 @@ function normalizeProductRecord(record) {
 
 function sortProducts(products) {
   return products.slice().sort((left, right) => {
-    const leftPriority = String(left?.priority || "").toLowerCase() === "top" ? 1 : 0;
-    const rightPriority = String(right?.priority || "").toLowerCase() === "top" ? 1 : 0;
+    const leftPriority = normalizePriority(left?.priority);
+    const rightPriority = normalizePriority(right?.priority);
     if (leftPriority !== rightPriority) {
       return rightPriority - leftPriority;
     }
@@ -593,11 +671,12 @@ export async function createProduct(productData = {}, options = {}) {
     gallery: galleryAssets.gallery,
     galleryStoragePaths: galleryAssets.galleryStoragePaths
   });
+  const writablePayload = await toWritableProductPayload(payload);
 
   reportProgress(onProgress, "Saving product record to Supabase...");
   const { data, error } = await withTimeout("Supabase product create", supabase
     .from(PRODUCTS_TABLE)
-    .insert(payload)
+    .insert(writablePayload)
     .select("*")
     .single());
 
@@ -633,11 +712,12 @@ export async function updateProduct(productId, productData = {}, options = {}) {
     gallery: galleryAssets.gallery,
     galleryStoragePaths: galleryAssets.galleryStoragePaths
   }, previousProduct);
+  const writablePayload = await toWritableProductPayload(payload);
 
   reportProgress(onProgress, "Updating product record in Supabase...");
   const { data, error } = await withTimeout("Supabase product update", supabase
     .from(PRODUCTS_TABLE)
-    .update(payload)
+    .update(writablePayload)
     .eq("catalog_id", catalogId)
     .select("*")
     .single());

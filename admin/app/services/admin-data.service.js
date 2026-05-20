@@ -80,6 +80,26 @@ function normalizeStatus(status) {
   return "Pending";
 }
 
+function normalizePriorityValue(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const normalized = Math.floor(value);
+    return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
+  }
+
+  const normalizedText = normalizeText(value).toLowerCase();
+  if (!normalizedText || normalizedText === "normal") return 0;
+  if (normalizedText === "top") return 1;
+  if (normalizedText === "featured") return 2;
+
+  const parsed = Number(normalizedText);
+  if (Number.isFinite(parsed)) {
+    const normalized = Math.floor(parsed);
+    return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
+  }
+
+  return 0;
+}
+
 function cacheKey(scope) {
   return `${CACHE_PREFIX}:${scope}`;
 }
@@ -230,7 +250,16 @@ function syncLocalProductCaches(products, options = {}) {
 
 function isSharedProductApiUnavailable(error) {
   const status = Number(error?.status || error?.cause?.status || 0);
+  const code = String(error?.code || error?.cause?.code || "").trim().toUpperCase();
   const message = String(error?.message || error?.cause?.message || "").toLowerCase();
+
+  if (["SUPABASE_SCHEMA_MISMATCH", "SUPABASE_TABLE_MISSING", "SUPABASE_POLICY_BLOCKED", "SUPABASE_BUCKET_MISSING"].includes(code)) {
+    return false;
+  }
+
+  if (/supabase .*missing required columns|supabase products table is not available|write access is blocked by policy|storage bucket 'products' is missing/.test(message)) {
+    return false;
+  }
 
   if (status === 401 || status === 403) {
     return false;
@@ -364,7 +393,7 @@ function normalizeProduct(product) {
     brand: normalizeText(product?.brand),
     summary: normalizeText(product?.summary || product?.description || product?.shortDescription),
     status: normalizeText(product?.status || "draft").toLowerCase(),
-    priority: normalizeText(product?.priority || "normal").toLowerCase(),
+    priority: normalizePriorityValue(product?.priority),
     orderIndex: toNumber(product?.orderIndex),
     highlightTag: normalizeText(product?.highlightTag).toLowerCase(),
     mainImage: normalizeText(product?.mainImage || product?.image),
