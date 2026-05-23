@@ -1,12 +1,11 @@
-const mongoose = require('mongoose');
-const Order = require('../models/order');
-const User = require('../models/user');
 const { appLogger, monitorAsyncOperation } = require('../utils/logger');
+const orderDataService = require('../services/orderdataservice');
+const userDataService = require('../services/userdataservice');
 const getRealtimeEventService = require('../services/realtimeeventservice');
 
 async function resolveUser(req) {
     if (!req.user || !req.user.id) return null;
-    return await User.findOne({ id: req.user.id });
+    return userDataService.findUserById(req.user.id);
 }
 
 function normalizeText(value) {
@@ -142,38 +141,6 @@ function normalizeStorefrontOrder(payload, user) {
     };
 }
 
-function buildOrderQuery(user) {
-    const orConditions = [];
-
-    if (user?._id) {
-        orConditions.push({ user: user._id });
-    }
-    if (user?.id) {
-        orConditions.push({ userId: user.id });
-        orConditions.push({ customerId: user.id });
-    }
-    if (user?.email) {
-        const email = normalizeEmail(user.email);
-        orConditions.push({ userEmail: email });
-        orConditions.push({ customerEmail: email });
-    }
-    if (user?.phone) {
-        const phone = normalizePhone(user.phone);
-        orConditions.push({ customerPhone: phone });
-        orConditions.push({ phoneNumber: phone });
-    }
-
-    return orConditions.length ? { $or: orConditions } : null;
-}
-
-function buildOrderLookupQuery(identifier) {
-    if (mongoose.Types.ObjectId.isValid(identifier)) {
-        return { $or: [{ _id: identifier }, { orderId: identifier }, { id: identifier }] };
-    }
-
-    return { $or: [{ orderId: identifier }, { id: identifier }] };
-}
-
 function appendStatusHistory(order, status) {
     const normalizedStatus = normalizeText(status);
     const timestamp = new Date().toISOString();
@@ -209,7 +176,7 @@ exports.createOrder = async (req, res) => {
             return res.status(400).json({ success: false, message: 'customer details required' });
         }
 
-        const existingOrder = await monitorAsyncOperation(logger, 'database.order.find_by_order_id', { orderId: normalizedOrder.orderId }, () => Order.findOne({ orderId: normalizedOrder.orderId }), { slowThresholdMs: 700 });
+        const existingOrder = await monitorAsyncOperation(logger, 'database.order.find_by_order_id', { orderId: normalizedOrder.orderId }, () => orderDataService.findOrderByIdentifier(normalizedOrder.orderId), { slowThresholdMs: 700 });
         if (existingOrder) {
             logger.warn('order.duplicate_submission', {
                 orderId: normalizedOrder.orderId,
@@ -220,14 +187,18 @@ exports.createOrder = async (req, res) => {
             return res.json({ success: true, existing: true, order: existingOrder });
         }
 
-        const order = new Order(normalizedOrder);
         await monitorAsyncOperation(logger, 'database.order.create', {
             orderId: normalizedOrder.orderId,
             customerId: normalizedOrder.customerId,
             paymentMethod: normalizedOrder.paymentMethod,
             paymentType: normalizedOrder.paymentType,
             totalAmount: normalizedOrder.totalAmount
-        }, () => order.save(), { slowThresholdMs: 700 });
+        }, () => orderDataService.createOrder({
+            ...normalizedOrder,
+            userRecordId: user?.recordId || null
+        }), { slowThresholdMs: 700 });
+
+        const order = await orderDataService.findOrderByIdentifier(normalizedOrder.orderId);
 
         logger.info('order.created', {
             orderId: normalizedOrder.orderId,
@@ -260,9 +231,7 @@ exports.getUserOrders = async (req, res) => {
     try {
         const user = await resolveUser(req);
         if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
-        const query = buildOrderQuery(user);
-        if (!query) return res.json({ success: true, orders: [] });
-        const orders = await monitorAsyncOperation(logger, 'database.order.list_for_user', { userId: user.id }, () => Order.find(query).sort({ createdAt: -1 }).select('orderId id customerName status orderStatus paymentStatus totalAmount totalPrice total createdAt updatedAt items products shippingAddress paymentMethod paymentType').lean(), { slowThresholdMs: 700 });
+        const orders = await monitorAsyncOperation(logger, 'database.order.list_for_user', { userId: user.id }, () => orderDataService.listOrdersForUser(user), { slowThresholdMs: 700 });
         return res.json({ success: true, orders });
     } catch (err) {
         logger.error('order.list_for_user_failed', { error: err });
@@ -282,19 +251,11 @@ exports.updateOrderStatus = async (req, res) => {
             return res.status(401).json({ success: false, message: 'Unauthorized' });
         }
 
-        const query = buildOrderLookupQuery(req.params.id);
-        const order = await Order.findOne(query);
+        const order = await orderDataService.findOrderByIdentifier(req.params.id);
         if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
-        const ownershipQuery = buildOrderQuery(user);
-        const ownsOrder = ownershipQuery
-            ? await Order.exists({
-                $and: [
-                    query,
-                    ownershipQuery
-                ]
-            })
-            : false;
+        const ownedOrders = await orderDataService.listOrdersForUser(user);
+        const ownsOrder = ownedOrders.some((entry) => String(entry.orderId || entry.id) === String(order.orderId || order.id));
 
         if (!ownsOrder) {
             logger.warn('order.status_update_forbidden', {
@@ -306,7 +267,7 @@ exports.updateOrderStatus = async (req, res) => {
         }
 
         appendStatusHistory(order, status);
-        await monitorAsyncOperation(logger, 'database.order.save_status_user', { orderId: order.orderId || order.id, status }, () => order.save(), { slowThresholdMs: 700 });
+        await monitorAsyncOperation(logger, 'database.order.save_status_user', { orderId: order.orderId || order.id, status }, () => orderDataService.saveOrder(order), { slowThresholdMs: 700 });
         logger.info('order.status_updated_by_customer', { orderId: order.orderId || order.id, userId: user.id, status });
         return res.json({ success: true, order });
     } catch (err) {
@@ -321,7 +282,7 @@ exports.getAdminOrders = async (req, res) => {
         const limit = Math.min(500, Math.max(1, Number(req.query?.limit || 100) || 100));
         const page = Math.max(1, Number(req.query?.page || 1) || 1);
         const skip = (page - 1) * limit;
-        const orders = await monitorAsyncOperation(logger, 'database.order.list_admin', { adminId: req.admin?.id || '', limit, page }, () => Order.find({}).sort({ createdAt: -1, updatedAt: -1 }).skip(skip).limit(limit).select('orderId id customerName customerEmail customerPhone status orderStatus paymentStatus totalAmount totalPrice total createdAt updatedAt items products shippingAddress paymentMethod paymentType').lean(), { slowThresholdMs: 900 });
+        const orders = await monitorAsyncOperation(logger, 'database.order.list_admin', { adminId: req.admin?.id || '', limit, page }, () => orderDataService.listAdminOrders({ limit, page }), { slowThresholdMs: 900 });
         return res.json({ success: true, orders });
     } catch (err) {
         logger.error('admin.order_list_failed', { error: err });
@@ -332,7 +293,7 @@ exports.getAdminOrders = async (req, res) => {
 exports.getAdminOrderById = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'admin_orders' });
     try {
-        const order = await monitorAsyncOperation(logger, 'database.order.find_admin', { requestedOrderId: req.params.id }, () => Order.findOne(buildOrderLookupQuery(req.params.id)).select('orderId id customerId customerName customerEmail customerPhone status orderStatus paymentStatus totalAmount totalPrice total subtotal deliveryFee shippingFee codFee paymentMethod paymentType note items products shippingAddress fullAddress gpsLocation payment customer statusHistory createdAt updatedAt').lean(), { slowThresholdMs: 700 });
+        const order = await monitorAsyncOperation(logger, 'database.order.find_admin', { requestedOrderId: req.params.id }, () => orderDataService.findOrderByIdentifier(req.params.id), { slowThresholdMs: 700 });
         if (!order) {
             return res.status(404).json({ success: false, message: 'Order not found' });
         }
@@ -352,14 +313,14 @@ exports.updateAdminOrderStatus = async (req, res) => {
             return res.status(400).json({ success: false, message: 'status required' });
         }
 
-        const order = await monitorAsyncOperation(logger, 'database.order.find_for_admin_status_update', { requestedOrderId: req.params.id }, () => Order.findOne(buildOrderLookupQuery(req.params.id)), { slowThresholdMs: 700 });
+        const order = await monitorAsyncOperation(logger, 'database.order.find_for_admin_status_update', { requestedOrderId: req.params.id }, () => orderDataService.findOrderByIdentifier(req.params.id), { slowThresholdMs: 700 });
         if (!order) {
             return res.status(404).json({ success: false, message: 'Order not found' });
         }
 
         const oldStatus = order.status || order.orderStatus || 'Pending';
         appendStatusHistory(order, status);
-        await monitorAsyncOperation(logger, 'database.order.save_status_admin', { orderId: order.orderId || order.id, status, adminId: req.admin?.id || '' }, () => order.save(), { slowThresholdMs: 700 });
+        await monitorAsyncOperation(logger, 'database.order.save_status_admin', { orderId: order.orderId || order.id, status, adminId: req.admin?.id || '' }, () => orderDataService.saveOrder(order), { slowThresholdMs: 700 });
         logger.info('admin.order_status_updated', { orderId: order.orderId || order.id, status, adminId: req.admin?.id || '' });
 
         // Emit realtime event
@@ -380,7 +341,7 @@ exports.updateAdminOrderStatus = async (req, res) => {
 exports.deleteAdminOrder = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'admin_orders' });
     try {
-        const order = await monitorAsyncOperation(logger, 'database.order.delete_admin', { requestedOrderId: req.params.id, adminId: req.admin?.id || '' }, () => Order.findOneAndDelete(buildOrderLookupQuery(req.params.id)), { slowThresholdMs: 700 });
+        const order = await monitorAsyncOperation(logger, 'database.order.delete_admin', { requestedOrderId: req.params.id, adminId: req.admin?.id || '' }, () => orderDataService.deleteOrder(req.params.id), { slowThresholdMs: 700 });
         if (!order) {
             return res.status(404).json({ success: false, message: 'Order not found' });
         }

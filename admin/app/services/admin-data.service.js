@@ -250,16 +250,7 @@ function syncLocalProductCaches(products, options = {}) {
 
 function isSharedProductApiUnavailable(error) {
   const status = Number(error?.status || error?.cause?.status || 0);
-  const code = String(error?.code || error?.cause?.code || "").trim().toUpperCase();
   const message = String(error?.message || error?.cause?.message || "").toLowerCase();
-
-  if (["SUPABASE_SCHEMA_MISMATCH", "SUPABASE_TABLE_MISSING", "SUPABASE_POLICY_BLOCKED", "SUPABASE_BUCKET_MISSING"].includes(code)) {
-    return false;
-  }
-
-  if (/supabase .*missing required columns|supabase products table is not available|write access is blocked by policy|storage bucket 'products' is missing/.test(message)) {
-    return false;
-  }
 
   if (status === 401 || status === 403) {
     return false;
@@ -268,7 +259,7 @@ function isSharedProductApiUnavailable(error) {
   return status === 404
     || status === 0
     || status === 503
-    || /404|network|fetch|request failed|timed out|unable to sync|failed to fetch/.test(message);
+    || /404|network|fetch|request failed|timed out|unable to sync|failed to fetch|backend request failed/.test(message);
 }
 
 function createSharedProductPersistenceError(action, error) {

@@ -1,6 +1,6 @@
-const CustomerActivity = require('../models/customeractivity');
-const User = require('../models/user');
 const { appLogger, monitorAsyncOperation } = require('../utils/logger');
+const activityDataService = require('../services/activitydataservice');
+const userDataService = require('../services/userdataservice');
 const getRealtimeEventService = require('../services/realtimeeventservice');
 
 async function resolveUser(req) {
@@ -8,7 +8,7 @@ async function resolveUser(req) {
         return null;
     }
 
-    return User.findOne({ id: req.user.id });
+    return userDataService.findUserById(req.user.id);
 }
 
 function normalizeText(value) {
@@ -42,7 +42,7 @@ function normalizePhone(value) {
 
 function serializeActivity(activity) {
     return {
-        id: String(activity?._id || ''),
+        id: String(activity?.id || activity?.recordId || ''),
         clientActivityId: normalizeText(activity?.clientActivityId),
         userId: normalizeText(activity?.userId),
         sessionId: normalizeText(activity?.sessionId),
@@ -95,13 +95,15 @@ exports.recordActivity = async (req, res) => {
 
         let activity = null;
         if (filter) {
-            activity = await monitorAsyncOperation(logger, 'database.activity.upsert', { eventType, clientActivityId }, () => CustomerActivity.findOneAndUpdate(
-                filter,
-                { $set: basePayload },
-                { upsert: true, new: true, setDefaultsOnInsert: true }
-            ), { slowThresholdMs: 500 });
+            activity = await monitorAsyncOperation(logger, 'database.activity.upsert', { eventType, clientActivityId }, () => activityDataService.recordActivity({
+                ...basePayload,
+                userRecordId: user?.recordId || null
+            }), { slowThresholdMs: 500 });
         } else {
-            activity = await monitorAsyncOperation(logger, 'database.activity.create', { eventType, clientActivityId }, () => CustomerActivity.create(basePayload), { slowThresholdMs: 500 });
+            activity = await monitorAsyncOperation(logger, 'database.activity.create', { eventType, clientActivityId }, () => activityDataService.recordActivity({
+                ...basePayload,
+                userRecordId: user?.recordId || null
+            }), { slowThresholdMs: 500 });
         }
 
         logger.info('activity.recorded', {
@@ -136,49 +138,50 @@ exports.updateActivity = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Activity id required' });
         }
 
-        const activity = await monitorAsyncOperation(logger, 'database.activity.find_one', { clientActivityId }, () => CustomerActivity.findOne({ clientActivityId }), { slowThresholdMs: 500 });
+        const activity = await monitorAsyncOperation(logger, 'database.activity.find_one', { clientActivityId }, () => activityDataService.findActivity(clientActivityId), { slowThresholdMs: 500 });
         if (!activity) {
             return res.status(404).json({ success: false, message: 'Activity not found' });
         }
 
+        const updates = {};
         if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'duration')) {
-            activity.duration = Number(req.body.duration || 0) || 0;
+            updates.duration = Number(req.body.duration || 0) || 0;
         }
         if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'endedAt')) {
-            activity.endedAt = req.body.endedAt ? new Date(req.body.endedAt) : null;
+            updates.endedAt = req.body.endedAt ? new Date(req.body.endedAt).toISOString() : null;
         }
         if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'city')) {
-            activity.city = normalizeText(req.body.city);
+            updates.city = normalizeText(req.body.city);
         }
         if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'country')) {
-            activity.country = normalizeText(req.body.country);
+            updates.country = normalizeText(req.body.country);
         }
         if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'org')) {
-            activity.org = normalizeText(req.body.org);
+            updates.org = normalizeText(req.body.org);
         }
         if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'ip')) {
-            activity.ip = normalizeText(req.body.ip);
+            updates.ip = normalizeText(req.body.ip);
         }
         if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'meta') && req.body.meta && typeof req.body.meta === 'object') {
-            activity.meta = {
+            updates.meta = {
                 ...(activity.meta && typeof activity.meta === 'object' ? activity.meta : {}),
                 ...req.body.meta
             };
         }
 
-        await monitorAsyncOperation(logger, 'database.activity.save', { clientActivityId }, () => activity.save(), { slowThresholdMs: 500 });
+        const savedActivity = await monitorAsyncOperation(logger, 'database.activity.save', { clientActivityId }, () => activityDataService.updateActivity(clientActivityId, updates), { slowThresholdMs: 500 });
         logger.info('activity.updated', { clientActivityId, eventType: activity.eventType });
 
         try {
             const realtimeService = getRealtimeEventService();
-            const serialized = serializeActivity(activity);
+            const serialized = serializeActivity(savedActivity);
             realtimeService.emitActivityLogged(serialized);
             realtimeService.emitAnalyticsUpdated({ source: 'activity', action: 'updated', eventType: serialized.eventType });
         } catch (eventError) {
             logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'activity.updated' });
         }
 
-        return res.json({ success: true, activity: serializeActivity(activity) });
+        return res.json({ success: true, activity: serializeActivity(savedActivity) });
     } catch (error) {
         logger.error('activity.update_failed', { error, clientActivityId: normalizeText(req.params.id || req.body?.clientActivityId) });
         return res.status(500).json({ success: false, message: 'Server error' });
@@ -193,7 +196,7 @@ exports.listAdminActivity = async (req, res) => {
         const page = Math.max(1, Number(req.query?.page || 1) || 1);
         const skip = (page - 1) * limit;
         const filter = eventType ? { eventType } : {};
-        const activity = await monitorAsyncOperation(logger, 'database.activity.list', { eventType, limit, page }, () => CustomerActivity.find(filter).sort({ createdAt: -1, updatedAt: -1 }).skip(skip).limit(limit).select('clientActivityId userId sessionId eventType path referrer userAgent device ip city country org duration meta startedAt endedAt createdAt updatedAt').lean(), { slowThresholdMs: 700 });
+        const activity = await monitorAsyncOperation(logger, 'database.activity.list', { eventType, limit, page }, () => activityDataService.listActivity({ eventType, limit, offset: skip }), { slowThresholdMs: 700 });
         logger.debug('activity.listed', { eventType, count: activity.length, limit });
         return res.json({
             success: true,

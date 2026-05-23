@@ -8,7 +8,7 @@ const { generateOTP, saveOTP, verifyOTP } = require('../utils/otp');
 const { sendSMS } = require('../utils/sms');
 const { appLogger } = require('../utils/logger');
 const getRealtimeEventService = require('../services/realtimeeventservice');
-const User = require('../models/user');
+const userDataService = require('../services/userdataservice');
 
 const authLogger = appLogger.child({ scope: 'auth' });
 
@@ -44,13 +44,7 @@ function isStrongPassword(password) {
 }
 
 async function generateUserId() {
-    const users = await User.find({}, 'id').lean();
-    if (!users || !users.length) return 'BM00001';
-    const nums = users.map(u => {
-        try { return parseInt((u.id || '').replace(/^BM0*/, '') || '0', 10); } catch { return 0; }
-    });
-    const max = Math.max(...nums, 0);
-    return 'BM' + String(max + 1).padStart(5, '0');
+    return userDataService.getNextUserId();
 }
 
 // ===============================
@@ -69,11 +63,11 @@ exports.signup = async (req, res) => {
         }
 
         if (email) {
-            const ex = await User.findOne({ email: String(email).toLowerCase() });
+            const ex = await userDataService.emailExists(String(email).toLowerCase());
             if (ex) return res.status(409).json({ success: false, message: 'Email exists' });
         }
         if (phone) {
-            const ex2 = await User.findOne({ phone: String(phone) });
+            const ex2 = await userDataService.phoneExists(String(phone));
             if (ex2) return res.status(409).json({ success: false, message: 'Phone exists' });
         }
 
@@ -81,7 +75,7 @@ exports.signup = async (req, res) => {
         const id = await generateUserId();
         const avatar = req.body.avatar || '';
 
-        const newUser = new User({
+        const newUser = await userDataService.createUser({
             id,
             name: String(name),
             email: email ? String(email).toLowerCase() : '',
@@ -89,8 +83,6 @@ exports.signup = async (req, res) => {
             password: hashed,
             avatar
         });
-
-        await newUser.save();
 
         const realtimeService = getRealtimeEventService();
         const sanitizedUser = sanitizeUserForClient(newUser);
@@ -115,14 +107,12 @@ exports.login = async (req, res) => {
         if (!identifier || !password) return res.status(400).json({ success: false, message: 'Identifier and password required' });
 
         const id = String(identifier).trim().toLowerCase();
-        const user = await User.findOne({
-            $or: [ { email: id }, { phone: id } ],
-            role: { $ne: 'admin' }
-        });
+        const user = await userDataService.findUserByIdentifier(id, { includeAdmins: false });
         if (!user) return res.status(401).json({ success: false, message: 'Invalid credentials' });
         if (String(user.status || 'active').toLowerCase() === 'blocked') {
             return res.status(403).json({ success: false, message: 'Account blocked' });
         }
+        if (isAdminUser(user)) return res.status(401).json({ success: false, message: 'Invalid credentials' });
 
         const ok = await comparePasswords(String(password), user.password);
         if (!ok) return res.status(401).json({ success: false, message: 'Invalid credentials' });
@@ -143,7 +133,7 @@ exports.me = async (req, res) => {
     try {
         const uid = req.user && req.user.id;
         if (!uid) return res.status(401).json({ success: false, message: 'Unauthorized' });
-        const user = await User.findOne({ id: uid });
+        const user = await userDataService.findUserById(uid);
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
         if (isAdminUser(user)) return res.status(403).json({ success: false, message: 'Unauthorized' });
         return res.json({ success: true, user: sanitizeUserForClient(user) });
@@ -158,8 +148,9 @@ exports.updateMe = async (req, res) => {
         const uid = req.user && req.user.id;
         if (!uid) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-        const user = await User.findOne({ id: uid, role: { $ne: 'admin' } });
+        const user = await userDataService.findUserById(uid);
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+        if (isAdminUser(user)) return res.status(403).json({ success: false, message: 'Unauthorized' });
         if (String(user.status || 'active').toLowerCase() === 'blocked') {
             return res.status(403).json({ success: false, message: 'Account blocked' });
         }
@@ -174,26 +165,28 @@ exports.updateMe = async (req, res) => {
         }
 
         if (nextEmail && nextEmail !== String(user.email || '').trim().toLowerCase()) {
-            const existingEmail = await User.findOne({ email: nextEmail, id: { $ne: user.id } }).select('id').lean();
+            const existingEmail = await userDataService.emailExists(nextEmail, user.id);
             if (existingEmail) {
                 return res.status(409).json({ success: false, message: 'Email exists' });
             }
-            user.email = nextEmail;
         }
 
         if (nextPhone && nextPhone !== String(user.phone || '').trim()) {
-            const existingPhone = await User.findOne({ phone: nextPhone, id: { $ne: user.id } }).select('id').lean();
+            const existingPhone = await userDataService.phoneExists(nextPhone, user.id);
             if (existingPhone) {
                 return res.status(409).json({ success: false, message: 'Phone exists' });
             }
-            user.phone = nextPhone;
         }
 
         const address = req.body?.address && typeof req.body.address === 'object' ? req.body.address : {};
-        user.name = nextName;
-        user.avatar = nextAvatar;
-        user.address = {
-            ...(user.address?.toObject ? user.address.toObject() : (user.address || {})),
+        const updatedUser = await userDataService.updateUser(user.id, {
+            ...user,
+            name: nextName,
+            avatar: nextAvatar,
+            email: nextEmail,
+            phone: nextPhone,
+            address: {
+            ...(user.address || {}),
             ...address,
             line1: String(address.line1 || address.street || user.address?.line1 || '').trim(),
             street: String(address.street || address.line1 || user.address?.street || '').trim(),
@@ -205,11 +198,10 @@ exports.updateMe = async (req, res) => {
             firstName: String(address.firstName || '').trim(),
             lastName: String(address.lastName || '').trim(),
             phone: String(address.phone || nextPhone || user.phone || '').trim()
-        };
+        }
+        });
 
-        await user.save();
-
-        const sanitizedUser = sanitizeUserForClient(user);
+        const sanitizedUser = sanitizeUserForClient(updatedUser);
         const realtimeService = getRealtimeEventService();
         realtimeService.emitCustomerUpdated(user.id, sanitizedUser);
         realtimeService.emitAnalyticsUpdated({ source: 'customers', action: 'updated' });
@@ -229,9 +221,7 @@ exports.forgotPassword = async (req, res) => {
         const { method, identifier } = req.body;
         if (!identifier) return res.status(400).json({ success: false, message: 'Identifier required' });
         const normalizedIdentifier = String(identifier).trim().toLowerCase();
-        const user = await User.findOne({
-            $or: [ { email: normalizedIdentifier }, { phone: String(identifier).trim() } ]
-        });
+        const user = await userDataService.findUserByIdentifier(String(identifier).trim(), { includeAdmins: true });
         if (!user || isAdminUser(user)) {
             authLogger.info('auth.forgot_password_suppressed', {
                 identifier: normalizedIdentifier,
@@ -284,10 +274,7 @@ exports.resetPassword = async (req, res) => {
         }
 
         const normalizedIdentifier = String(identifier).trim().toLowerCase();
-        const user = await User.findOne({
-            $or: [ { email: normalizedIdentifier }, { phone: String(identifier).trim() } ],
-            role: { $ne: 'admin' }
-        });
+        const user = await userDataService.findUserByIdentifier(String(identifier).trim(), { includeAdmins: false });
         if (!user) {
             authLogger.info('auth.password_reset_suppressed', {
                 identifier: normalizedIdentifier,
@@ -295,8 +282,10 @@ exports.resetPassword = async (req, res) => {
             });
             return res.json({ success: true });
         }
-        user.password = await hashPassword(String(newPassword));
-        await user.save();
+        await userDataService.updateUser(user.id, {
+            ...user,
+            password: await hashPassword(String(newPassword))
+        });
         authLogger.info('auth.password_reset_completed', { identifier: normalizedIdentifier, userId: user.id });
         return res.json({ success: true });
     } catch (error) {

@@ -1,5 +1,6 @@
-const Cart = require('../models/cart');
 const { appLogger } = require('../utils/logger');
+const cartDataService = require('../services/cartdataservice');
+const userDataService = require('../services/userdataservice');
 
 function normalizeText(value) {
     return String(value || '').trim();
@@ -30,7 +31,7 @@ function normalizeCart(cart) {
     const user = cart?.user && typeof cart.user === 'object' ? cart.user : {};
 
     return {
-        id: normalizeText(cart?._id),
+        id: normalizeText(cart?.id),
         user: {
             id: normalizeText(user.id || user._id),
             name: normalizeText(user.name) || 'Customer',
@@ -52,19 +53,10 @@ exports.listAdminCarts = async (req, res) => {
         const page = Math.max(1, Number(req.query?.page || 1) || 1);
         const skip = (page - 1) * limit;
 
-        const [totalCarts, cartsDocs] = await Promise.all([
-            Cart.countDocuments({}),
-            Cart.find({})
-                .sort({ updatedAt: -1, createdAt: -1 })
-                .skip(skip)
-                .limit(limit)
-                .select('user items createdAt updatedAt')
-                .populate({ path: 'user', select: 'id name email phone' })
-                .populate({ path: 'items.product', select: 'catalogId name title price stock image mainImage' })
-                .lean()
-        ]);
-
-        const carts = cartsDocs.map(normalizeCart);
+        const customers = await userDataService.listCustomers();
+        const allCarts = await cartDataService.listAllCarts(customers);
+        const carts = allCarts.slice(skip, skip + limit).map(normalizeCart);
+        const totalCarts = allCarts.length;
         const activeCarts = carts.filter((cart) => Number(cart.itemCount || 0) > 0).length;
         const totalItems = carts.reduce((sum, cart) => sum + Number(cart.itemCount || 0), 0);
         const estimatedValue = carts.reduce((sum, cart) => sum + Number(cart.estimatedTotal || 0), 0);

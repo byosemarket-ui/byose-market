@@ -1,6 +1,5 @@
-const mongoose = require('mongoose');
-const Product = require('../models/product');
 const { appLogger, monitorAsyncOperation } = require('../utils/logger');
+const productDataService = require('../services/productdataservice');
 const getRealtimeEventService = require('../services/realtimeeventservice');
 
 const DEFAULT_DETAIL_PAGE = 'product-details1.html';
@@ -375,38 +374,20 @@ function sortSerializedProducts(products) {
 }
 
 async function getNextCatalogId() {
-    const latest = await Product.findOne().sort({ catalogId: -1 }).select('catalogId').lean();
-    return Number(latest?.catalogId || 0) + 1;
+    return productDataService.getNextCatalogId();
 }
 
 async function findProductByIdentifier(identifier, projection = null) {
-    const catalogId = parseCatalogId(identifier);
-    if (catalogId) {
-        let query = Product.findOne({ catalogId });
-        if (projection) {
-            query = query.select(projection);
-        }
-
-        if (projection) {
-            return query.lean();
-        }
-
-        const product = await query;
-        if (product) {
-            return product;
-        }
+    const product = await productDataService.findProductByIdentifier(identifier);
+    if (!product) {
+        return null;
     }
 
-    if (mongoose.Types.ObjectId.isValid(String(identifier || ''))) {
-        let query = Product.findById(identifier);
-        if (projection) {
-            query = query.select(projection);
-        }
-
-        return projection ? query.lean() : query;
+    if (!projection) {
+        return product;
     }
 
-    return null;
+    return product;
 }
 
 async function buildCatalogIdFromPayload(payload, fallbackValue) {
@@ -415,7 +396,7 @@ async function buildCatalogIdFromPayload(payload, fallbackValue) {
         return fallbackValue || getNextCatalogId();
     }
 
-    const existing = await Product.findOne({ catalogId: requestedId }).select('_id').lean();
+    const existing = await productDataService.findProductByIdentifier(requestedId);
     if (!existing) {
         return requestedId;
     }
@@ -441,7 +422,7 @@ exports.bootstrapCatalog = async (req, res) => {
         }
 
         const usedIds = new Set();
-        for (const item of source) {
+        const normalizedProducts = source.map((item) => {
             let catalogId = parseCatalogId(item?.id || item?.catalogId);
             if (!catalogId || usedIds.has(catalogId)) {
                 catalogId = usedIds.size + 1;
@@ -451,21 +432,14 @@ exports.bootstrapCatalog = async (req, res) => {
             }
 
             usedIds.add(catalogId);
-            const normalized = normalizePayload(item);
-            await monitorAsyncOperation(logger, 'database.product.bootstrap_upsert', { catalogId, adminId: req.admin?.id || '' }, () => Product.findOneAndUpdate(
-                { catalogId },
-                {
-                    $set: {
-                        ...normalized,
-                        catalogId,
-                        url: buildProductUrl(catalogId)
-                    }
-                },
-                { new: true, upsert: true, setDefaultsOnInsert: true }
-            ), { slowThresholdMs: 700 });
-        }
+            return {
+                ...normalizePayload(item),
+                catalogId,
+                url: buildProductUrl(catalogId)
+            };
+        });
 
-        const products = await monitorAsyncOperation(logger, 'database.product.list_after_bootstrap', { adminId: req.admin?.id || '' }, () => Product.find({}).sort(buildSort()).lean(), { slowThresholdMs: 900 });
+        const products = await monitorAsyncOperation(logger, 'database.product.list_after_bootstrap', { adminId: req.admin?.id || '' }, () => productDataService.bootstrapProducts(normalizedProducts), { slowThresholdMs: 900 });
         logger.info('inventory.bootstrap_completed', { adminId: req.admin?.id || '', count: products.length });
         return res.json({ success: true, products: sortSerializedProducts(products.map(serializeProduct)) });
     } catch (error) {
@@ -483,7 +457,7 @@ exports.createProduct = async (req, res) => {
         }
 
         const catalogId = await buildCatalogIdFromPayload(req.body, null);
-        const product = await monitorAsyncOperation(logger, 'database.product.create', { catalogId, adminId: req.admin?.id || '', productName: normalized.name, stock: normalized.stock }, () => Product.create({
+        const product = await monitorAsyncOperation(logger, 'database.product.create', { catalogId, adminId: req.admin?.id || '', productName: normalized.name, stock: normalized.stock }, () => productDataService.createProduct({
             ...normalized,
             catalogId,
             url: buildProductUrl(catalogId)
@@ -519,7 +493,7 @@ exports.getAllProducts = async (req, res) => {
         const page = Math.max(1, Number(req.query?.page || 1) || 1);
         const skip = (page - 1) * limit;
 
-        const products = await monitorAsyncOperation(logger, 'database.product.list', { category: filter.category || '', limit, page }, () => Product.find(filter).sort(buildSort()).skip(skip).limit(limit).select('catalogId name title description shortDescription longDescription badge category price oldPrice stock image mainImage gallery keywords highlights trust specs attributes variants visibility priority orderIndex highlightTag status url page updatedAt createdAt').lean(), { slowThresholdMs: 900 });
+        const products = await monitorAsyncOperation(logger, 'database.product.list', { category: filter.category || '', limit, page }, () => productDataService.listProducts({ category: filter.category || '', limit, page }), { slowThresholdMs: 900 });
         return res.json({ success: true, products: sortSerializedProducts(products.map(serializeProduct)) });
     } catch (error) {
         logger.error('inventory.product_list_failed', { error, category: req.query?.category || '' });
@@ -553,7 +527,7 @@ exports.updateProduct = async (req, res) => {
         let product = await monitorAsyncOperation(logger, 'database.product.find_for_update', { requestedProductId: req.params.id, adminId: req.admin?.id || '' }, () => findProductByIdentifier(req.params.id), { slowThresholdMs: 700 });
         if (!product) {
             const catalogId = parseCatalogId(req.params.id) || await buildCatalogIdFromPayload(req.body, null);
-            product = await monitorAsyncOperation(logger, 'database.product.create_on_update_fallback', { catalogId, adminId: req.admin?.id || '', productName: normalized.name }, () => Product.create({
+            product = await monitorAsyncOperation(logger, 'database.product.create_on_update_fallback', { catalogId, adminId: req.admin?.id || '', productName: normalized.name }, () => productDataService.createProduct({
                 ...normalized,
                 catalogId,
                 url: buildProductUrl(catalogId)
@@ -565,12 +539,13 @@ exports.updateProduct = async (req, res) => {
         }
 
         const previousStock = Number(product.stock || 0);
-
-        Object.assign(product, normalized, {
+        product = await monitorAsyncOperation(logger, 'database.product.save_update', { catalogId: product.catalogId, adminId: req.admin?.id || '', productName: normalized.name }, () => productDataService.updateProduct(req.params.id, {
+            ...product,
+            ...normalized,
+            catalogId: product.catalogId,
             title: normalized.name,
             url: buildProductUrl(product.catalogId)
-        });
-        await monitorAsyncOperation(logger, 'database.product.save_update', { catalogId: product.catalogId, adminId: req.admin?.id || '', productName: normalized.name }, () => product.save(), { slowThresholdMs: 700 });
+        }), { slowThresholdMs: 700 });
 
         logger.info('inventory.product_updated', {
             adminId: req.admin?.id || '',
@@ -607,7 +582,7 @@ exports.deleteProduct = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Product not found' });
         }
 
-        await monitorAsyncOperation(logger, 'database.product.delete', { catalogId: product.catalogId, adminId: req.admin?.id || '' }, () => Product.deleteOne({ _id: product._id }), { slowThresholdMs: 700 });
+        await monitorAsyncOperation(logger, 'database.product.delete', { catalogId: product.catalogId, adminId: req.admin?.id || '' }, () => productDataService.deleteProduct(req.params.id), { slowThresholdMs: 700 });
         logger.info('inventory.product_deleted', { adminId: req.admin?.id || '', catalogId: product.catalogId, productName: product.name || product.title || '' });
 
         try {

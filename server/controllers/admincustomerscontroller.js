@@ -1,6 +1,6 @@
-const Order = require('../models/order');
-const User = require('../models/user');
 const { appLogger } = require('../utils/logger');
+const orderDataService = require('../services/orderdataservice');
+const userDataService = require('../services/userdataservice');
 
 function normalizeText(value) {
     return String(value || '').trim();
@@ -69,49 +69,18 @@ function sanitizeCustomer(user, orders) {
 }
 
 async function loadCustomerOrders(user) {
-    const orConditions = [];
-    if (user?._id) orConditions.push({ user: user._id });
-    if (user?.id) {
-        orConditions.push({ userId: user.id });
-        orConditions.push({ customerId: user.id });
-    }
-    if (user?.email) {
-        const email = normalizeEmail(user.email);
-        orConditions.push({ userEmail: email });
-        orConditions.push({ customerEmail: email });
-    }
-    if (user?.phone) {
-        const phone = normalizePhone(user.phone);
-        orConditions.push({ customerPhone: phone });
-        orConditions.push({ phoneNumber: phone });
-    }
-
-    if (!orConditions.length) {
-        return [];
-    }
-
-    return Order.find({ $or: orConditions }).sort({ createdAt: -1, updatedAt: -1 }).lean();
+    return orderDataService.listOrdersForUser(user);
 }
 
 async function findCustomer(identifier) {
-    const normalizedIdentifier = normalizeText(identifier);
-    const normalizedEmail = normalizeEmail(identifier);
-    const normalizedPhone = normalizePhone(identifier);
-
-    return User.findOne({
-        role: { $ne: 'admin' },
-        $or: [
-            { id: normalizedIdentifier },
-            { email: normalizedEmail },
-            { phone: normalizedPhone }
-        ]
-    });
+    const user = await userDataService.findUserByIdentifier(identifier, { includeAdmins: false });
+    return user && user.role !== 'admin' ? user : null;
 }
 
 exports.listCustomers = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'admin_customers' });
     try {
-        const users = await User.find({ role: { $ne: 'admin' } }).sort({ createdAt: -1 });
+        const users = await userDataService.listCustomers();
         const customers = await Promise.all(users.map(async (user) => sanitizeCustomer(user, await loadCustomerOrders(user))));
         return res.json({ success: true, customers });
     } catch (error) {
@@ -152,32 +121,34 @@ exports.updateCustomer = async (req, res) => {
         }
 
         if (nextEmail && nextEmail !== normalizeEmail(user.email)) {
-            const emailExists = await User.findOne({ role: { $ne: 'admin' }, email: nextEmail, id: { $ne: user.id } }).select('id').lean();
+            const emailExists = await userDataService.emailExists(nextEmail, user.id);
             if (emailExists) {
                 return res.status(409).json({ success: false, message: 'Email exists' });
             }
         }
 
         if (nextPhone && nextPhone !== normalizePhone(user.phone)) {
-            const phoneExists = await User.findOne({ role: { $ne: 'admin' }, phone: nextPhone, id: { $ne: user.id } }).select('id').lean();
+            const phoneExists = await userDataService.phoneExists(nextPhone, user.id);
             if (phoneExists) {
                 return res.status(409).json({ success: false, message: 'Phone exists' });
             }
         }
 
-        user.name = nextName;
-        user.email = nextEmail;
-        user.phone = nextPhone;
-        user.avatar = normalizeText(req.body?.avatar || user.avatar);
-        user.status = String(req.body?.status || user.status || 'active').toLowerCase() === 'blocked' ? 'blocked' : 'active';
-        user.verified = Boolean(req.body?.verified);
-        user.address = {
-            ...(user.address?.toObject ? user.address.toObject() : (user.address || {})),
-            ...(req.body?.address && typeof req.body.address === 'object' ? req.body.address : {})
-        };
-        await user.save();
+        const updated = await userDataService.updateUser(user.id, {
+            ...user,
+            name: nextName,
+            email: nextEmail,
+            phone: nextPhone,
+            avatar: normalizeText(req.body?.avatar || user.avatar),
+            status: String(req.body?.status || user.status || 'active').toLowerCase() === 'blocked' ? 'blocked' : 'active',
+            verified: Boolean(req.body?.verified),
+            address: {
+                ...(user.address || {}),
+                ...(req.body?.address && typeof req.body.address === 'object' ? req.body.address : {})
+            }
+        });
 
-        return res.json({ success: true, customer: sanitizeCustomer(user, await loadCustomerOrders(user)) });
+        return res.json({ success: true, customer: sanitizeCustomer(updated, await loadCustomerOrders(updated)) });
     } catch (error) {
         logger.error('admin.customers.update_failed', { error, requestedCustomerId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
@@ -192,7 +163,7 @@ exports.deleteCustomer = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Customer not found' });
         }
 
-        await User.deleteOne({ _id: user._id });
+        await userDataService.deleteUser(user.id);
         return res.json({ success: true, customerId: user.id });
     } catch (error) {
         logger.error('admin.customers.delete_failed', { error, requestedCustomerId: req.params.id });

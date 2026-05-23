@@ -1,13 +1,13 @@
-const StorefrontState = require('../models/storefrontstate');
-const User = require('../models/user');
 const { appLogger } = require('../utils/logger');
+const storefrontStateService = require('../services/storefrontstateservice');
+const userDataService = require('../services/userdataservice');
 
 async function resolveUser(req) {
     if (!req.user || !req.user.id) {
         return null;
     }
 
-    return User.findOne({ id: req.user.id });
+    return userDataService.findUserById(req.user.id);
 }
 
 function normalizeText(value) {
@@ -122,42 +122,6 @@ function serializeState(state) {
     };
 }
 
-async function ensureState(user) {
-    const email = normalizeEmail(user?.email);
-    const phone = normalizePhone(user?.phone);
-    let state = await StorefrontState.findOne({ user: user._id });
-
-    if (!state) {
-        state = await StorefrontState.create({
-            user: user._id,
-            userId: normalizeText(user?.id),
-            email,
-            phone
-        });
-        return state;
-    }
-
-    let changed = false;
-    if (normalizeText(state.userId) !== normalizeText(user?.id)) {
-        state.userId = normalizeText(user?.id);
-        changed = true;
-    }
-    if (normalizeEmail(state.email) !== email) {
-        state.email = email;
-        changed = true;
-    }
-    if (normalizePhone(state.phone) !== phone) {
-        state.phone = phone;
-        changed = true;
-    }
-
-    if (changed) {
-        await state.save();
-    }
-
-    return state;
-}
-
 exports.getStorefrontState = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'storefront_state' });
     try {
@@ -166,7 +130,7 @@ exports.getStorefrontState = async (req, res) => {
             return res.status(401).json({ success: false, message: 'Unauthorized' });
         }
 
-        const state = await ensureState(user);
+        const state = await storefrontStateService.getStateForUser(user);
         return res.json({ success: true, state: serializeState(state) });
     } catch (error) {
         logger.error('storefront.state_get_failed', { error });
@@ -182,33 +146,39 @@ exports.updateStorefrontState = async (req, res) => {
             return res.status(401).json({ success: false, message: 'Unauthorized' });
         }
 
-        const state = await ensureState(user);
         const now = new Date();
+        const current = await storefrontStateService.getStateForUser(user);
+        const nextState = {
+            cartItems: current.cartItems,
+            directCheckout: current.directCheckout,
+            checkoutDraft: current.checkoutDraft,
+            checkoutConfirmation: current.checkoutConfirmation,
+            lastCartSyncedAt: current.lastCartSyncedAt,
+            lastDraftSyncedAt: current.lastDraftSyncedAt,
+            lastCheckoutSyncedAt: current.lastCheckoutSyncedAt
+        };
 
         if (Object.prototype.hasOwnProperty.call(req.body || {}, 'cartItems')) {
-            state.cartItems = sanitizeCartItems(req.body.cartItems);
-            state.lastCartSyncedAt = now;
+            nextState.cartItems = sanitizeCartItems(req.body.cartItems);
+            nextState.lastCartSyncedAt = now.toISOString();
         }
 
         if (Object.prototype.hasOwnProperty.call(req.body || {}, 'directCheckout')) {
-            state.directCheckout = sanitizePayloadValue(req.body.directCheckout, sanitizeCartItem) || null;
-            state.lastCheckoutSyncedAt = now;
+            nextState.directCheckout = sanitizePayloadValue(req.body.directCheckout, sanitizeCartItem) || null;
+            nextState.lastCheckoutSyncedAt = now.toISOString();
         }
 
         if (Object.prototype.hasOwnProperty.call(req.body || {}, 'checkoutDraft')) {
-            state.checkoutDraft = sanitizePayloadValue(req.body.checkoutDraft, (draft) => draft);
-            state.lastDraftSyncedAt = now;
+            nextState.checkoutDraft = sanitizePayloadValue(req.body.checkoutDraft, (draft) => draft);
+            nextState.lastDraftSyncedAt = now.toISOString();
         }
 
         if (Object.prototype.hasOwnProperty.call(req.body || {}, 'checkoutConfirmation')) {
-            state.checkoutConfirmation = sanitizePayloadValue(req.body.checkoutConfirmation, (confirmation) => confirmation);
-            state.lastCheckoutSyncedAt = now;
+            nextState.checkoutConfirmation = sanitizePayloadValue(req.body.checkoutConfirmation, (confirmation) => confirmation);
+            nextState.lastCheckoutSyncedAt = now.toISOString();
         }
 
-        state.email = normalizeEmail(user?.email);
-        state.phone = normalizePhone(user?.phone);
-        state.userId = normalizeText(user?.id);
-        await state.save();
+        const state = await storefrontStateService.saveStateForUser(user, nextState);
 
         return res.json({ success: true, state: serializeState(state) });
     } catch (error) {

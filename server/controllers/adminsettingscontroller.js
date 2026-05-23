@@ -1,4 +1,4 @@
-const StoreSettings = require('../models/storesettings');
+const settingsDataService = require('../services/settingsdataservice');
 const { appLogger } = require('../utils/logger');
 
 const SETTINGS_KEY = 'global';
@@ -25,7 +25,7 @@ function sanitizeSettings(settings) {
 
 exports.getSettings = async (req, res) => {
     try {
-        const settings = await StoreSettings.findOne({ key: SETTINGS_KEY }).lean();
+        const settings = await settingsDataService.getSettings();
         return res.status(200).json({
             success: true,
             settings: sanitizeSettings(settings)
@@ -48,11 +48,15 @@ exports.updateSettings = async (req, res) => {
             updatedByAdminEmail: String(req.admin?.email || '').trim().toLowerCase()
         };
 
-        const settings = await StoreSettings.findOneAndUpdate(
-            { key: SETTINGS_KEY },
-            { $set: nextSettings, $setOnInsert: { key: SETTINGS_KEY } },
-            { new: true, upsert: true, setDefaultsOnInsert: true }
-        ).lean();
+        const settings = await settingsDataService.updateSettings({
+            ...nextSettings,
+            value: {
+                storeName: nextSettings.storeName,
+                supportEmail: nextSettings.supportEmail,
+                supportPhone: nextSettings.supportPhone,
+                currency: nextSettings.currency
+            }
+        });
 
         return res.status(200).json({
             success: true,

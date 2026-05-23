@@ -1,13 +1,12 @@
-const Cart = require('../models/cart');
-const Product = require('../models/product');
-const User = require('../models/user');
 const { appLogger } = require('../utils/logger');
+const cartDataService = require('../services/cartdataservice');
+const userDataService = require('../services/userdataservice');
 const getRealtimeEventService = require('../services/realtimeeventservice');
 
 async function resolveUser(req) {
     // token contains custom id in payload (id)
     if (!req.user || !req.user.id) return null;
-    return await User.findOne({ id: req.user.id });
+    return userDataService.findUserById(req.user.id);
 }
 
 // Add item to cart
@@ -20,27 +19,12 @@ exports.addToCart = async (req, res) => {
         const { productId, quantity } = req.body || {};
         if (!productId) return res.status(400).json({ success: false, message: 'productId required' });
 
-        const product = await Product.findById(productId);
-        if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
-
-        let cart = await Cart.findOne({ user: user._id });
-        if (!cart) {
-            cart = new Cart({ user: user._id, items: [] });
-        }
-
-        const idx = cart.items.findIndex(i => String(i.product) === String(product._id));
-        if (idx > -1) {
-            cart.items[idx].quantity += Number(quantity || 1);
-        } else {
-            cart.items.push({ product: product._id, quantity: Number(quantity || 1) });
-        }
-
-        await cart.save();
-        const populated = await cart.populate({ path: 'items.product' });
+        const populated = await cartDataService.addToCart(user, { productId, quantity });
+        if (!populated) return res.status(404).json({ success: false, message: 'Product not found' });
 
         try {
             const realtimeService = getRealtimeEventService();
-            realtimeService.emitCartUpdated(populated._id || populated.id, {
+            realtimeService.emitCartUpdated(populated.id, {
                 userId: user.id,
                 itemCount: Array.isArray(populated.items) ? populated.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0) : 0,
                 action: 'add'
@@ -63,7 +47,7 @@ exports.getUserCart = async (req, res) => {
     try {
         const user = await resolveUser(req);
         if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
-        const cart = await Cart.findOne({ user: user._id }).populate({ path: 'items.product' });
+        const cart = await cartDataService.getCartForUser(user);
         return res.json({ success: true, cart: cart || { items: [] } });
     } catch (err) {
         logger.error('cart.get_failed', { error: err });
@@ -80,24 +64,12 @@ exports.removeFromCart = async (req, res) => {
         const { productId, removeAll } = req.body || {};
         if (!productId) return res.status(400).json({ success: false, message: 'productId required' });
 
-        const cart = await Cart.findOne({ user: user._id });
-        if (!cart) return res.status(404).json({ success: false, message: 'Cart not found' });
-
-        const idx = cart.items.findIndex(i => String(i.product) === String(productId));
-        if (idx === -1) return res.status(404).json({ success: false, message: 'Item not in cart' });
-
-        if (removeAll || cart.items[idx].quantity <= 1) {
-            cart.items.splice(idx, 1);
-        } else {
-            cart.items[idx].quantity -= 1;
-        }
-
-        await cart.save();
-        const populated = await cart.populate({ path: 'items.product' });
+        const populated = await cartDataService.removeFromCart(user, { productId, removeAll });
+        if (!populated) return res.status(404).json({ success: false, message: 'Item not in cart' });
 
         try {
             const realtimeService = getRealtimeEventService();
-            realtimeService.emitCartUpdated(populated._id || populated.id, {
+            realtimeService.emitCartUpdated(populated.id, {
                 userId: user.id,
                 itemCount: Array.isArray(populated.items) ? populated.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0) : 0,
                 action: 'remove'
@@ -120,14 +92,12 @@ exports.clearCart = async (req, res) => {
     try {
         const user = await resolveUser(req);
         if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
-        const cart = await Cart.findOne({ user: user._id });
+        const cart = await cartDataService.clearCart(user);
         if (cart) {
-            cart.items = [];
-            await cart.save();
 
             try {
                 const realtimeService = getRealtimeEventService();
-                realtimeService.emitCartUpdated(cart._id || cart.id, {
+                realtimeService.emitCartUpdated(cart.id, {
                     userId: user.id,
                     itemCount: 0,
                     action: 'clear'

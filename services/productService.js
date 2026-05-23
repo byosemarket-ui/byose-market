@@ -1,23 +1,20 @@
-import supabase from "../config/supabase.js";
-import uploadService from "./uploadService.js";
-
 export const GLOBAL_SYNC_EVENT = "byose:products-synchronized";
 export const PRODUCT_CHANGED_EVENT = "byose:products-changed";
 
-const PRODUCTS_TABLE = "products";
 const DEFAULT_DETAIL_PAGE = "product-details1.html";
 const STOREFRONT_CATALOG_STORAGE_KEY = "byose_market_products_catalog_v1";
 const STALE_THRESHOLD_MS = 45000;
 const DEFAULT_RETRY_COUNT = 2;
 const DEFAULT_TIMEOUT_MS = 90000;
-const OPTIONAL_PRODUCT_COLUMNS = ["name", "updated_at"];
+const LIVE_SYNC_INTERVAL_MS = 30000;
 
 let cachedProducts = [];
 let lastSnapshotAt = 0;
 let hasHydratedCatalog = false;
-let realtimeChannel = null;
-let realtimeStarted = false;
-let optionalProductColumnsPromise = null;
+let liveSyncTimerId = null;
+let liveSyncStarted = false;
+let liveSyncAbortController = null;
+let detachLiveSyncListeners = null;
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -128,6 +125,28 @@ function parseJsonObject(value) {
   return {};
 }
 
+function normalizeManagedUploadPath(value) {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return "";
+  }
+
+  if (normalized.startsWith("/uploads/")) {
+    return normalized.slice("/uploads/".length).replace(/^\/+/, "");
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.pathname.startsWith("/uploads/")) {
+      return parsed.pathname.slice("/uploads/".length).replace(/^\/+/, "");
+    }
+  } catch (_error) {
+    // Ignore URL parsing failures.
+  }
+
+  return "";
+}
+
 function readStoredProducts() {
   if (typeof window === "undefined") {
     return cachedProducts.slice();
@@ -187,86 +206,123 @@ function reportProgress(onProgress, message, extra = {}) {
   }
 }
 
-function mapSupabaseError(error, fallbackMessage) {
-  const message = String(error?.message || fallbackMessage || "Supabase request failed.").trim();
-
-  if (/row-level security|policy/i.test(message)) {
-    const normalized = new Error("Supabase write access is blocked by policy. Run the Supabase setup SQL or update RLS policies before saving products.");
-    normalized.code = "SUPABASE_POLICY_BLOCKED";
-    return normalized;
-  }
-
-  if (/bucket/i.test(message) && /not found|does not exist/i.test(message)) {
-    const normalized = new Error("Supabase storage bucket 'products' is missing. Create it before uploading product images.");
-    normalized.code = "SUPABASE_BUCKET_MISSING";
-    return normalized;
-  }
-
-  if (/schema cache|column/i.test(message)) {
-    const normalized = new Error("Supabase products table is missing required columns for this storefront. Apply the bootstrap SQL before saving products.");
-    normalized.code = "SUPABASE_SCHEMA_MISMATCH";
-    return normalized;
-  }
-
-  if (/relation .* does not exist|table .* not found/i.test(message)) {
-    const normalized = new Error("Supabase products table is not available yet. Apply the bootstrap SQL before saving products.");
-    normalized.code = "SUPABASE_TABLE_MISSING";
-    return normalized;
-  }
-
-  return error instanceof Error ? error : new Error(message || fallbackMessage || "Supabase request failed.");
+function normalizeBase(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
 }
 
-function extractMissingColumn(error) {
-  const match = String(error?.message || "").match(/column\s+products\.([a-z0-9_]+)\s+does not exist/i);
-  return match ? String(match[1]).toLowerCase() : "";
+function isLocalHost(hostname) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0";
 }
 
-async function resolveOptionalProductColumns() {
-  if (optionalProductColumnsPromise) {
-    return optionalProductColumnsPromise;
+function shouldUseProductionApi(hostname) {
+  return /(^|\.)(github\.io|byosemarket\.com)$/i.test(String(hostname || ""));
+}
+
+function resolveApiOrigin() {
+  if (typeof window === "undefined") {
+    return "";
   }
 
-  optionalProductColumnsPromise = (async () => {
-    const support = Object.fromEntries(OPTIONAL_PRODUCT_COLUMNS.map((column) => [column, true]));
-    const remaining = [...OPTIONAL_PRODUCT_COLUMNS];
+  const explicit = normalizeBase(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || window.AdminConfig?.apiBaseUrl || "");
+  if (explicit) {
+    return explicit;
+  }
 
-    while (remaining.length) {
-      const { error } = await withTimeout("Supabase product schema probe", supabase
-        .from(PRODUCTS_TABLE)
-        .select(remaining.join(","))
-        .limit(1));
+  const protocol = String(window.location?.protocol || "").toLowerCase();
+  const hostname = String(window.location?.hostname || "").trim();
 
-      if (!error) {
-        break;
-      }
+  if (protocol === "file:" || isLocalHost(hostname)) {
+    return `http://${hostname || "localhost"}:5000`;
+  }
 
-      const missingColumn = extractMissingColumn(error);
-      if (!missingColumn || !remaining.includes(missingColumn)) {
-        break;
-      }
+  if (shouldUseProductionApi(hostname)) {
+    return "https://byosesemarket4.onrender.com";
+  }
 
-      support[missingColumn] = false;
-      remaining.splice(remaining.indexOf(missingColumn), 1);
+  return normalizeBase(window.location?.origin || "");
+}
+
+function buildApiUrl(path) {
+  const base = resolveApiOrigin();
+  const normalizedPath = `/${String(path || "").replace(/^\/+/, "")}`;
+  return `${base}${normalizedPath}`;
+}
+
+function getAdminToken() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  try {
+    return String(window.localStorage.getItem("adminToken") || "").trim();
+  } catch (_error) {
+    return "";
+  }
+}
+
+function fallbackMessageForStatus(status) {
+  if (status === 401) {
+    return "Admin authentication is required for this action.";
+  }
+
+  if (status === 403) {
+    return "Admin access is required for this action.";
+  }
+
+  if (status === 404) {
+    return "The requested product resource was not found.";
+  }
+
+  return "The backend request failed.";
+}
+
+function mapApiError(error, fallbackMessage) {
+  if (error instanceof Error) {
+    return error;
+  }
+
+  return new Error(String(error?.message || fallbackMessage || "API request failed."));
+}
+
+async function apiRequest(path, options = {}) {
+  const url = /^https?:/i.test(String(path || "")) ? String(path) : buildApiUrl(path);
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timeoutMs = Number(options.timeoutMs || DEFAULT_TIMEOUT_MS);
+  const token = options.requiresAdmin ? getAdminToken() : "";
+  const headers = {
+    Accept: "application/json",
+    ...(options.body ? { "Content-Type": "application/json" } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers || {})
+  };
+
+  const requestPromise = fetch(url, {
+    method: options.method || "GET",
+    headers,
+    body: options.body ? JSON.stringify(options.body) : undefined,
+    signal: controller?.signal
+  }).then(async (response) => {
+    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+    const payload = contentType.includes("application/json")
+      ? await response.json().catch(() => ({}))
+      : await response.text().catch(() => "");
+
+    if (!response.ok) {
+      const error = new Error(payload?.message || fallbackMessageForStatus(response.status));
+      error.status = response.status;
+      error.payload = payload;
+      error.code = String(payload?.code || "").trim();
+      throw error;
     }
 
-    return support;
-  })().catch((_error) => Object.fromEntries(OPTIONAL_PRODUCT_COLUMNS.map((column) => [column, true])));
-
-  return optionalProductColumnsPromise;
-}
-
-async function toWritableProductPayload(payload) {
-  const support = await resolveOptionalProductColumns();
-  const normalized = { ...payload };
-
-  OPTIONAL_PRODUCT_COLUMNS.forEach((column) => {
-    if (support[column] === false) {
-      delete normalized[column];
-    }
+    return payload;
   });
 
-  return normalized;
+  return withTimeout(
+    `API request ${options.method || "GET"} ${path}`,
+    requestPromise.finally(() => controller?.abort()),
+    timeoutMs
+  );
 }
 
 function normalizeProductRecord(record) {
@@ -282,7 +338,6 @@ function normalizeProductRecord(record) {
 
   return {
     ...source,
-    supabaseId: normalizeText(source.id),
     id: catalogId,
     catalogId,
     name: normalizeText(source.name || source.title, "Untitled product"),
@@ -314,8 +369,10 @@ function normalizeProductRecord(record) {
     url: normalizeText(source.url, `${DEFAULT_DETAIL_PAGE}?id=${encodeURIComponent(String(catalogId || ""))}`),
     createdAt,
     updatedAt,
-    mainImageStoragePath: normalizeText(source.main_image_storage_path ?? source.mainImageStoragePath),
-    galleryStoragePaths: parseJsonArray(source.gallery_storage_paths ?? source.galleryStoragePaths),
+    mainImageStoragePath: normalizeText(source.main_image_storage_path ?? source.mainImageStoragePath) || normalizeManagedUploadPath(mainImage),
+    galleryStoragePaths: (parseJsonArray(source.gallery_storage_paths ?? source.galleryStoragePaths).length
+      ? parseJsonArray(source.gallery_storage_paths ?? source.galleryStoragePaths)
+      : gallery.map((entry) => normalizeManagedUploadPath(entry)).filter(Boolean)),
     extraInfo: parseJsonObject(source.extra_info ?? source.extraInfo),
     inventory: asObject(source.inventory) || {
       available: Math.max(0, Math.floor(toNumber(source.stock, 0))),
@@ -343,7 +400,7 @@ function sortProducts(products) {
   });
 }
 
-function publishProducts(products, source = "supabase") {
+function publishProducts(products, source = "api") {
   const normalizedProducts = sortProducts(asArray(products).map((product) => normalizeProductRecord(product)));
   cachedProducts = normalizedProducts;
   lastSnapshotAt = Date.now();
@@ -382,168 +439,132 @@ async function withRetry(label, action, retryCount = DEFAULT_RETRY_COUNT) {
     }
   }
 
-  throw mapSupabaseError(lastError, `${label} failed.`);
+  throw mapApiError(lastError, `${label} failed.`);
 }
 
-async function getNextCatalogId() {
-  const { data, error } = await withTimeout("Supabase product ID lookup", supabase
-    .from(PRODUCTS_TABLE)
-    .select("catalog_id")
-    .order("catalog_id", { ascending: false })
-    .limit(1));
-
-  if (error) {
-    throw mapSupabaseError(error, "Unable to generate the next product id.");
-  }
-
-  const current = Array.isArray(data) && data.length ? toNumber(data[0]?.catalog_id, 0) : 0;
-  return current + 1;
+function isDirectAssetReference(value) {
+  return /^(?:data:|blob:|https?:|\/|\.\/|\.\.\/)/i.test(normalizeText(value));
 }
 
-async function findProductRow(identifier) {
-  const catalogId = Math.max(0, Math.floor(toNumber(identifier, 0)));
-  const { data, error } = await withTimeout("Supabase product lookup", supabase
-    .from(PRODUCTS_TABLE)
-    .select("*")
-    .eq("catalog_id", catalogId)
-    .maybeSingle());
-
-  if (error) {
-    throw mapSupabaseError(error, "Unable to load the product for update.");
-  }
-
-  return data ? normalizeProductRecord(data) : null;
+function normalizeGalleryEntries(entries = []) {
+  return asArray(entries)
+    .map((entry) => normalizeText(entry))
+    .filter(Boolean)
+    .filter((entry, index, values) => values.indexOf(entry) === index);
 }
 
-async function resolveHeroAsset(productId, nextImage, previousProduct, onProgress) {
-  const incomingImage = normalizeText(nextImage || previousProduct?.mainImage || previousProduct?.image);
-  if (!incomingImage) {
-    return {
-      image: "",
-      storagePath: "",
-      obsoletePaths: previousProduct?.mainImageStoragePath ? [previousProduct.mainImageStoragePath] : []
-    };
-  }
-
-  if (/^(?:https?:|\/|\.\/|\.\.\/)/i.test(incomingImage) && !/^data:/i.test(incomingImage)) {
-    return {
-      image: incomingImage,
-      storagePath: normalizeText(previousProduct?.mainImageStoragePath),
-      obsoletePaths: []
-    };
-  }
-
-  const uploaded = await uploadService.uploadWithRetry(incomingImage, {
-    productId,
-    kind: "hero",
-    onProgress,
-    progressLabel: "Uploading hero image to Supabase..."
-  });
+function prepareAssetFields(productData = {}, previousProduct = {}) {
+  const nextMainImage = normalizeText(
+    productData.mainImage
+      ?? productData.image
+      ?? previousProduct.mainImage
+      ?? previousProduct.image
+  );
+  const nextGallery = normalizeGalleryEntries(
+    Object.prototype.hasOwnProperty.call(productData, "gallery")
+      ? productData.gallery
+      : (previousProduct.gallery || [])
+  );
 
   return {
-    image: uploaded.url,
-    storagePath: uploaded.path,
-    obsoletePaths: previousProduct?.mainImageStoragePath && previousProduct.mainImageStoragePath !== uploaded.path
-      ? [previousProduct.mainImageStoragePath]
-      : []
+    image: isDirectAssetReference(nextMainImage) ? nextMainImage : normalizeText(previousProduct.image),
+    mainImage: isDirectAssetReference(nextMainImage) ? nextMainImage : normalizeText(previousProduct.mainImage ?? previousProduct.image),
+    gallery: nextGallery.filter((entry) => isDirectAssetReference(entry))
   };
 }
 
-async function resolveGalleryAssets(productId, nextGallery, previousProduct, onProgress) {
-  const gallery = asArray(nextGallery);
-  const previousUrls = asArray(previousProduct?.gallery);
-  const previousPaths = asArray(previousProduct?.galleryStoragePaths);
-  const previousPathByUrl = new Map();
-  previousUrls.forEach((url, index) => {
-    const normalizedUrl = normalizeText(url);
-    const normalizedPath = normalizeText(previousPaths[index]);
-    if (normalizedUrl && normalizedPath) {
-      previousPathByUrl.set(normalizedUrl, normalizedPath);
-    }
-  });
-
-  const nextUrls = [];
-  const nextPaths = [];
-
-  for (let index = 0; index < gallery.length; index += 1) {
-    const entry = normalizeText(gallery[index]);
-    if (!entry) {
-      continue;
-    }
-
-    if (/^(?:https?:|\/|\.\/|\.\.\/)/i.test(entry) && !/^data:/i.test(entry)) {
-      nextUrls.push(entry);
-      nextPaths.push(previousPathByUrl.get(entry) || "");
-      continue;
-    }
-
-    const uploaded = await uploadService.uploadWithRetry(entry, {
-      productId,
-      kind: "gallery",
-      index,
-      total: gallery.length,
-      onProgress,
-      progressLabel: `Uploading gallery image ${index + 1} of ${gallery.length}...`
-    });
-    nextUrls.push(uploaded.url);
-    nextPaths.push(uploaded.path);
-  }
-
-  const obsoletePaths = previousPaths.filter((path) => {
-    const normalizedPath = normalizeText(path);
-    return normalizedPath && !nextPaths.includes(normalizedPath);
-  });
-
-  return {
-    gallery: nextUrls,
-    galleryStoragePaths: nextPaths.filter(Boolean),
-    obsoletePaths
-  };
-}
-
-function buildSupabasePayload(productId, productData, assets, previousProduct = {}) {
+function buildApiPayload(productData, previousProduct = {}) {
+  const assets = prepareAssetFields(productData, previousProduct);
   const name = normalizeText(productData?.name || productData?.title || previousProduct?.name, "Untitled product");
   const price = toNumber(productData?.price ?? previousProduct?.price, 0);
   const oldPrice = toNumber(productData?.oldPrice ?? previousProduct?.oldPrice, 0);
-  const stock = Math.max(0, Math.floor(toNumber(productData?.stock ?? previousProduct?.stock, 0)));
-  const visibility = normalizeVisibility(productData?.visibility ?? previousProduct?.visibility);
-  const priority = normalizePriority(productData?.priority ?? previousProduct?.priority);
-  const orderIndex = Math.max(0, Math.floor(toNumber(productData?.orderIndex ?? previousProduct?.orderIndex, 0)));
-  const nowIso = new Date().toISOString();
+  const catalogId = Math.max(0, Math.floor(toNumber(productData?.catalogId ?? productData?.id ?? previousProduct?.catalogId ?? previousProduct?.id, 0)));
 
   return {
-    catalog_id: productId,
+    ...(catalogId ? { catalogId } : {}),
     name,
     title: name,
     description: normalizeText(productData?.description ?? previousProduct?.description),
-    short_description: normalizeText(productData?.shortDescription ?? productData?.description ?? previousProduct?.shortDescription ?? previousProduct?.description),
-    long_description: asArray(productData?.longDescription ?? previousProduct?.longDescription),
+    shortDescription: normalizeText(productData?.shortDescription ?? productData?.description ?? previousProduct?.shortDescription ?? previousProduct?.description),
+    longDescription: asArray(productData?.longDescription ?? previousProduct?.longDescription),
     badge: normalizeText(productData?.badge ?? previousProduct?.badge),
     category: normalizeText(productData?.category ?? previousProduct?.category, "general").toLowerCase(),
     price,
-    old_price: oldPrice > price ? oldPrice : 0,
-    stock,
-    image: normalizeText(assets.image || productData?.image || previousProduct?.image),
-    main_image: normalizeText(assets.image || productData?.mainImage || productData?.image || previousProduct?.mainImage || previousProduct?.image),
-    gallery: asArray(assets.gallery || productData?.gallery || previousProduct?.gallery),
+    oldPrice: oldPrice > price ? oldPrice : 0,
+    stock: Math.max(0, Math.floor(toNumber(productData?.stock ?? previousProduct?.stock, 0))),
+    image: assets.image,
+    mainImage: assets.mainImage,
+    gallery: assets.gallery,
     keywords: asArray(productData?.keywords).length ? asArray(productData?.keywords) : buildKeywords(productData),
     highlights: asArray(productData?.highlights ?? previousProduct?.highlights),
     trust: asArray(productData?.trust ?? previousProduct?.trust),
     specs: asArray(productData?.specs ?? previousProduct?.specs),
     attributes: asArray(productData?.attributes ?? previousProduct?.attributes),
     variants: asObject(productData?.variants ?? previousProduct?.variants),
-    visibility,
-    priority,
-    order_index: orderIndex,
-    highlight_tag: normalizeText(productData?.highlightTag ?? previousProduct?.highlightTag).toLowerCase(),
+    visibility: normalizeVisibility(productData?.visibility ?? previousProduct?.visibility),
+    priority: normalizePriority(productData?.priority ?? previousProduct?.priority),
+    orderIndex: Math.max(0, Math.floor(toNumber(productData?.orderIndex ?? previousProduct?.orderIndex, 0))),
+    highlightTag: normalizeText(productData?.highlightTag ?? previousProduct?.highlightTag).toLowerCase(),
     status: normalizeText(productData?.status ?? previousProduct?.status, "active").toLowerCase(),
     page: normalizeText(productData?.page ?? previousProduct?.page, DEFAULT_DETAIL_PAGE),
-    url: `${DEFAULT_DETAIL_PAGE}?id=${encodeURIComponent(String(productId))}`,
-    main_image_storage_path: normalizeText(assets.storagePath),
-    gallery_storage_paths: asArray(assets.galleryStoragePaths),
-    extra_info: asObject(productData?.extraInfo ?? previousProduct?.extraInfo),
-    created_at: previousProduct?.createdAt || nowIso,
-    updated_at: nowIso
+    extraInfo: asObject(productData?.extraInfo ?? previousProduct?.extraInfo),
+    mainImageStoragePath: "",
+    galleryStoragePaths: []
+  };
+}
+
+async function fetchCatalogSnapshot(signal) {
+  const payload = await apiRequest("/api/products?limit=500", {
+    method: "GET",
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    signal
+  });
+
+  return publishProducts(asArray(payload?.products), "api-refresh");
+}
+
+function scheduleLiveSync() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (liveSyncTimerId) {
+    window.clearInterval(liveSyncTimerId);
+  }
+
+  liveSyncTimerId = window.setInterval(() => {
+    void forceRefreshProducts({ silent: true }).catch((error) => {
+      console.error("[Product Service] Background refresh failed:", error);
+    });
+  }, LIVE_SYNC_INTERVAL_MS);
+}
+
+function attachLiveSyncListeners() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === "visible" && isCacheStale()) {
+      void forceRefreshProducts({ silent: true }).catch((error) => {
+        console.error("[Product Service] Visibility refresh failed:", error);
+      });
+    }
+  };
+
+  const handleOnline = () => {
+    void forceRefreshProducts({ silent: true }).catch((error) => {
+      console.error("[Product Service] Online refresh failed:", error);
+    });
+  };
+
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  window.addEventListener("online", handleOnline);
+
+  detachLiveSyncListeners = () => {
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    window.removeEventListener("online", handleOnline);
+    detachLiveSyncListeners = null;
   };
 }
 
@@ -551,16 +572,24 @@ export async function fetchProductsFromBackend() {
   return forceRefreshProducts();
 }
 
-export async function forceRefreshProducts() {
-  const { data, error } = await withTimeout("Supabase product refresh", supabase
-    .from(PRODUCTS_TABLE)
-    .select("*"));
-
-  if (error) {
-    throw mapSupabaseError(error, "Unable to refresh the product catalog from Supabase.");
+export async function forceRefreshProducts(options = {}) {
+  if (liveSyncAbortController) {
+    liveSyncAbortController.abort();
   }
 
-  return publishProducts(asArray(data), "supabase-refresh");
+  liveSyncAbortController = typeof AbortController !== "undefined" ? new AbortController() : null;
+
+  try {
+    return await fetchCatalogSnapshot(liveSyncAbortController?.signal);
+  } catch (error) {
+    if (!options?.silent) {
+      throw mapApiError(error, "Unable to refresh the product catalog from the backend.");
+    }
+
+    throw error;
+  } finally {
+    liveSyncAbortController = null;
+  }
 }
 
 export async function getProducts() {
@@ -573,7 +602,7 @@ export async function getProducts() {
 
 export async function getProductsWithRetry() {
   try {
-    return await withRetry("Supabase product fetch", () => forceRefreshProducts());
+    return await withRetry("Backend product fetch", () => forceRefreshProducts());
   } catch (error) {
     const cached = readStoredProducts();
     if (cached.length) {
@@ -630,63 +659,52 @@ export function subscribeToProducts(onProducts, onError) {
 }
 
 export function ensureProductLiveSync() {
-  if (realtimeStarted) {
+  if (liveSyncStarted) {
     return Promise.resolve(() => stopProductLiveSync());
   }
 
-  realtimeStarted = true;
-  realtimeChannel = supabase
-    .channel("byose-products-live")
-    .on("postgres_changes", {
-      event: "*",
-      schema: "public",
-      table: PRODUCTS_TABLE
-    }, () => {
-      void forceRefreshProducts().catch((error) => {
-        console.error("[Product Service] Realtime refresh failed:", error);
-      });
-    })
-    .subscribe();
+  liveSyncStarted = true;
+  scheduleLiveSync();
+  attachLiveSyncListeners();
 
   return Promise.resolve(() => stopProductLiveSync());
 }
 
 export function stopProductLiveSync() {
-  realtimeStarted = false;
-  if (realtimeChannel) {
-    void supabase.removeChannel(realtimeChannel);
-    realtimeChannel = null;
+  liveSyncStarted = false;
+
+  if (liveSyncTimerId && typeof window !== "undefined") {
+    window.clearInterval(liveSyncTimerId);
+  }
+
+  liveSyncTimerId = null;
+
+  if (typeof detachLiveSyncListeners === "function") {
+    detachLiveSyncListeners();
+  }
+
+  if (liveSyncAbortController) {
+    liveSyncAbortController.abort();
+    liveSyncAbortController = null;
   }
 }
 
 export async function createProduct(productData = {}, options = {}) {
   const onProgress = options?.onProgress;
-  reportProgress(onProgress, "Preparing product save to Supabase...");
-  const productId = await getNextCatalogId();
-  const heroImage = await resolveHeroAsset(productId, productData?.mainImage || productData?.image, null, onProgress);
-  const galleryAssets = await resolveGalleryAssets(productId, productData?.gallery, null, onProgress);
-  const payload = buildSupabasePayload(productId, productData, {
-    image: heroImage.image,
-    storagePath: heroImage.storagePath,
-    gallery: galleryAssets.gallery,
-    galleryStoragePaths: galleryAssets.galleryStoragePaths
+  reportProgress(onProgress, "Preparing product save to backend...");
+
+  const payload = buildApiPayload(productData);
+  reportProgress(onProgress, "Saving product record to backend...");
+  const response = await apiRequest("/api/admin/products", {
+    method: "POST",
+    body: payload,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    requiresAdmin: true
   });
-  const writablePayload = await toWritableProductPayload(payload);
 
-  reportProgress(onProgress, "Saving product record to Supabase...");
-  const { data, error } = await withTimeout("Supabase product create", supabase
-    .from(PRODUCTS_TABLE)
-    .insert(writablePayload)
-    .select("*")
-    .single());
-
-  if (error) {
-    throw mapSupabaseError(error, "Unable to save the new product to Supabase.");
-  }
-
-  const createdProduct = normalizeProductRecord(data);
-  publishProducts([...cachedProducts.filter((product) => Number(product.id) !== Number(createdProduct.id)), createdProduct], "supabase-create");
-  reportProgress(onProgress, "Product saved successfully to Supabase.", { phase: "completed" });
+  const createdProduct = normalizeProductRecord(response?.product);
+  publishProducts([...cachedProducts.filter((product) => Number(product.id) !== Number(createdProduct.id)), createdProduct], "api-create");
+  reportProgress(onProgress, "Product saved successfully to backend.", { phase: "completed" });
   return createdProduct;
 }
 
@@ -697,47 +715,19 @@ export async function updateProduct(productId, productData = {}, options = {}) {
     throw new Error("Product id is required.");
   }
 
-  reportProgress(onProgress, "Loading product from Supabase for update...");
-  const previousProduct = await findProductRow(catalogId);
+  const previousProduct = cachedProducts.find((product) => Number(product.id) === catalogId || Number(product.catalogId) === catalogId) || {};
+  const payload = buildApiPayload(productData, previousProduct);
+  reportProgress(onProgress, "Updating product record in backend...");
+  const response = await apiRequest(`/api/admin/products/${encodeURIComponent(String(catalogId))}`, {
+    method: "PUT",
+    body: payload,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    requiresAdmin: true
+  });
 
-  if (!previousProduct) {
-    return createProduct({ ...productData, catalogId }, options);
-  }
-
-  const heroImage = await resolveHeroAsset(catalogId, productData?.mainImage || productData?.image, previousProduct, onProgress);
-  const galleryAssets = await resolveGalleryAssets(catalogId, Object.prototype.hasOwnProperty.call(productData, "gallery") ? productData.gallery : previousProduct.gallery, previousProduct, onProgress);
-  const payload = buildSupabasePayload(catalogId, productData, {
-    image: heroImage.image,
-    storagePath: heroImage.storagePath,
-    gallery: galleryAssets.gallery,
-    galleryStoragePaths: galleryAssets.galleryStoragePaths
-  }, previousProduct);
-  const writablePayload = await toWritableProductPayload(payload);
-
-  reportProgress(onProgress, "Updating product record in Supabase...");
-  const { data, error } = await withTimeout("Supabase product update", supabase
-    .from(PRODUCTS_TABLE)
-    .update(writablePayload)
-    .eq("catalog_id", catalogId)
-    .select("*")
-    .single());
-
-  if (error) {
-    throw mapSupabaseError(error, "Unable to update the product in Supabase.");
-  }
-
-  const obsoletePaths = [...heroImage.obsoletePaths, ...galleryAssets.obsoletePaths].filter(Boolean);
-  if (obsoletePaths.length) {
-    try {
-      await uploadService.removeStoredAssets(obsoletePaths);
-    } catch (error) {
-      console.warn("[Product Service] Failed to clean old product assets:", error);
-    }
-  }
-
-  const updatedProduct = normalizeProductRecord(data);
-  publishProducts([...cachedProducts.filter((product) => Number(product.id) !== Number(updatedProduct.id)), updatedProduct], "supabase-update");
-  reportProgress(onProgress, "Product updated successfully in Supabase.", { phase: "completed" });
+  const updatedProduct = normalizeProductRecord(response?.product);
+  publishProducts([...cachedProducts.filter((product) => Number(product.id) !== Number(updatedProduct.id)), updatedProduct], "api-update");
+  reportProgress(onProgress, "Product updated successfully in backend.", { phase: "completed" });
   return updatedProduct;
 }
 
@@ -748,31 +738,15 @@ export async function deleteProduct(productId, options = {}) {
     throw new Error("Product id is required.");
   }
 
-  const existingProduct = await findProductRow(catalogId);
-  reportProgress(onProgress, "Deleting product from Supabase...");
-
-  const { error } = await withTimeout("Supabase product delete", supabase
-    .from(PRODUCTS_TABLE)
-    .delete()
-    .eq("catalog_id", catalogId));
-
-  if (error) {
-    throw mapSupabaseError(error, "Unable to delete the product from Supabase.");
-  }
-
-  if (existingProduct) {
-    const paths = [existingProduct.mainImageStoragePath, ...asArray(existingProduct.galleryStoragePaths)].filter(Boolean);
-    if (paths.length) {
-      try {
-        await uploadService.removeStoredAssets(paths);
-      } catch (cleanupError) {
-        console.warn("[Product Service] Failed to remove Supabase storage assets:", cleanupError);
-      }
-    }
-  }
+  reportProgress(onProgress, "Deleting product from backend...");
+  await apiRequest(`/api/admin/products/${encodeURIComponent(String(catalogId))}`, {
+    method: "DELETE",
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    requiresAdmin: true
+  });
 
   const products = cachedProducts.filter((product) => Number(product.id) !== catalogId && Number(product.catalogId) !== catalogId);
-  publishProducts(products, "supabase-delete");
+  publishProducts(products, "api-delete");
   return { id: catalogId, products };
 }
 

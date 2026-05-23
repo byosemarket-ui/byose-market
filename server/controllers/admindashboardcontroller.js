@@ -1,10 +1,9 @@
-const ContactMessage = require('../models/contactmessage');
-const Cart = require('../models/cart');
-const CustomerActivity = require('../models/customeractivity');
-const Order = require('../models/order');
-const Product = require('../models/product');
-const User = require('../models/user');
+const config = require('../config/env');
 const { appLogger } = require('../utils/logger');
+const cartDataService = require('../services/cartdataservice');
+const orderDataService = require('../services/orderdataservice');
+const productDataService = require('../services/productdataservice');
+const userDataService = require('../services/userdataservice');
 
 function normalizeText(value) {
     return String(value || '').trim();
@@ -225,6 +224,156 @@ exports.getDashboardSnapshot = async (_req, res) => {
     try {
         const recentLimit = 100;
         const activityLimit = 200;
+
+        if (config.databaseClient === 'sqlite') {
+            const customers = sortAndSliceRecent(await userDataService.listCustomers(), recentLimit, 'createdAt');
+            const [orders, products, cartsRaw] = await Promise.all([
+                orderDataService.listAdminOrders({ limit: recentLimit, page: 1 }),
+                productDataService.listProducts({ limit: recentLimit, page: 1 }),
+                cartDataService.listAllCarts(customers)
+            ]);
+
+            const customerLookup = new Map(customers.map((customer) => [String(customer.id), customer]));
+            const carts = sortAndSliceRecent(cartsRaw.map((cart) => {
+                const customer = customerLookup.get(String(cart.userId || cart.user || '')) || {};
+                const items = Array.isArray(cart.items) ? cart.items.map((item) => ({
+                    productId: normalizeText(item.productId || item.product?._id),
+                    catalogId: Number(item.product?.catalogId || item.product?.id || 0) || 0,
+                    name: normalizeText(item.product?.name || item.product?.title) || 'Product',
+                    quantity: Math.max(0, Number(item.quantity || 0) || 0),
+                    price: Number(item.product?.price || 0) || 0,
+                    stock: Number(item.product?.stock || 0) || 0,
+                    image: normalizeText(item.product?.mainImage || item.product?.image),
+                    total: (Math.max(0, Number(item.quantity || 0) || 0) * (Number(item.product?.price || 0) || 0))
+                })) : [];
+                const itemCount = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+                const estimatedTotal = items.reduce((sum, item) => sum + Number(item.total || 0), 0);
+                return {
+                    id: normalizeText(cart.id || cart.userId),
+                    userId: normalizeText(cart.userId || cart.user),
+                    userName: normalizeText(customer.name) || 'Customer',
+                    userEmail: normalizeText(customer.email),
+                    userPhone: normalizeText(customer.phone),
+                    itemCount,
+                    estimatedTotal,
+                    items,
+                    createdAt: cart.createdAt || null,
+                    updatedAt: cart.updatedAt || null
+                };
+            }), recentLimit, 'updatedAt');
+
+            const messages = [];
+            const recentVisits = [];
+            const totalSales = orders.reduce((sum, order) => sum + Number(order.totalAmount ?? order.totalPrice ?? order.total ?? 0), 0);
+            const pendingOrders = orders.filter((order) => normalizeText(order.status || order.orderStatus).toLowerCase() === 'pending').length;
+            const recentUsers = customers.filter((customer) => normalizeTimestamp(customer.createdAt) >= startOfDay(-7).getTime()).length;
+            const lowStockProducts = products.filter((product) => Number(product.stock || 0) <= 5).length;
+            const outOfStockProducts = products.filter((product) => Number(product.stock || 0) <= 0).length;
+            const ordersToday = orders.filter((order) => normalizeTimestamp(order.createdAt || order.date) >= startOfDay(0).getTime()).length;
+            const ordersCount = orders.length;
+            const customersCount = customers.length;
+            const productsCount = products.length;
+            const messagesCount = 0;
+            const newMessages = 0;
+            const visitsCount = 0;
+            const cartsCount = carts.length;
+            const cartsWithItems = carts.filter((cart) => Number(cart.itemCount || 0) > 0).length;
+            const totalCartItems = carts.reduce((sum, cart) => sum + Number(cart.itemCount || 0), 0);
+            const totalStock = products.reduce((sum, product) => sum + Number(product.stock || 0), 0);
+
+            return res.json({
+                success: true,
+                snapshot: {
+                    stats: {
+                        totalSales,
+                        ordersCount,
+                        ordersNote: ordersCount ? `${pendingOrders} pending orders from the centralized order database` : 'No orders in the centralized database yet',
+                        customersCount,
+                        customersNote: customersCount ? `${recentUsers} new customers in the last 7 days` : 'No registered customers yet',
+                        productsCount,
+                        productsNote: productsCount ? `${lowStockProducts} low-stock products across the live catalog` : 'No live products found',
+                        salesNote: ordersCount ? `${formatCurrency(totalSales)} across ${ordersCount} centralized orders` : 'No recorded order totals yet',
+                        messagesCount,
+                        messagesNote: 'Support inbox migration is not implemented yet',
+                        visitsCount,
+                        visitsNote: 'Visit tracking migration is not implemented yet',
+                        cartsCount,
+                        cartsWithItems,
+                        totalCartItems,
+                        cartsNote: cartsCount ? `${cartsWithItems} active carts with ${totalCartItems} tracked cart items` : 'No carts in the centralized cart system yet'
+                    },
+                    activity: buildRecentActivity({ orders, customers, messages, visits: recentVisits, products, carts }),
+                    summary: [
+                        {
+                            label: 'Catalog coverage',
+                            value: productsCount ? `${productsCount} live products • ${outOfStockProducts} out of stock` : 'No catalog products detected'
+                        },
+                        {
+                            label: 'Order queue',
+                            value: ordersCount ? `${pendingOrders} pending from ${ordersCount} total orders` : 'No centralized orders yet'
+                        },
+                        {
+                            label: 'Customer base',
+                            value: customersCount ? `${customersCount} registered customers • ${recentUsers} joined this week` : 'No registered customers found'
+                        },
+                        {
+                            label: 'Support inbox',
+                            value: 'Support inbox migration is not implemented yet'
+                        },
+                        {
+                            label: 'Site activity',
+                            value: ordersToday ? `${ordersToday} orders created today` : 'Visit tracking migration is not implemented yet'
+                        },
+                        {
+                            label: 'Global cart load',
+                            value: cartsCount ? `${cartsWithItems} active carts • ${totalCartItems} items in carts` : 'No active carts in the centralized system'
+                        }
+                    ],
+                    analytics: {
+                        salesSeries: buildSalesSeries(orders),
+                        orderStatusBreakdown: buildOrderStatusBreakdown(orders),
+                        inventory: {
+                            totalProducts: productsCount,
+                            totalStock,
+                            lowStockProducts,
+                            outOfStockProducts,
+                            recentlyUpdated: products.slice(0, 8).map((product) => ({
+                                id: Number(product.catalogId || 0),
+                                name: normalizeText(product.name) || 'Product',
+                                stock: Number(product.stock || 0),
+                                updatedAt: product.updatedAt || product.createdAt || null
+                            }))
+                        },
+                        topProducts: buildTopProducts(orders),
+                        activityCounts: {
+                            visits: visitsCount,
+                            messages: messagesCount,
+                            orders: ordersCount,
+                            customers: customersCount,
+                            carts: cartsCount
+                        }
+                    },
+                    raw: {
+                        orders,
+                        customers,
+                        products,
+                        messages,
+                        visits: recentVisits,
+                        carts
+                    },
+                    syncedAt: new Date().toISOString(),
+                    source: 'api'
+                }
+            });
+        }
+
+        const ContactMessage = require('../models/contactmessage');
+        const Cart = require('../models/cart');
+        const CustomerActivity = require('../models/customeractivity');
+        const Order = require('../models/order');
+        const Product = require('../models/product');
+        const User = require('../models/user');
+
         const [orderMetrics, customerMetrics, productMetrics, messageMetrics, visitMetrics, cartMetrics, recentOrders, recentCustomers, recentProducts, recentMessages, visits, recentCarts, salesSeries, orderStatusBreakdown] = await Promise.all([
             Order.aggregate([
                 {

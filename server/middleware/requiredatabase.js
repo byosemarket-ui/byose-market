@@ -1,9 +1,5 @@
-const mongoose = require('mongoose');
+const { getDatabaseStatus, isDatabaseReady } = require('../database');
 const { appLogger } = require('../utils/logger');
-
-function isDatabaseReady() {
-    return mongoose.connection.readyState === 1;
-}
 
 function requireDatabase(req, res, next) {
     if (isDatabaseReady()) {
@@ -11,8 +7,9 @@ function requireDatabase(req, res, next) {
     }
 
     const logger = req.log || appLogger;
+    const status = getDatabaseStatus();
     logger.warn('database.unavailable_for_request', {
-        dbReadyState: mongoose.connection.readyState
+        database: status
     });
 
     res.setHeader('Retry-After', '30');
@@ -21,7 +18,7 @@ function requireDatabase(req, res, next) {
         code: 'DATABASE_UNAVAILABLE',
         message: 'Service temporarily unavailable. Database connection is not ready.',
         retryAfterSeconds: 30,
-        readyState: mongoose.connection.readyState
+        database: status
     });
 }
 

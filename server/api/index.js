@@ -1,0 +1,71 @@
+const express = require('express');
+const requireDatabase = require('../middleware/requiredatabase');
+const { createRateLimiter } = require('../middleware/ratelimiter');
+const adminCustomerRoutes = require('../routes/admincustomers');
+const adminCartRoutes = require('../routes/admincarts');
+const adminDashboardRoutes = require('../routes/admindashboard');
+const adminSettingsRoutes = require('../routes/adminsettings');
+const adminMessageRoutes = require('../routes/adminmessages');
+const adminOrderRoutes = require('../routes/adminorders');
+const adminActivityRoutes = require('../routes/adminactivity');
+const adminIntelligenceRoutes = require('../routes/adminintelligence');
+const adminProductRoutes = require('../routes/adminproducts');
+const adminAuthRoutes = require('../../admin/admin-login/admin.routes');
+const activityRoutes = require('../routes/activity');
+const realtimeRoutes = require('../routes/realtime');
+const authRoutes = require('../routes/auth');
+const messageRoutes = require('../routes/messages');
+const productRoutes = require('../routes/products');
+const cartRoutes = require('../routes/cart');
+const orderRoutes = require('../routes/orders');
+const storefrontStateRoutes = require('../routes/storefrontstate');
+const uploadRoutes = require('./routes/uploads');
+
+const authRateLimiter = createRateLimiter({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    code: 'AUTH_RATE_LIMITED',
+    message: 'Too many authentication attempts. Please try again later.'
+});
+
+const adminRateLimiter = createRateLimiter({
+    windowMs: 10 * 60 * 1000,
+    max: 180,
+    code: 'ADMIN_RATE_LIMITED',
+    message: 'Too many admin requests. Please retry shortly.'
+});
+
+const realtimeRateLimiter = createRateLimiter({
+    windowMs: 60 * 1000,
+    max: 120,
+    code: 'REALTIME_RATE_LIMITED',
+    message: 'Too many realtime requests. Please retry shortly.'
+});
+
+function createApiRouter() {
+    const router = express.Router();
+
+    router.use('/admin/customers', requireDatabase, adminCustomerRoutes);
+    router.use('/admin/carts', requireDatabase, adminCartRoutes);
+    router.use('/admin/dashboard', requireDatabase, adminDashboardRoutes);
+    router.use('/admin/settings', requireDatabase, adminSettingsRoutes);
+    router.use('/admin/messages', requireDatabase, adminMessageRoutes);
+    router.use('/admin/orders', requireDatabase, adminOrderRoutes);
+    router.use('/admin/activity', requireDatabase, adminActivityRoutes);
+    router.use('/admin/intelligence', requireDatabase, adminIntelligenceRoutes);
+    router.use('/admin/products', requireDatabase, adminProductRoutes);
+    router.use('/admin', adminRateLimiter, adminAuthRoutes);
+    router.use('/activity', requireDatabase, activityRoutes);
+    router.use('/auth', authRateLimiter, authRoutes);
+    router.use('/messages', requireDatabase, messageRoutes);
+    router.use('/products', requireDatabase, productRoutes);
+    router.use('/cart', requireDatabase, cartRoutes);
+    router.use('/orders', requireDatabase, orderRoutes);
+    router.use('/storefront/state', requireDatabase, storefrontStateRoutes);
+    router.use('/realtime', realtimeRateLimiter, realtimeRoutes);
+    router.use('/uploads', uploadRoutes);
+
+    return router;
+}
+
+module.exports = createApiRouter;

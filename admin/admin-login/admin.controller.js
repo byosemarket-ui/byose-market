@@ -1,7 +1,6 @@
 const bcrypt = require("bcryptjs");
-const mongoose = require("mongoose");
-const User = require("../../server/models/user");
 const requireAdminAuth = require("../../server/middleware/requireadminauth");
+const userDataService = require("../../server/services/userdataservice");
 const { generateToken, getJwtConfig } = require("../../server/utils/token");
 const { appLogger, monitorAsyncOperation } = require("../../server/utils/logger");
 
@@ -78,37 +77,13 @@ function clearFailedAttempts(clientId) {
 }
 
 async function syncAdminUserRecord(adminEmail, adminPasswordHash, logger) {
-  if (mongoose.connection.readyState !== 1) {
-    logger.warn("auth.admin.bootstrap_skipped_db_unavailable", {
-      adminEmail,
-      readyState: mongoose.connection.readyState
-    });
-    return;
-  }
-
-  let admin = await monitorAsyncOperation(logger, "database.admin.find_one", { adminEmail }, () => User.findOne({ email: adminEmail, role: "admin" }), { slowThresholdMs: 500 });
-
-  if (!admin) {
-    admin = new User({
-      id: buildAdminUserId(adminEmail),
-      name: "Administrator",
-      email: adminEmail,
-      password: adminPasswordHash,
-      role: "admin",
-      verified: true,
-      status: "active"
-    });
-
-    await monitorAsyncOperation(logger, "database.admin.create", { adminEmail }, () => admin.save(), { slowThresholdMs: 500 });
-    logger.info("auth.admin.bootstrap_created", { adminEmail });
-    return;
-  }
-
-  if (String(admin.password || "") !== adminPasswordHash) {
-    admin.password = adminPasswordHash;
-    await monitorAsyncOperation(logger, "database.admin.update_password_hash", { adminEmail }, () => admin.save(), { slowThresholdMs: 500 });
-    logger.info("auth.admin.bootstrap_password_hash_updated", { adminEmail });
-  }
+  await monitorAsyncOperation(logger, "database.admin.upsert", { adminEmail }, () => userDataService.upsertAdminUser({
+    publicId: buildAdminUserId(adminEmail),
+    email: adminEmail,
+    passwordHash: adminPasswordHash,
+    name: "Administrator"
+  }), { slowThresholdMs: 500 });
+  logger.info("auth.admin.bootstrap_synced", { adminEmail });
 }
 
 exports.loginAdmin = async (req, res) => {

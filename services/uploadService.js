@@ -1,61 +1,10 @@
-import supabase from "../config/supabase.js";
-
 export const PRODUCTS_BUCKET = "products";
 
 const DEFAULT_UPLOAD_RETRY_COUNT = 2;
-const DEFAULT_UPLOAD_TIMEOUT_MS = 60000;
 
 function normalizeText(value, fallback = "") {
   const text = String(value || "").trim();
   return text || fallback;
-}
-
-function sanitizePathSegment(value, fallback = "file") {
-  return normalizeText(value, fallback)
-    .toLowerCase()
-    .replace(/[^a-z0-9-_]+/g, "-")
-    .replace(/^-+|-+$/g, "") || fallback;
-}
-
-function isDataUrl(value) {
-  return /^data:/i.test(normalizeText(value));
-}
-
-function isRemoteUrl(value) {
-  return /^(?:https?:|\/|\.\/|\.\.\/)/i.test(normalizeText(value));
-}
-
-function inferExtension(contentType = "", fallback = "jpg") {
-  const normalized = normalizeText(contentType).toLowerCase();
-  if (normalized.includes("png")) return "png";
-  if (normalized.includes("webp")) return "webp";
-  if (normalized.includes("gif")) return "gif";
-  if (normalized.includes("svg")) return "svg";
-  if (normalized.includes("jpeg") || normalized.includes("jpg")) return "jpg";
-  return fallback;
-}
-
-function createTimeoutError(label, timeoutMs) {
-  const error = new Error(`${label} timed out after ${Math.ceil(timeoutMs / 1000)} seconds.`);
-  error.code = "OPERATION_TIMEOUT";
-  return error;
-}
-
-async function withTimeout(label, promise, timeoutMs = DEFAULT_UPLOAD_TIMEOUT_MS) {
-  let timerId = null;
-
-  try {
-    return await Promise.race([
-      promise,
-      new Promise((_, reject) => {
-        timerId = window.setTimeout(() => reject(createTimeoutError(label, timeoutMs)), timeoutMs);
-      })
-    ]);
-  } finally {
-    if (timerId) {
-      window.clearTimeout(timerId);
-    }
-  }
 }
 
 function reportProgress(onProgress, message, extra = {}) {
@@ -67,92 +16,104 @@ function reportProgress(onProgress, message, extra = {}) {
   }
 }
 
-async function sourceToBlob(source) {
-  if (typeof Blob !== "undefined" && source instanceof Blob) {
-    return source;
+function dataUrlToBlob(dataUrl) {
+  const matches = String(dataUrl || "").match(/^data:(.+);base64,(.*)$/);
+  if (!matches) throw new Error("Invalid data URL");
+  const mime = matches[1];
+  const bstr = atob(matches[2]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
   }
-
-  if (typeof File !== "undefined" && source instanceof File) {
-    return source;
-  }
-
-  const normalized = normalizeText(source);
-  if (isDataUrl(normalized)) {
-    const response = await fetch(normalized);
-    return response.blob();
-  }
-
-  throw new Error("Only new image files or staged image data can be uploaded.");
+  return new Blob([u8arr], { type: mime });
 }
 
-function buildStoragePath({ productId, kind, index, blob }) {
-  const extension = inferExtension(blob?.type, "jpg");
-  const safeProductId = sanitizePathSegment(productId, "product");
-  const safeKind = sanitizePathSegment(kind, "asset");
-  const uniquePart = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  return `${safeProductId}/${safeKind}-${index + 1}-${uniquePart}.${extension}`;
-}
+function buildUploadPromise(file, bucket, options = {}) {
+  return new Promise((resolve, reject) => {
+    try {
+      const xhr = new XMLHttpRequest();
+      const url = `/api/uploads/${encodeURIComponent(String(bucket || PRODUCTS_BUCKET))}`;
+      const form = new FormData();
+      form.append("file", file, file.name || "upload");
 
-function buildPublicUrl(path) {
-  const { data } = supabase.storage.from(PRODUCTS_BUCKET).getPublicUrl(path);
-  return normalizeText(data?.publicUrl);
-}
+      if (Array.isArray(options.cleanupPaths) && options.cleanupPaths.length) {
+        form.append("cleanupPaths", JSON.stringify(options.cleanupPaths));
+      }
+      if (Array.isArray(options.previousPaths) && options.previousPaths.length) {
+        form.append("previousPaths", JSON.stringify(options.previousPaths));
+      }
 
-function mapUploadError(error) {
-  const message = String(error?.message || error || "Upload failed.").trim();
+      xhr.open("POST", url, true);
+      xhr.withCredentials = true;
 
-  if (/bucket/i.test(message) && /not found|does not exist/i.test(message)) {
-    const normalized = new Error("Supabase storage bucket 'products' is missing. Create it before uploading product images.");
-    normalized.code = "SUPABASE_BUCKET_MISSING";
-    return normalized;
-  }
+      xhr.upload.onprogress = function (event) {
+        const pct = event.lengthComputable ? Math.round((event.loaded / event.total) * 100) : null;
+        reportProgress(options.onProgress, options.progressLabel || `Uploading ${file.name || 'file'}...`, { phase: 'upload', percent: pct });
+      };
 
-  if (/row-level security|policy/i.test(message)) {
-    const normalized = new Error("Supabase storage write access is blocked by policy. Update the products bucket policies before uploading images.");
-    normalized.code = "SUPABASE_STORAGE_POLICY_BLOCKED";
-    return normalized;
-  }
+      xhr.onerror = function () {
+        reject(new Error("Network error during upload."));
+      };
 
-  return error instanceof Error ? error : new Error(message);
+      xhr.onload = function () {
+        try {
+          const status = xhr.status || 0;
+          let parsed = null;
+          try { parsed = JSON.parse(xhr.responseText); } catch (_e) { parsed = null; }
+          if (status >= 200 && status < 300 && parsed && parsed.success && Array.isArray(parsed.files) && parsed.files.length) {
+            resolve(parsed.files[0]);
+            return;
+          }
+
+          const message = parsed?.message || parsed?.error || `Upload failed with status ${status}`;
+          const err = new Error(message || "Upload failed.");
+          err.status = status;
+          reject(err);
+        } catch (e) {
+          reject(e);
+        }
+      };
+
+      xhr.send(form);
+    } catch (e) {
+      reject(e);
+    }
+  });
 }
 
 async function uploadSingleAsset(source, options = {}) {
-  if (isRemoteUrl(source) && !isDataUrl(source)) {
+  // If source is a File already, upload directly.
+  if (typeof File !== 'undefined' && source instanceof File) {
+    return await buildUploadPromise(source, options.bucket || PRODUCTS_BUCKET, options);
+  }
+
+  // If source is a Blob, wrap as File
+  if (typeof Blob !== 'undefined' && source instanceof Blob) {
+    const file = new File([source], options.filename || 'upload', { type: source.type || 'application/octet-stream' });
+    return await buildUploadPromise(file, options.bucket || PRODUCTS_BUCKET, options);
+  }
+
+  const normalized = normalizeText(source);
+  // If it's a data URL, convert and upload
+  if (/^data:/i.test(normalized)) {
+    const blob = dataUrlToBlob(normalized);
+    const ext = (blob.type || 'image/png').split('/').pop().split('+')[0];
+    const file = new File([blob], `upload.${ext}`, { type: blob.type });
+    return await buildUploadPromise(file, options.bucket || PRODUCTS_BUCKET, options);
+  }
+
+  // If it's already a URL/path, do not re-upload — return as-is for compatibility
+  if (/^(?:https?:|\/|\.|blob:)/i.test(normalized)) {
+    reportProgress(options.onProgress, options.progressLabel || 'Using existing asset reference', { phase: 'reference' });
     return {
-      url: normalizeText(source),
-      path: normalizeText(options.existingPath)
+      path: "",
+      url: normalized,
+      publicUrl: normalized
     };
   }
 
-  const blob = await sourceToBlob(source);
-  const path = buildStoragePath({
-    productId: options.productId,
-    kind: options.kind,
-    index: Number(options.index || 0),
-    blob
-  });
-
-  reportProgress(options.onProgress, options.progressLabel || "Uploading product image to Supabase...", {
-    phase: "uploading",
-    path,
-    index: Number(options.index || 0),
-    total: Number(options.total || 1)
-  });
-
-  const { error } = await withTimeout(`Supabase upload for ${path}`, supabase.storage.from(PRODUCTS_BUCKET).upload(path, blob, {
-    contentType: blob.type || "image/jpeg",
-    upsert: true,
-    cacheControl: "3600"
-  }), options.timeoutMs || DEFAULT_UPLOAD_TIMEOUT_MS);
-
-  if (error) {
-    throw mapUploadError(error);
-  }
-
-  return {
-    path,
-    url: buildPublicUrl(path)
-  };
+  throw new Error('Unsupported asset source for upload');
 }
 
 export async function uploadWithRetry(source, options = {}) {
@@ -161,53 +122,46 @@ export async function uploadWithRetry(source, options = {}) {
 
   for (let attempt = 0; attempt <= retryCount; attempt += 1) {
     try {
-      if (attempt > 0) {
-        reportProgress(options.onProgress, `Retrying image upload (${attempt + 1}/${retryCount + 1})...`, {
-          phase: "retrying",
-          attempt: attempt + 1
-        });
-      }
-
       return await uploadSingleAsset(source, options);
     } catch (error) {
       lastError = error;
+      // small backoff
+      if (attempt < retryCount) await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
     }
   }
 
-  throw lastError || new Error("Upload failed.");
+  throw lastError || new Error("Asset upload failed.");
 }
 
 export async function uploadProductGallery(sources = [], options = {}) {
   const results = [];
-  const total = Array.isArray(sources) ? sources.length : 0;
-
-  for (let index = 0; index < total; index += 1) {
-    const source = sources[index];
-    results.push(await uploadWithRetry(source, {
+  const files = Array.isArray(sources) ? sources : [];
+  for (let i = 0; i < files.length; i += 1) {
+    const src = files[i];
+    const res = await uploadWithRetry(src, {
       ...options,
-      kind: options.kind || "gallery",
-      index,
-      total,
-      progressLabel: `Uploading gallery image ${index + 1} of ${total}...`
-    }));
+      index: i,
+      total: files.length,
+      progressLabel: options.progressLabel || `Uploading gallery image ${i + 1} of ${files.length}...`
+    });
+    results.push(res);
   }
 
   return results;
 }
 
-export async function removeStoredAssets(paths = []) {
-  const removablePaths = Array.isArray(paths)
-    ? paths.map((entry) => normalizeText(entry)).filter(Boolean)
-    : [];
-
-  if (!removablePaths.length) {
-    return;
+export async function removeStoredAssets(_paths = []) {
+  try {
+    await fetch('/api/uploads', {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths: Array.isArray(_paths) ? _paths : [] })
+    });
+  } catch (_e) {
+    // ignore
   }
-
-  const { error } = await supabase.storage.from(PRODUCTS_BUCKET).remove(removablePaths);
-  if (error && !/not found/i.test(String(error.message || ""))) {
-    throw mapUploadError(error);
-  }
+  return undefined;
 }
 
 export default {

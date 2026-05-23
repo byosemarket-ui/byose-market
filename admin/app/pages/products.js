@@ -1,5 +1,6 @@
 import { formatCurrency } from "../components/ui.js";
 import { createProductAndSync, deleteProductAndSync, getProducts, updateProductAndSync } from "../services/admin-data.service.js";
+import { uploadWithRetry, uploadProductGallery, PRODUCTS_BUCKET } from "../../../services/uploadService.js";
 
 const FALLBACK_IMAGE = "../img/logo.png";
 const DRAFT_STORAGE_KEY = "byose-admin-product-draft-v2";
@@ -1858,7 +1859,7 @@ async function handlePage1Submit(container) {
   try {
     const payload = buildPage1Payload(productDraft);
     const handleProgress = (event) => {
-      const message = String(event?.message || "Saving Page 1 to Supabase...").trim();
+      const message = String(event?.message || "Saving Page 1 to backend...").trim();
       setWorkflowFeedback("saving", message);
       updatePage1Preview(container);
     };
@@ -1909,7 +1910,7 @@ async function handleDetailsSubmit(container) {
   try {
     const payload = buildDetailsPayload(productDraft);
     const handleProgress = (event) => {
-      const message = String(event?.message || "Saving Product Details to Supabase...").trim();
+      const message = String(event?.message || "Saving Product Details to backend...").trim();
       setWorkflowFeedback("saving", message);
       updateDetailsPreview(container);
     };
@@ -1954,8 +1955,19 @@ function mountPage1(container) {
       }
 
       try {
-        productDraft.page1.image = (await readFilesAsDataUrls([file]))[0] || "";
-        setWorkflowFeedback("neutral", "Hero image staged and ready for Supabase upload.");
+        setWorkflowFeedback("saving", "Uploading hero image...");
+        updatePage1Preview(container);
+        const uploaded = await uploadWithRetry(file, {
+          bucket: PRODUCTS_BUCKET,
+          onProgress: (ev) => {
+            const msg = String(ev?.message || ev?.percent ? `Uploading image ${ev.percent || 0}%` : "Uploading hero image...");
+            setWorkflowFeedback("saving", msg);
+            updatePage1Preview(container);
+          }
+        });
+
+        productDraft.page1.image = uploaded?.url || uploaded?.publicUrl || uploaded?.path || "";
+        setWorkflowFeedback("neutral", "Hero image uploaded and ready.");
         persistDraft();
         updatePage1Preview(container);
       } catch (error) {
@@ -2018,9 +2030,20 @@ function mountDetails(container) {
       }
 
       try {
-        const images = await readFilesAsDataUrls(files);
-        productDraft.details.gallery = [...productDraft.details.gallery, ...images];
-        setWorkflowFeedback("neutral", `${images.length} gallery image${images.length === 1 ? "" : "s"} staged and ready for Supabase upload.`);
+        setWorkflowFeedback("saving", `Uploading ${files.length} gallery image(s)...`);
+        updateDetailsPreview(container);
+        const results = await uploadProductGallery(files, {
+          bucket: PRODUCTS_BUCKET,
+          onProgress: (ev) => {
+            const msg = String(ev?.message || ev?.percent ? `Uploading gallery ${ev.percent || 0}%` : "Uploading gallery images...");
+            setWorkflowFeedback("saving", msg);
+            updateDetailsPreview(container);
+          }
+        });
+
+        const urls = (results || []).map((r) => r?.url || r?.publicUrl || r?.path || "").filter(Boolean);
+        productDraft.details.gallery = [...productDraft.details.gallery, ...urls];
+        setWorkflowFeedback("neutral", `${urls.length} gallery image${urls.length === 1 ? "" : "s"} uploaded and staged.`);
         persistDraft();
         rerenderCreateWorkspace(container);
       } catch (error) {
