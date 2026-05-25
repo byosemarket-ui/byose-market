@@ -43,7 +43,8 @@ const corsOrigins = readText(process.env.CORS_ORIGINS)
     .filter(Boolean);
 const uploadsRoot = resolveProjectPath(process.env.UPLOADS_DIR, paths.uploadsRoot);
 const sqliteDatabasePath = resolveProjectPath(process.env.SQLITE_DB_PATH, paths.sqlite.databaseFile);
-const storageRoot = resolveProjectPath(process.env.STORAGE_ROOT, path.resolve(paths.projectRoot, 'storage'));
+const storageRoot = resolveProjectPath(process.env.STORAGE_ROOT, paths.uploadsRoot);
+
 const uploadAllowedMimeTypes = readText(process.env.UPLOAD_ALLOWED_MIME_TYPES, 'image/jpeg,image/png,image/webp,image/gif,image/avif')
     .split(',')
     .map((entry) => entry.trim().toLowerCase())

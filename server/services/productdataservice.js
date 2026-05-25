@@ -6,10 +6,12 @@ function decorateProduct(product) {
         return product;
     }
 
-    const mainImageStoragePath = normalizeManagedPath(product.mainImage || product.image);
-    const galleryStoragePaths = Array.isArray(product.gallery)
-        ? product.gallery.map((entry) => normalizeManagedPath(entry)).filter(Boolean)
-        : [];
+        const mainImageStoragePath = normalizeManagedPath(product.mainImageStoragePath || product.mainImage || product.image);
+    const galleryStoragePaths = Array.isArray(product.galleryStoragePaths) && product.galleryStoragePaths.length
+        ? Array.from(new Set(product.galleryStoragePaths.map((entry) => normalizeManagedPath(entry)).filter(Boolean)))
+        : Array.isArray(product.gallery)
+            ? product.gallery.map((entry) => normalizeManagedPath(entry)).filter(Boolean)
+            : [];
 
     return {
         ...product,
@@ -18,6 +20,7 @@ function decorateProduct(product) {
         galleryStoragePaths
     };
 }
+
 
 function collectRemovedPaths(previousProduct, nextProduct) {
     const previousPaths = new Set(collectProductManagedPaths(previousProduct));

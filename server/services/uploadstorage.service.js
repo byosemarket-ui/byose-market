@@ -48,7 +48,17 @@ function buildPublicUploadUrl(bucketKey, fileName) {
     return path.posix.join(getPublicMountPrefix(), buildRelativeUploadPath(bucketKey, fileName));
 }
 
+function buildPublicUrlFromPath(value) {
+    const normalized = normalizeManagedPath(value);
+    if (!normalized) {
+        return normalizeText(value);
+    }
+
+    return path.posix.join(getPublicMountPrefix(), normalized);
+}
+
 function normalizeManagedPath(value) {
+
     const rawValue = normalizeText(value);
     if (!rawValue) {
         return '';
@@ -181,6 +191,7 @@ function collectProductManagedPaths(product) {
 
 module.exports = {
     buildPublicUploadUrl,
+    buildPublicUrlFromPath,
     buildRelativeUploadPath,
     collectProductManagedPaths,
     createUploadFilename,

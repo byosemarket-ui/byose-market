@@ -386,11 +386,14 @@ function normalizeProduct(product) {
     status: normalizeText(product?.status || "draft").toLowerCase(),
     priority: normalizePriorityValue(product?.priority),
     orderIndex: toNumber(product?.orderIndex),
-    highlightTag: normalizeText(product?.highlightTag).toLowerCase(),
+        highlightTag: normalizeText(product?.highlightTag).toLowerCase(),
     mainImage: normalizeText(product?.mainImage || product?.image),
     image: normalizeText(product?.image || product?.mainImage),
+    mainImageStoragePath: normalizeText(product?.mainImageStoragePath || product?.imageStoragePath),
+    galleryStoragePaths: asArray(product?.galleryStoragePaths).map((entry) => normalizeText(entry)),
     url: normalizeText(product?.url),
     page: normalizeText(product?.page || "product-details1.html"),
+
     updatedAt: product?.updatedAt || product?.createdAt || new Date().toISOString(),
     createdAt: product?.createdAt || new Date().toISOString()
   };

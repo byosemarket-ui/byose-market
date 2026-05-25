@@ -44,7 +44,140 @@ const POSITION_OPTIONS = [
   }
 ];
 
+function normalizeAssetUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+
+  if (/^(?:https?:|data:|blob:)/i.test(text)) {
+    return text;
+  }
+
+  if (text.startsWith("/uploads/")) {
+    return text;
+  }
+
+  if (text.startsWith("uploads/")) {
+    return `/${text.replace(/^\/+/, "")}`;
+  }
+
+  if (text.startsWith("/") || text.startsWith("../") || text.startsWith("./")) {
+    return text;
+  }
+
+  return `/uploads/${text.replace(/^\/+/, "")}`;
+}
+
+function normalizeStoragePath(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+
+  if (text.startsWith("/uploads/")) {
+    return text.replace(/^\/uploads\//, "");
+  }
+
+  if (text.startsWith("uploads/")) {
+    return text.replace(/^uploads\//, "");
+  }
+
+  return text;
+}
+
+function normalizeGalleryDraft(galleryValues, storageValues = []) {
+  const urls = Array.isArray(galleryValues)
+    ? galleryValues.map((entry) => normalizeAssetUrl(entry)).filter(Boolean)
+    : [];
+  const storage = Array.isArray(storageValues)
+    ? storageValues.map((entry) => normalizeStoragePath(entry))
+    : [];
+  const seen = new Set();
+  const normalizedUrls = [];
+  const normalizedStorage = [];
+
+    urls.forEach((url, index) => {
+    if (!url || url.startsWith("data:")) {
+      return;
+    }
+
+    if (seen.has(url)) {
+      return;
+    }
+
+    seen.add(url);
+
+    normalizedUrls.push(url);
+    normalizedStorage.push(storage[index] || normalizeStoragePath(url));
+  });
+
+  return {
+    urls: normalizedUrls,
+    storage: normalizedStorage
+  };
+}
+
+function getCurrentGalleryEntries() {
+  const urls = Array.isArray(productDraft?.details?.gallery) ? productDraft.details.gallery : [];
+  const storage = Array.isArray(productDraft?.details?.galleryStoragePaths) ? productDraft.details.galleryStoragePaths : [];
+  return urls.map((url, index) => ({
+    url,
+    storagePath: storage[index] || ""
+  }));
+}
+
+function setGalleryEntries(entries) {
+  const normalized = normalizeGalleryDraft(
+    entries.map((entry) => entry.url),
+    entries.map((entry) => entry.storagePath)
+  );
+  productDraft.details.gallery = normalized.urls;
+  productDraft.details.galleryStoragePaths = normalized.storage;
+}
+
+function appendGalleryUploadsToDraft(uploads = []) {
+  const entries = getCurrentGalleryEntries();
+  uploads.forEach((upload) => {
+    const url = normalizeAssetUrl(upload?.publicUrl || upload?.url || upload?.path || "");
+    if (!url) {
+      return;
+    }
+
+    entries.push({
+      url,
+      storagePath: normalizeStoragePath(upload?.storagePath || upload?.path || url)
+    });
+  });
+  setGalleryEntries(entries);
+}
+
+function removeGalleryEntryAt(index) {
+  const entries = getCurrentGalleryEntries();
+  if (index < 0 || index >= entries.length) {
+    return;
+  }
+  entries.splice(index, 1);
+  setGalleryEntries(entries);
+}
+
+function deriveCleanupCandidates(...values) {
+  const seen = new Set();
+  return values
+    .flat()
+    .map((entry) => normalizeAssetUrl(entry))
+    .filter((entry) => {
+      if (!entry || seen.has(entry)) {
+        return false;
+      }
+      seen.add(entry);
+      return true;
+    });
+}
+
+
 let latestProducts = [];
+
 let latestProductsError = "";
 let productDraft = readDraft();
 let page1SaveInFlight = false;
@@ -183,6 +316,7 @@ function createDefaultDraft() {
     productId: "",
     page1: {
       image: "",
+      imageStoragePath: "",
       productName: "",
       currentPrice: "",
       oldPrice: "",
@@ -194,6 +328,7 @@ function createDefaultDraft() {
     details: {
       description: "",
       gallery: [],
+      galleryStoragePaths: [],
       colors: [],
       selectedSizes: [],
       specRows: getAdaptiveSpecTemplate("fashion"),
@@ -207,6 +342,7 @@ function createDefaultDraft() {
     }
   };
 }
+
 
 function sanitizeDraft(input) {
   const defaults = createDefaultDraft();
@@ -230,11 +366,30 @@ function sanitizeDraft(input) {
         value: String(entry?.value || "")
       }))
     : getAdaptiveSpecTemplate(category);
+  const normalizedHeroImage = normalizeAssetUrl(page1.image || "");
+  const normalizedHeroStoragePath = normalizeStoragePath(page1.imageStoragePath || page1.imageStorage || normalizedHeroImage);
+  const galleryNormalization = normalizeGalleryDraft(details.gallery, details.galleryStoragePaths);
+
+  const colors = Array.isArray(details.colors)
+    ? details.colors
+        .map((entry) => ({
+          name: String(entry?.name || "").trim(),
+          hex: String(entry?.hex || inferColorHex(entry?.name)).trim() || inferColorHex(entry?.name)
+        }))
+        .filter((entry) => entry.name)
+    : [];
+
+  const selectedSizes = Array.isArray(details.selectedSizes)
+    ? details.selectedSizes
+        .map((entry) => String(entry || ""))
+        .filter((entry, index, array) => entry && (!sizeOptions.length || sizeOptions.includes(entry)) && array.indexOf(entry) === index)
+    : [];
 
   return {
     productId: String(draft.productId || ""),
     page1: {
-      image: String(page1.image || ""),
+      image: normalizedHeroImage,
+      imageStoragePath: normalizedHeroStoragePath,
       productName: String(page1.productName || ""),
       currentPrice: String(page1.currentPrice || ""),
       oldPrice: String(page1.oldPrice || ""),
@@ -245,18 +400,10 @@ function sanitizeDraft(input) {
     },
     details: {
       description: String(details.description || ""),
-      gallery: Array.isArray(details.gallery) ? details.gallery.map((entry) => String(entry || "")).filter(Boolean) : [],
-      colors: Array.isArray(details.colors)
-        ? details.colors
-            .map((entry) => ({
-              name: String(entry?.name || "").trim(),
-              hex: String(entry?.hex || inferColorHex(entry?.name)).trim() || inferColorHex(entry?.name)
-            }))
-            .filter((entry) => entry.name)
-        : [],
-      selectedSizes: Array.isArray(details.selectedSizes)
-        ? details.selectedSizes.map((entry) => String(entry || "")).filter((entry) => !sizeOptions.length || sizeOptions.includes(entry))
-        : [],
+      gallery: galleryNormalization.urls,
+      galleryStoragePaths: galleryNormalization.storage,
+      colors,
+      selectedSizes,
       specRows,
       extraInfo: {
         warranty: String(extraInfo.warranty || ""),
@@ -268,6 +415,7 @@ function sanitizeDraft(input) {
     }
   };
 }
+
 
 function readDraft() {
   return sanitizeDraft(readJsonStorage(DRAFT_STORAGE_KEY));
@@ -290,10 +438,12 @@ function buildPage1Payload(draft) {
   const price = Number(safeDraft.page1.currentPrice) || 0;
   const oldPrice = Number(safeDraft.page1.oldPrice) || 0;
   const stock = Math.max(0, Math.floor(toNumber(safeDraft.page1.stock)));
-  const inventoryStatus = getStockPresentation(stock).status;
+    const inventoryStatus = getStockPresentation(stock).status;
   const positioning = safeDraft.page1.positioning;
+  const mainImageReference = safeDraft.page1.imageStoragePath || safeDraft.page1.image || "";
 
   return {
+
     name: safeDraft.page1.productName.trim(),
     title: safeDraft.page1.productName.trim(),
     price,
@@ -301,7 +451,7 @@ function buildPage1Payload(draft) {
     stock,
     availableStock: stock,
     availability: inventoryStatus,
-    inventory: {
+        inventory: {
       available: stock,
       totalAvailable: stock,
       status: inventoryStatus,
@@ -311,11 +461,12 @@ function buildPage1Payload(draft) {
     visibility: safeDraft.page1.visibility === "all" ? "both" : safeDraft.page1.visibility,
     priority: positioning === "top" ? 1 : 0,
     orderIndex: positioning === "top" ? 300 : positioning === "bottom" ? 100 : 200,
-    mainImage: safeDraft.page1.image || undefined,
-    image: safeDraft.page1.image || undefined,
+    mainImage: mainImageReference || undefined,
+    image: mainImageReference || undefined,
     status: "draft"
   };
 }
+
 
 function buildLongDescription(description, extraInfo) {
   const paragraphs = String(description || "")
@@ -507,18 +658,31 @@ function hydrateDraftFromProduct(product) {
     return productDraft;
   }
 
-  const currentDraft = sanitizeDraft(productDraft);
+    const currentDraft = sanitizeDraft(productDraft);
   const activeSpecs = normalizeSpecRows(product.specs, product.category || currentDraft.page1.category);
-  const gallery = Array.isArray(product.gallery)
-    ? product.gallery.filter((image) => String(image || "").trim() && String(image || "").trim() !== String(product.mainImage || product.image || "").trim())
-    : [];
+  const heroImage = normalizeAssetUrl(product.mainImage || product.image || currentDraft.page1.image || "");
+  const heroStoragePath = normalizeStoragePath(product.mainImageStoragePath || product.imageStoragePath || heroImage);
+  const rawGallery = Array.isArray(product.gallery) ? product.gallery : [];
+  const rawGalleryStorage = Array.isArray(product.galleryStoragePaths) ? product.galleryStoragePaths : [];
+  const filteredGalleryEntries = rawGallery
+    .map((image, index) => ({
+      url: normalizeAssetUrl(image),
+      storagePath: normalizeStoragePath(rawGalleryStorage[index] || image)
+    }))
+    .filter((entry) => entry.url && entry.url !== heroImage);
+  const galleryNormalization = normalizeGalleryDraft(
+    filteredGalleryEntries.map((entry) => entry.url),
+    filteredGalleryEntries.map((entry) => entry.storagePath)
+  );
 
   return sanitizeDraft({
+
     ...currentDraft,
     productId: String(product.id || product.catalogId || currentDraft.productId || ""),
-    page1: {
+        page1: {
       ...currentDraft.page1,
-      image: String(product.mainImage || product.image || currentDraft.page1.image || ""),
+      image: heroImage,
+      imageStoragePath: heroStoragePath,
       productName: String(product.name || product.title || currentDraft.page1.productName || ""),
       currentPrice: String(toNumber(product.price || currentDraft.page1.currentPrice)),
       oldPrice: String(toNumber(product.oldPrice || currentDraft.page1.oldPrice)),
@@ -532,7 +696,9 @@ function hydrateDraftFromProduct(product) {
     details: {
       ...currentDraft.details,
       description: String(product.description || product.shortDescription || currentDraft.details.description || ""),
-      gallery,
+      gallery: galleryNormalization.urls,
+      galleryStoragePaths: galleryNormalization.storage,
+
       colors: extractDraftColors(product),
       selectedSizes: extractDraftSizes(product),
       specRows: activeSpecs,
@@ -548,20 +714,26 @@ function buildDetailsPayload(draft) {
   const safeDraft = sanitizeDraft(draft);
   const page1Payload = buildPage1Payload(safeDraft);
   const activeSpecs = safeDraft.details.specRows.filter((entry) => String(entry.label || "").trim() && String(entry.value || "").trim());
-  const attributes = buildAttributesFromDraft(safeDraft);
+    const attributes = buildAttributesFromDraft(safeDraft);
   const longDescription = buildLongDescription(safeDraft.details.description, safeDraft.details.extraInfo);
   const highlights = buildHighlights(safeDraft.details.extraInfo, activeSpecs);
   const trust = buildTrust(safeDraft.details.extraInfo);
+  const galleryReferences = safeDraft.details.gallery.map((url, index) => {
+    const storageRef = safeDraft.details.galleryStoragePaths?.[index];
+    const reference = normalizeStoragePath(storageRef);
+    return reference || url;
+  }).filter(Boolean);
 
   return {
     ...page1Payload,
     description: safeDraft.details.description.trim(),
     shortDescription: safeDraft.details.description.trim(),
     longDescription,
-    gallery: safeDraft.details.gallery,
+    gallery: galleryReferences,
     highlights,
     trust,
     specs: activeSpecs,
+
     attributes,
     variants: {
       enabled: attributes.length > 0,
@@ -1745,22 +1917,8 @@ function validateDetailsDraft() {
   return "";
 }
 
-async function readFilesAsDataUrls(files) {
-  const images = [];
-  for (const file of Array.from(files || [])) {
-    const image = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => reject(new Error("Image upload failed. Try another file."));
-      reader.readAsDataURL(file);
-    });
-    images.push(image);
-  }
-
-  return images;
-}
-
 function updatePage1Field(target) {
+
   const fieldName = String(target?.name || "");
   if (!fieldName) {
     return false;
@@ -1876,15 +2034,18 @@ async function handlePage1Submit(container) {
       productId: response?.id || response?.catalogId || productDraft.productId || ""
     });
 
-    productDraft = response ? hydrateDraftFromProduct(response) : sanitizeDraft({
+        productDraft = response ? hydrateDraftFromProduct(response) : sanitizeDraft({
       ...productDraft,
       productId: String(response?.id || response?._id || response?.catalogId || productDraft.productId || "")
     });
     persistDraft();
     writeProgress({ step: "page-1-complete", productId: productDraft.productId, nextStep: "page-2" });
+    setWorkflowFeedback("success", "Page 1 saved. Opening Product Details...");
+    updatePage1Preview(container);
     console.info("[Admin Products] product save success", { productId: productDraft.productId });
     console.info("[Admin Products] redirecting to page 2", { hash: getDetailsHash(productDraft.productId) });
     window.location.hash = getDetailsHash(productDraft.productId);
+
   } catch (error) {
     console.error("[Admin Products] Save Page 1 failed:", error);
     const message = String(error?.message || "").trim() || "Page 1 save failed. Check the current environment and try again.";
@@ -1948,17 +2109,20 @@ function mountPage1(container) {
 
   form.addEventListener("change", async (event) => {
     const target = event.target;
-    if (target?.matches("[data-products-image-input]")) {
+        if (target?.matches("[data-products-image-input]")) {
       const file = target.files?.[0];
       if (!file) {
         return;
       }
 
       try {
+        const cleanupPaths = deriveCleanupCandidates(productDraft.page1.imageStoragePath, productDraft.page1.image);
         setWorkflowFeedback("saving", "Uploading hero image...");
         updatePage1Preview(container);
         const uploaded = await uploadWithRetry(file, {
           bucket: PRODUCTS_BUCKET,
+          cleanupPaths,
+          previousPaths: cleanupPaths,
           onProgress: (ev) => {
             const msg = String(ev?.message || ev?.percent ? `Uploading image ${ev.percent || 0}%` : "Uploading hero image...");
             setWorkflowFeedback("saving", msg);
@@ -1966,7 +2130,11 @@ function mountPage1(container) {
           }
         });
 
-        productDraft.page1.image = uploaded?.url || uploaded?.publicUrl || uploaded?.path || "";
+        const uploadUrl = normalizeAssetUrl(uploaded?.publicUrl || uploaded?.url || uploaded?.path || "");
+        const storagePath = normalizeStoragePath(uploaded?.storagePath || uploaded?.path || uploadUrl);
+
+        productDraft.page1.image = uploadUrl;
+        productDraft.page1.imageStoragePath = storagePath;
         setWorkflowFeedback("neutral", "Hero image uploaded and ready.");
         persistDraft();
         updatePage1Preview(container);
@@ -1978,6 +2146,7 @@ function mountPage1(container) {
       target.value = "";
       return;
     }
+
 
     if (updatePage1Field(target)) {
       setWorkflowFeedback("neutral", "Page 1 saves the product foundation and then routes directly to Product Details.");
@@ -1991,9 +2160,11 @@ function mountPage1(container) {
       return;
     }
 
-    productDraft.page1.image = "";
+        productDraft.page1.image = "";
+    productDraft.page1.imageStoragePath = "";
     persistDraft();
     setWorkflowFeedback("neutral", "Hero image removed from the Page 1 workspace.");
+
     updatePage1Preview(container);
   });
 
@@ -2032,7 +2203,7 @@ function mountDetails(container) {
       try {
         setWorkflowFeedback("saving", `Uploading ${files.length} gallery image(s)...`);
         updateDetailsPreview(container);
-        const results = await uploadProductGallery(files, {
+                const results = await uploadProductGallery(files, {
           bucket: PRODUCTS_BUCKET,
           onProgress: (ev) => {
             const msg = String(ev?.message || ev?.percent ? `Uploading gallery ${ev.percent || 0}%` : "Uploading gallery images...");
@@ -2041,11 +2212,12 @@ function mountDetails(container) {
           }
         });
 
-        const urls = (results || []).map((r) => r?.url || r?.publicUrl || r?.path || "").filter(Boolean);
-        productDraft.details.gallery = [...productDraft.details.gallery, ...urls];
-        setWorkflowFeedback("neutral", `${urls.length} gallery image${urls.length === 1 ? "" : "s"} uploaded and staged.`);
+        appendGalleryUploadsToDraft(results);
+        const uploadedCount = Array.isArray(results) ? results.length : 0;
+        setWorkflowFeedback("neutral", `${uploadedCount} gallery image${uploadedCount === 1 ? "" : "s"} uploaded and staged.`);
         persistDraft();
         rerenderCreateWorkspace(container);
+
       } catch (error) {
         setWorkflowFeedback("error", String(error?.message || "Gallery upload failed."));
         updateDetailsPreview(container);
@@ -2094,28 +2266,41 @@ function mountDetails(container) {
       return;
     }
 
-    try {
-      const images = await readFilesAsDataUrls(files);
-      productDraft.details.gallery = [...productDraft.details.gallery, ...images];
-      setWorkflowFeedback("neutral", `${images.length} gallery image${images.length === 1 ? "" : "s"} added from drag and drop.`);
+        try {
+      setWorkflowFeedback("saving", `Uploading ${files.length} gallery image${files.length === 1 ? "" : "s"}...`);
+      updateDetailsPreview(container);
+      const results = await uploadProductGallery(files, {
+        bucket: PRODUCTS_BUCKET,
+        onProgress: (ev) => {
+          const msg = String(ev?.message || ev?.percent ? `Uploading gallery ${ev.percent || 0}%` : "Uploading gallery images...");
+          setWorkflowFeedback("saving", msg);
+          updateDetailsPreview(container);
+        }
+      });
+
+      appendGalleryUploadsToDraft(results);
+      const uploadedCount = Array.isArray(results) ? results.length : 0;
+      setWorkflowFeedback("neutral", `${uploadedCount} gallery image${uploadedCount === 1 ? "" : "s"} uploaded and staged.`);
       persistDraft();
       rerenderCreateWorkspace(container);
     } catch (error) {
       setWorkflowFeedback("error", String(error?.message || "Gallery upload failed."));
       updateDetailsPreview(container);
     }
+
   });
 
   form.addEventListener("click", (event) => {
-    const removeGalleryButton = event.target.closest("[data-gallery-remove-index]");
+        const removeGalleryButton = event.target.closest("[data-gallery-remove-index]");
     if (removeGalleryButton) {
       const index = Number(removeGalleryButton.dataset.galleryRemoveIndex);
-      productDraft.details.gallery.splice(index, 1);
+      removeGalleryEntryAt(index);
       persistDraft();
       setWorkflowFeedback("neutral", "Gallery image removed from Product Details.");
       rerenderCreateWorkspace(container);
       return;
     }
+
 
     const addColorButton = event.target.closest("[data-color-add]");
     if (addColorButton) {

@@ -1,9 +1,29 @@
 const SQLiteBaseRepository = require('./base.repository');
 const categoryRepository = require('./category.repository');
+const { buildPublicUrlFromPath, normalizeManagedPath } = require('../../services/uploadstorage.service');
+
 
 class SQLiteProductRepository extends SQLiteBaseRepository {
     constructor() {
         super({ tableName: 'products' });
+    }
+
+    resolveStoragePath(value) {
+        return normalizeManagedPath(value) || '';
+    }
+
+    resolvePublicPath(value) {
+        const storagePath = this.resolveStoragePath(value);
+        if (storagePath) {
+            return buildPublicUrlFromPath(storagePath);
+        }
+
+        return this.normalizeText(value);
+    }
+
+    prepareStorablePath(value) {
+        const storagePath = this.resolveStoragePath(value);
+        return storagePath || this.normalizeText(value);
     }
 
     mapRow(row, images = []) {
@@ -11,11 +31,29 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             return null;
         }
 
-        const gallery = Array.isArray(images) && images.length
-            ? images.map((entry) => this.normalizeText(entry.image_url)).filter(Boolean)
-            : [];
+        const rawImage = row.image || row.main_image;
 
-        return {
+                const rawMainImage = row.main_image || row.image;
+                const imageStoragePath = this.resolveStoragePath(rawImage);
+                const mainImageStoragePath = this.resolveStoragePath(rawMainImage) || imageStoragePath;
+                const image = imageStoragePath ? buildPublicUrlFromPath(imageStoragePath) : this.normalizeText(rawImage);
+                const mainImage = mainImageStoragePath ? buildPublicUrlFromPath(mainImageStoragePath) : this.normalizeText(rawMainImage);
+
+                const galleryEntries = Array.isArray(images) ? images : [];
+                const galleryPublic = [];
+                const galleryStoragePaths = [];
+
+                galleryEntries.forEach((entry) => {
+                    const storagePath = this.resolveStoragePath(entry.image_url);
+                    const publicPath = storagePath ? buildPublicUrlFromPath(storagePath) : this.normalizeText(entry.image_url);
+                    if (publicPath && !galleryPublic.includes(publicPath)) {
+                        galleryPublic.push(publicPath);
+                        galleryStoragePaths.push(storagePath || this.resolveStoragePath(publicPath));
+                    }
+                });
+
+                return {
+
             recordId: Number(row.id),
             catalogId: Number(row.catalog_id || 0),
             name: this.normalizeText(row.name),
@@ -28,10 +66,15 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             price: this.toNumber(row.price, 0),
             oldPrice: this.toNumber(row.old_price, 0),
             stock: this.toNumber(row.stock, 0),
-            image: this.normalizeText(row.image || row.main_image),
-            mainImage: this.normalizeText(row.main_image || row.image),
-            gallery,
+                        image,
+            imageStoragePath,
+            mainImage,
+            mainImageStoragePath,
+            gallery: galleryPublic,
+            galleryStoragePaths,
+
             keywords: this.parseJson(row.keywords_json, []),
+
             highlights: this.parseJson(row.highlights_json, []),
             trust: this.parseJson(row.trust_json, []),
             specs: this.parseJson(row.specs_json, []),
@@ -113,19 +156,24 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         return this.mapRow(row, images);
     }
 
-    persistImages(productId, gallery, mainImage) {
+        persistImages(productId, gallery, mainImage) {
+
         this.db.prepare('DELETE FROM product_images WHERE product_id = ?').run(Number(productId));
         const insert = this.db.prepare('INSERT INTO product_images (product_id, image_url, kind, sort_order) VALUES (?, ?, ?, ?)');
-        const uniqueGallery = Array.from(new Set((Array.isArray(gallery) ? gallery : []).map((entry) => this.normalizeText(entry)).filter(Boolean)));
-        uniqueGallery.forEach((imageUrl, index) => {
-            insert.run(Number(productId), imageUrl, imageUrl === mainImage ? 'main' : 'gallery', index);
+        const mainImageStorage = this.prepareStorablePath(mainImage);
+        const uniqueGallery = Array.from(new Set((Array.isArray(gallery) ? gallery : []).map((entry) => this.prepareStorablePath(entry)).filter(Boolean)));
+        uniqueGallery.forEach((storedPath, index) => {
+            insert.run(Number(productId), storedPath, storedPath === mainImageStorage ? 'main' : 'gallery', index);
         });
     }
 
     async save(product, options = {}) {
         const existing = options.identifier ? await this.findByIdentifier(options.identifier) : null;
+
         const category = await categoryRepository.ensureBySlug(product.category, { name: product.category });
         const now = this.now(product.updatedAt);
+        const imageStoragePath = this.prepareStorablePath(product.image || product.mainImage);
+        const mainImageStoragePath = this.prepareStorablePath(product.mainImage || product.image) || imageStoragePath;
         const payload = {
             catalogId: Number(product.catalogId),
             categoryId: category ? Number(category.id) : null,
@@ -139,8 +187,9 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             price: this.toNumber(product.price, 0),
             oldPrice: this.toNumber(product.oldPrice, 0),
             stock: this.toNumber(product.stock, 0),
-            image: this.normalizeText(product.image || product.mainImage),
-            mainImage: this.normalizeText(product.mainImage || product.image),
+            image: imageStoragePath,
+            mainImage: mainImageStoragePath,
+
             keywordsJson: this.stringifyJson(product.keywords || [], []),
             highlightsJson: this.stringifyJson(product.highlights || [], []),
             trustJson: this.stringifyJson(product.trust || [], []),

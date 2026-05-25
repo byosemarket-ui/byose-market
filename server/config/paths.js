@@ -2,20 +2,24 @@ const path = require('path');
 
 const serverRoot = path.resolve(__dirname, '..');
 const projectRoot = path.resolve(serverRoot, '..');
-const dataRoot = path.resolve(projectRoot, 'data');
+const databaseRoot = path.resolve(serverRoot, 'database');
 const uploadsRoot = path.resolve(serverRoot, 'uploads');
 
 module.exports = {
     serverRoot,
     projectRoot,
-    dataRoot,
+    databaseRoot,
+    // legacy alias retained for backwards compatibility
+    dataRoot: databaseRoot,
     uploadsRoot,
     sqlite: {
-        root: path.resolve(serverRoot, 'database', 'sqlite'),
-        migrations: path.resolve(serverRoot, 'database', 'sqlite', 'migrations'),
+        root: path.resolve(databaseRoot, 'sqlite'),
+        migrations: path.resolve(databaseRoot, 'sqlite', 'migrations'),
         repositories: path.resolve(serverRoot, 'repositories', 'sqlite'),
-        databaseFile: path.resolve(dataRoot, 'byosemarket.sqlite')
+        databaseFile: path.resolve(databaseRoot, 'byosemarket.sqlite')
     },
+
+
     uploads: {
         products: path.resolve(uploadsRoot, 'products'),
         categories: path.resolve(uploadsRoot, 'categories'),

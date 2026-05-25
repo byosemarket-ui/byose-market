@@ -1,10 +1,17 @@
+const config = require('../config/env');
 const Cart = require('../models/cart');
 const ContactMessage = require('../models/contactmessage');
 const CustomerActivity = require('../models/customeractivity');
 const Order = require('../models/order');
 const Product = require('../models/product');
 const User = require('../models/user');
+const productDataService = require('./productdataservice');
+const orderDataService = require('./orderdataservice');
+const userDataService = require('./userdataservice');
+const cartDataService = require('./cartdataservice');
+const activityDataService = require('./activitydataservice');
 const getRealtimeEventService = require('./realtimeeventservice');
+
 
 function normalizeText(value) {
     return String(value || '').trim();
@@ -15,7 +22,19 @@ function toNumber(value, fallbackValue = 0) {
     return Number.isFinite(parsed) ? parsed : fallbackValue;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function toTimestamp(value) {
+    if (!value) {
+        return 0;
+    }
+
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.getTime() : 0;
+}
+
 function startOfDay(dateInput = new Date()) {
+
     const date = new Date(dateInput);
     date.setHours(0, 0, 0, 0);
     return date;
@@ -256,44 +275,111 @@ function buildBehaviorInsights(activity = [], orders = [], carts = []) {
     };
 }
 
-async function collectBaseData(rangeDays = 30) {
-    const safeRangeDays = Math.min(180, Math.max(7, Number(rangeDays) || 30));
-    const sinceDate = new Date(Date.now() - (safeRangeDays * 24 * 60 * 60 * 1000));
+async function fetchAllAdminOrdersFromSQLite(maxPages = 6, pageSize = 500) {
+    const orders = [];
+
+    for (let page = 1; page <= maxPages; page += 1) {
+        const batch = await orderDataService.listAdminOrders({ limit: pageSize, page });
+        orders.push(...batch);
+        if (batch.length < pageSize) {
+            break;
+        }
+    }
+
+    return orders;
+}
+
+async function loadAnalyticsDatasetSQLite(_sinceDate) {
+
+    const customerLimit = 4000;
+    const activityLimit = 4000;
+
+    const [customersRaw, products, activity] = await Promise.all([
+        userDataService.listCustomers(),
+        productDataService.listAllProducts(),
+        activityDataService.listActivity({ limit: activityLimit, offset: 0 })
+    ]);
+
+    const orders = await fetchAllAdminOrdersFromSQLite();
+    const customers = customersRaw.slice(0, customerLimit);
+    const carts = await cartDataService.listAllCarts(customersRaw);
+
+    return {
+        orders,
+        customers,
+        products,
+        messages: [],
+        activity,
+        carts
+    };
+}
+
+async function loadAnalyticsDatasetMongo(sinceDate) {
+    const recentLimit = 3000;
+    const customerLimit = 4000;
+    const messageLimit = 2000;
+    const activityLimit = 4000;
+    const cartLimit = 1200;
 
     const [orders, customers, products, messages, activity, carts] = await Promise.all([
         Order.find({ createdAt: { $gte: sinceDate } })
-            .sort({ createdAt: -1 })
-            .limit(3000)
+            .sort({ createdAt: -1, updatedAt: -1 })
+            .limit(recentLimit)
             .select('orderId id customerName customerEmail customerPhone status orderStatus paymentStatus totalAmount totalPrice total createdAt updatedAt items products')
             .lean(),
         User.find({ role: { $ne: 'admin' } })
             .sort({ createdAt: -1 })
-            .limit(4000)
+            .limit(customerLimit)
             .select('id name email phone createdAt')
             .lean(),
         Product.find({})
-            .sort({ updatedAt: -1 })
-            .limit(3000)
+            .sort({ updatedAt: -1, createdAt: -1 })
+            .limit(recentLimit)
             .select('catalogId name title category stock price visibility status updatedAt createdAt')
             .lean(),
         ContactMessage.find({ createdAt: { $gte: sinceDate } })
-            .sort({ createdAt: -1 })
-            .limit(2000)
-            .select('messageId name email phone message source status createdAt updatedAt')
+            .sort({ createdAt: -1, updatedAt: -1 })
+            .limit(messageLimit)
+            .select('messageId name email phone message source status meta createdAt updatedAt')
             .lean(),
         CustomerActivity.find({ createdAt: { $gte: sinceDate } })
-            .sort({ createdAt: -1 })
-            .limit(4000)
+            .sort({ createdAt: -1, updatedAt: -1 })
+            .limit(activityLimit)
             .select('clientActivityId eventType path device city country level createdAt updatedAt startedAt meta')
             .lean(),
         Cart.find({})
-            .sort({ updatedAt: -1 })
-            .limit(1200)
+            .sort({ updatedAt: -1, createdAt: -1 })
+            .limit(cartLimit)
             .select('user items createdAt updatedAt')
             .populate({ path: 'user', select: 'id name email phone' })
             .populate({ path: 'items.product', select: 'catalogId name title price stock mainImage image' })
             .lean()
     ]);
+
+    return { orders, customers, products, messages, activity, carts };
+}
+
+async function collectBaseData(rangeDays = 30) {
+    const safeRangeDays = Math.min(180, Math.max(7, Number(rangeDays) || 30));
+    const sinceDate = new Date(Date.now() - (safeRangeDays * DAY_MS));
+    const dataset = config.databaseClient === 'sqlite'
+        ? await loadAnalyticsDatasetSQLite(sinceDate)
+        : await loadAnalyticsDatasetMongo(sinceDate);
+
+    const sinceMs = sinceDate.getTime();
+
+    const orders = Array.isArray(dataset.orders)
+        ? dataset.orders.filter((order) => toTimestamp(order?.createdAt || order?.date) >= sinceMs)
+        : [];
+    const customers = Array.isArray(dataset.customers) ? dataset.customers : [];
+    const products = Array.isArray(dataset.products) ? dataset.products : [];
+    const messages = Array.isArray(dataset.messages)
+        ? dataset.messages.filter((message) => toTimestamp(message?.createdAt) >= sinceMs)
+        : [];
+    const activity = Array.isArray(dataset.activity)
+        ? dataset.activity.filter((entry) => toTimestamp(entry?.createdAt || entry?.startedAt) >= sinceMs)
+        : [];
+    const carts = Array.isArray(dataset.carts) ? dataset.carts : [];
 
     const visitEvents = activity.filter((entry) => normalizeText(entry?.eventType).toLowerCase() === 'visit');
     const statusBreakdown = buildStatusBreakdown(orders);
@@ -440,6 +526,7 @@ async function collectBaseData(rangeDays = 30) {
         }
     };
 }
+
 
 function buildRowsForReport(type, overview) {
     const reportType = normalizeText(type).toLowerCase();
