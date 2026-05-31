@@ -143,8 +143,17 @@ function deleteManagedFiles(values = []) {
         if (!absolutePath || !fs.existsSync(absolutePath)) {
             return;
         }
-
-        fs.unlinkSync(absolutePath);
+        try {
+            fs.unlinkSync(absolutePath);
+        } catch (err) {
+            try {
+                const logger = require('../utils/logger').appLogger;
+                logger.warn('storage.delete_file_failed', { path: absolutePath, error: String(err?.message || err) });
+            } catch (_e) {
+                // ignore logger failures
+            }
+            return;
+        }
         const descriptor = toDeletedUploadDescriptor(normalized);
         if (descriptor) {
             deleted.push(descriptor);

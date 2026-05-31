@@ -1,4 +1,5 @@
 const { appLogger, monitorAsyncOperation } = require('../utils/logger');
+const config = require('../config/env');
 const productDataService = require('../services/productdataservice');
 const getRealtimeEventService = require('../services/realtimeeventservice');
 
@@ -476,8 +477,12 @@ exports.createProduct = async (req, res) => {
 
         return res.status(201).json({ success: true, product: serializeProduct(product) });
     } catch (error) {
-        logger.error('inventory.product_create_failed', { error });
-        return res.status(500).json({ success: false, message: 'Server error' });
+        logger.error('inventory.product_create_failed', { error: String(error?.message || error), stack: error?.stack });
+        const payload = { success: false, message: 'Server error' };
+        if (!config.isProduction) {
+            payload.details = String(error?.message || '');
+        }
+        return res.status(500).json(payload);
     }
 };
 

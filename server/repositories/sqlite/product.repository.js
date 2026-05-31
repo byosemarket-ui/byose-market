@@ -109,8 +109,41 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
     }
 
     async getNextCatalogId() {
-        const row = this.db.prepare('SELECT MAX(catalog_id) AS maxCatalogId FROM products').get();
-        return this.toNumber(row?.maxCatalogId, 0) + 1;
+        // Ensure a simple sequence table exists and use it to atomically allocate catalog ids.
+        try {
+            this.db.prepare(`
+                CREATE TABLE IF NOT EXISTS catalog_sequences (
+                    name TEXT PRIMARY KEY,
+                    last INTEGER NOT NULL
+                )
+            `).run();
+        } catch (_err) {
+            // ignore creation errors; fallback to MAX() approach below
+        }
+
+        try {
+            const allocTxn = this.db.transaction(() => {
+                const row = this.db.prepare('SELECT last FROM catalog_sequences WHERE name = ?').get('products');
+                if (!row) {
+                    // initialize sequence using current max catalog_id to avoid collisions with existing rows
+                    const maxRow = this.db.prepare('SELECT MAX(catalog_id) AS maxCatalogId FROM products').get();
+                    const start = this.toNumber(maxRow?.maxCatalogId, 0) + 1;
+                    this.db.prepare('INSERT OR REPLACE INTO catalog_sequences (name, last) VALUES (?, ?)').run('products', start);
+                    return start;
+                }
+
+                const next = Number(row.last) + 1;
+                this.db.prepare('UPDATE catalog_sequences SET last = ? WHERE name = ?').run(next, 'products');
+                return next;
+            });
+
+            const nextVal = allocTxn();
+            return this.toNumber(nextVal, 0);
+        } catch (err) {
+            // On any failure, fallback to the previous MAX() calculation as a best-effort.
+            const fallback = this.db.prepare('SELECT MAX(catalog_id) AS maxCatalogId FROM products').get();
+            return this.toNumber(fallback?.maxCatalogId, 0) + 1;
+        }
     }
 
     async list({ category = '', limit = 200, offset = 0 } = {}) {
@@ -207,92 +240,148 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             createdAt: existing?.createdAt || this.now(product.createdAt)
         };
 
-        const transaction = this.db.transaction(() => {
+        try {
+            // If updating an existing record, do a normal update inside a transaction.
             if (existing) {
-                this.db.prepare(`
-                    UPDATE products
-                    SET catalog_id = ?, category_id = ?, category_slug = ?, name = ?, title = ?, description = ?, short_description = ?, long_description_json = ?,
-                        badge = ?, price = ?, old_price = ?, stock = ?, image = ?, main_image = ?, keywords_json = ?, highlights_json = ?, trust_json = ?,
-                        specs_json = ?, attributes_json = ?, variants_json = ?, visibility = ?, priority = ?, order_index = ?, highlight_tag = ?, status = ?, page = ?, url = ?, updated_at = ?
-                    WHERE id = ?
-                `).run(
-                    payload.catalogId,
-                    payload.categoryId,
-                    payload.categorySlug,
-                    payload.name,
-                    payload.title,
-                    payload.description,
-                    payload.shortDescription,
-                    payload.longDescriptionJson,
-                    payload.badge,
-                    payload.price,
-                    payload.oldPrice,
-                    payload.stock,
-                    payload.image,
-                    payload.mainImage,
-                    payload.keywordsJson,
-                    payload.highlightsJson,
-                    payload.trustJson,
-                    payload.specsJson,
-                    payload.attributesJson,
-                    payload.variantsJson,
-                    payload.visibility,
-                    payload.priority,
-                    payload.orderIndex,
-                    payload.highlightTag,
-                    payload.status,
-                    payload.page,
-                    payload.url,
-                    payload.updatedAt,
-                    Number(existing.recordId)
-                );
-                this.persistImages(existing.recordId, product.gallery || [], payload.mainImage);
-                return Number(existing.recordId);
+                const updateTxn = this.db.transaction(() => {
+                    this.db.prepare(`
+                        UPDATE products
+                        SET catalog_id = ?, category_id = ?, category_slug = ?, name = ?, title = ?, description = ?, short_description = ?, long_description_json = ?,
+                            badge = ?, price = ?, old_price = ?, stock = ?, image = ?, main_image = ?, keywords_json = ?, highlights_json = ?, trust_json = ?,
+                            specs_json = ?, attributes_json = ?, variants_json = ?, visibility = ?, priority = ?, order_index = ?, highlight_tag = ?, status = ?, page = ?, url = ?, updated_at = ?
+                        WHERE id = ?
+                    `).run(
+                        payload.catalogId,
+                        payload.categoryId,
+                        payload.categorySlug,
+                        payload.name,
+                        payload.title,
+                        payload.description,
+                        payload.shortDescription,
+                        payload.longDescriptionJson,
+                        payload.badge,
+                        payload.price,
+                        payload.oldPrice,
+                        payload.stock,
+                        payload.image,
+                        payload.mainImage,
+                        payload.keywordsJson,
+                        payload.highlightsJson,
+                        payload.trustJson,
+                        payload.specsJson,
+                        payload.attributesJson,
+                        payload.variantsJson,
+                        payload.visibility,
+                        payload.priority,
+                        payload.orderIndex,
+                        payload.highlightTag,
+                        payload.status,
+                        payload.page,
+                        payload.url,
+                        payload.updatedAt,
+                        Number(existing.recordId)
+                    );
+                    this.persistImages(existing.recordId, product.gallery || [], payload.mainImage);
+                    return Number(existing.recordId);
+                });
+
+                const recordId = updateTxn();
+                return this.findByIdentifier(recordId);
             }
 
-            const result = this.db.prepare(`
-                INSERT INTO products (
-                    catalog_id, category_id, category_slug, name, title, description, short_description, long_description_json, badge,
-                    price, old_price, stock, image, main_image, keywords_json, highlights_json, trust_json, specs_json, attributes_json,
-                    variants_json, visibility, priority, order_index, highlight_tag, status, page, url, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(
-                payload.catalogId,
-                payload.categoryId,
-                payload.categorySlug,
-                payload.name,
-                payload.title,
-                payload.description,
-                payload.shortDescription,
-                payload.longDescriptionJson,
-                payload.badge,
-                payload.price,
-                payload.oldPrice,
-                payload.stock,
-                payload.image,
-                payload.mainImage,
-                payload.keywordsJson,
-                payload.highlightsJson,
-                payload.trustJson,
-                payload.specsJson,
-                payload.attributesJson,
-                payload.variantsJson,
-                payload.visibility,
-                payload.priority,
-                payload.orderIndex,
-                payload.highlightTag,
-                payload.status,
-                payload.page,
-                payload.url,
-                payload.createdAt,
-                payload.updatedAt
-            );
-            this.persistImages(result.lastInsertRowid, product.gallery || [], payload.mainImage);
-            return Number(result.lastInsertRowid);
-        });
+            // Insert new record with retry logic to avoid rare catalog_id UNIQUE races.
+            let lastError = null;
+            let lastInsertId = null;
+            const maxAttempts = 3;
+            for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+                try {
+                    // Ensure we have a catalog id at insertion time.
+                    if (!payload.catalogId || Number(payload.catalogId) <= 0) {
+                        payload.catalogId = await this.getNextCatalogId();
+                    }
 
-        const recordId = transaction();
-        return this.findByIdentifier(existing ? existing.catalogId : payload.catalogId || recordId);
+                    const insertTxn = this.db.transaction(() => {
+                        const result = this.db.prepare(`
+                            INSERT INTO products (
+                                catalog_id, category_id, category_slug, name, title, description, short_description, long_description_json, badge,
+                                price, old_price, stock, image, main_image, keywords_json, highlights_json, trust_json, specs_json, attributes_json,
+                                variants_json, visibility, priority, order_index, highlight_tag, status, page, url, created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        `).run(
+                            payload.catalogId,
+                            payload.categoryId,
+                            payload.categorySlug,
+                            payload.name,
+                            payload.title,
+                            payload.description,
+                            payload.shortDescription,
+                            payload.longDescriptionJson,
+                            payload.badge,
+                            payload.price,
+                            payload.oldPrice,
+                            payload.stock,
+                            payload.image,
+                            payload.mainImage,
+                            payload.keywordsJson,
+                            payload.highlightsJson,
+                            payload.trustJson,
+                            payload.specsJson,
+                            payload.attributesJson,
+                            payload.variantsJson,
+                            payload.visibility,
+                            payload.priority,
+                            payload.orderIndex,
+                            payload.highlightTag,
+                            payload.status,
+                            payload.page,
+                            payload.url,
+                            payload.createdAt,
+                            payload.updatedAt
+                        );
+                        this.persistImages(result.lastInsertRowid, product.gallery || [], payload.mainImage);
+                        return Number(result.lastInsertRowid);
+                    });
+
+                    lastInsertId = insertTxn();
+                    lastError = null;
+                    break;
+                } catch (err) {
+                    lastError = err;
+                    // Log the error for diagnostics
+                    try {
+                        const logger = require('../../utils/logger').appLogger;
+                        logger.error('database.product_insert_failed', { error: String(err?.message || err), attempt });
+                    } catch (_e) {
+                        // ignore logging failures
+                    }
+
+                    // If UNIQUE constraint on catalog_id, try again with a fresh id.
+                    if (err && /unique/i.test(String(err.message || '')) && attempt < maxAttempts - 1) {
+                        // try again after recalculating next catalog id
+                        payload.catalogId = await this.getNextCatalogId();
+                        continue;
+                    }
+
+                    // Otherwise rethrow
+                    throw err;
+                }
+            }
+
+            if (lastError) {
+                throw lastError;
+            }
+
+            return this.findByIdentifier(payload.catalogId || lastInsertId);
+        } catch (outerError) {
+            // Bubble up for controller to handle, but log for diagnostics
+            try {
+                const logger = require('../../utils/logger').appLogger;
+                logger.error('database.product_save_failed', { error: outerError });
+            } catch (_e) {
+                // ignore
+            }
+            throw outerError;
+        }
     }
 
     async upsertMany(products) {

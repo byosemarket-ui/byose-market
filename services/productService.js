@@ -561,9 +561,38 @@ function attachLiveSyncListeners() {
   document.addEventListener("visibilitychange", handleVisibilityChange);
   window.addEventListener("online", handleOnline);
 
+  // Listen for admin window updates via localStorage changes so other tabs/windows
+  // can pick up product catalog changes immediately without polling.
+  const handleStorage = (event) => {
+    try {
+      if (!event || event.key !== STOREFRONT_CATALOG_STORAGE_KEY) {
+        return;
+      }
+
+      const raw = event.newValue || event.oldValue || null;
+      if (!raw) {
+        return;
+      }
+
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        return;
+      }
+
+      // Publish parsed products into local cache and notify listeners
+      publishProducts(parsed, 'local-storage');
+    } catch (error) {
+      // Ignore malformed storage entries
+      console.warn('[Product Service] Failed to handle storage event:', error);
+    }
+  };
+
+  window.addEventListener('storage', handleStorage);
+
   detachLiveSyncListeners = () => {
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     window.removeEventListener("online", handleOnline);
+    window.removeEventListener('storage', handleStorage);
     detachLiveSyncListeners = null;
   };
 }

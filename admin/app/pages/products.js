@@ -463,7 +463,10 @@ function buildPage1Payload(draft) {
     orderIndex: positioning === "top" ? 300 : positioning === "bottom" ? 100 : 200,
     mainImage: mainImageReference || undefined,
     image: mainImageReference || undefined,
-    status: "draft"
+    // Page 1 creates should be available immediately in storefront.
+    // Preserve UI but default to active so products intended for immediate
+    // publication are not trapped as drafts.
+    status: "active"
   };
 }
 
