@@ -8,11 +8,25 @@ services:
     healthCheckPath: /healthz
     plan: free
     autoDeploy: true
+    disk:
+      name: byosemarket-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 10000
+      - key: DB_CLIENT
+        value: sqlite
+      - key: SQLITE_ENABLED
+        value: true
+      - key: SQLITE_DB_PATH
+        value: data/byosemarket.sqlite
+      - key: UPLOADS_DIR
+        value: server/uploads
+      - key: STORAGE_ROOT
+        value: server/uploads
       - key: ADMIN_EMAIL
         value: byosemarket@gmail.com
       - key: ADMIN_PASSWORD_HASH
@@ -21,7 +35,5 @@ services:
         sync: false
       - key: JWT_EXPIRES_IN
         value: 7d
-      - key: MONGO_URI
-        sync: false
       - key: CORS_ORIGINS
         value: "https://byosemarket.com,https://www.byosemarket.com,https://byosesemarket4.onrender.com"

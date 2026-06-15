@@ -259,16 +259,43 @@ function isSharedProductApiUnavailable(error) {
   return status === 404
     || status === 0
     || status === 503
-    || /404|network|fetch|request failed|timed out|unable to sync|failed to fetch|backend request failed/.test(message);
+    || /404|network|fetch|request failed|timed out|unable to sync|failed to fetch|backend request failed|operation_timeout/.test(message);
 }
 
 function createSharedProductPersistenceError(action, error) {
+  const status = Number(error?.status || error?.cause?.status || 0);
+  const code = String(error?.code || error?.cause?.code || "").trim();
+
+  if (status === 401 || code === "ADMIN_TOKEN_MISSING" || code === "ADMIN_TOKEN_EXPIRED") {
+    const authError = new Error("Admin session expired. Please sign in again and retry saving the product.");
+    authError.status = status;
+    authError.code = code || "ADMIN_AUTH_REQUIRED";
+    authError.cause = error;
+    return authError;
+  }
+
+  if (status === 403) {
+    const deniedError = new Error("You do not have permission to save products in this environment.");
+    deniedError.status = status;
+    deniedError.code = code || "ADMIN_ACCESS_DENIED";
+    deniedError.cause = error;
+    return deniedError;
+  }
+
+  if (status === 503 || code === "DATABASE_UNAVAILABLE") {
+    const dbError = new Error("The database is not ready. Start the backend server and ensure SQLite is configured, then try again.");
+    dbError.status = status;
+    dbError.code = code || "DATABASE_UNAVAILABLE";
+    dbError.cause = error;
+    return dbError;
+  }
+
   if (!isSharedProductApiUnavailable(error)) {
     return error;
   }
 
-  const normalized = new Error(`Product ${action} failed because the shared product catalog is unavailable. The product was not saved.`);
-  normalized.status = Number(error?.status || error?.cause?.status || 0) || 0;
+  const normalized = new Error(`Product ${action} failed because the product API is unavailable. Verify the backend server is running and reachable.`);
+  normalized.status = status;
   normalized.code = "PRODUCT_SYNC_UNAVAILABLE";
   normalized.cause = error;
   return normalized;
@@ -1404,10 +1431,11 @@ export async function createProductAndSync(productData, options = {}) {
     ensureProductCatalogSync();
     const response = await productCatalogService.createProduct(productData, options);
     syncLocalProductCaches(productCatalogService.getCachedProducts(), { emit: true });
+    await notifyStorefrontProductUpdate();
     return response;
   } catch (error) {
     console.error('[Admin Data] Product creation failed:', error);
-        throw createSharedProductPersistenceError("creation", error);
+    throw createSharedProductPersistenceError("creation", error);
   }
 }
 
@@ -1416,10 +1444,11 @@ export async function updateProductAndSync(productId, productData, options = {})
     ensureProductCatalogSync();
     const response = await productCatalogService.updateProduct(productId, productData, options);
     syncLocalProductCaches(productCatalogService.getCachedProducts(), { emit: true });
+    await notifyStorefrontProductUpdate();
     return response;
   } catch (error) {
     console.error('[Admin Data] Product update failed:', error);
-        throw createSharedProductPersistenceError("update", error);
+    throw createSharedProductPersistenceError("update", error);
   }
 }
 
@@ -1428,6 +1457,7 @@ export async function deleteProductAndSync(productId, options = {}) {
     ensureProductCatalogSync();
     const response = await productCatalogService.deleteProduct(productId, options);
     syncLocalProductCaches(response?.products || [], { emit: true });
+    await notifyStorefrontProductUpdate();
     return response || { id: productId };
   } catch (error) {
     console.error('[Admin Data] Product deletion failed:', error);

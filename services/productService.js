@@ -308,6 +308,12 @@ async function apiRequest(path, options = {}) {
       : await response.text().catch(() => "");
 
     if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        if (typeof window !== "undefined" && window.AdminSecurity && typeof window.AdminSecurity.handleUnauthorized === "function") {
+          window.AdminSecurity.handleUnauthorized();
+        }
+      }
+
       const error = new Error(payload?.message || fallbackMessageForStatus(response.status));
       error.status = response.status;
       error.payload = payload;
@@ -442,8 +448,35 @@ async function withRetry(label, action, retryCount = DEFAULT_RETRY_COUNT) {
   throw mapApiError(lastError, `${label} failed.`);
 }
 
+function isManagedStoragePath(value) {
+  const text = normalizeText(value);
+  return Boolean(text) && /^(?:products|categories|users|reviews|temp)\//i.test(text);
+}
+
 function isDirectAssetReference(value) {
-  return /^(?:data:|blob:|https?:|\/|\.\/|\.\.\/)/i.test(normalizeText(value));
+  const text = normalizeText(value);
+  if (!text) {
+    return false;
+  }
+
+  if (/^(?:data:|blob:|https?:|\/|\.\/|\.\.\/)/i.test(text)) {
+    return true;
+  }
+
+  return isManagedStoragePath(text);
+}
+
+function resolveAssetReference(value, fallback = "") {
+  const text = normalizeText(value);
+  if (!text) {
+    return normalizeText(fallback);
+  }
+
+  if (isDirectAssetReference(text)) {
+    return text;
+  }
+
+  return normalizeText(fallback);
 }
 
 function normalizeGalleryEntries(entries = []) {
@@ -457,19 +490,46 @@ function prepareAssetFields(productData = {}, previousProduct = {}) {
   const nextMainImage = normalizeText(
     productData.mainImage
       ?? productData.image
+      ?? productData.mainImageStoragePath
+      ?? productData.imageStoragePath
       ?? previousProduct.mainImage
       ?? previousProduct.image
+      ?? previousProduct.mainImageStoragePath
+      ?? previousProduct.imageStoragePath
   );
   const nextGallery = normalizeGalleryEntries(
     Object.prototype.hasOwnProperty.call(productData, "gallery")
       ? productData.gallery
       : (previousProduct.gallery || [])
   );
+  const nextGalleryStorage = normalizeGalleryEntries(
+    Object.prototype.hasOwnProperty.call(productData, "galleryStoragePaths")
+      ? productData.galleryStoragePaths
+      : (previousProduct.galleryStoragePaths || [])
+  );
+
+  const mainImage = resolveAssetReference(nextMainImage, previousProduct.mainImage ?? previousProduct.image);
+  const image = resolveAssetReference(nextMainImage, previousProduct.image ?? previousProduct.mainImage);
+  const gallery = nextGallery
+    .map((entry, index) => resolveAssetReference(entry, nextGalleryStorage[index] || ""))
+    .filter(Boolean)
+    .filter((entry, index, values) => values.indexOf(entry) === index);
+
+  const mainImageStoragePath = normalizeManagedUploadPath(
+    productData.mainImageStoragePath
+      ?? productData.imageStoragePath
+      ?? mainImage
+  );
+  const galleryStoragePaths = gallery
+    .map((entry) => normalizeManagedUploadPath(entry))
+    .filter(Boolean);
 
   return {
-    image: isDirectAssetReference(nextMainImage) ? nextMainImage : normalizeText(previousProduct.image),
-    mainImage: isDirectAssetReference(nextMainImage) ? nextMainImage : normalizeText(previousProduct.mainImage ?? previousProduct.image),
-    gallery: nextGallery.filter((entry) => isDirectAssetReference(entry))
+    image,
+    mainImage,
+    gallery,
+    mainImageStoragePath,
+    galleryStoragePaths
   };
 }
 
@@ -495,6 +555,9 @@ function buildApiPayload(productData, previousProduct = {}) {
     image: assets.image,
     mainImage: assets.mainImage,
     gallery: assets.gallery,
+    mainImageStoragePath: assets.mainImageStoragePath,
+    imageStoragePath: assets.mainImageStoragePath,
+    galleryStoragePaths: assets.galleryStoragePaths,
     keywords: asArray(productData?.keywords).length ? asArray(productData?.keywords) : buildKeywords(productData),
     highlights: asArray(productData?.highlights ?? previousProduct?.highlights),
     trust: asArray(productData?.trust ?? previousProduct?.trust),
@@ -507,9 +570,7 @@ function buildApiPayload(productData, previousProduct = {}) {
     highlightTag: normalizeText(productData?.highlightTag ?? previousProduct?.highlightTag).toLowerCase(),
     status: normalizeText(productData?.status ?? previousProduct?.status, "active").toLowerCase(),
     page: normalizeText(productData?.page ?? previousProduct?.page, DEFAULT_DETAIL_PAGE),
-    extraInfo: asObject(productData?.extraInfo ?? previousProduct?.extraInfo),
-    mainImageStoragePath: "",
-    galleryStoragePaths: []
+    extraInfo: asObject(productData?.extraInfo ?? previousProduct?.extraInfo)
   };
 }
 
@@ -734,6 +795,11 @@ export async function createProduct(productData = {}, options = {}) {
   const createdProduct = normalizeProductRecord(response?.product);
   publishProducts([...cachedProducts.filter((product) => Number(product.id) !== Number(createdProduct.id)), createdProduct], "api-create");
   reportProgress(onProgress, "Product saved successfully to backend.", { phase: "completed" });
+  try {
+    await forceRefreshProducts({ silent: true });
+  } catch (_error) {
+    // Keep the optimistic publish if background refresh fails.
+  }
   return createdProduct;
 }
 
@@ -757,6 +823,11 @@ export async function updateProduct(productId, productData = {}, options = {}) {
   const updatedProduct = normalizeProductRecord(response?.product);
   publishProducts([...cachedProducts.filter((product) => Number(product.id) !== Number(updatedProduct.id)), updatedProduct], "api-update");
   reportProgress(onProgress, "Product updated successfully in backend.", { phase: "completed" });
+  try {
+    await forceRefreshProducts({ silent: true });
+  } catch (_error) {
+    // Keep the optimistic publish if background refresh fails.
+  }
   return updatedProduct;
 }
 

@@ -7,25 +7,86 @@ function normalizeText(value, fallback = "") {
   return text || fallback;
 }
 
+function normalizeBase(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function isLocalHost(hostname) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0";
+}
+
+function shouldUseProductionApi(hostname) {
+  return /(^|\.)(github\.io|byosemarket\.com|www\.byosemarket\.com)$/i.test(String(hostname || ""));
+}
+
+function resolveApiOrigin() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const explicit = normalizeBase(
+    window.BYOSE_API_BASE_URL
+    || window.__BYOSE_API_BASE__
+    || window.AdminConfig?.apiBaseUrl
+    || window.AdminSecurity?.getApiBaseUrl?.()
+    || ""
+  );
+
+  if (explicit) {
+    return explicit.endsWith("/api") ? explicit.slice(0, -4) : explicit;
+  }
+
+  const protocol = String(window.location?.protocol || "").toLowerCase();
+  const hostname = String(window.location?.hostname || "").trim();
+
+  if (protocol === "file:" || isLocalHost(hostname)) {
+    return `http://${hostname || "localhost"}:5000`;
+  }
+
+  if (shouldUseProductionApi(hostname)) {
+    return "https://byosesemarket4.onrender.com";
+  }
+
+  return normalizeBase(window.location?.origin || "");
+}
+
+function buildUploadUrl(bucket) {
+  const origin = resolveApiOrigin();
+  const normalizedBucket = encodeURIComponent(String(bucket || PRODUCTS_BUCKET));
+  return `${origin}/api/uploads/${normalizedBucket}`;
+}
+
+function getAdminToken() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  try {
+    return String(window.localStorage.getItem("adminToken") || "").trim();
+  } catch (_error) {
+    return "";
+  }
+}
+
 function reportProgress(onProgress, message, extra = {}) {
   if (typeof onProgress === "function") {
-    onProgress({
-      message,
-      ...extra
-    });
+    onProgress({ message, ...extra });
   }
 }
 
 function dataUrlToBlob(dataUrl) {
   const matches = String(dataUrl || "").match(/^data:(.+);base64,(.*)$/);
-  if (!matches) throw new Error("Invalid data URL");
+  if (!matches) {
+    throw new Error("Invalid data URL");
+  }
+
   const mime = matches[1];
   const bstr = atob(matches[2]);
-  let n = bstr.length;
-  const u8arr = new Uint8Array(n);
-  while (n--) {
-    u8arr[n] = bstr.charCodeAt(n);
+  const u8arr = new Uint8Array(bstr.length);
+  for (let index = 0; index < bstr.length; index += 1) {
+    u8arr[index] = bstr.charCodeAt(index);
   }
+
   return new Blob([u8arr], { type: mime });
 }
 
@@ -33,13 +94,16 @@ function buildUploadPromise(file, bucket, options = {}) {
   return new Promise((resolve, reject) => {
     try {
       const xhr = new XMLHttpRequest();
-      const url = `/api/uploads/${encodeURIComponent(String(bucket || PRODUCTS_BUCKET))}`;
+      const url = buildUploadUrl(bucket);
+      const token = getAdminToken();
       const form = new FormData();
+
       form.append("file", file, file.name || "upload");
 
       if (Array.isArray(options.cleanupPaths) && options.cleanupPaths.length) {
         form.append("cleanupPaths", JSON.stringify(options.cleanupPaths));
       }
+
       if (Array.isArray(options.previousPaths) && options.previousPaths.length) {
         form.append("previousPaths", JSON.stringify(options.previousPaths));
       }
@@ -47,20 +111,40 @@ function buildUploadPromise(file, bucket, options = {}) {
       xhr.open("POST", url, true);
       xhr.withCredentials = true;
 
-      xhr.upload.onprogress = function (event) {
+      if (token) {
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      }
+
+      xhr.upload.onprogress = function onUploadProgress(event) {
         const pct = event.lengthComputable ? Math.round((event.loaded / event.total) * 100) : null;
-        reportProgress(options.onProgress, options.progressLabel || `Uploading ${file.name || 'file'}...`, { phase: 'upload', percent: pct });
+        reportProgress(
+          options.onProgress,
+          options.progressLabel || `Uploading ${file.name || "file"}...`,
+          { phase: "upload", percent: pct }
+        );
       };
 
-      xhr.onerror = function () {
+      xhr.onerror = function onUploadError() {
         reject(new Error("Network error during upload."));
       };
 
-      xhr.onload = function () {
+      xhr.onload = function onUploadComplete() {
         try {
           const status = xhr.status || 0;
           let parsed = null;
-          try { parsed = JSON.parse(xhr.responseText); } catch (_e) { parsed = null; }
+
+          try {
+            parsed = JSON.parse(xhr.responseText);
+          } catch (_error) {
+            parsed = null;
+          }
+
+          if (status === 401 || status === 403) {
+            if (window.AdminSecurity && typeof window.AdminSecurity.handleUnauthorized === "function") {
+              window.AdminSecurity.handleUnauthorized();
+            }
+          }
+
           if (status >= 200 && status < 300 && parsed && parsed.success && Array.isArray(parsed.files) && parsed.files.length) {
             resolve(parsed.files[0]);
             return;
@@ -70,50 +154,50 @@ function buildUploadPromise(file, bucket, options = {}) {
           const err = new Error(message || "Upload failed.");
           err.status = status;
           reject(err);
-        } catch (e) {
-          reject(e);
+        } catch (error) {
+          reject(error);
         }
       };
 
       xhr.send(form);
-    } catch (e) {
-      reject(e);
+    } catch (error) {
+      reject(error);
     }
   });
 }
 
 async function uploadSingleAsset(source, options = {}) {
-  // If source is a File already, upload directly.
-  if (typeof File !== 'undefined' && source instanceof File) {
-    return await buildUploadPromise(source, options.bucket || PRODUCTS_BUCKET, options);
+  if (typeof File !== "undefined" && source instanceof File) {
+    return buildUploadPromise(source, options.bucket || PRODUCTS_BUCKET, options);
   }
 
-  // If source is a Blob, wrap as File
-  if (typeof Blob !== 'undefined' && source instanceof Blob) {
-    const file = new File([source], options.filename || 'upload', { type: source.type || 'application/octet-stream' });
-    return await buildUploadPromise(file, options.bucket || PRODUCTS_BUCKET, options);
+  if (typeof Blob !== "undefined" && source instanceof Blob) {
+    const file = new File([source], options.filename || "upload", {
+      type: source.type || "application/octet-stream"
+    });
+    return buildUploadPromise(file, options.bucket || PRODUCTS_BUCKET, options);
   }
 
   const normalized = normalizeText(source);
-  // If it's a data URL, convert and upload
+
   if (/^data:/i.test(normalized)) {
     const blob = dataUrlToBlob(normalized);
-    const ext = (blob.type || 'image/png').split('/').pop().split('+')[0];
+    const ext = (blob.type || "image/png").split("/").pop().split("+")[0];
     const file = new File([blob], `upload.${ext}`, { type: blob.type });
-    return await buildUploadPromise(file, options.bucket || PRODUCTS_BUCKET, options);
+    return buildUploadPromise(file, options.bucket || PRODUCTS_BUCKET, options);
   }
 
-  // If it's already a URL/path, do not re-upload — return as-is for compatibility
-  if (/^(?:https?:|\/|\.|blob:)/i.test(normalized)) {
-    reportProgress(options.onProgress, options.progressLabel || 'Using existing asset reference', { phase: 'reference' });
+  if (/^(?:https?:|\/|\.|blob:)/i.test(normalized) || /^(?:products|categories|users|reviews|temp)\//i.test(normalized)) {
+    reportProgress(options.onProgress, options.progressLabel || "Using existing asset reference", { phase: "reference" });
     return {
-      path: "",
-      url: normalized,
-      publicUrl: normalized
+      path: normalized.startsWith("/uploads/") ? normalized.replace(/^\/uploads\//, "") : normalized,
+      storagePath: normalized.startsWith("/uploads/") ? normalized.replace(/^\/uploads\//, "") : normalized,
+      url: normalized.startsWith("/") ? normalized : `/uploads/${normalized.replace(/^\/+/, "")}`,
+      publicUrl: normalized.startsWith("/") ? normalized : `/uploads/${normalized.replace(/^\/+/, "")}`
     };
   }
 
-  throw new Error('Unsupported asset source for upload');
+  throw new Error("Unsupported asset source for upload");
 }
 
 export async function uploadWithRetry(source, options = {}) {
@@ -125,8 +209,9 @@ export async function uploadWithRetry(source, options = {}) {
       return await uploadSingleAsset(source, options);
     } catch (error) {
       lastError = error;
-      // small backoff
-      if (attempt < retryCount) await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+      if (attempt < retryCount) {
+        await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+      }
     }
   }
 
@@ -136,31 +221,44 @@ export async function uploadWithRetry(source, options = {}) {
 export async function uploadProductGallery(sources = [], options = {}) {
   const results = [];
   const files = Array.isArray(sources) ? sources : [];
-  for (let i = 0; i < files.length; i += 1) {
-    const src = files[i];
-    const res = await uploadWithRetry(src, {
+
+  for (let index = 0; index < files.length; index += 1) {
+    const source = files[index];
+    const result = await uploadWithRetry(source, {
       ...options,
-      index: i,
+      index,
       total: files.length,
-      progressLabel: options.progressLabel || `Uploading gallery image ${i + 1} of ${files.length}...`
+      progressLabel: options.progressLabel || `Uploading gallery image ${index + 1} of ${files.length}...`
     });
-    results.push(res);
+    results.push(result);
   }
 
   return results;
 }
 
-export async function removeStoredAssets(_paths = []) {
-  try {
-    await fetch('/api/uploads', {
-      method: 'DELETE',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paths: Array.isArray(_paths) ? _paths : [] })
-    });
-  } catch (_e) {
-    // ignore
+export async function removeStoredAssets(paths = []) {
+  const normalizedPaths = Array.isArray(paths) ? paths.filter(Boolean) : [];
+  if (!normalizedPaths.length) {
+    return undefined;
   }
+
+  const origin = resolveApiOrigin();
+  const token = getAdminToken();
+
+  try {
+    await fetch(`${origin}/api/uploads`, {
+      method: "DELETE",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ paths: normalizedPaths })
+    });
+  } catch (_error) {
+    // Ignore cleanup failures.
+  }
+
   return undefined;
 }
 

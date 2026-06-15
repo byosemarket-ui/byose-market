@@ -185,6 +185,7 @@ let workflowFeedback = {
   tone: "neutral",
   message: "Create the product foundation, then continue to Product Details to finish the ecommerce listing."
 };
+let saveSuccessState = null;
 
 function createTimeoutError(label, timeoutMs) {
   const error = new Error(`${label} timed out after ${Math.ceil(timeoutMs / 1000)} seconds.`);
@@ -440,10 +441,13 @@ function buildPage1Payload(draft) {
   const stock = Math.max(0, Math.floor(toNumber(safeDraft.page1.stock)));
     const inventoryStatus = getStockPresentation(stock).status;
   const positioning = safeDraft.page1.positioning;
-  const mainImageReference = safeDraft.page1.imageStoragePath || safeDraft.page1.image || "";
+  const heroPublicUrl = normalizeAssetUrl(safeDraft.page1.image || "");
+  const heroStoragePath = normalizeStoragePath(
+    safeDraft.page1.imageStoragePath || safeDraft.page1.imageStorage || heroPublicUrl
+  );
+  const heroReference = heroPublicUrl || heroStoragePath;
 
   return {
-
     name: safeDraft.page1.productName.trim(),
     title: safeDraft.page1.productName.trim(),
     price,
@@ -451,7 +455,7 @@ function buildPage1Payload(draft) {
     stock,
     availableStock: stock,
     availability: inventoryStatus,
-        inventory: {
+    inventory: {
       available: stock,
       totalAvailable: stock,
       status: inventoryStatus,
@@ -461,11 +465,10 @@ function buildPage1Payload(draft) {
     visibility: safeDraft.page1.visibility === "all" ? "both" : safeDraft.page1.visibility,
     priority: positioning === "top" ? 1 : 0,
     orderIndex: positioning === "top" ? 300 : positioning === "bottom" ? 100 : 200,
-    mainImage: mainImageReference || undefined,
-    image: mainImageReference || undefined,
-    // Page 1 creates should be available immediately in storefront.
-    // Preserve UI but default to active so products intended for immediate
-    // publication are not trapped as drafts.
+    mainImage: heroReference || undefined,
+    image: heroReference || undefined,
+    mainImageStoragePath: heroStoragePath || undefined,
+    imageStoragePath: heroStoragePath || undefined,
     status: "active"
   };
 }
@@ -722,9 +725,12 @@ function buildDetailsPayload(draft) {
   const highlights = buildHighlights(safeDraft.details.extraInfo, activeSpecs);
   const trust = buildTrust(safeDraft.details.extraInfo);
   const galleryReferences = safeDraft.details.gallery.map((url, index) => {
-    const storageRef = safeDraft.details.galleryStoragePaths?.[index];
-    const reference = normalizeStoragePath(storageRef);
-    return reference || url;
+    const publicUrl = normalizeAssetUrl(url);
+    const storageRef = normalizeStoragePath(safeDraft.details.galleryStoragePaths?.[index] || publicUrl);
+    return publicUrl || storageRef;
+  }).filter(Boolean);
+  const galleryStoragePaths = safeDraft.details.gallery.map((url, index) => {
+    return normalizeStoragePath(safeDraft.details.galleryStoragePaths?.[index] || normalizeAssetUrl(url));
   }).filter(Boolean);
 
   return {
@@ -733,6 +739,7 @@ function buildDetailsPayload(draft) {
     shortDescription: safeDraft.details.description.trim(),
     longDescription,
     gallery: galleryReferences,
+    galleryStoragePaths,
     highlights,
     trust,
     specs: activeSpecs,
@@ -836,6 +843,8 @@ function resetProductCreationState(successMessage) {
 }
 
 function transitionToFreshProductWorkflow(container, successMessage) {
+  clearSaveSuccessState(container);
+
   if (container) {
     container.classList.add("products-workflow-resetting");
   }
@@ -971,6 +980,68 @@ function getDetailsHash(productId) {
 
 function getCreateBasicsHash() {
   return "#/products?view=create";
+}
+
+function getStorefrontProductUrl(productId) {
+  const catalogId = String(productId || "").trim();
+  if (!catalogId) {
+    return "";
+  }
+
+  const origin = String(window.location?.origin || "").trim();
+  const path = `../../details/product-details1.html?id=${encodeURIComponent(catalogId)}`;
+  if (!origin || origin === "null") {
+    return path;
+  }
+
+  return new URL(path, `${origin}/admin/dashboard.html`).toString();
+}
+
+function renderSaveSuccessPanel(container) {
+  const panel = container?.querySelector("[data-product-save-success]");
+  if (!panel) {
+    return;
+  }
+
+  if (!saveSuccessState?.productId) {
+    panel.hidden = true;
+    panel.innerHTML = "";
+    return;
+  }
+
+  const productName = escapeHtml(saveSuccessState.productName || "Product");
+  const productId = escapeHtml(saveSuccessState.productId);
+  panel.hidden = false;
+  panel.innerHTML = `
+    <div class="products-save-success__content">
+      <div class="products-save-success__icon" aria-hidden="true">✓</div>
+      <div>
+        <strong>Product saved successfully.</strong>
+        <p>${productName} is now stored in the database and synchronized to the storefront.</p>
+      </div>
+      <div class="products-save-success__actions">
+        <button class="products-save-success__button products-save-success__button--primary" type="button" data-product-view-saved>View Product</button>
+        <button class="products-save-success__button" type="button" data-product-add-another>Add Another Product</button>
+      </div>
+    </div>
+    <input type="hidden" data-saved-product-id value="${productId}">
+  `;
+}
+
+function showProductSaveSuccess(container, product) {
+  const productId = getProductIdentity(product);
+  saveSuccessState = {
+    productId,
+    productName: String(product?.name || product?.title || productDraft.page1.productName || "Product").trim()
+  };
+  setWorkflowFeedback("success", "Product saved successfully.");
+  renderSaveSuccessPanel(container);
+  updateDetailsPreview(container);
+}
+
+function clearSaveSuccessState(container) {
+  saveSuccessState = null;
+  renderSaveSuccessPanel(container);
 }
 
 function buildSelectionCards(name, options, currentValue) {
@@ -1537,6 +1608,7 @@ function buildDetailsMarkup() {
               <button class="products-submit-button" type="submit" data-products-details-submit>SAVE</button>
             </div>
             <div class="products-feedback products-feedback--${escapeHtml(workflowFeedback.tone)}" data-products-details-feedback>${escapeHtml(workflowFeedback.message)}</div>
+            <div class="products-save-success" data-product-save-success hidden></div>
           </section>
         </form>
 
@@ -1878,9 +1950,13 @@ function updateDetailsPreview(container) {
     feedback.textContent = workflowFeedback.message;
   }
   if (submitButton) {
-    submitButton.textContent = workflowFeedback.tone === "saving" ? "Saving product..." : "SAVE";
+    submitButton.textContent = workflowFeedback.tone === "saving"
+      ? "Saving product..."
+      : (saveSuccessState ? "Saved" : "SAVE");
     submitButton.disabled = workflowFeedback.tone === "saving";
   }
+
+  renderSaveSuccessPanel(container);
 }
 
 function validatePage1Draft() {
@@ -2084,9 +2160,7 @@ async function handleDetailsSubmit(container) {
       productId: String(response?.id || response?._id || response?.catalogId || productDraft.productId || "")
     });
     persistDraft();
-    setWorkflowFeedback("success", "Product saved and published successfully. Storefront cards, homepage sections, shop listings, and product details are synchronized. Preparing a fresh Page 1 workspace for the next product...");
-    updateDetailsPreview(container);
-    transitionToFreshProductWorkflow(container, "Product saved successfully. Start the next product from a fresh Page 1 workspace.");
+    showProductSaveSuccess(container, response || productDraft);
   } catch (error) {
     const message = String(error?.message || "").trim() || "Final product save failed. Check the current environment and try again.";
     setWorkflowFeedback("error", message);
@@ -2294,7 +2368,23 @@ function mountDetails(container) {
   });
 
   form.addEventListener("click", (event) => {
-        const removeGalleryButton = event.target.closest("[data-gallery-remove-index]");
+    const viewSavedButton = event.target.closest("[data-product-view-saved]");
+    if (viewSavedButton) {
+      const productId = String(saveSuccessState?.productId || form.querySelector("[data-saved-product-id]")?.value || productDraft.productId || "").trim();
+      const viewUrl = getStorefrontProductUrl(productId);
+      if (viewUrl) {
+        window.open(viewUrl, "_blank", "noopener,noreferrer");
+      }
+      return;
+    }
+
+    const addAnotherButton = event.target.closest("[data-product-add-another]");
+    if (addAnotherButton) {
+      transitionToFreshProductWorkflow(container, "Ready to add another product.");
+      return;
+    }
+
+    const removeGalleryButton = event.target.closest("[data-gallery-remove-index]");
     if (removeGalleryButton) {
       const index = Number(removeGalleryButton.dataset.galleryRemoveIndex);
       removeGalleryEntryAt(index);
@@ -2375,6 +2465,7 @@ function mountDetails(container) {
     await handleDetailsSubmit(container);
   });
 
+  renderSaveSuccessPanel(container);
   updateDetailsPreview(container);
 }
 

@@ -337,7 +337,10 @@ function serializeProduct(product) {
         shortDescription: source.shortDescription || source.description || '',
         mainImage: source.mainImage || source.image || '',
         image: source.image || source.mainImage || '',
+        mainImageStoragePath: source.mainImageStoragePath || source.imageStoragePath || '',
+        imageStoragePath: source.imageStoragePath || source.mainImageStoragePath || '',
         gallery: uniqueStrings(source.gallery || []),
+        galleryStoragePaths: Array.isArray(source.galleryStoragePaths) ? source.galleryStoragePaths : [],
         keywords: uniqueStrings(source.keywords || []),
         specs: Array.isArray(source.specs)
             ? source.specs.map((entry) => [toTrimmedString(entry.label), toTrimmedString(entry.value)]).filter((entry) => entry[0] && entry[1])
