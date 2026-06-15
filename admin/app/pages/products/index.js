@@ -4,7 +4,11 @@ import { renderProductListMarkup, mountProductList } from "./list.js";
 import { mountProductWizard } from "./wizard.js";
 import { getProductsView, getRouteProductId } from "./utils.js";
 
-export async function renderProducts(container) {
+export async function renderProducts(container, context = {}) {
+  if (getProductsView() === "create" && context?.softRefresh && container.querySelector("[data-product-wizard]")) {
+    return;
+  }
+
   let products = [];
   let productsError = "";
 

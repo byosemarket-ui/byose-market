@@ -58,11 +58,31 @@ function routeShouldRefreshForScope(routeKey, scope) {
   return routeScopes.has(normalizedScope);
 }
 
+function normalizeRouteSignature(routeKey, hash) {
+  const normalizedHash = String(hash || "").trim().toLowerCase();
+  if (routeKey !== "products") {
+    return normalizedHash;
+  }
+
+  const queryStart = normalizedHash.indexOf("?");
+  const query = queryStart >= 0 ? normalizedHash.slice(queryStart + 1) : "";
+  const params = new URLSearchParams(query);
+  const view = String(params.get("view") || "overview").trim().toLowerCase();
+  const productId = String(params.get("productid") || params.get("productId") || "").trim();
+
+  if (view === "create") {
+    return productId
+      ? `#/products?view=create&productid=${encodeURIComponent(productId)}`
+      : "#/products?view=create";
+  }
+
+  return "#/products";
+}
+
 function getRouteSignature(routeKey) {
   const route = ROUTES[routeKey] || ROUTES.dashboard;
-  return String(window.location.hash || route.path || `#/${route.key}`)
-    .trim()
-    .toLowerCase();
+  const hash = window.location.hash || route.path || `#/${route.key}`;
+  return normalizeRouteSignature(routeKey, hash);
 }
 
 function installSessionRefreshGuard() {
@@ -169,7 +189,7 @@ async function renderRoute(routeKey, store, options = {}) {
   }
 
   try {
-    await renderer(content, { store });
+    await renderer(content, { store, softRefresh, force });
     if (renderToken !== activeRenderToken) {
       return;
     }

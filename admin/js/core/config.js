@@ -46,7 +46,7 @@
 
 	function requiresExternalApiBaseUrl(protocol, hostname) {
 		return (protocol === "http:" || protocol === "https:")
-			&& /(^|\.)(github\.io|byosemarket\.com|www\.byosemarket\.com)$/i.test(hostname);
+			&& /(^|\.)github\.io$/i.test(String(hostname || ""));
 	}
 
 	function getDefaultApiBaseUrl() {

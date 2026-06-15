@@ -182,15 +182,11 @@
     var hostname = String(window.location.hostname || "").trim();
     var origin = normalizeBaseUrl(window.location.origin || "");
 
-    if (requiresExternalApiBaseUrl(protocol, hostname)) {
-      addCandidate(PRODUCTION_API_BASE_URL);
-    }
-
     if (protocol === "http:" || protocol === "https:") {
       addCandidate(`${origin}/api`);
     }
 
-    if (!requiresExternalApiBaseUrl(protocol, hostname)) {
+    if (requiresExternalApiBaseUrl(protocol, hostname)) {
       addCandidate(PRODUCTION_API_BASE_URL);
     }
 

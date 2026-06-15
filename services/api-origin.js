@@ -40,14 +40,7 @@ function isLocalHost(hostname) {
 }
 
 export function requiresExternalApiBaseUrl(hostname) {
-  const normalized = String(hostname || "").trim().toLowerCase();
-  if (/(^|\.)github\.io$/i.test(normalized)) {
-    return true;
-  }
-
-  return /(^|\.)(byosemarket\.com|www\.byosemarket\.com)$/i.test(normalized)
-    && typeof window !== "undefined"
-    && !String(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || "").trim();
+  return /(^|\.)github\.io$/i.test(String(hostname || "").trim().toLowerCase());
 }
 
 function resolveSameOriginApiBaseUrl() {

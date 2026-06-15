@@ -177,7 +177,7 @@
 			return `http://${hostname || "localhost"}:5000/api`;
 		}
 
-		if (/(^|\.)(github\.io|byosemarket\.com|www\.byosemarket\.com)$/i.test(hostname)) {
+		if (/(^|\.)github\.io$/i.test(hostname)) {
 			return "https://byosesemarket4.onrender.com/api";
 		}
 

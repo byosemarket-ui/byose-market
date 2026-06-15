@@ -740,12 +740,27 @@ function mountWizard(container) {
 }
 
 export function mountProductWizard(container, initialDraft) {
+  const preservePendingMedia = Boolean(
+    pendingMainFile
+    || pendingMainPreviewUrl
+    || pendingGalleryEntries.length
+    || isSaving
+  );
+  const preserveSuccessState = Boolean(saveSuccess);
+
   activeDraft = sanitizeDraft(initialDraft || createDefaultDraft());
-  clearPendingMedia();
-  uploadProgress = { message: "", percent: null };
-  saveSuccess = null;
-  isSaving = false;
-  workflowFeedback = { tone: "", message: "" };
+  if (!preservePendingMedia) {
+    clearPendingMedia();
+  }
+  if (!isSaving) {
+    uploadProgress = { message: "", percent: null };
+  }
+  if (!preserveSuccessState) {
+    saveSuccess = null;
+  }
+  if (!isSaving && !preserveSuccessState) {
+    workflowFeedback = { tone: "", message: "" };
+  }
   activeDraft.step = getWizardStep(activeDraft.step || "info");
   container.innerHTML = renderWizardMarkup(activeDraft, activeDraft.step);
   mountWizard(container);
