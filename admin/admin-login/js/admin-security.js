@@ -137,14 +137,22 @@
     var origin = normalizeBaseUrl(window.location.origin || "");
 
     if (protocol === "file:") {
-      return PRODUCTION_API_BASE_URL;
+      return "http://localhost:5000/api";
+    }
+
+    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0") {
+      return "http://" + (hostname || "localhost") + ":5000/api";
+    }
+
+    if ((protocol === "http:" || protocol === "https:") && origin && !requiresExternalApiBaseUrl(protocol, hostname)) {
+      return origin + "/api";
     }
 
     if (requiresExternalApiBaseUrl(protocol, hostname)) {
       return PRODUCTION_API_BASE_URL;
     }
 
-    return origin ? `${origin}/api` : PRODUCTION_API_BASE_URL;
+    return origin ? origin + "/api" : PRODUCTION_API_BASE_URL;
   }
 
   function getAdminSessionUrl() {

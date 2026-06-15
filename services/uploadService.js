@@ -52,8 +52,12 @@ function buildUploadPromise(file, bucket, options = {}) {
       const xhr = new XMLHttpRequest();
       const url = buildUploadUrl(bucket);
       const token = getAdminToken();
-      const form = new FormData();
+      if (!token) {
+        reject(new Error("Admin session expired. Please sign in again and retry the upload."));
+        return;
+      }
 
+      const form = new FormData();
       form.append("file", file, file.name || "upload");
 
       if (Array.isArray(options.cleanupPaths) && options.cleanupPaths.length) {
@@ -142,7 +146,11 @@ async function uploadSingleAsset(source, options = {}) {
     return buildUploadPromise(file, options.bucket || PRODUCTS_BUCKET, options);
   }
 
-  if (/^(?:https?:|\/|\.|blob:)/i.test(normalized) || /^(?:products|categories|users|reviews|temp)\//i.test(normalized)) {
+  if (/^blob:/i.test(normalized)) {
+    throw new Error("Local preview images must be uploaded as files before saving.");
+  }
+
+  if (/^(?:https?:|\/|\.)/i.test(normalized) || /^(?:products|categories|users|reviews|temp)\//i.test(normalized)) {
     reportProgress(options.onProgress, options.progressLabel || "Using existing asset reference", { phase: "reference" });
     const publicUrl = normalized.startsWith("/") ? normalized : `/uploads/${normalized.replace(/^\/+/, "")}`;
     return {

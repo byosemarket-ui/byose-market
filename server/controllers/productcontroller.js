@@ -281,6 +281,43 @@ function buildProductUrl(catalogId) {
     return `${DEFAULT_DETAIL_PAGE}?id=${encodeURIComponent(String(catalogId))}`;
 }
 
+function normalizeSlug(value, fallbackName = '') {
+    const slug = toTrimmedString(value)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+    if (slug) {
+        return slug;
+    }
+
+    return toTrimmedString(fallbackName)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+}
+
+function normalizeMetadata(payload = {}) {
+    const metadataSource = payload?.metadata && typeof payload.metadata === 'object' ? payload.metadata : {};
+    const tags = uniqueStrings(payload?.tags || metadataSource.tags || []);
+    const brand = toTrimmedString(payload?.brand || metadataSource.brand);
+    const sku = toTrimmedString(payload?.sku || metadataSource.sku);
+    const metaTitle = toTrimmedString(payload?.metaTitle || metadataSource.metaTitle);
+    const metaDescription = toTrimmedString(payload?.metaDescription || metadataSource.metaDescription);
+    const slug = normalizeSlug(payload?.slug || metadataSource.slug, payload?.name || payload?.title);
+
+    return {
+        brand,
+        sku,
+        costPrice: toNonNegativeNumber(payload?.costPrice ?? metadataSource.costPrice, 0),
+        taxRate: toNonNegativeNumber(payload?.taxRate ?? metadataSource.taxRate, 0),
+        taxIncluded: Boolean(payload?.taxIncluded ?? metadataSource.taxIncluded),
+        metaTitle,
+        metaDescription,
+        slug,
+        tags
+    };
+}
+
 function normalizePayload(payload) {
     const name = toTrimmedString(payload?.name || payload?.title);
     const price = toNonNegativeNumber(payload?.price, 0);
@@ -288,14 +325,16 @@ function normalizePayload(payload) {
     const oldPrice = toNonNegativeNumber(payload?.oldPrice, 0);
     const variantFoundation = normalizeVariantFoundation(payload?.variants, payload?.attributes);
     const normalizedAttributes = buildAttributesFromVariantFoundation(variantFoundation, payload?.attributes);
+    const metadata = normalizeMetadata(payload);
+    const keywordSet = uniqueStrings([...toStringArray(payload?.keywords), ...metadata.tags]);
 
     return {
         name,
-        title: name,
-        description: toTrimmedString(payload?.description || payload?.shortDescription),
-        shortDescription: toTrimmedString(payload?.shortDescription || payload?.description),
+        title: metadata.metaTitle || name,
+        description: toTrimmedString(payload?.description || payload?.shortDescription || metadata.metaDescription),
+        shortDescription: toTrimmedString(payload?.shortDescription || payload?.description || metadata.metaDescription),
         longDescription: toStringArray(payload?.longDescription),
-        badge: toTrimmedString(payload?.badge),
+        badge: toTrimmedString(payload?.badge || metadata.brand),
         category: toTrimmedString(payload?.category, 'general').toLowerCase(),
         price,
         oldPrice: oldPrice > price ? oldPrice : 0,
@@ -303,7 +342,7 @@ function normalizePayload(payload) {
         image: mainImage,
         mainImage,
         gallery: uniqueStrings([mainImage, ...toStringArray(payload?.gallery)]),
-        keywords: uniqueStrings(payload?.keywords),
+        keywords: keywordSet,
         highlights: toStringArray(payload?.highlights),
         trust: toStringArray(payload?.trust),
         specs: normalizeSpecs(payload?.specs),
@@ -314,7 +353,17 @@ function normalizePayload(payload) {
         orderIndex: toNonNegativeNumber(payload?.orderIndex, 0),
         highlightTag: normalizeHighlightTag(payload?.highlightTag),
         status: toTrimmedString(payload?.status, 'active').toLowerCase() || 'active',
-        page: DEFAULT_DETAIL_PAGE
+        page: DEFAULT_DETAIL_PAGE,
+        brand: metadata.brand,
+        sku: metadata.sku,
+        costPrice: metadata.costPrice,
+        taxRate: metadata.taxRate,
+        taxIncluded: metadata.taxIncluded,
+        metaTitle: metadata.metaTitle,
+        metaDescription: metadata.metaDescription,
+        slug: metadata.slug,
+        tags: metadata.tags,
+        metadata
     };
 }
 
@@ -327,6 +376,8 @@ function serializeProduct(product) {
     const attributes = Array.isArray(source.attributes) && source.attributes.length
         ? normalizeAttributes(source.attributes)
         : buildAttributesFromVariantFoundation(variants, source.attributes);
+
+    const metadata = normalizeMetadata(source);
 
     return {
         ...source,
@@ -349,7 +400,17 @@ function serializeProduct(product) {
         variants,
         url: source.url || buildProductUrl(catalogId),
         page: DEFAULT_DETAIL_PAGE,
-        catalogId
+        catalogId,
+        brand: metadata.brand,
+        sku: metadata.sku || String(catalogId),
+        costPrice: metadata.costPrice,
+        taxRate: metadata.taxRate,
+        taxIncluded: metadata.taxIncluded,
+        metaTitle: metadata.metaTitle || source.title || source.name,
+        metaDescription: metadata.metaDescription || source.shortDescription || source.description,
+        slug: metadata.slug,
+        tags: metadata.tags,
+        metadata
     };
 }
 

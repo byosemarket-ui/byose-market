@@ -8,7 +8,7 @@ import { renderDashboard } from "./pages/dashboard.js";
 import { renderEnterprise } from "./pages/enterprise.js";
 import { renderOrders } from "./pages/orders.js";
 import { renderCustomers } from "./pages/customers.js";
-import { renderProducts } from "./pages/products.js";
+import { renderProducts } from "./pages/products/index.js";
 import { renderAnalytics } from "./pages/analytics.js";
 import { renderInventory } from "./pages/inventory.js";
 import { renderActivity } from "./pages/activity.js";

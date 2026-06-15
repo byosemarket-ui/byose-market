@@ -52,6 +52,8 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
                     }
                 });
 
+        const metadata = this.parseJson(row.metadata_json, {});
+
                 return {
 
             recordId: Number(row.id),
@@ -87,6 +89,16 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             status: this.normalizeText(row.status, 'active'),
             page: this.normalizeText(row.page, 'product-details1.html'),
             url: this.normalizeText(row.url),
+            metadata,
+            brand: this.normalizeText(metadata.brand),
+            sku: this.normalizeText(metadata.sku),
+            costPrice: this.toNumber(metadata.costPrice, 0),
+            taxRate: this.toNumber(metadata.taxRate, 0),
+            taxIncluded: Boolean(metadata.taxIncluded),
+            metaTitle: this.normalizeText(metadata.metaTitle),
+            metaDescription: this.normalizeText(metadata.metaDescription),
+            slug: this.normalizeText(metadata.slug),
+            tags: Array.isArray(metadata.tags) ? metadata.tags.map((entry) => this.normalizeText(entry)).filter(Boolean) : [],
             createdAt: row.created_at || null,
             updatedAt: row.updated_at || null
         };
@@ -207,16 +219,31 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         const now = this.now(product.updatedAt);
         const imageStoragePath = this.prepareStorablePath(product.image || product.mainImage);
         const mainImageStoragePath = this.prepareStorablePath(product.mainImage || product.image) || imageStoragePath;
+        const metadataSource = product.metadata && typeof product.metadata === 'object' ? product.metadata : {};
+        const metadata = {
+            brand: this.normalizeText(product.brand || metadataSource.brand),
+            sku: this.normalizeText(product.sku || metadataSource.sku),
+            costPrice: this.toNumber(product.costPrice ?? metadataSource.costPrice, 0),
+            taxRate: this.toNumber(product.taxRate ?? metadataSource.taxRate, 0),
+            taxIncluded: Boolean(product.taxIncluded ?? metadataSource.taxIncluded),
+            metaTitle: this.normalizeText(product.metaTitle || metadataSource.metaTitle),
+            metaDescription: this.normalizeText(product.metaDescription || metadataSource.metaDescription),
+            slug: this.normalizeText(product.slug || metadataSource.slug),
+            tags: Array.isArray(product.tags)
+                ? product.tags.map((entry) => this.normalizeText(entry)).filter(Boolean)
+                : (Array.isArray(metadataSource.tags) ? metadataSource.tags : [])
+        };
+
         const payload = {
             catalogId: Number(product.catalogId),
             categoryId: category ? Number(category.id) : null,
             categorySlug: this.normalizeText(product.category, 'general').toLowerCase(),
             name: this.normalizeText(product.name),
-            title: this.normalizeText(product.title || product.name),
+            title: this.normalizeText(product.metaTitle || product.title || product.name),
             description: this.normalizeText(product.description),
-            shortDescription: this.normalizeText(product.shortDescription),
+            shortDescription: this.normalizeText(product.shortDescription || product.metaDescription),
             longDescriptionJson: this.stringifyJson(product.longDescription || [], []),
-            badge: this.normalizeText(product.badge),
+            badge: this.normalizeText(product.badge || product.brand),
             price: this.toNumber(product.price, 0),
             oldPrice: this.toNumber(product.oldPrice, 0),
             stock: this.toNumber(product.stock, 0),
@@ -236,6 +263,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             status: this.normalizeText(product.status, 'active'),
             page: this.normalizeText(product.page, 'product-details1.html'),
             url: this.normalizeText(product.url),
+            metadataJson: this.stringifyJson(metadata, {}),
             updatedAt: now,
             createdAt: existing?.createdAt || this.now(product.createdAt)
         };
@@ -248,7 +276,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
                         UPDATE products
                         SET catalog_id = ?, category_id = ?, category_slug = ?, name = ?, title = ?, description = ?, short_description = ?, long_description_json = ?,
                             badge = ?, price = ?, old_price = ?, stock = ?, image = ?, main_image = ?, keywords_json = ?, highlights_json = ?, trust_json = ?,
-                            specs_json = ?, attributes_json = ?, variants_json = ?, visibility = ?, priority = ?, order_index = ?, highlight_tag = ?, status = ?, page = ?, url = ?, updated_at = ?
+                            specs_json = ?, attributes_json = ?, variants_json = ?, visibility = ?, priority = ?, order_index = ?, highlight_tag = ?, status = ?, page = ?, url = ?, metadata_json = ?, updated_at = ?
                         WHERE id = ?
                     `).run(
                         payload.catalogId,
@@ -278,6 +306,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
                         payload.status,
                         payload.page,
                         payload.url,
+                        payload.metadataJson,
                         payload.updatedAt,
                         Number(existing.recordId)
                     );
@@ -305,8 +334,8 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
                             INSERT INTO products (
                                 catalog_id, category_id, category_slug, name, title, description, short_description, long_description_json, badge,
                                 price, old_price, stock, image, main_image, keywords_json, highlights_json, trust_json, specs_json, attributes_json,
-                                variants_json, visibility, priority, order_index, highlight_tag, status, page, url, created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                variants_json, visibility, priority, order_index, highlight_tag, status, page, url, metadata_json, created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         `).run(
                             payload.catalogId,
                             payload.categoryId,
@@ -335,6 +364,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
                             payload.status,
                             payload.page,
                             payload.url,
+                            payload.metadataJson,
                             payload.createdAt,
                             payload.updatedAt
                         );

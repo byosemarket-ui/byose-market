@@ -88,12 +88,22 @@ function normalizePriority(value) {
 
 function buildKeywords(product) {
   const keywords = new Set();
-  [product?.name, product?.title, product?.category, ...(asArray(product?.highlights)), ...(asArray(product?.trust))]
+  [product?.name, product?.title, product?.category, ...(asArray(product?.highlights)), ...(asArray(product?.trust)), ...(asArray(product?.tags))]
     .join(" ")
     .split(/\s+/)
     .map((entry) => normalizeText(entry).toLowerCase())
     .filter(Boolean)
     .forEach((entry) => keywords.add(entry));
+  return Array.from(keywords);
+}
+
+function uniqueKeywordList(productData, previousProduct = {}) {
+  const keywords = new Set([
+    ...buildKeywords(productData),
+    ...asArray(productData?.tags),
+    ...asArray(previousProduct?.tags),
+    ...asArray(previousProduct?.keywords)
+  ].map((entry) => normalizeText(entry).toLowerCase()).filter(Boolean));
   return Array.from(keywords);
 }
 
@@ -348,6 +358,16 @@ function normalizeProductRecord(record) {
       ? parseJsonArray(source.gallery_storage_paths ?? source.galleryStoragePaths)
       : gallery.map((entry) => normalizeManagedUploadPath(entry)).filter(Boolean)),
     extraInfo: parseJsonObject(source.extra_info ?? source.extraInfo),
+    brand: normalizeText(source.brand ?? source.metadata?.brand),
+    sku: normalizeText(source.sku ?? source.metadata?.sku),
+    costPrice: toNumber(source.costPrice ?? source.metadata?.costPrice, 0),
+    taxRate: toNumber(source.taxRate ?? source.metadata?.taxRate, 0),
+    taxIncluded: Boolean(source.taxIncluded ?? source.metadata?.taxIncluded),
+    metaTitle: normalizeText(source.metaTitle ?? source.metadata?.metaTitle ?? source.title),
+    metaDescription: normalizeText(source.metaDescription ?? source.metadata?.metaDescription ?? source.shortDescription),
+    slug: normalizeText(source.slug ?? source.metadata?.slug),
+    tags: parseJsonArray(source.tags).length ? parseJsonArray(source.tags) : asArray(source.metadata?.tags),
+    metadata: parseJsonObject(source.metadata),
     inventory: asObject(source.inventory) || {
       available: Math.max(0, Math.floor(toNumber(source.stock, 0))),
       totalAvailable: Math.max(0, Math.floor(toNumber(source.stock, 0))),
@@ -427,7 +447,11 @@ function isDirectAssetReference(value) {
     return false;
   }
 
-  if (/^(?:data:|blob:|https?:|\/|\.\/|\.\.\/)/i.test(text)) {
+  if (/^blob:/i.test(text) || /^data:/i.test(text)) {
+    return false;
+  }
+
+  if (/^(?:https?:|\/|\.\/|\.\.\/)/i.test(text)) {
     return true;
   }
 
@@ -476,9 +500,14 @@ function prepareAssetFields(productData = {}, previousProduct = {}) {
       : (previousProduct.galleryStoragePaths || [])
   );
 
-  const mainImage = resolveAssetReference(nextMainImage, previousProduct.mainImage ?? previousProduct.image);
-  const image = resolveAssetReference(nextMainImage, previousProduct.image ?? previousProduct.mainImage);
+  const mainImage = isDirectAssetReference(nextMainImage)
+    ? resolveAssetReference(nextMainImage, previousProduct.mainImage ?? previousProduct.image)
+    : normalizeText(previousProduct.mainImage ?? previousProduct.image);
+  const image = isDirectAssetReference(nextMainImage)
+    ? resolveAssetReference(nextMainImage, previousProduct.image ?? previousProduct.mainImage)
+    : normalizeText(previousProduct.image ?? previousProduct.mainImage);
   const gallery = nextGallery
+    .filter((entry) => isDirectAssetReference(entry))
     .map((entry, index) => resolveAssetReference(entry, nextGalleryStorage[index] || ""))
     .filter(Boolean)
     .filter((entry, index, values) => values.indexOf(entry) === index);
@@ -511,11 +540,11 @@ function buildApiPayload(productData, previousProduct = {}) {
   return {
     ...(catalogId ? { catalogId } : {}),
     name,
-    title: name,
+    title: normalizeText(productData?.metaTitle ?? productData?.title ?? previousProduct?.metaTitle ?? name),
     description: normalizeText(productData?.description ?? previousProduct?.description),
-    shortDescription: normalizeText(productData?.shortDescription ?? productData?.description ?? previousProduct?.shortDescription ?? previousProduct?.description),
+    shortDescription: normalizeText(productData?.shortDescription ?? productData?.description ?? productData?.metaDescription ?? previousProduct?.shortDescription ?? previousProduct?.description),
     longDescription: asArray(productData?.longDescription ?? previousProduct?.longDescription),
-    badge: normalizeText(productData?.badge ?? previousProduct?.badge),
+    badge: normalizeText(productData?.badge ?? productData?.brand ?? previousProduct?.badge ?? previousProduct?.brand),
     category: normalizeText(productData?.category ?? previousProduct?.category, "general").toLowerCase(),
     price,
     oldPrice: oldPrice > price ? oldPrice : 0,
@@ -526,7 +555,7 @@ function buildApiPayload(productData, previousProduct = {}) {
     mainImageStoragePath: assets.mainImageStoragePath,
     imageStoragePath: assets.mainImageStoragePath,
     galleryStoragePaths: assets.galleryStoragePaths,
-    keywords: asArray(productData?.keywords).length ? asArray(productData?.keywords) : buildKeywords(productData),
+    keywords: asArray(productData?.keywords).length ? asArray(productData?.keywords) : uniqueKeywordList(productData, previousProduct),
     highlights: asArray(productData?.highlights ?? previousProduct?.highlights),
     trust: asArray(productData?.trust ?? previousProduct?.trust),
     specs: asArray(productData?.specs ?? previousProduct?.specs),
@@ -538,6 +567,16 @@ function buildApiPayload(productData, previousProduct = {}) {
     highlightTag: normalizeText(productData?.highlightTag ?? previousProduct?.highlightTag).toLowerCase(),
     status: normalizeText(productData?.status ?? previousProduct?.status, "active").toLowerCase(),
     page: normalizeText(productData?.page ?? previousProduct?.page, DEFAULT_DETAIL_PAGE),
+    brand: normalizeText(productData?.brand ?? previousProduct?.brand),
+    sku: normalizeText(productData?.sku ?? previousProduct?.sku),
+    costPrice: toNumber(productData?.costPrice ?? previousProduct?.costPrice, 0),
+    taxRate: toNumber(productData?.taxRate ?? previousProduct?.taxRate, 0),
+    taxIncluded: Boolean(productData?.taxIncluded ?? previousProduct?.taxIncluded),
+    metaTitle: normalizeText(productData?.metaTitle ?? previousProduct?.metaTitle ?? name),
+    metaDescription: normalizeText(productData?.metaDescription ?? previousProduct?.metaDescription ?? productData?.description ?? previousProduct?.description),
+    slug: normalizeText(productData?.slug ?? previousProduct?.slug),
+    tags: asArray(productData?.tags ?? previousProduct?.tags),
+    metadata: asObject(productData?.metadata ?? previousProduct?.metadata),
     extraInfo: asObject(productData?.extraInfo ?? previousProduct?.extraInfo)
   };
 }

@@ -1,4 +1,5 @@
 export const PRODUCTION_API_ORIGIN = "https://byosesemarket4.onrender.com";
+export const VPS_API_HOST = "153.75.227.160";
 
 const STORAGE_KEYS = {
   adminApiBaseUrl: "adminApiBaseUrl",
@@ -39,7 +40,28 @@ function isLocalHost(hostname) {
 }
 
 export function requiresExternalApiBaseUrl(hostname) {
-  return /(^|\.)(github\.io|byosemarket\.com|www\.byosemarket\.com)$/i.test(String(hostname || ""));
+  const normalized = String(hostname || "").trim().toLowerCase();
+  if (/(^|\.)github\.io$/i.test(normalized)) {
+    return true;
+  }
+
+  return /(^|\.)(byosemarket\.com|www\.byosemarket\.com)$/i.test(normalized)
+    && typeof window !== "undefined"
+    && !String(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || "").trim();
+}
+
+function resolveSameOriginApiBaseUrl() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const protocol = String(window.location?.protocol || "").toLowerCase();
+  const origin = normalizeBase(window.location?.origin || "");
+  if ((protocol === "http:" || protocol === "https:") && origin) {
+    return `${origin}/api`;
+  }
+
+  return "";
 }
 
 export function resolveApiBaseUrl() {
@@ -65,17 +87,25 @@ export function resolveApiBaseUrl() {
 
   const protocol = String(window.location?.protocol || "").toLowerCase();
   const hostname = String(window.location?.hostname || "").trim();
-  const origin = normalizeBase(window.location?.origin || "");
+  const sameOriginApi = resolveSameOriginApiBaseUrl();
 
   if (protocol === "file:" || isLocalHost(hostname)) {
     return `http://${hostname || "localhost"}:5000/api`;
+  }
+
+  if (sameOriginApi && !/(^|\.)github\.io$/i.test(hostname)) {
+    return sameOriginApi;
+  }
+
+  if (hostname === VPS_API_HOST) {
+    return sameOriginApi || `http://${VPS_API_HOST}:5000/api`;
   }
 
   if (requiresExternalApiBaseUrl(hostname)) {
     return `${PRODUCTION_API_ORIGIN}/api`;
   }
 
-  return origin ? `${origin}/api` : `${PRODUCTION_API_ORIGIN}/api`;
+  return sameOriginApi || `${PRODUCTION_API_ORIGIN}/api`;
 }
 
 export function resolveApiOrigin() {

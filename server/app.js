@@ -11,12 +11,10 @@ const { appLogger } = require('./utils/logger');
 const { metricsMiddleware, getSnapshot } = require('./utils/metrics');
 const { prepareStorageFoundation, getUploadFoundationSnapshot } = require('./services/storage-foundation.service');
 
+const { PRODUCTION_CORS_ORIGINS } = require('../config/production-targets');
+
 function getCorsOptions() {
-    const fallbackProductionOrigins = [
-        'https://byosemarket.com',
-        'https://www.byosemarket.com',
-        'https://byosesemarket4.onrender.com'
-    ];
+    const fallbackProductionOrigins = PRODUCTION_CORS_ORIGINS.slice();
     const configuredOrigins = config.corsOrigins.length
         ? config.corsOrigins
         : (config.isProduction ? fallbackProductionOrigins : []);
