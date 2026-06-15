@@ -1,6 +1,12 @@
 export const GLOBAL_SYNC_EVENT = "byose:products-synchronized";
 export const PRODUCT_CHANGED_EVENT = "byose:products-changed";
 
+import { buildApiUrl, persistResolvedApiBaseUrl, resolveApiBaseUrl } from "./api-origin.js";
+
+if (typeof window !== "undefined") {
+  persistResolvedApiBaseUrl(resolveApiBaseUrl());
+}
+
 const DEFAULT_DETAIL_PAGE = "product-details1.html";
 const STOREFRONT_CATALOG_STORAGE_KEY = "byose_market_products_catalog_v1";
 const STALE_THRESHOLD_MS = 45000;
@@ -210,44 +216,6 @@ function normalizeBase(value) {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
-function isLocalHost(hostname) {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0";
-}
-
-function shouldUseProductionApi(hostname) {
-  return /(^|\.)(github\.io|byosemarket\.com)$/i.test(String(hostname || ""));
-}
-
-function resolveApiOrigin() {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  const explicit = normalizeBase(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || window.AdminConfig?.apiBaseUrl || "");
-  if (explicit) {
-    return explicit;
-  }
-
-  const protocol = String(window.location?.protocol || "").toLowerCase();
-  const hostname = String(window.location?.hostname || "").trim();
-
-  if (protocol === "file:" || isLocalHost(hostname)) {
-    return `http://${hostname || "localhost"}:5000`;
-  }
-
-  if (shouldUseProductionApi(hostname)) {
-    return "https://byosesemarket4.onrender.com";
-  }
-
-  return normalizeBase(window.location?.origin || "");
-}
-
-function buildApiUrl(path) {
-  const base = resolveApiOrigin();
-  const normalizedPath = `/${String(path || "").replace(/^\/+/, "")}`;
-  return `${base}${normalizedPath}`;
-}
-
 function getAdminToken() {
   if (typeof window === "undefined") {
     return "";
@@ -285,7 +253,7 @@ function mapApiError(error, fallbackMessage) {
 }
 
 async function apiRequest(path, options = {}) {
-  const url = /^https?:/i.test(String(path || "")) ? String(path) : buildApiUrl(path);
+  const url = buildApiUrl(path);
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timeoutMs = Number(options.timeoutMs || DEFAULT_TIMEOUT_MS);
   const token = options.requiresAdmin ? getAdminToken() : "";
@@ -575,13 +543,13 @@ function buildApiPayload(productData, previousProduct = {}) {
 }
 
 async function fetchCatalogSnapshot(signal) {
-  const payload = await apiRequest("/api/products?limit=500", {
+  const response = await apiRequest("products?limit=500", {
     method: "GET",
     timeoutMs: DEFAULT_TIMEOUT_MS,
     signal
   });
 
-  return publishProducts(asArray(payload?.products), "api-refresh");
+  return publishProducts(asArray(response?.products), "api-refresh");
 }
 
 function scheduleLiveSync() {
@@ -785,7 +753,7 @@ export async function createProduct(productData = {}, options = {}) {
 
   const payload = buildApiPayload(productData);
   reportProgress(onProgress, "Saving product record to backend...");
-  const response = await apiRequest("/api/admin/products", {
+  const response = await apiRequest("admin/products", {
     method: "POST",
     body: payload,
     timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -813,7 +781,7 @@ export async function updateProduct(productId, productData = {}, options = {}) {
   const previousProduct = cachedProducts.find((product) => Number(product.id) === catalogId || Number(product.catalogId) === catalogId) || {};
   const payload = buildApiPayload(productData, previousProduct);
   reportProgress(onProgress, "Updating product record in backend...");
-  const response = await apiRequest(`/api/admin/products/${encodeURIComponent(String(catalogId))}`, {
+  const response = await apiRequest(`admin/products/${encodeURIComponent(String(catalogId))}`, {
     method: "PUT",
     body: payload,
     timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -839,7 +807,7 @@ export async function deleteProduct(productId, options = {}) {
   }
 
   reportProgress(onProgress, "Deleting product from backend...");
-  await apiRequest(`/api/admin/products/${encodeURIComponent(String(catalogId))}`, {
+  await apiRequest(`admin/products/${encodeURIComponent(String(catalogId))}`, {
     method: "DELETE",
     timeoutMs: DEFAULT_TIMEOUT_MS,
     requiresAdmin: true

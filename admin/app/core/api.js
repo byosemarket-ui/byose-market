@@ -71,10 +71,20 @@ function shouldRetry(error) {
   return status === 408 || status === 429 || status >= 500;
 }
 
+function buildUrl(path) {
+  const baseUrl = getBaseUrl();
+  const normalizedPath = String(path || "").trim();
+
+  if (/^https?:/i.test(normalizedPath)) {
+    return normalizedPath;
+  }
+
+  const withoutApiPrefix = normalizedPath.replace(/^\/api\/?/i, "").replace(/^\/+/, "");
+  return `${baseUrl}/${withoutApiPrefix}`;
+}
+
 async function fallbackRequest(path, options) {
-  const url = /^https?:/i.test(String(path || "")) || String(path || "").startsWith("/")
-    ? path
-    : `${getBaseUrl()}/${String(path || "").replace(/^\/+/, "")}`;
+  const url = buildUrl(path);
 
   const token = getToken();
   const controller = new AbortController();

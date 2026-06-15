@@ -24,9 +24,13 @@ services:
       - key: SQLITE_DB_PATH
         value: data/byosemarket.sqlite
       - key: UPLOADS_DIR
-        value: server/uploads
+        value: data/uploads
       - key: STORAGE_ROOT
-        value: server/uploads
+        value: data/uploads
+      - key: APP_BASE_URL
+        value: https://byosesemarket4.onrender.com
+      - key: API_BASE_URL
+        value: https://byosesemarket4.onrender.com/api
       - key: ADMIN_EMAIL
         value: byosemarket@gmail.com
       - key: ADMIN_PASSWORD_HASH

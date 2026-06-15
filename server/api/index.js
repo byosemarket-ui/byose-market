@@ -45,6 +45,7 @@ const realtimeRateLimiter = createRateLimiter({
 function createApiRouter() {
     const router = express.Router();
 
+    router.use('/admin', adminRateLimiter, adminAuthRoutes);
     router.use('/admin/customers', requireDatabase, adminCustomerRoutes);
     router.use('/admin/carts', requireDatabase, adminCartRoutes);
     router.use('/admin/dashboard', requireDatabase, adminDashboardRoutes);
@@ -54,7 +55,6 @@ function createApiRouter() {
     router.use('/admin/activity', requireDatabase, adminActivityRoutes);
     router.use('/admin/intelligence', requireDatabase, adminIntelligenceRoutes);
     router.use('/admin/products', requireDatabase, adminProductRoutes);
-    router.use('/admin', adminRateLimiter, adminAuthRoutes);
     router.use('/activity', requireDatabase, activityRoutes);
     router.use('/auth', authRateLimiter, authRoutes);
     router.use('/messages', requireDatabase, messageRoutes);
@@ -64,6 +64,14 @@ function createApiRouter() {
     router.use('/storefront/state', requireDatabase, storefrontStateRoutes);
     router.use('/realtime', realtimeRateLimiter, realtimeRoutes);
     router.use('/uploads', uploadRoutes);
+
+    router.use((_req, res) => {
+        return res.status(404).json({
+            success: false,
+            code: 'API_ROUTE_NOT_FOUND',
+            message: 'API route not found.'
+        });
+    });
 
     return router;
 }

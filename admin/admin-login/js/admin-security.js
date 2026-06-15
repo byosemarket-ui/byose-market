@@ -171,12 +171,21 @@
     addCandidate(window.AdminConfig && window.AdminConfig.apiBaseUrl);
 
     var protocol = String(window.location.protocol || "").toLowerCase();
+    var hostname = String(window.location.hostname || "").trim();
     var origin = normalizeBaseUrl(window.location.origin || "");
+
+    if (requiresExternalApiBaseUrl(protocol, hostname)) {
+      addCandidate(PRODUCTION_API_BASE_URL);
+    }
+
     if (protocol === "http:" || protocol === "https:") {
       addCandidate(`${origin}/api`);
     }
 
-    addCandidate(PRODUCTION_API_BASE_URL);
+    if (!requiresExternalApiBaseUrl(protocol, hostname)) {
+      addCandidate(PRODUCTION_API_BASE_URL);
+    }
+
     return candidates;
   }
 

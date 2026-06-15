@@ -62,11 +62,20 @@
 		return String(global.AdminConfig?.apiBaseUrl || "").replace(/\/+$/, "");
 	}
 
-	async function request(path, options) {
+	function buildUrl(path) {
 		const baseUrl = getBaseUrl();
-		const url = /^https?:/i.test(String(path || "")) || String(path || "").startsWith("/")
-			? path
-			: `${baseUrl}/${String(path || "").replace(/^\/+/, "")}`;
+		const normalizedPath = String(path || "").trim();
+
+		if (/^https?:/i.test(normalizedPath)) {
+			return normalizedPath;
+		}
+
+		const withoutApiPrefix = normalizedPath.replace(/^\/api\/?/i, "").replace(/^\/+/, "");
+		return `${baseUrl}/${withoutApiPrefix}`;
+	}
+
+	async function request(path, options) {
+		const url = buildUrl(path);
 		const adminToken = getAdminToken();
 
 		const response = await fetch(url, {

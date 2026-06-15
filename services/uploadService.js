@@ -1,3 +1,8 @@
+import {
+  buildUploadUrl,
+  resolveApiBaseUrl
+} from "./api-origin.js";
+
 export const PRODUCTS_BUCKET = "products";
 
 const DEFAULT_UPLOAD_RETRY_COUNT = 2;
@@ -5,55 +10,6 @@ const DEFAULT_UPLOAD_RETRY_COUNT = 2;
 function normalizeText(value, fallback = "") {
   const text = String(value || "").trim();
   return text || fallback;
-}
-
-function normalizeBase(value) {
-  return String(value || "").trim().replace(/\/+$/, "");
-}
-
-function isLocalHost(hostname) {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0";
-}
-
-function shouldUseProductionApi(hostname) {
-  return /(^|\.)(github\.io|byosemarket\.com|www\.byosemarket\.com)$/i.test(String(hostname || ""));
-}
-
-function resolveApiOrigin() {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  const explicit = normalizeBase(
-    window.BYOSE_API_BASE_URL
-    || window.__BYOSE_API_BASE__
-    || window.AdminConfig?.apiBaseUrl
-    || window.AdminSecurity?.getApiBaseUrl?.()
-    || ""
-  );
-
-  if (explicit) {
-    return explicit.endsWith("/api") ? explicit.slice(0, -4) : explicit;
-  }
-
-  const protocol = String(window.location?.protocol || "").toLowerCase();
-  const hostname = String(window.location?.hostname || "").trim();
-
-  if (protocol === "file:" || isLocalHost(hostname)) {
-    return `http://${hostname || "localhost"}:5000`;
-  }
-
-  if (shouldUseProductionApi(hostname)) {
-    return "https://byosesemarket4.onrender.com";
-  }
-
-  return normalizeBase(window.location?.origin || "");
-}
-
-function buildUploadUrl(bucket) {
-  const origin = resolveApiOrigin();
-  const normalizedBucket = encodeURIComponent(String(bucket || PRODUCTS_BUCKET));
-  return `${origin}/api/uploads/${normalizedBucket}`;
 }
 
 function getAdminToken() {
@@ -109,7 +65,6 @@ function buildUploadPromise(file, bucket, options = {}) {
       }
 
       xhr.open("POST", url, true);
-      xhr.withCredentials = true;
 
       if (token) {
         xhr.setRequestHeader("Authorization", `Bearer ${token}`);
@@ -189,11 +144,12 @@ async function uploadSingleAsset(source, options = {}) {
 
   if (/^(?:https?:|\/|\.|blob:)/i.test(normalized) || /^(?:products|categories|users|reviews|temp)\//i.test(normalized)) {
     reportProgress(options.onProgress, options.progressLabel || "Using existing asset reference", { phase: "reference" });
+    const publicUrl = normalized.startsWith("/") ? normalized : `/uploads/${normalized.replace(/^\/+/, "")}`;
     return {
       path: normalized.startsWith("/uploads/") ? normalized.replace(/^\/uploads\//, "") : normalized,
       storagePath: normalized.startsWith("/uploads/") ? normalized.replace(/^\/uploads\//, "") : normalized,
-      url: normalized.startsWith("/") ? normalized : `/uploads/${normalized.replace(/^\/+/, "")}`,
-      publicUrl: normalized.startsWith("/") ? normalized : `/uploads/${normalized.replace(/^\/+/, "")}`
+      url: publicUrl,
+      publicUrl
     };
   }
 
@@ -242,13 +198,12 @@ export async function removeStoredAssets(paths = []) {
     return undefined;
   }
 
-  const origin = resolveApiOrigin();
+  const apiBase = resolveApiBaseUrl();
   const token = getAdminToken();
 
   try {
-    await fetch(`${origin}/api/uploads`, {
+    await fetch(`${apiBase}/uploads`, {
       method: "DELETE",
-      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {})

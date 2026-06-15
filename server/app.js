@@ -14,7 +14,8 @@ const { prepareStorageFoundation, getUploadFoundationSnapshot } = require('./ser
 function getCorsOptions() {
     const fallbackProductionOrigins = [
         'https://byosemarket.com',
-        'https://www.byosemarket.com'
+        'https://www.byosemarket.com',
+        'https://byosesemarket4.onrender.com'
     ];
     const configuredOrigins = config.corsOrigins.length
         ? config.corsOrigins
@@ -66,8 +67,17 @@ function getCorsOptions() {
 
     return {
         origin(origin, callback) {
-            if (!origin || isAllowedDevelopmentOrigin(origin) || configuredOrigins.some((configuredOrigin) => matchesConfiguredOrigin(configuredOrigin, origin))) {
+            if (!origin) {
                 return callback(null, true);
+            }
+
+            if (isAllowedDevelopmentOrigin(origin)) {
+                return callback(null, origin);
+            }
+
+            const matchedOrigin = configuredOrigins.find((configuredOrigin) => matchesConfiguredOrigin(configuredOrigin, origin));
+            if (matchedOrigin) {
+                return callback(null, origin);
             }
 
             return callback(new Error('Origin not allowed by CORS'));
