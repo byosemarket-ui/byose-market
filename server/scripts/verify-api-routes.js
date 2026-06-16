@@ -19,7 +19,8 @@ const ROUTES = [
   { method: "GET", path: "/api/admin/session", expect: [401, 403] },
   { method: "GET", path: "/api/realtime/stream", expect: [401, 403, 200] },
   { method: "GET", path: "/api/realtime/events", expect: [401, 403, 200] },
-  { method: "GET", path: "/api/uploads/health", expect: [200] }
+  { method: "GET", path: "/api/uploads/health", expect: [200] },
+  { method: "POST", path: "/api/uploads/products", expect: [401, 403, 404] }
 ];
 
 function requestRoute(route) {

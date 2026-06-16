@@ -1,5 +1,6 @@
 import {
   buildUploadUrl,
+  ensureUploadCapableApiBaseUrl,
   resolveApiBaseUrl
 } from "./api-origin.js";
 
@@ -109,7 +110,7 @@ function buildUploadPromise(file, bucket, options = {}) {
             return;
           }
 
-          const message = parsed?.message || parsed?.error || `Upload failed with status ${status}`;
+          const message = parsed?.message || parsed?.error || `Upload failed with status ${status} at ${url}`;
           const err = new Error(message || "Upload failed.");
           err.status = status;
           reject(err);
@@ -165,6 +166,7 @@ async function uploadSingleAsset(source, options = {}) {
 }
 
 export async function uploadWithRetry(source, options = {}) {
+  await ensureUploadCapableApiBaseUrl(options);
   const retryCount = Math.max(0, Number(options.retryCount ?? DEFAULT_UPLOAD_RETRY_COUNT));
   let lastError = null;
 
@@ -206,6 +208,7 @@ export async function removeStoredAssets(paths = []) {
     return undefined;
   }
 
+  await ensureUploadCapableApiBaseUrl();
   const apiBase = resolveApiBaseUrl();
   const token = getAdminToken();
 

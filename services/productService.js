@@ -1,10 +1,12 @@
 export const GLOBAL_SYNC_EVENT = "byose:products-synchronized";
 export const PRODUCT_CHANGED_EVENT = "byose:products-changed";
 
-import { buildApiUrl, persistResolvedApiBaseUrl, resolveApiBaseUrl } from "./api-origin.js";
+import { buildApiUrl, ensureUploadCapableApiBaseUrl, resolveApiBaseUrl } from "./api-origin.js";
 
 if (typeof window !== "undefined") {
-  persistResolvedApiBaseUrl(resolveApiBaseUrl());
+  window.addEventListener("load", () => {
+    console.debug("[ProductCatalog] API base:", resolveApiBaseUrl());
+  }, { once: true });
 }
 
 const DEFAULT_DETAIL_PAGE = "product-details1.html";
@@ -789,6 +791,7 @@ export function stopProductLiveSync() {
 export async function createProduct(productData = {}, options = {}) {
   const onProgress = options?.onProgress;
   reportProgress(onProgress, "Preparing product save to backend...");
+  await ensureUploadCapableApiBaseUrl(options);
 
   const payload = buildApiPayload(productData);
   reportProgress(onProgress, "Saving product record to backend...");
@@ -818,6 +821,7 @@ export async function updateProduct(productId, productData = {}, options = {}) {
   }
 
   const previousProduct = cachedProducts.find((product) => Number(product.id) === catalogId || Number(product.catalogId) === catalogId) || {};
+  await ensureUploadCapableApiBaseUrl(options);
   const payload = buildApiPayload(productData, previousProduct);
   reportProgress(onProgress, "Updating product record in backend...");
   const response = await apiRequest(`admin/products/${encodeURIComponent(String(catalogId))}`, {

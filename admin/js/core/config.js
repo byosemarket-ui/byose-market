@@ -7,7 +7,7 @@
 	const ADMIN_VALIDATED_API_BASE_URL_STORAGE_KEY = "adminValidatedApiBaseUrl";
 
 	function normalizeApiBaseUrl(value) {
-		const normalized = String(value || "").trim().replace(/\/+$/, "");
+		const normalized = String(value || "").trim().replace(/\/+$/, "").replace(/\/admin$/i, "");
 		if (!normalized) {
 			return "";
 		}
@@ -53,9 +53,12 @@
 		const protocol = String(global.location?.protocol || "").toLowerCase();
 		const hostname = String(global.location?.hostname || "").trim();
 		const origin = String(global.location?.origin || "").trim().replace(/\/+$/, "");
+		const isLocalDevHost = /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|::1)$/.test(hostname)
+			|| /^(?:192\.168\.|10\.|172\.(?:1[6-9]|2\d|3[0-1])\.)/.test(hostname);
 
-		if (protocol === "file:" || hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0") {
-			return `http://${hostname || "localhost"}:5000/api`;
+		if (protocol === "file:" || isLocalDevHost) {
+			const host = hostname === "0.0.0.0" ? "localhost" : (hostname || "localhost");
+			return `http://${host}:5000/api`;
 		}
 
 		if (requiresExternalApiBaseUrl(protocol, hostname)) {

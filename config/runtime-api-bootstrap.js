@@ -11,7 +11,7 @@
   var origin = String(global.location && global.location.origin || "").replace(/\/+$/, "");
 
   function normalizeApiBase(value) {
-    var normalized = String(value || "").trim().replace(/\/+$/, "");
+    var normalized = String(value || "").trim().replace(/\/+$/, "").replace(/\/admin$/i, "");
     if (!normalized) {
       return "";
     }
@@ -19,13 +19,26 @@
     return /\/api$/i.test(normalized) ? normalized : normalized + "/api";
   }
 
+  function isLocalDevHost(hostname) {
+    var host = String(hostname || "").trim().toLowerCase();
+    if (!host) {
+      return false;
+    }
+
+    if (host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0" || host === "::1") {
+      return true;
+    }
+
+    return /^(?:192\.168\.|10\.|172\.(?:1[6-9]|2\d|3[0-1])\.)/.test(host);
+  }
+
   function resolveApiBaseUrl() {
     if (protocol === "file:") {
       return "http://localhost:5000/api";
     }
 
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0") {
-      return "http://" + (hostname || "localhost") + ":5000/api";
+    if (isLocalDevHost(hostname)) {
+      return "http://" + (hostname === "0.0.0.0" ? "localhost" : (hostname || "localhost")) + ":5000/api";
     }
 
     if ((protocol === "http:" || protocol === "https:") && origin && !STATIC_EXTERNAL_HOST_PATTERN.test(hostname)) {

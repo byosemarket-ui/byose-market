@@ -84,7 +84,7 @@
   }
 
   function normalizeApiBaseUrl(value) {
-    var normalized = normalizeBaseUrl(value);
+    var normalized = normalizeBaseUrl(value).replace(/\/admin$/i, "");
     if (!normalized) {
       return "";
     }
