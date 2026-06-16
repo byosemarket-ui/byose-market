@@ -154,7 +154,8 @@ export function buildProductPayload(draft, assetOverrides = {}) {
   };
 }
 
-export function validateStep(step, draft) {
+export function validateStep(step, draft, options = {}) {
+  const hasPendingMainImage = Boolean(options.hasPendingMainImage);
   const errors = [];
   const info = draft?.info || {};
   const pricing = draft?.pricing || {};
@@ -194,7 +195,8 @@ export function validateStep(step, draft) {
   }
 
   if (step === "media") {
-    if (!String(media.mainImage || "").trim()) {
+    const hasPersistedMainImage = Boolean(String(media.mainImage || "").trim());
+    if (!hasPendingMainImage && !hasPersistedMainImage) {
       errors.push("Main product image is required.");
     }
   }
@@ -206,20 +208,16 @@ export function validateStep(step, draft) {
   }
 
   if (step === "review") {
-    errors.push(...validateStep("info", draft));
-    errors.push(...validateStep("pricing", draft));
-    errors.push(...validateStep("inventory", draft));
-    errors.push(...validateStep("media", draft));
-    errors.push(...validateStep("seo", draft));
+    errors.push(...validateStep("info", draft, options));
+    errors.push(...validateStep("pricing", draft, options));
+    errors.push(...validateStep("inventory", draft, options));
+    errors.push(...validateStep("media", draft, options));
+    errors.push(...validateStep("seo", draft, options));
   }
 
   return Array.from(new Set(errors));
 }
 
 export function validateAllSteps(draft, options = {}) {
-  const errors = validateStep("review", draft);
-  if (options.hasPendingMainImage) {
-    return errors.filter((entry) => entry !== "Main product image is required.");
-  }
-  return errors;
+  return validateStep("review", draft, options);
 }

@@ -73,7 +73,23 @@ function getPendingGalleryFiles() {
 }
 
 function hasMainImageSelection(draft) {
-  return Boolean(pendingMainFile || pendingMainPreviewUrl || draft?.media?.mainImage);
+  return Boolean(
+    pendingMainFile
+    || pendingMainPreviewUrl
+    || draft?.media?.mainImage
+  );
+}
+
+function getMainImageValidationOptions(draft) {
+  return { hasPendingMainImage: hasMainImageSelection(draft) };
+}
+
+function traceWizard(stage, detail = {}) {
+  console.debug("[ProductWizard]", stage, detail);
+}
+
+function warnWizardValidation(stage, detail = {}) {
+  console.warn("[ProductWizard] Validation blocked", { stage, ...detail });
 }
 
 function setFeedback(tone, message) {
@@ -297,6 +313,8 @@ function renderSeoStep(draft) {
 
 function renderReviewStep(draft) {
   const payload = buildProductPayload(draft);
+  const mainImageReady = hasMainImageSelection(draft) || Boolean(payload.mainImage);
+  const reviewPreview = pendingMainPreviewUrl || draft.media?.mainImage || "";
   return `
     <div class="pm-step-panel">
       <header class="pm-step-header">
@@ -327,14 +345,14 @@ function renderReviewStep(draft) {
         <article class="pm-review-card">
           <h3>Media & SEO</h3>
           <dl>
-            <div><dt>Main Image</dt><dd>${payload.mainImage ? "Uploaded" : "Missing"}</dd></div>
+            <div><dt>Main Image</dt><dd>${mainImageReady ? "Ready to upload" : "Missing"}</dd></div>
             <div><dt>Gallery</dt><dd>${escapeHtml(String((payload.gallery || []).length))} image(s)</dd></div>
             <div><dt>Meta Title</dt><dd>${escapeHtml(payload.metaTitle || "-")}</dd></div>
             <div><dt>Slug</dt><dd>${escapeHtml(payload.slug || "-")}</dd></div>
           </dl>
         </article>
       </div>
-      ${draft.media?.mainImage ? `<img class="pm-review-image" src="${escapeHtml(draft.media.mainImage)}" alt="Product preview" />` : ""}
+      ${reviewPreview ? `<img class="pm-review-image" src="${escapeHtml(reviewPreview)}" alt="Product preview" />` : ""}
     </div>
   `;
 }
@@ -444,8 +462,10 @@ function collectDraftFromForm(form, draft) {
     slug: slugify(String(formData.get("slug") || nextDraft.info.name || ""))
   };
 
-  if (pendingMainFile && !nextDraft.media.mainImage) {
-    nextDraft.media.pendingMainFile = true;
+  if (pendingMainFile || pendingMainPreviewUrl) {
+    nextDraft.media.pendingMainFile = !nextDraft.media.mainImage;
+  } else if (!nextDraft.media.mainImage) {
+    nextDraft.media.pendingMainFile = false;
   }
 
   return sanitizeDraft(nextDraft);
@@ -552,14 +572,24 @@ function mountWizard(container) {
 
   form.querySelector("[data-next-step]")?.addEventListener("click", () => {
     activeDraft = collectDraftFromForm(form, activeDraft);
-    if (currentStep === "media" && !hasMainImageSelection(activeDraft)) {
-      setFeedback("danger", "Main product image is required.");
-      rerenderWizard(container);
-      return;
-    }
+    const validationOptions = getMainImageValidationOptions(activeDraft);
+    traceWizard("continue:collected-draft", {
+      step: currentStep,
+      pendingMainFile: Boolean(pendingMainFile),
+      pendingMainPreviewUrl: Boolean(pendingMainPreviewUrl),
+      draftMainImage: activeDraft?.media?.mainImage || "",
+      draftPendingMainFile: Boolean(activeDraft?.media?.pendingMainFile),
+      hasMainImageSelection: validationOptions.hasPendingMainImage
+    });
 
-    const errors = validateStep(currentStep, activeDraft);
+    const errors = validateStep(currentStep, activeDraft, validationOptions);
     if (errors.length) {
+      warnWizardValidation("continue", {
+        step: currentStep,
+        errors,
+        ...validationOptions,
+        pendingMainFile: Boolean(pendingMainFile)
+      });
       setFeedback("danger", errors[0]);
       rerenderWizard(container);
       return;
@@ -601,6 +631,12 @@ function mountWizard(container) {
 
     setPendingMainFile(file);
     activeDraft = collectDraftFromForm(form, activeDraft);
+    traceWizard("media:main-selected", {
+      fileName: file?.name || "",
+      fileSize: file?.size || 0,
+      pendingMainFile: Boolean(pendingMainFile),
+      draftPendingMainFile: Boolean(activeDraft?.media?.pendingMainFile)
+    });
     setFeedback("", "");
     writeDraft(activeDraft);
     rerenderWizard(container);
@@ -665,11 +701,25 @@ function mountWizard(container) {
     }
 
     activeDraft = collectDraftFromForm(form, activeDraft);
-    const errors = validateAllSteps(activeDraft, { hasPendingMainImage: hasMainImageSelection(activeDraft) });
-    if (!hasMainImageSelection(activeDraft)) {
+    const validationOptions = getMainImageValidationOptions(activeDraft);
+    traceWizard("save:collected-draft", {
+      pendingMainFile: Boolean(pendingMainFile),
+      pendingGalleryCount: getPendingGalleryFiles().length,
+      draftMainImage: activeDraft?.media?.mainImage || "",
+      draftPendingMainFile: Boolean(activeDraft?.media?.pendingMainFile),
+      hasMainImageSelection: validationOptions.hasPendingMainImage
+    });
+
+    const errors = validateAllSteps(activeDraft, validationOptions);
+    if (!validationOptions.hasPendingMainImage) {
       errors.push("Main product image is required.");
     }
     if (errors.length) {
+      warnWizardValidation("save", {
+        errors,
+        ...validationOptions,
+        pendingMainFile: Boolean(pendingMainFile)
+      });
       setFeedback("danger", errors[0]);
       rerenderWizard(container);
       return;
@@ -680,6 +730,12 @@ function mountWizard(container) {
     rerenderWizard(container);
 
     try {
+      traceWizard("save:upload-start", {
+        pendingMainFile: Boolean(pendingMainFile),
+        pendingGalleryCount: getPendingGalleryFiles().length,
+        draftMainImage: activeDraft?.media?.mainImage || ""
+      });
+
       const resolvedMedia = await resolveDraftMedia(
         activeDraft,
         pendingMainFile,
@@ -696,6 +752,12 @@ function mountWizard(container) {
         }
       );
 
+      traceWizard("save:upload-complete", {
+        mainImage: resolvedMedia.mainImage || "",
+        mainImageStoragePath: resolvedMedia.mainImageStoragePath || "",
+        galleryCount: (resolvedMedia.gallery || []).length
+      });
+
       activeDraft.media = resolvedMedia;
       clearPendingMedia();
       writeDraft(activeDraft);
@@ -708,6 +770,13 @@ function mountWizard(container) {
         mainImageStoragePath: resolvedMedia.mainImageStoragePath,
         gallery: resolvedMedia.gallery,
         galleryStoragePaths: resolvedMedia.galleryStoragePaths
+      });
+
+      traceWizard("save:payload-ready", {
+        name: payload.name,
+        mainImage: payload.mainImage || "",
+        mainImageStoragePath: payload.mainImageStoragePath || "",
+        galleryCount: (payload.gallery || []).length
       });
 
       const productId = String(activeDraft.productId || activeDraft.savedProductId || "").trim();
@@ -723,6 +792,10 @@ function mountWizard(container) {
             }
           });
 
+      traceWizard("save:complete", {
+        productId: String(savedProduct?.id || savedProduct?.catalogId || "")
+      });
+
       activeDraft.savedProductId = String(savedProduct?.id || savedProduct?.catalogId || "");
       activeDraft.productId = activeDraft.savedProductId;
       saveSuccess = savedProduct;
@@ -732,6 +805,11 @@ function mountWizard(container) {
       writeDraft(activeDraft);
       rerenderWizard(container);
     } catch (error) {
+      console.error("[ProductWizard] Save failed", {
+        message: error?.message || "Unknown error",
+        pendingMainFile: Boolean(pendingMainFile),
+        draftMainImage: activeDraft?.media?.mainImage || ""
+      });
       isSaving = false;
       setFeedback("danger", String(error?.message || "Unable to save the product."));
       rerenderWizard(container);

@@ -42,6 +42,12 @@ export async function uploadGalleryFiles(files = [], onProgress) {
 }
 
 export async function resolveDraftMedia(draft, pendingMainFile, pendingGalleryFiles = [], onProgress) {
+  console.debug("[ProductWizard:upload] resolve-start", {
+    hasPendingMainFile: Boolean(pendingMainFile),
+    pendingGalleryCount: pendingGalleryFiles.length,
+    draftMainImage: draft?.media?.mainImage || ""
+  });
+
   const media = sanitizePersistedGallery(
     draft?.media?.gallery || [],
     draft?.media?.galleryStoragePaths || []
@@ -83,6 +89,12 @@ export async function resolveDraftMedia(draft, pendingMainFile, pendingGalleryFi
   if (removedPaths.length) {
     await removeStoredAssets(removedPaths.filter(Boolean));
   }
+
+  console.debug("[ProductWizard:upload] resolve-complete", {
+    mainImage: media.mainImage || "",
+    mainImageStoragePath: media.mainImageStoragePath || "",
+    galleryCount: (media.gallery || []).length
+  });
 
   return media;
 }

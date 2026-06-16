@@ -152,7 +152,8 @@ export function sanitizeDraft(input) {
       mainImage: normalizedMainImage,
       mainImageStoragePath: normalizedMainStoragePath,
       gallery: galleryUrls,
-      galleryStoragePaths: galleryStorage
+      galleryStoragePaths: galleryStorage,
+      pendingMainFile: Boolean(media.pendingMainFile)
     },
     seo: {
       metaTitle: String(seo.metaTitle || ""),
