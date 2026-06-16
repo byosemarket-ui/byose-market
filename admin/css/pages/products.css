@@ -532,6 +532,17 @@
   border-radius: 14px;
 }
 
+.pm-review-gallery {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.pm-review-gallery h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
 .pm-wizard-footer {
   display: flex;
   justify-content: space-between;

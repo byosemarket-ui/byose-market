@@ -313,8 +313,19 @@ function renderSeoStep(draft) {
 
 function renderReviewStep(draft) {
   const payload = buildProductPayload(draft);
+  const inventory = draft.inventory || {};
+  const info = draft.info || {};
+  const pricing = draft.pricing || {};
+  const seo = draft.seo || {};
   const mainImageReady = hasMainImageSelection(draft) || Boolean(payload.mainImage);
   const reviewPreview = pendingMainPreviewUrl || draft.media?.mainImage || "";
+  const galleryItems = getReviewGalleryItems(draft);
+  const galleryCount = galleryItems.length;
+  const stockStatusLabel = STOCK_STATUS_OPTIONS.find((entry) => entry.value === inventory.stockStatus)?.label
+    || toLabel(inventory.stockStatus || "in_stock");
+  const visibilityLabel = VISIBILITY_OPTIONS.find((entry) => entry.value === info.visibility)?.label
+    || toLabel(info.visibility || "both");
+
   return `
     <div class="pm-step-panel">
       <header class="pm-step-header">
@@ -323,36 +334,60 @@ function renderReviewStep(draft) {
       </header>
       <div class="pm-review-grid">
         <article class="pm-review-card">
-          <h3>Product</h3>
+          <h3>Product Information</h3>
           <dl>
             <div><dt>Name</dt><dd>${escapeHtml(payload.name || "-")}</dd></div>
             <div><dt>Category</dt><dd>${escapeHtml(toLabel(payload.category))}</dd></div>
             <div><dt>Brand</dt><dd>${escapeHtml(payload.brand || "-")}</dd></div>
             <div><dt>SKU</dt><dd>${escapeHtml(payload.sku || "-")}</dd></div>
-            <div><dt>Tags</dt><dd>${escapeHtml((payload.tags || []).join(", ") || "-")}</dd></div>
+            <div><dt>Tags</dt><dd>${escapeHtml(formatReviewList(payload.tags))}</dd></div>
+            <div><dt>Visibility</dt><dd>${escapeHtml(visibilityLabel)}</dd></div>
+            <div><dt>Description</dt><dd>${escapeHtml(info.description || "-")}</dd></div>
           </dl>
         </article>
         <article class="pm-review-card">
-          <h3>Pricing & Inventory</h3>
+          <h3>Pricing</h3>
           <dl>
-            <div><dt>Selling Price</dt><dd>${escapeHtml(formatCurrency(payload.price))}</dd></div>
-            <div><dt>Discount Price</dt><dd>${payload.oldPrice ? escapeHtml(formatCurrency(payload.oldPrice)) : "-"}</dd></div>
-            <div><dt>Cost Price</dt><dd>${escapeHtml(formatCurrency(payload.costPrice))}</dd></div>
-            <div><dt>Tax</dt><dd>${escapeHtml(String(payload.taxRate || 0))}% ${payload.taxIncluded ? "(included)" : "(excluded)"}</dd></div>
-            <div><dt>Stock</dt><dd>${escapeHtml(String(payload.stock))}</dd></div>
+            <div><dt>Selling Price</dt><dd>${pricing.sellingPrice ? escapeHtml(formatCurrency(payload.price)) : "-"}</dd></div>
+            <div><dt>Discount Price</dt><dd>${pricing.discountPrice ? escapeHtml(formatCurrency(toNumber(pricing.discountPrice, 0))) : "-"}</dd></div>
+            <div><dt>Cost Price</dt><dd>${pricing.costPrice ? escapeHtml(formatCurrency(payload.costPrice)) : "-"}</dd></div>
+            <div><dt>Tax</dt><dd>${pricing.taxRate ? `${escapeHtml(String(payload.taxRate || 0))}% ${payload.taxIncluded ? "(included)" : "(excluded)"}` : "-"}</dd></div>
+          </dl>
+        </article>
+        <article class="pm-review-card">
+          <h3>Inventory & Variants</h3>
+          <dl>
+            <div><dt>Quantity</dt><dd>${escapeHtml(String(payload.stock))}</dd></div>
+            <div><dt>Stock Status</dt><dd>${escapeHtml(stockStatusLabel)}</dd></div>
+            <div><dt>Variants</dt><dd>${inventory.variantsEnabled ? "Enabled" : "Disabled"}</dd></div>
+            <div><dt>Sizes</dt><dd>${escapeHtml(formatReviewList(inventory.sizes))}</dd></div>
+            <div><dt>Colors</dt><dd>${escapeHtml(formatReviewColors(inventory.colors))}</dd></div>
           </dl>
         </article>
         <article class="pm-review-card">
           <h3>Media & SEO</h3>
           <dl>
             <div><dt>Main Image</dt><dd>${mainImageReady ? "Ready to upload" : "Missing"}</dd></div>
-            <div><dt>Gallery</dt><dd>${escapeHtml(String((payload.gallery || []).length))} image(s)</dd></div>
+            <div><dt>Gallery</dt><dd>${escapeHtml(String(galleryCount))} image(s)</dd></div>
             <div><dt>Meta Title</dt><dd>${escapeHtml(payload.metaTitle || "-")}</dd></div>
+            <div><dt>Meta Description</dt><dd>${escapeHtml(seo.metaDescription || "-")}</dd></div>
             <div><dt>Slug</dt><dd>${escapeHtml(payload.slug || "-")}</dd></div>
           </dl>
         </article>
       </div>
       ${reviewPreview ? `<img class="pm-review-image" src="${escapeHtml(reviewPreview)}" alt="Product preview" />` : ""}
+      ${galleryItems.length ? `
+        <div class="pm-review-gallery">
+          <h3>Gallery Preview</h3>
+          <div class="pm-gallery-grid">
+            ${galleryItems.map((item, index) => `
+              <figure class="pm-gallery-item">
+                <img src="${escapeHtml(item.url)}" alt="Gallery image ${index + 1}" loading="lazy" />
+              </figure>
+            `).join("")}
+          </div>
+        </div>
+      ` : ""}
     </div>
   `;
 }
@@ -421,51 +456,108 @@ function renderWizardMarkup(draft, currentStep) {
   `;
 }
 
-function collectDraftFromForm(form, draft) {
+function getGallerySelectionCount(draft) {
+  const savedCount = (draft?.media?.gallery || []).length;
+  return savedCount + pendingGalleryEntries.length;
+}
+
+function getReviewGalleryItems(draft) {
+  const saved = (draft?.media?.gallery || []).map((url) => ({ url, pending: false }));
+  const pending = pendingGalleryEntries.map((entry) => ({ url: entry.previewUrl, pending: true }));
+  return [...saved, ...pending];
+}
+
+function formatReviewList(values = [], fallback = "-") {
+  const items = (Array.isArray(values) ? values : [])
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean);
+  return items.length ? items.join(", ") : fallback;
+}
+
+function formatReviewColors(colors = []) {
+  const items = (Array.isArray(colors) ? colors : [])
+    .map((entry) => {
+      const name = String(entry?.name || "").trim();
+      const hex = String(entry?.hex || "").trim();
+      if (!name) {
+        return "";
+      }
+      return hex ? `${name} (${hex})` : name;
+    })
+    .filter(Boolean);
+  return items.length ? items.join(", ") : "-";
+}
+
+function collectDraftFromForm(form, draft, step = "") {
   const nextDraft = sanitizeDraft({ ...draft });
   const formData = new FormData(form);
+  const activeStep = String(step || "").trim().toLowerCase();
 
-  nextDraft.info = {
-    ...nextDraft.info,
-    name: String(formData.get("name") || nextDraft.info.name || ""),
-    category: String(formData.get("category") || nextDraft.info.category || "general"),
-    brand: String(formData.get("brand") || ""),
-    description: String(formData.get("description") || ""),
-    sku: String(formData.get("sku") || ""),
-    tags: String(formData.get("tags") || ""),
-    visibility: String(formData.get("visibility") || nextDraft.info.visibility || "both")
-  };
+  if (activeStep === "info") {
+    nextDraft.info = {
+      ...nextDraft.info,
+      name: String(formData.get("name") || nextDraft.info.name || ""),
+      category: String(formData.get("category") || nextDraft.info.category || "general"),
+      brand: String(formData.get("brand") ?? nextDraft.info.brand ?? ""),
+      description: String(formData.get("description") ?? nextDraft.info.description ?? ""),
+      sku: String(formData.get("sku") ?? nextDraft.info.sku ?? ""),
+      tags: String(formData.get("tags") ?? nextDraft.info.tags ?? ""),
+      visibility: String(formData.get("visibility") || nextDraft.info.visibility || "both")
+    };
+  }
 
-  nextDraft.pricing = {
-    costPrice: String(formData.get("costPrice") || ""),
-    sellingPrice: String(formData.get("sellingPrice") || ""),
-    discountPrice: String(formData.get("discountPrice") || ""),
-    taxRate: String(formData.get("taxRate") || ""),
-    taxIncluded: formData.get("taxIncluded") === "on"
-  };
+  if (activeStep === "pricing") {
+    nextDraft.pricing = {
+      ...nextDraft.pricing,
+      costPrice: String(formData.get("costPrice") ?? nextDraft.pricing.costPrice ?? ""),
+      sellingPrice: String(formData.get("sellingPrice") ?? nextDraft.pricing.sellingPrice ?? ""),
+      discountPrice: String(formData.get("discountPrice") ?? nextDraft.pricing.discountPrice ?? ""),
+      taxRate: String(formData.get("taxRate") ?? nextDraft.pricing.taxRate ?? ""),
+      taxIncluded: formData.get("taxIncluded") === "on"
+    };
+  }
 
-  nextDraft.inventory = {
-    ...nextDraft.inventory,
-    quantity: String(formData.get("quantity") ?? nextDraft.inventory.quantity ?? "0"),
-    stockStatus: String(formData.get("stockStatus") || nextDraft.inventory.stockStatus || "in_stock"),
-    variantsEnabled: formData.get("variantsEnabled") === "on",
-    sizes: formData.getAll("sizes").map((entry) => String(entry || "").trim()).filter(Boolean),
-    colors: Array.from(form.querySelectorAll("[data-color-index]")).map((row) => ({
-      name: String(row.querySelector('[name="colorName"]')?.value || "").trim(),
-      hex: String(row.querySelector('[name="colorHex"]')?.value || "#00b894").trim() || "#00b894"
-    })).filter((entry) => entry.name)
-  };
+  if (activeStep === "inventory") {
+    const variantsEnabled = formData.get("variantsEnabled") === "on";
+    const colorRows = Array.from(form.querySelectorAll("[data-color-index]"));
+    nextDraft.inventory = {
+      ...nextDraft.inventory,
+      quantity: String(formData.get("quantity") ?? nextDraft.inventory.quantity ?? "0"),
+      stockStatus: String(formData.get("stockStatus") || nextDraft.inventory.stockStatus || "in_stock"),
+      variantsEnabled,
+      sizes: variantsEnabled
+        ? Array.from(form.querySelectorAll('[name="sizes"]:checked'))
+            .map((entry) => String(entry.value || "").trim())
+            .filter(Boolean)
+        : [...(nextDraft.inventory.sizes || [])],
+      colors: variantsEnabled
+        ? colorRows.map((row, index) => ({
+            name: String(row.querySelector('[name="colorName"]')?.value || "").trim() || `Color ${index + 1}`,
+            hex: String(row.querySelector('[name="colorHex"]')?.value || "#00b894").trim() || "#00b894"
+          }))
+        : [...(nextDraft.inventory.colors || [])]
+    };
+  }
 
-  nextDraft.seo = {
-    metaTitle: String(formData.get("metaTitle") || nextDraft.info.name || ""),
-    metaDescription: String(formData.get("metaDescription") || nextDraft.info.description || ""),
-    slug: slugify(String(formData.get("slug") || nextDraft.info.name || ""))
-  };
+  if (activeStep === "seo") {
+    nextDraft.seo = {
+      ...nextDraft.seo,
+      metaTitle: String(formData.get("metaTitle") || nextDraft.seo.metaTitle || nextDraft.info.name || ""),
+      metaDescription: String(formData.get("metaDescription") ?? nextDraft.seo.metaDescription ?? nextDraft.info.description ?? ""),
+      slug: slugify(String(formData.get("slug") || nextDraft.seo.slug || nextDraft.info.name || ""))
+    };
+  }
 
   if (pendingMainFile || pendingMainPreviewUrl) {
     nextDraft.media.pendingMainFile = !nextDraft.media.mainImage;
   } else if (!nextDraft.media.mainImage) {
     nextDraft.media.pendingMainFile = false;
+  }
+
+  if (pendingGalleryEntries.length) {
+    nextDraft.media.pendingGalleryCount = pendingGalleryEntries.length;
+  } else {
+    nextDraft.media.pendingGalleryCount = 0;
   }
 
   return sanitizeDraft(nextDraft);
@@ -553,7 +645,7 @@ function mountWizard(container) {
       const targetIndex = getStepIndex(targetStep);
       const currentIndex = getStepIndex(currentStep);
       if (targetIndex <= currentIndex) {
-        activeDraft = collectDraftFromForm(form, activeDraft);
+        activeDraft = collectDraftFromForm(form, activeDraft, currentStep);
         writeDraft(activeDraft);
         goToStep(container, targetStep);
       }
@@ -565,13 +657,13 @@ function mountWizard(container) {
     if (index <= 0) {
       return;
     }
-    activeDraft = collectDraftFromForm(form, activeDraft);
+    activeDraft = collectDraftFromForm(form, activeDraft, currentStep);
     writeDraft(activeDraft);
     goToStep(container, WIZARD_STEPS[index - 1].id);
   });
 
   form.querySelector("[data-next-step]")?.addEventListener("click", () => {
-    activeDraft = collectDraftFromForm(form, activeDraft);
+    activeDraft = collectDraftFromForm(form, activeDraft, currentStep);
     const validationOptions = getMainImageValidationOptions(activeDraft);
     traceWizard("continue:collected-draft", {
       step: currentStep,
@@ -602,8 +694,12 @@ function mountWizard(container) {
   });
 
   form.querySelector("[data-add-color]")?.addEventListener("click", () => {
-    activeDraft = collectDraftFromForm(form, activeDraft);
-    activeDraft.inventory.colors = [...(activeDraft.inventory.colors || []), { name: "", hex: "#00b894" }];
+    activeDraft = collectDraftFromForm(form, activeDraft, currentStep);
+    const nextIndex = (activeDraft.inventory.colors || []).length + 1;
+    activeDraft.inventory.colors = [
+      ...(activeDraft.inventory.colors || []),
+      { name: `Color ${nextIndex}`, hex: "#00b894" }
+    ];
     writeDraft(activeDraft);
     rerenderWizard(container);
   });
@@ -611,7 +707,7 @@ function mountWizard(container) {
   form.querySelectorAll("[data-remove-color]").forEach((button) => {
     button.addEventListener("click", () => {
       const index = Number(button.getAttribute("data-remove-color"));
-      activeDraft = collectDraftFromForm(form, activeDraft);
+      activeDraft = collectDraftFromForm(form, activeDraft, currentStep);
       activeDraft.inventory.colors = (activeDraft.inventory.colors || []).filter((_entry, entryIndex) => entryIndex !== index);
       writeDraft(activeDraft);
       rerenderWizard(container);
@@ -630,7 +726,7 @@ function mountWizard(container) {
     }
 
     setPendingMainFile(file);
-    activeDraft = collectDraftFromForm(form, activeDraft);
+    activeDraft = collectDraftFromForm(form, activeDraft, currentStep);
     traceWizard("media:main-selected", {
       fileName: file?.name || "",
       fileSize: file?.size || 0,
@@ -645,7 +741,7 @@ function mountWizard(container) {
   form.querySelector("[data-remove-main]")?.addEventListener("click", (event) => {
     event.stopPropagation();
     setPendingMainFile(null);
-    activeDraft = collectDraftFromForm(form, activeDraft);
+    activeDraft = collectDraftFromForm(form, activeDraft, currentStep);
     activeDraft.media = removeMainImage(activeDraft);
     writeDraft(activeDraft);
     rerenderWizard(container);
@@ -666,7 +762,7 @@ function mountWizard(container) {
     }
 
     addPendingGalleryFiles(validFiles);
-    activeDraft = collectDraftFromForm(form, activeDraft);
+    activeDraft = collectDraftFromForm(form, activeDraft, currentStep);
     setFeedback("", "");
     writeDraft(activeDraft);
     rerenderWizard(container);
@@ -675,7 +771,7 @@ function mountWizard(container) {
   form.querySelectorAll("[data-remove-gallery]").forEach((button) => {
     button.addEventListener("click", () => {
       const removeKey = String(button.getAttribute("data-remove-gallery") || "");
-      activeDraft = collectDraftFromForm(form, activeDraft);
+      activeDraft = collectDraftFromForm(form, activeDraft, currentStep);
 
       if (removeKey.startsWith("pending:")) {
         const index = Number(removeKey.split(":")[1]);
@@ -700,7 +796,7 @@ function mountWizard(container) {
       return;
     }
 
-    activeDraft = collectDraftFromForm(form, activeDraft);
+    activeDraft = collectDraftFromForm(form, activeDraft, currentStep);
     const validationOptions = getMainImageValidationOptions(activeDraft);
     traceWizard("save:collected-draft", {
       pendingMainFile: Boolean(pendingMainFile),

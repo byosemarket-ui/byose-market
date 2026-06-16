@@ -68,7 +68,9 @@ export function createDefaultDraft() {
       mainImage: "",
       mainImageStoragePath: "",
       gallery: [],
-      galleryStoragePaths: []
+      galleryStoragePaths: [],
+      pendingMainFile: false,
+      pendingGalleryCount: 0
     },
     seo: {
       metaTitle: "",
@@ -97,12 +99,10 @@ export function sanitizeDraft(input) {
     : inferStockStatus(quantity);
 
   const colors = Array.isArray(inventory.colors)
-    ? inventory.colors
-        .map((entry) => ({
-          name: String(entry?.name || "").trim(),
-          hex: String(entry?.hex || "#00b894").trim() || "#00b894"
-        }))
-        .filter((entry) => entry.name)
+    ? inventory.colors.map((entry, index) => ({
+        name: String(entry?.name || "").trim() || `Color ${index + 1}`,
+        hex: String(entry?.hex || "#00b894").trim() || "#00b894"
+      }))
     : [];
 
   const sizes = Array.isArray(inventory.sizes)
@@ -153,7 +153,8 @@ export function sanitizeDraft(input) {
       mainImageStoragePath: normalizedMainStoragePath,
       gallery: galleryUrls,
       galleryStoragePaths: galleryStorage,
-      pendingMainFile: Boolean(media.pendingMainFile)
+      pendingMainFile: Boolean(media.pendingMainFile),
+      pendingGalleryCount: Math.max(0, Math.floor(Number(media.pendingGalleryCount || 0)))
     },
     seo: {
       metaTitle: String(seo.metaTitle || ""),
