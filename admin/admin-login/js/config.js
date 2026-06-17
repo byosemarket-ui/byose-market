@@ -1,14 +1,29 @@
 const ADMIN_API_BASE_URL_STORAGE_KEY = "adminApiBaseUrl";
 const ADMIN_VALIDATED_API_BASE_URL_STORAGE_KEY = "adminValidatedApiBaseUrl";
-const PRODUCTION_API_ORIGIN = "https://byosesemarket4.onrender.com";
+const PRODUCTION_API_ORIGIN = "https://byosemarket.com";
+const PRODUCTION_API_BASE_URL = "https://byosemarket.com/api";
+const LEGACY_API_PATTERN = /(?:onrender\.com|localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i;
 
 function normalizeBaseUrl(value) {
 	return String(value || "").trim().replace(/\/+$/, "");
 }
 
+function normalizeApiBaseUrl(value) {
+	const normalized = normalizeBaseUrl(value).replace(/\/admin$/i, "");
+	if (!normalized) {
+		return "";
+	}
+
+	return /\/api$/i.test(normalized) ? normalized : `${normalized}/api`;
+}
+
+function isLegacyApiBase(value) {
+	return LEGACY_API_PATTERN.test(normalizeApiBaseUrl(value));
+}
+
 function readStoredAdminApiBaseUrl() {
 	try {
-		return normalizeBaseUrl(globalThis.localStorage.getItem(ADMIN_API_BASE_URL_STORAGE_KEY) || "");
+		return normalizeApiBaseUrl(globalThis.localStorage.getItem(ADMIN_API_BASE_URL_STORAGE_KEY) || "");
 	} catch (_error) {
 		return "";
 	}
@@ -16,38 +31,31 @@ function readStoredAdminApiBaseUrl() {
 
 function readStoredValidatedAdminApiBaseUrl() {
 	try {
-		return normalizeBaseUrl(globalThis.localStorage.getItem(ADMIN_VALIDATED_API_BASE_URL_STORAGE_KEY) || "");
+		return normalizeApiBaseUrl(globalThis.localStorage.getItem(ADMIN_VALIDATED_API_BASE_URL_STORAGE_KEY) || "");
 	} catch (_error) {
 		return "";
 	}
 }
 
-function stripApiSuffix(value) {
-	return normalizeBaseUrl(value).replace(/\/api$/i, "");
-}
-
-function isLocalHost(hostname) {
-	return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0";
-}
-
 function resolveApiOrigin() {
-	const override = stripApiSuffix(
-		globalThis.BYOSE_API_BASE_URL
-		|| globalThis.__BYOSE_API_BASE__
-		|| readStoredValidatedAdminApiBaseUrl()
-		|| readStoredAdminApiBaseUrl()
-		|| ""
-	);
+	const candidates = [
+		globalThis.BYOSE_API_BASE_URL,
+		globalThis.__BYOSE_API_BASE__,
+		readStoredValidatedAdminApiBaseUrl(),
+		readStoredAdminApiBaseUrl()
+	];
 
-	if (override) {
-		return override;
+	for (const candidate of candidates) {
+		const normalized = normalizeApiBaseUrl(candidate);
+		if (normalized && !isLegacyApiBase(normalized)) {
+			return normalized.replace(/\/api$/i, "");
+		}
 	}
 
-	const protocol = String(globalThis.location?.protocol || "").toLowerCase();
-	const hostname = String(globalThis.location?.hostname || "").trim();
-
-	if (protocol === "file:" || isLocalHost(hostname)) {
-		return `http://${hostname || "localhost"}:5000`;
+	const hostname = String(globalThis.location?.hostname || "").trim().toLowerCase();
+	const origin = normalizeBaseUrl(globalThis.location?.origin || "");
+	if (origin && /byosemarket\.com$/i.test(hostname)) {
+		return origin;
 	}
 
 	return PRODUCTION_API_ORIGIN;

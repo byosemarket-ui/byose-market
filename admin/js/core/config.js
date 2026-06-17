@@ -1,8 +1,9 @@
-
 (function (global) {
 	"use strict";
 
-	const PRODUCTION_API_BASE_URL = "https://byosesemarket4.onrender.com/api";
+	const PRODUCTION_API_BASE_URL = "https://byosemarket.com/api";
+	const PRODUCTION_SITE_ORIGIN = "https://byosemarket.com";
+	const LEGACY_API_PATTERN = /(?:onrender\.com|localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i;
 	const ADMIN_API_BASE_URL_STORAGE_KEY = "adminApiBaseUrl";
 	const ADMIN_VALIDATED_API_BASE_URL_STORAGE_KEY = "adminValidatedApiBaseUrl";
 
@@ -13,6 +14,10 @@
 		}
 
 		return /\/api$/i.test(normalized) ? normalized : `${normalized}/api`;
+	}
+
+	function isLegacyApiBase(value) {
+		return LEGACY_API_PATTERN.test(normalizeApiBaseUrl(value));
 	}
 
 	function readStoredAdminApiBaseUrl() {
@@ -41,7 +46,14 @@
 		const validatedValue = readStoredValidatedAdminApiBaseUrl();
 		const storedValue = readStoredAdminApiBaseUrl();
 
-		return runtimeValue || securityValue || metaValue || validatedValue || storedValue;
+		const candidates = [runtimeValue, securityValue, metaValue, validatedValue, storedValue];
+		for (const candidate of candidates) {
+			if (candidate && !isLegacyApiBase(candidate)) {
+				return candidate;
+			}
+		}
+
+		return "";
 	}
 
 	function requiresExternalApiBaseUrl(protocol, hostname) {
@@ -51,21 +63,18 @@
 
 	function getDefaultApiBaseUrl() {
 		const protocol = String(global.location?.protocol || "").toLowerCase();
-		const hostname = String(global.location?.hostname || "").trim();
+		const hostname = String(global.location?.hostname || "").trim().toLowerCase();
 		const origin = String(global.location?.origin || "").trim().replace(/\/+$/, "");
-		const isLocalDevHost = /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|::1)$/.test(hostname)
-			|| /^(?:192\.168\.|10\.|172\.(?:1[6-9]|2\d|3[0-1])\.)/.test(hostname);
 
-		if (protocol === "file:" || isLocalDevHost) {
-			const host = hostname === "0.0.0.0" ? "localhost" : (hostname || "localhost");
-			return `http://${host}:5000/api`;
+		if ((protocol === "http:" || protocol === "https:") && origin && /byosemarket\.com$/i.test(hostname)) {
+			return `${origin}/api`;
 		}
 
 		if (requiresExternalApiBaseUrl(protocol, hostname)) {
 			return PRODUCTION_API_BASE_URL;
 		}
 
-		return origin ? `${origin}/api` : PRODUCTION_API_BASE_URL;
+		return PRODUCTION_API_BASE_URL;
 	}
 
 	const protocol = String(global.location?.protocol || "").toLowerCase();
@@ -79,7 +88,9 @@
 
 	function syncApiBaseConfig(overrideValue) {
 		const normalizedOverride = normalizeApiBaseUrl(overrideValue);
-		const resolvedApiBaseUrl = normalizedOverride || getDefaultApiBaseUrl();
+		const resolvedApiBaseUrl = (normalizedOverride && !isLegacyApiBase(normalizedOverride))
+			? normalizedOverride
+			: getDefaultApiBaseUrl();
 
 		apiConfigState.apiBaseUrl = resolvedApiBaseUrl;
 		apiConfigState.adminApiBaseUrl = resolvedApiBaseUrl ? `${resolvedApiBaseUrl.replace(/\/+$/, "")}/admin` : "";
@@ -119,6 +130,7 @@
 			syncApiBaseConfig("");
 		},
 		productionApiBaseUrl: PRODUCTION_API_BASE_URL,
+		productionSiteOrigin: PRODUCTION_SITE_ORIGIN,
 		siteRootPrefix: getSiteRootPrefix(),
 		storageKeys: {
 			orders: ["byose_orders", "orders"],

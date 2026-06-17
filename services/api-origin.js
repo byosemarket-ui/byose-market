@@ -1,11 +1,15 @@
-export const PRODUCTION_API_ORIGIN = "https://byosesemarket4.onrender.com";
-export const VPS_API_HOST = "153.75.227.160";
-export const DEFAULT_DEV_API_PORT = 5000;
+export const PRODUCTION_SITE_ORIGIN = "https://byosemarket.com";
+export const PRODUCTION_API_BASE_URL = "https://byosemarket.com/api";
+
+/** @deprecated Use PRODUCTION_SITE_ORIGIN */
+export const PRODUCTION_API_ORIGIN = PRODUCTION_SITE_ORIGIN;
 
 const STORAGE_KEYS = {
   adminApiBaseUrl: "adminApiBaseUrl",
   adminValidatedApiBaseUrl: "adminValidatedApiBaseUrl"
 };
+
+const LEGACY_API_HOST_PATTERN = /(?:onrender\.com|localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i;
 
 let activeApiBaseUrl = "";
 let ensureUploadApiBasePromise = null;
@@ -39,25 +43,18 @@ function readStorage(key) {
   }
 }
 
-export function isLocalDevHost(hostname) {
-  const host = String(hostname || "").trim().toLowerCase();
-  if (!host) {
-    return false;
-  }
-
-  if (host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0" || host === "::1") {
+export function isLegacyApiBase(value) {
+  const normalized = normalizeApiBaseUrl(value);
+  if (!normalized) {
     return true;
   }
 
-  return /^(?:192\.168\.|10\.|172\.(?:1[6-9]|2\d|3[0-1])\.)/.test(host);
+  return LEGACY_API_HOST_PATTERN.test(normalized);
 }
 
-function isLocalHost(hostname) {
-  return isLocalDevHost(hostname);
-}
-
-export function requiresExternalApiBaseUrl(hostname) {
-  return /(^|\.)github\.io$/i.test(String(hostname || "").trim().toLowerCase());
+export function isProductionApiBase(value) {
+  const normalized = normalizeApiBaseUrl(value);
+  return Boolean(normalized && /byosemarket\.com/i.test(normalized));
 }
 
 function resolveSameOriginApiBaseUrl() {
@@ -74,15 +71,13 @@ function resolveSameOriginApiBaseUrl() {
   return "";
 }
 
-export function buildDevApiBaseUrl(hostname = "localhost") {
-  const host = String(hostname || "localhost").trim() || "localhost";
-  const normalizedHost = host === "0.0.0.0" ? "localhost" : host;
-  return `http://${normalizedHost}:${DEFAULT_DEV_API_PORT}/api`;
+export function requiresExternalApiBaseUrl(hostname) {
+  return /(^|\.)github\.io$/i.test(String(hostname || "").trim().toLowerCase());
 }
 
 export function collectApiBaseCandidates() {
   if (typeof window === "undefined") {
-    return [];
+    return [PRODUCTION_API_BASE_URL];
   }
 
   const candidates = [];
@@ -90,7 +85,7 @@ export function collectApiBaseCandidates() {
 
   const addCandidate = (value) => {
     const normalized = normalizeApiBaseUrl(value);
-    if (!normalized || seen.has(normalized)) {
+    if (!normalized || seen.has(normalized) || isLegacyApiBase(normalized)) {
       return;
     }
 
@@ -103,34 +98,57 @@ export function collectApiBaseCandidates() {
   addCandidate(window.__BYOSE_API_BASE__);
   addCandidate(window.AdminSecurity?.getApiBaseUrl?.());
   addCandidate(window.AdminConfig?.apiBaseUrl);
-  addCandidate(readStorage(STORAGE_KEYS.adminValidatedApiBaseUrl));
-  addCandidate(readStorage(STORAGE_KEYS.adminApiBaseUrl));
 
-  const protocol = String(window.location?.protocol || "").toLowerCase();
-  const hostname = String(window.location?.hostname || "").trim();
+  const hostname = String(window.location?.hostname || "").trim().toLowerCase();
   const sameOriginApi = resolveSameOriginApiBaseUrl();
 
-  if (protocol === "file:" || isLocalDevHost(hostname)) {
-    addCandidate(buildDevApiBaseUrl(hostname));
-  }
-
-  if (sameOriginApi && !requiresExternalApiBaseUrl(hostname)) {
+  if (sameOriginApi && /byosemarket\.com$/i.test(hostname)) {
     addCandidate(sameOriginApi);
   }
 
-  if (hostname === VPS_API_HOST) {
-    addCandidate(sameOriginApi);
-    addCandidate(buildDevApiBaseUrl(VPS_API_HOST));
+  addCandidate(PRODUCTION_API_BASE_URL);
+
+  const storedValidated = readStorage(STORAGE_KEYS.adminValidatedApiBaseUrl);
+  const storedApi = readStorage(STORAGE_KEYS.adminApiBaseUrl);
+  if (isProductionApiBase(storedValidated)) {
+    addCandidate(storedValidated);
+  }
+  if (isProductionApiBase(storedApi)) {
+    addCandidate(storedApi);
   }
 
   if (requiresExternalApiBaseUrl(hostname)) {
-    addCandidate(`${PRODUCTION_API_ORIGIN}/api`);
+    addCandidate(PRODUCTION_API_BASE_URL);
   }
 
-  addCandidate(sameOriginApi);
-  addCandidate(`${PRODUCTION_API_ORIGIN}/api`);
+  return candidates.length ? candidates : [PRODUCTION_API_BASE_URL];
+}
 
-  return candidates;
+export function migrateLegacyStoredApiBase() {
+  if (typeof window === "undefined") {
+    return PRODUCTION_API_BASE_URL;
+  }
+
+  const targets = [
+    window.BYOSE_API_BASE_URL,
+    window.__BYOSE_API_BASE__,
+    readStorage(STORAGE_KEYS.adminValidatedApiBaseUrl),
+    readStorage(STORAGE_KEYS.adminApiBaseUrl)
+  ];
+
+  const needsMigration = targets.some((entry) => isLegacyApiBase(entry));
+  if (needsMigration || !isProductionApiBase(activeApiBaseUrl)) {
+    window.BYOSE_API_BASE_URL = PRODUCTION_API_BASE_URL;
+    return persistResolvedApiBaseUrl(PRODUCTION_API_BASE_URL);
+  }
+
+  const resolved = normalizeApiBaseUrl(
+    window.BYOSE_API_BASE_URL
+    || readStorage(STORAGE_KEYS.adminValidatedApiBaseUrl)
+    || PRODUCTION_API_BASE_URL
+  );
+  activeApiBaseUrl = resolved;
+  return resolved;
 }
 
 export async function probeUploadHealth(apiBase, options = {}) {
@@ -139,7 +157,7 @@ export async function probeUploadHealth(apiBase, options = {}) {
     return false;
   }
 
-  const timeoutMs = Math.max(1000, Number(options.timeoutMs || 8000));
+  const timeoutMs = Math.max(1000, Number(options.timeoutMs || 10000));
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timeoutId = controller
     ? window.setTimeout(() => controller.abort(), timeoutMs)
@@ -169,6 +187,8 @@ export async function probeUploadHealth(apiBase, options = {}) {
 }
 
 export async function ensureUploadCapableApiBaseUrl(options = {}) {
+  migrateLegacyStoredApiBase();
+
   if (!ensureUploadApiBasePromise || options.force) {
     ensureUploadApiBasePromise = (async () => {
       const candidates = collectApiBaseCandidates();
@@ -190,7 +210,7 @@ export async function ensureUploadCapableApiBaseUrl(options = {}) {
 
       const attempted = failures.slice(0, 4).join(", ") || "none";
       throw new Error(
-        `Product image upload API is unavailable. POST /api/uploads/products returned 404 or the backend is offline. Start the API with "npm start" and verify GET /api/uploads/health succeeds. Attempted API bases: ${attempted}`
+        `Product image upload API is unavailable on production. Verify ${PRODUCTION_API_BASE_URL}/uploads/health is reachable. Attempted API bases: ${attempted}`
       );
     })();
   }
@@ -204,19 +224,17 @@ export async function ensureUploadCapableApiBaseUrl(options = {}) {
 }
 
 export function resolveApiBaseUrl() {
-  if (activeApiBaseUrl) {
-    return activeApiBaseUrl;
-  }
+  migrateLegacyStoredApiBase();
 
-  if (typeof window === "undefined") {
-    return "";
+  if (activeApiBaseUrl && isProductionApiBase(activeApiBaseUrl)) {
+    return activeApiBaseUrl;
   }
 
   for (const candidate of collectApiBaseCandidates()) {
     return candidate;
   }
 
-  return `${PRODUCTION_API_ORIGIN}/api`;
+  return PRODUCTION_API_BASE_URL;
 }
 
 export function resolveApiOrigin() {
@@ -245,10 +263,9 @@ export function persistResolvedApiBaseUrl(value) {
     return "";
   }
 
-  const normalized = normalizeApiBaseUrl(value);
-  if (!normalized) {
-    return "";
-  }
+  const normalized = isLegacyApiBase(value)
+    ? PRODUCTION_API_BASE_URL
+    : normalizeApiBaseUrl(value) || PRODUCTION_API_BASE_URL;
 
   activeApiBaseUrl = normalized;
 
@@ -263,15 +280,22 @@ export function persistResolvedApiBaseUrl(value) {
     window.AdminConfig.setApiBaseUrl(normalized);
   }
 
+  window.BYOSE_API_BASE_URL = normalized;
+
   return normalized;
 }
 
 export default {
+  PRODUCTION_SITE_ORIGIN,
+  PRODUCTION_API_BASE_URL,
   PRODUCTION_API_ORIGIN,
   buildApiUrl,
   buildUploadUrl,
   collectApiBaseCandidates,
   ensureUploadCapableApiBaseUrl,
+  isLegacyApiBase,
+  isProductionApiBase,
+  migrateLegacyStoredApiBase,
   normalizeApiBaseUrl,
   persistResolvedApiBaseUrl,
   probeUploadHealth,

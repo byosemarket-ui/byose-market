@@ -1,4 +1,5 @@
 import { getProducts } from "../../services/admin-data.service.js";
+import { migrateLegacyStoredApiBase } from "../../../../services/api-origin.js";
 import { readDraft, hydrateDraftFromProduct, writeDraft } from "./draft.js";
 import { renderProductListMarkup, mountProductList } from "./list.js";
 import { mountProductWizard } from "./wizard.js";
@@ -22,6 +23,8 @@ export async function renderProducts(container, context = {}) {
   }
 
   if (getProductsView() === "create") {
+    migrateLegacyStoredApiBase();
+
     let draft = readDraft();
     const routeProductId = getRouteProductId(draft.productId || draft.savedProductId);
 

@@ -1,5 +1,7 @@
 import { DETAIL_PAGE_PATH } from "./constants.js";
 
+const PRODUCTION_SITE_ORIGIN = "https://byosemarket.com";
+
 export function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -110,12 +112,16 @@ export function normalizeAssetUrl(value) {
     return "";
   }
 
-  if (/^(?:https?:|blob:|data:|\/)/i.test(normalized)) {
+  if (/^(?:https?:|blob:|data:)/i.test(normalized)) {
     return normalized;
   }
 
+  if (normalized.startsWith("/uploads/") || normalized.startsWith("/")) {
+    return `${PRODUCTION_SITE_ORIGIN}${normalized.startsWith("/") ? normalized : `/${normalized}`}`;
+  }
+
   if (/^(?:products|categories|users|reviews|temp)\//i.test(normalized)) {
-    return `/uploads/${normalized.replace(/^\/+/, "")}`;
+    return `${PRODUCTION_SITE_ORIGIN}/uploads/${normalized.replace(/^\/+/, "")}`;
   }
 
   return normalized;
@@ -148,7 +154,7 @@ export function isPersistableAssetUrl(value) {
     return false;
   }
 
-  return /^(?:https?:|\/|products\/|categories\/|users\/|reviews\/|temp\/)/i.test(normalized);
+  return /^(?:https?:|products\/|categories\/|users\/|reviews\/|temp\/)/i.test(normalized);
 }
 
 export const ALLOWED_IMAGE_MIME_TYPES = [

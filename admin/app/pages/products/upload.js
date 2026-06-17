@@ -1,3 +1,4 @@
+import { migrateLegacyStoredApiBase } from "../../../../services/api-origin.js";
 import { uploadProductGallery, uploadWithRetry, removeStoredAssets } from "../../../../services/uploadService.js";
 import {
   isBlobUrl,
@@ -42,6 +43,8 @@ export async function uploadGalleryFiles(files = [], onProgress) {
 }
 
 export async function resolveDraftMedia(draft, pendingMainFile, pendingGalleryFiles = [], onProgress) {
+  migrateLegacyStoredApiBase();
+
   console.debug("[ProductWizard:upload] resolve-start", {
     hasPendingMainFile: Boolean(pendingMainFile),
     pendingGalleryCount: pendingGalleryFiles.length,

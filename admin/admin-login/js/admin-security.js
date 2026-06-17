@@ -107,44 +107,43 @@
     return normalized;
   }
 
+  function isLegacyApiBase(value) {
+    return LEGACY_API_PATTERN.test(normalizeApiBaseUrl(value));
+  }
+
   function requiresExternalApiBaseUrl(protocol, hostname) {
     return (protocol === "http:" || protocol === "https:")
-      && /(^|\.)(github\.io|byosemarket\.com|www\.byosemarket\.com)$/i.test(String(hostname || ""));
+      && /(^|\.)github\.io$/i.test(String(hostname || ""));
   }
 
   function resolveApiBaseUrl() {
     var override = normalizeApiBaseUrl(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || "");
-    if (override) {
+    if (override && !isLegacyApiBase(override)) {
       return override;
     }
 
     var validatedApiBaseUrl = readValidatedApiBaseUrl();
-    if (validatedApiBaseUrl) {
+    if (validatedApiBaseUrl && !isLegacyApiBase(validatedApiBaseUrl)) {
       return validatedApiBaseUrl;
     }
 
     var persistedApiBaseUrl = normalizeApiBaseUrl(safeStorageGet(ADMIN_API_BASE_URL_KEY));
-    if (persistedApiBaseUrl) {
+    if (persistedApiBaseUrl && !isLegacyApiBase(persistedApiBaseUrl)) {
       return persistedApiBaseUrl;
     }
 
     if (window.AdminConfig && window.AdminConfig.apiBaseUrl) {
-      return normalizeApiBaseUrl(window.AdminConfig.apiBaseUrl);
+      var configuredApiBaseUrl = normalizeApiBaseUrl(window.AdminConfig.apiBaseUrl);
+      if (configuredApiBaseUrl && !isLegacyApiBase(configuredApiBaseUrl)) {
+        return configuredApiBaseUrl;
+      }
     }
 
     var protocol = String(window.location.protocol || "").toLowerCase();
-    var hostname = String(window.location.hostname || "").trim();
+    var hostname = String(window.location.hostname || "").trim().toLowerCase();
     var origin = normalizeBaseUrl(window.location.origin || "");
 
-    if (protocol === "file:") {
-      return "http://localhost:5000/api";
-    }
-
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0") {
-      return "http://" + (hostname || "localhost") + ":5000/api";
-    }
-
-    if ((protocol === "http:" || protocol === "https:") && origin && !requiresExternalApiBaseUrl(protocol, hostname)) {
+    if ((protocol === "http:" || protocol === "https:") && origin && /byosemarket\.com$/i.test(hostname)) {
       return origin + "/api";
     }
 
@@ -152,7 +151,7 @@
       return PRODUCTION_API_BASE_URL;
     }
 
-    return origin ? origin + "/api" : PRODUCTION_API_BASE_URL;
+    return PRODUCTION_API_BASE_URL;
   }
 
   function getAdminSessionUrl() {
