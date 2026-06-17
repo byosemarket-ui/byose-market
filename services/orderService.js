@@ -19,23 +19,21 @@ function resolveApiOrigin() {
     return "";
   }
 
+  const PRODUCTION_SITE_ORIGIN = "https://byosemarket.com";
+  const LEGACY_API_PATTERN = /(?:onrender\.com|localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i;
+
   const explicit = normalizeBase(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || window.AdminConfig?.apiBaseUrl || "");
-  if (explicit) {
-    return explicit;
+  if (explicit && !LEGACY_API_PATTERN.test(explicit)) {
+    return explicit.replace(/\/api$/i, "");
   }
 
-  const protocol = String(window.location?.protocol || "").toLowerCase();
-  const hostname = String(window.location?.hostname || "").trim();
-
-  if (protocol === "file:" || isLocalHost(hostname)) {
-    return `http://${hostname || "localhost"}:5000`;
+  const hostname = String(window.location?.hostname || "").trim().toLowerCase();
+  const origin = normalizeBase(window.location?.origin || "");
+  if (origin && /byosemarket\.com$/i.test(hostname)) {
+    return origin;
   }
 
-  if (shouldUseProductionApi(hostname)) {
-    return "https://byosesemarket4.onrender.com";
-  }
-
-  return normalizeBase(window.location?.origin || "");
+  return PRODUCTION_SITE_ORIGIN;
 }
 
 function buildApiUrl(path) {

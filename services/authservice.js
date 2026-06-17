@@ -6,7 +6,8 @@ const authService = (function () {
     const LOGGED_KEY = 'bm_logged_in';
     const SESSION_KEY = 'byose_market_session';
     const USER_EVENT = 'userUpdated';
-    const PRODUCTION_API_ORIGIN = 'https://byosesemarket4.onrender.com';
+    const PRODUCTION_API_ORIGIN = 'https://byosemarket.com';
+    const LEGACY_API_PATTERN = /(?:onrender\.com|localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i;
 
     function normalizeBase(value) {
         return String(value || '').trim().replace(/\/+$/, '');
@@ -22,22 +23,17 @@ const authService = (function () {
 
     function resolveApiOrigin() {
         const runtimeOverride = normalizeBase(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || '');
-        if (runtimeOverride) {
-            return runtimeOverride;
+        if (runtimeOverride && !LEGACY_API_PATTERN.test(runtimeOverride)) {
+            return runtimeOverride.replace(/\/api$/i, '');
         }
 
-        const protocol = String(window.location?.protocol || '').toLowerCase();
-        const hostname = String(window.location?.hostname || '').trim();
-
-        if (protocol === 'file:' || isLocalHost(hostname)) {
-            return `http://${hostname || 'localhost'}:5000`;
+        const hostname = String(window.location?.hostname || '').trim().toLowerCase();
+        const origin = normalizeBase(window.location?.origin || '');
+        if (origin && /byosemarket\.com$/i.test(hostname)) {
+            return origin;
         }
 
-        if (shouldUseProductionApi(hostname)) {
-            return PRODUCTION_API_ORIGIN;
-        }
-
-        return normalizeBase(window.location?.origin || '');
+        return PRODUCTION_API_ORIGIN;
     }
 
     const API_BASE = `${resolveApiOrigin()}/api/auth`;

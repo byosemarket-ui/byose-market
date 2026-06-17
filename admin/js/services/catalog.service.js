@@ -159,29 +159,39 @@
 	}
 
 	function getApiBaseUrl() {
-		const explicit = String(global.BYOSE_API_BASE_URL || global.__BYOSE_API_BASE__ || "").trim().replace(/\/+$/, "");
-		if (explicit) {
-			return explicit.endsWith("/api") ? explicit : `${explicit}/api`;
+		const PRODUCTION_API_BASE_URL = "https://byosemarket.com/api";
+		const LEGACY_API_PATTERN = /(?:onrender\.com|localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i;
+
+		function normalizeCandidate(value) {
+			const normalized = String(value || "").trim().replace(/\/+$/, "").replace(/\/admin$/i, "");
+			if (!normalized) {
+				return "";
+			}
+
+			return /\/api$/i.test(normalized) ? normalized : `${normalized}/api`;
 		}
 
-		const configured = String(global.AdminConfig?.apiBaseUrl || "").trim().replace(/\/+$/, "");
-		if (configured) {
-			return configured;
+		const candidates = [
+			global.BYOSE_API_BASE_URL,
+			global.__BYOSE_API_BASE__,
+			global.AdminSecurity?.getApiBaseUrl?.(),
+			global.AdminConfig?.apiBaseUrl
+		];
+
+		for (const candidate of candidates) {
+			const normalized = normalizeCandidate(candidate);
+			if (normalized && !LEGACY_API_PATTERN.test(normalized)) {
+				return normalized;
+			}
 		}
 
-		const protocol = String(global.location?.protocol || "").toLowerCase();
-		const origin = String(global.location?.origin || "").trim().replace(/\/+$/, "");
 		const hostname = String(global.location?.hostname || "").trim().toLowerCase();
-
-		if (protocol === "file:" || hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0") {
-			return `http://${hostname || "localhost"}:5000/api`;
+		const origin = String(global.location?.origin || "").trim().replace(/\/+$/, "");
+		if (origin && /byosemarket\.com$/i.test(hostname)) {
+			return `${origin}/api`;
 		}
 
-		if (/(^|\.)github\.io$/i.test(hostname)) {
-			return "https://byosesemarket4.onrender.com/api";
-		}
-
-		return origin ? `${origin}/api` : "/api";
+		return PRODUCTION_API_BASE_URL;
 	}
 
 	function getProductsApiUrl(pathSuffix) {

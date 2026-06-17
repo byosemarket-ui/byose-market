@@ -37,7 +37,37 @@ function readStoredValidatedAdminApiBaseUrl() {
 	}
 }
 
-function resolveApiOrigin() {
+function resolveApiBaseUrlFromEnvironment() {
+	const hostname = String(globalThis.location?.hostname || "").trim().toLowerCase();
+	const origin = normalizeBaseUrl(globalThis.location?.origin || "");
+	if (origin && /byosemarket\.com$/i.test(hostname)) {
+		return `${origin}/api`;
+	}
+
+	return PRODUCTION_API_BASE_URL;
+}
+
+function migrateLegacyStoredApiBase() {
+	const expectedApiBase = resolveApiBaseUrlFromEnvironment();
+
+	[ADMIN_API_BASE_URL_STORAGE_KEY, ADMIN_VALIDATED_API_BASE_URL_STORAGE_KEY].forEach((key) => {
+		try {
+			const stored = normalizeApiBaseUrl(globalThis.localStorage.getItem(key));
+			if (!stored || isLegacyApiBase(stored)) {
+				globalThis.localStorage.setItem(key, expectedApiBase);
+			}
+		} catch (_error) {
+			// Ignore storage failures.
+		}
+	});
+
+	const runtimeOverride = normalizeApiBaseUrl(globalThis.BYOSE_API_BASE_URL || globalThis.__BYOSE_API_BASE__ || "");
+	if (!runtimeOverride || isLegacyApiBase(runtimeOverride)) {
+		globalThis.BYOSE_API_BASE_URL = expectedApiBase;
+	}
+}
+
+function resolveApiBaseUrl() {
 	const candidates = [
 		globalThis.BYOSE_API_BASE_URL,
 		globalThis.__BYOSE_API_BASE__,
@@ -48,19 +78,16 @@ function resolveApiOrigin() {
 	for (const candidate of candidates) {
 		const normalized = normalizeApiBaseUrl(candidate);
 		if (normalized && !isLegacyApiBase(normalized)) {
-			return normalized.replace(/\/api$/i, "");
+			return normalized;
 		}
 	}
 
-	const hostname = String(globalThis.location?.hostname || "").trim().toLowerCase();
-	const origin = normalizeBaseUrl(globalThis.location?.origin || "");
-	if (origin && /byosemarket\.com$/i.test(hostname)) {
-		return origin;
-	}
-
-	return PRODUCTION_API_ORIGIN;
+	return resolveApiBaseUrlFromEnvironment();
 }
 
-const API_BASE_URL = resolveApiOrigin();
+migrateLegacyStoredApiBase();
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 export default API_BASE_URL;
+export { PRODUCTION_API_BASE_URL };

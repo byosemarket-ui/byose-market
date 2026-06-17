@@ -11,7 +11,8 @@
   var DEFAULT_SESSION_MS = 8 * 60 * 60 * 1000;
   var SESSION_VALIDATION_GRACE_MS = 2 * 60 * 1000;
   var SESSION_VALIDATION_TIMEOUT_MS = 10000;
-  var PRODUCTION_API_BASE_URL = "https://byosesemarket4.onrender.com/api";
+  var PRODUCTION_API_BASE_URL = "https://byosemarket.com/api";
+  var LEGACY_API_PATTERN = /(?:onrender\.com|localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i;
   var validationPromise = null;
 
   function safeStorageGet(key) {
@@ -98,13 +99,53 @@
 
   function persistResolvedApiBaseUrl(value) {
     var normalized = normalizeApiBaseUrl(value);
-    if (!normalized) {
-      return "";
+    if (!normalized || isLegacyApiBase(normalized)) {
+      normalized = PRODUCTION_API_BASE_URL;
     }
 
     safeStorageSet(ADMIN_API_BASE_URL_KEY, normalized);
     safeStorageSet(ADMIN_VALIDATED_API_BASE_URL_KEY, normalized);
+    window.BYOSE_API_BASE_URL = normalized;
     return normalized;
+  }
+
+  function migrateLegacyStoredApiBase() {
+    var expectedApiBase = resolveApiBaseUrlFromEnvironment();
+
+    [ADMIN_API_BASE_URL_KEY, ADMIN_VALIDATED_API_BASE_URL_KEY].forEach(function (key) {
+      var stored = normalizeApiBaseUrl(safeStorageGet(key));
+      if (!stored || isLegacyApiBase(stored)) {
+        safeStorageSet(key, expectedApiBase);
+      }
+    });
+
+    var runtimeOverride = normalizeApiBaseUrl(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || "");
+    if (!runtimeOverride || isLegacyApiBase(runtimeOverride)) {
+      window.BYOSE_API_BASE_URL = expectedApiBase;
+    }
+  }
+
+  function bootstrapVpsApiBaseEarly() {
+    if (window.__BYOSE_ADMIN_API_BOOTSTRAPPED__) {
+      return;
+    }
+
+    window.__BYOSE_ADMIN_API_BOOTSTRAPPED__ = true;
+    migrateLegacyStoredApiBase();
+  }
+
+  bootstrapVpsApiBaseEarly();
+
+  function resolveApiBaseUrlFromEnvironment() {
+    var protocol = String(window.location.protocol || "").toLowerCase();
+    var hostname = String(window.location.hostname || "").trim().toLowerCase();
+    var origin = normalizeBaseUrl(window.location.origin || "");
+
+    if ((protocol === "http:" || protocol === "https:") && origin && /byosemarket\.com$/i.test(hostname)) {
+      return origin + "/api";
+    }
+
+    return PRODUCTION_API_BASE_URL;
   }
 
   function isLegacyApiBase(value) {
@@ -139,19 +180,7 @@
       }
     }
 
-    var protocol = String(window.location.protocol || "").toLowerCase();
-    var hostname = String(window.location.hostname || "").trim().toLowerCase();
-    var origin = normalizeBaseUrl(window.location.origin || "");
-
-    if ((protocol === "http:" || protocol === "https:") && origin && /byosemarket\.com$/i.test(hostname)) {
-      return origin + "/api";
-    }
-
-    if (requiresExternalApiBaseUrl(protocol, hostname)) {
-      return PRODUCTION_API_BASE_URL;
-    }
-
-    return PRODUCTION_API_BASE_URL;
+    return resolveApiBaseUrlFromEnvironment();
   }
 
   function getAdminSessionUrl() {
@@ -164,7 +193,7 @@
 
     function addCandidate(value) {
       var normalized = normalizeApiBaseUrl(value);
-      if (!normalized || seen[normalized]) {
+      if (!normalized || seen[normalized] || isLegacyApiBase(normalized)) {
         return;
       }
 
@@ -172,6 +201,7 @@
       candidates.push(normalized);
     }
 
+    addCandidate(PRODUCTION_API_BASE_URL);
     addCandidate(preferredApiBaseUrl);
     addCandidate(readValidatedApiBaseUrl());
     addCandidate(safeStorageGet(ADMIN_API_BASE_URL_KEY));

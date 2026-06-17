@@ -22,8 +22,7 @@ const PRODUCTION_CORS_ORIGINS = [
   "https://www.byosemarket.com",
   "http://153.75.227.160",
   "https://153.75.227.160",
-  "http://153.75.227.160:5000",
-  LEGACY_RENDER_ORIGIN
+  "http://153.75.227.160:5000"
 ];
 
 module.exports = {

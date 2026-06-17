@@ -1,6 +1,6 @@
 import API_BASE_URL from "./js/config.js";
 
-const API_URL = `${API_BASE_URL}/api/admin/login`;
+const API_URL = `${API_BASE_URL}/admin/login`;
 const LOGIN_REQUEST_TIMEOUT_MS = 45000;
 const LOGIN_SLOW_NOTICE_MS = 8000;
 
@@ -19,7 +19,7 @@ function persistAdminSession(payload) {
   }
 
   return window.AdminSecurity.persistSession(payload, {
-    apiBaseUrl: `${API_BASE_URL}/api`,
+    apiBaseUrl: API_BASE_URL,
     loginEmail: String(payload?.admin?.email || emailInput.value.trim() || "")
   });
 }
@@ -31,7 +31,7 @@ async function validateSessionAfterLogin() {
 
   return window.AdminSecurity.validateSession(true, {
     source: "login-submit",
-    preferredApiBaseUrl: `${API_BASE_URL}/api`
+    preferredApiBaseUrl: API_BASE_URL
   });
 }
 
@@ -75,7 +75,7 @@ form.addEventListener("submit", async (e) => {
     const requestController = new AbortController();
     const timeoutId = window.setTimeout(() => requestController.abort(), LOGIN_REQUEST_TIMEOUT_MS);
     const slowNoticeId = window.setTimeout(() => {
-      showMessage("Contacting the admin server. Production wake-up can take a little longer.", "info");
+      showMessage("Contacting the admin server. This may take a moment.", "info");
     }, LOGIN_SLOW_NOTICE_MS);
 
     res = await fetch(API_URL, {
@@ -187,7 +187,7 @@ function getNetworkErrorMessage(error) {
   const detail = String(error && error.message ? error.message : "").toLowerCase();
 
   if (String(error?.name || "") === "AbortError") {
-    return "The admin server took too long to respond. It may be waking up; please try again.";
+    return "The admin server took too long to respond. Please try again.";
   }
 
   if (detail.includes("failed to fetch") || detail.includes("networkerror") || detail.includes("load failed")) {
