@@ -49,15 +49,15 @@ verify_health_endpoint() {
   local body_file http_code
 
   body_file="$(mktemp)"
-  trap 'rm -f "${body_file}"' RETURN
 
   http_code="$(curl -sS -o "${body_file}" -w "%{http_code}" --max-time 10 "${url}" || printf '000')"
   if [[ "${http_code}" != "200" ]]; then
     log "Health probe failed for ${url} (HTTP ${http_code})."
+    rm -f "${body_file}"
     return 1
   fi
 
-  node -e "
+  if node -e "
     const fs = require('fs');
     const file = process.argv[1];
     const raw = fs.readFileSync(file, 'utf8').trim();
@@ -67,10 +67,14 @@ verify_health_endpoint() {
       process.exit(1);
     }
     process.stdout.write(String(payload.status));
-  " "${body_file}" >/dev/null
+  " "${body_file}" >/dev/null; then
+    rm -f "${body_file}"
+    log "Health probe passed for ${url} (HTTP 200, valid JSON)."
+    return 0
+  fi
 
-  log "Health probe passed for ${url} (HTTP 200, valid JSON)."
-  return 0
+  rm -f "${body_file}"
+  return 1
 }
 
 wait_for_healthy_api() {
