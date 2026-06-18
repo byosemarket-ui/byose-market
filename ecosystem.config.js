@@ -1,11 +1,23 @@
-const { VPS, LEGACY_RENDER_ORIGIN, PRODUCTION_CORS_ORIGINS } = require('./config/production-targets');
+const path = require('path');
+const dotenv = require('dotenv');
+const { PRODUCTION_CORS_ORIGINS, PRODUCTION_SITE_ORIGIN, PRODUCTION_API_BASE_URL } = require('./config/production-targets');
+
+const projectRoot = __dirname;
+const deployRoot = process.env.DEPLOY_ROOT || projectRoot;
+
+dotenv.config({ path: path.join(projectRoot, '.env') });
+
+function readEnv(name, fallback = '') {
+  const value = String(process.env[name] || '').trim();
+  return value || fallback;
+}
 
 module.exports = {
     apps: [
         {
-            name: process.env.PM2_APP_NAME || 'byosemarket-api',
+            name: readEnv('PM2_APP_NAME', 'byosemarket-api'),
             script: 'server/server.js',
-            cwd: __dirname,
+            cwd: projectRoot,
             instances: 1,
             exec_mode: 'fork',
             watch: false,
@@ -23,18 +35,22 @@ module.exports = {
             },
             env_production: {
                 NODE_ENV: 'production',
-                HOST: '0.0.0.0',
-                PORT: VPS.apiPort,
-                DB_CLIENT: process.env.DB_CLIENT || 'sqlite',
-                SQLITE_DB_PATH: VPS.sqlitePath,
-                SQLITE_MIGRATIONS_DIR: `${VPS.deployRoot}/server/database/sqlite/migrations`,
-                UPLOADS_DIR: VPS.uploadsRoot,
-                STORAGE_ROOT: VPS.uploadsRoot,
-                UPLOADS_PUBLIC_PATH: VPS.publicUploadsPath,
-                APP_BASE_URL: process.env.APP_BASE_URL || `http://${VPS.host}`,
-                API_BASE_URL: process.env.API_BASE_URL || `http://${VPS.host}/api`,
-                CORS_ORIGINS: process.env.CORS_ORIGINS || PRODUCTION_CORS_ORIGINS.join(','),
-                TRUST_PROXY: 1
+                HOST: readEnv('HOST', '0.0.0.0'),
+                PORT: Number(readEnv('PORT', '5000')) || 5000,
+                DB_CLIENT: readEnv('DB_CLIENT', 'sqlite'),
+                SQLITE_DB_PATH: path.join(deployRoot, 'server/database/byosemarket.sqlite'),
+                SQLITE_MIGRATIONS_DIR: path.join(deployRoot, 'server/database/sqlite/migrations'),
+                UPLOADS_DIR: path.join(deployRoot, 'server/uploads'),
+                STORAGE_ROOT: path.join(deployRoot, 'server/uploads'),
+                UPLOADS_PUBLIC_PATH: readEnv('UPLOADS_PUBLIC_PATH', '/uploads'),
+                APP_BASE_URL: readEnv('APP_BASE_URL', PRODUCTION_SITE_ORIGIN),
+                API_BASE_URL: readEnv('API_BASE_URL', PRODUCTION_API_BASE_URL),
+                CORS_ORIGINS: readEnv('CORS_ORIGINS', PRODUCTION_CORS_ORIGINS.join(',')),
+                TRUST_PROXY: Number(readEnv('TRUST_PROXY', '1')) || 1,
+                ADMIN_EMAIL: readEnv('ADMIN_EMAIL'),
+                ADMIN_PASSWORD_HASH: readEnv('ADMIN_PASSWORD_HASH'),
+                JWT_SECRET: readEnv('JWT_SECRET'),
+                JWT_EXPIRES_IN: readEnv('JWT_EXPIRES_IN', '7d')
             }
         }
     ]

@@ -2,7 +2,7 @@ const path = require('path');
 const dotenv = require('dotenv');
 const paths = require('./paths');
 
-dotenv.config();
+dotenv.config({ path: path.resolve(paths.projectRoot, '.env') });
 dotenv.config({ path: path.resolve(paths.projectRoot, 'backend/.env') });
 
 function readText(value, fallback = '') {
@@ -85,5 +85,11 @@ module.exports = {
     storageRoot,
     pm2: {
         appName: readText(process.env.PM2_APP_NAME, 'byosemarket-api')
+    },
+    auth: {
+        adminEmail: readText(process.env.ADMIN_EMAIL),
+        adminPasswordHash: readText(process.env.ADMIN_PASSWORD_HASH),
+        jwtSecret: readText(process.env.JWT_SECRET),
+        jwtExpiresIn: readText(process.env.JWT_EXPIRES_IN, '7d')
     }
 };

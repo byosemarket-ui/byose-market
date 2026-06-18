@@ -135,6 +135,10 @@ fi
 log "Installing production dependencies (npm ci --omit=dev)..."
 npm ci --omit=dev
 
+log "Ensuring production environment and admin auth configuration..."
+node scripts/ensure-production-env.js
+node scripts/verify-admin-auth-config.js
+
 log "Ensuring PM2 log directory exists..."
 mkdir -p logs
 
