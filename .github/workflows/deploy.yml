@@ -1,0 +1,116 @@
+# =============================================================================
+# Byose Market — Production VPS Deployment
+# =============================================================================
+# Triggers on every push to main, connects to the production VPS over SSH,
+# pulls the latest code, installs dependencies, reloads PM2, and verifies health.
+#
+# Required GitHub repository secrets:
+#   VPS_HOST    - VPS public IP or hostname (e.g. 153.75.227.160)
+#   VPS_USER    - SSH user (e.g. root)
+#   VPS_PORT    - SSH port (e.g. 22; required — use 22 if standard)
+#   VPS_SSH_KEY - Private SSH key (PEM) with access to the VPS
+#
+# VPS prerequisites (one-time setup):
+#   1. Clone this repo to /root/BYOSESEMARKET4
+#   2. Configure /root/BYOSESEMARKET4/.env for production
+#   3. Install Node.js, npm, PM2, and git on the VPS
+#   4. Run: npm ci && npm run pm2:start
+#   5. Add the GitHub Actions deploy public key to ~/.ssh/authorized_keys
+# =============================================================================
+
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+  # Allows manual redeploy from the GitHub Actions tab without a new commit.
+  workflow_dispatch:
+
+# Prevent overlapping production deploys; queue new runs instead of cancelling.
+concurrency:
+  group: production-vps-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy main to production VPS
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # -----------------------------------------------------------------------
+      # Step 1: Checkout is not required for SSH deploy, but keeps the job
+      # auditable and allows future pre-deploy checks from the repo if needed.
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # Step 2: Deploy over SSH using repository secrets.
+      # The remote script fetches origin/main, installs deps, reloads PM2,
+      # and verifies /healthz before reporting success.
+      # -----------------------------------------------------------------------
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          command_timeout: 15m
+          script_stop: true
+          script: |
+            set -euo pipefail
+            export DEPLOY_DIR="/root/BYOSESEMARKET4"
+            export DEPLOY_BRANCH="main"
+            cd "${DEPLOY_DIR}"
+            # Pull latest code before running the versioned deploy script so the
+            # first workflow run succeeds even when deploy-vps.sh is newly added.
+            git fetch origin "${DEPLOY_BRANCH}"
+            git reset --hard "origin/${DEPLOY_BRANCH}"
+            chmod +x scripts/deploy-vps.sh 2>/dev/null || true
+            bash scripts/deploy-vps.sh
+
+      # -----------------------------------------------------------------------
+      # Step 3: External API smoke test against the VPS API port.
+      # Uses the direct API health endpoint (not https://byosemarket.com/healthz,
+      # which serves storefront HTML via nginx). Requires HTTP 200 + JSON status.
+      # -----------------------------------------------------------------------
+      - name: Verify public production health endpoint
+        env:
+          PUBLIC_HEALTH_URL: http://153.75.227.160:5000/healthz
+        run: |
+          set -euo pipefail
+          echo "Checking ${PUBLIC_HEALTH_URL} ..."
+          for attempt in $(seq 1 6); do
+            body_file="$(mktemp)"
+            http_code="$(curl -sS -o "${body_file}" -w "%{http_code}" --max-time 15 "${PUBLIC_HEALTH_URL}" || printf '000')"
+            if [[ "${http_code}" == "200" ]]; then
+              if node -e "
+                const fs = require('fs');
+                const raw = fs.readFileSync(process.argv[1], 'utf8').trim();
+                if (!raw) process.exit(1);
+                const payload = JSON.parse(raw);
+                if (!payload || typeof payload !== 'object' || typeof payload.status !== 'string') {
+                  process.exit(1);
+                }
+                console.log('API health status:', payload.status);
+              " "${body_file}"; then
+                rm -f "${body_file}"
+                echo "Public health check passed."
+                exit 0
+              fi
+              echo "Response was HTTP 200 but not valid API health JSON."
+            else
+              echo "Health probe returned HTTP ${http_code}."
+            fi
+            rm -f "${body_file}"
+            echo "Public health check not ready (attempt ${attempt}/6)..."
+            sleep 10
+          done
+          echo "Public health check failed."
+          exit 1
