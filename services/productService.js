@@ -2,6 +2,7 @@ export const GLOBAL_SYNC_EVENT = "byose:products-synchronized";
 export const PRODUCT_CHANGED_EVENT = "byose:products-changed";
 
 import { buildApiUrl, ensureUploadCapableApiBaseUrl, resolveApiBaseUrl } from "./api-origin.js";
+import { normalizeStorefrontAssetList, normalizeStorefrontAssetUrl } from "./storefront-asset-url.js";
 
 if (typeof window !== "undefined") {
   window.addEventListener("load", () => {
@@ -9,8 +10,8 @@ if (typeof window !== "undefined") {
   }, { once: true });
 }
 
-const DEFAULT_DETAIL_PAGE = "product-details1.html";
-const STOREFRONT_CATALOG_STORAGE_KEY = "byose_market_products_catalog_v1";
+const DEFAULT_DETAIL_PAGE = "details/product-details1.html";
+const STOREFRONT_CATALOG_STORAGE_KEY = "byose_market_products_catalog_v2";
 const STALE_THRESHOLD_MS = 45000;
 const DEFAULT_RETRY_COUNT = 2;
 const DEFAULT_TIMEOUT_MS = 90000;
@@ -311,16 +312,42 @@ async function apiRequest(path, options = {}) {
   );
 }
 
+function resolveComparePrice(source, price) {
+  const candidates = [
+    source.old_price,
+    source.oldPrice,
+    source.compareAtPrice,
+    source.originalPrice,
+    source.discountPrice,
+    source.metadata?.compareAtPrice,
+    source.metadata?.originalPrice
+  ];
+
+  for (const candidate of candidates) {
+    const parsed = toNumber(candidate, 0);
+    if (parsed > price) {
+      return parsed;
+    }
+  }
+
+  return 0;
+}
+
 function normalizeProductRecord(record) {
   const source = asObject(record);
   const catalogId = Math.max(0, Math.floor(toNumber(source.catalog_id ?? source.catalogId ?? source.id, 0)));
-  const mainImage = normalizeText(source.main_image ?? source.mainImage ?? source.image);
-  const gallery = asArray(parseJsonArray(source.gallery).map((entry) => normalizeText(entry))).filter(Boolean);
+  const resolvedMainImage = normalizeText(source.main_image ?? source.mainImage ?? source.image);
+  const mainImage = normalizeStorefrontAssetUrl(resolvedMainImage);
+  const gallery = normalizeStorefrontAssetList(
+    asArray(parseJsonArray(source.gallery).map((entry) => normalizeText(entry))).filter(Boolean)
+  );
   const createdAt = toIsoString(source.created_at ?? source.createdAt) || new Date().toISOString();
   const updatedAt = toIsoString(source.updated_at ?? source.updatedAt) || createdAt;
   const visibility = normalizeVisibility(source.visibility);
-  const price = toNumber(source.price, 0);
-  const oldPrice = toNumber(source.old_price ?? source.oldPrice, 0);
+  const price = toNumber(source.price ?? source.salePrice, 0);
+  const resolvedOldPrice = resolveComparePrice(source, price);
+  const oldPrice = resolvedOldPrice > price ? resolvedOldPrice : 0;
+  const discountPercent = oldPrice > price ? Math.round(((oldPrice - price) / oldPrice) * 100) : 0;
 
   return {
     ...source,
@@ -334,7 +361,11 @@ function normalizeProductRecord(record) {
     badge: normalizeText(source.badge),
     category: normalizeText(source.category, "general").toLowerCase(),
     price,
-    oldPrice: oldPrice > price ? oldPrice : 0,
+    salePrice: price,
+    oldPrice,
+    originalPrice: oldPrice,
+    compareAtPrice: oldPrice,
+    discountPercent,
     stock: Math.max(0, Math.floor(toNumber(source.stock, 0))),
     availableStock: Math.max(0, Math.floor(toNumber(source.stock, 0))),
     image: mainImage,

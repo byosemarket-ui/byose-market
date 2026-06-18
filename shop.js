@@ -31,7 +31,7 @@
 
   const DEFAULT_FILTER = "all";
   const DEFAULT_CATEGORY = "general";
-  const DEFAULT_DETAIL_PAGE = "product-details1.html";
+  const DEFAULT_DETAIL_PAGE = "details/product-details1.html";
   const FALLBACK_IMAGE = "img/logo.png";
   const CATEGORY_ALIASES = {
     apparel: "fashion",
@@ -273,12 +273,8 @@
   }
 
   async function buildProductCard(product) {
-    // Use unified product card system from STEP 3K
     const cardSystem = await loadProductCardSystem();
-    return cardSystem.renderCard(product, {
-      includeDescription: true,
-      includeFooter: true
-    });
+    return cardSystem.renderCard(product);
   }
 
   async function createProductGridMarkup(items, emptyMessage) {

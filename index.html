@@ -25,6 +25,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/home.css">
   <link rel="stylesheet" href="css/product-card-system.css">
+  <link rel="stylesheet" href="css/storefront-footer.css">
   <link rel="stylesheet" href="css/home-mobile.css">
   <link rel="stylesheet" href="css/home-desktop.css">
   <link rel="stylesheet" href="mobile-nav.css">
@@ -181,20 +182,6 @@
       </div>
     </section>
 
-    <section class="compact-banner container">
-      <div class="banner-copy">
-        <span class="section-kicker">Quick selection</span>
-        <h2>Dense layout, products nyinshi, no wasted space.</h2>
-        <p>Home ni iyo kureba no guhitamo. Cart ibikorwa bisigaye kuri product details na cart page.</p>
-      </div>
-      <div class="banner-tags">
-        <span>Top rated</span>
-        <span>Fast moving</span>
-        <span>New arrivals</span>
-        <span>Best value</span>
-      </div>
-    </section>
-
     <section class="products-section container" id="homeProducts">
       <div class="section-heading compact-heading">
         <div>
@@ -262,15 +249,16 @@
   <footer class="site-footer">
     <div class="container footer-shell">
       <div class="footer-grid">
-        <section class="footer-card footer-column footer-brand footer-about-card" aria-labelledby="footer-about-title">
-          <span class="footer-eyebrow">Byose Market</span>
-          <h3 id="footer-about-title">About</h3>
-          <p>Byose Market ni shopping platform ikora neza kandi isa neza, igufasha kugura fashion, electronics n'ibindi by'ingenzi mu buryo bworoshye kandi bwihuse.</p>
+        <section class="footer-column footer-brand" aria-labelledby="footer-brand-title">
+          <a href="index.html" class="footer-logo-link" aria-label="Byose Market Home">
+            <img class="footer-logo" src="img/logo.png" alt="Byose Market logo" width="48" height="48">
+          </a>
+          <h3 id="footer-brand-title" class="footer-brand-name">BYOSE MARKET</h3>
+          <p class="footer-brand-desc">Rwanda's trusted online marketplace for fashion, shoes, electronics and everyday essentials — fast, simple, affordable.</p>
         </section>
 
-        <nav class="footer-card footer-column footer-links-card" aria-labelledby="footer-links-title">
-          <span class="footer-eyebrow">Quick access</span>
-          <h3 id="footer-links-title">Links</h3>
+        <nav class="footer-column footer-links" aria-labelledby="footer-links-title">
+          <h3 id="footer-links-title">Quick Links</h3>
           <div class="footer-links-list">
             <a href="index.html">Home</a>
             <a href="shop.html">Shop</a>
@@ -279,56 +267,41 @@
           </div>
         </nav>
 
-        <section class="footer-card footer-column footer-contact-card" aria-labelledby="footer-contact-title">
-          <span class="footer-eyebrow">Reach us</span>
+        <section class="footer-column footer-contact" aria-labelledby="footer-contact-title">
           <h3 id="footer-contact-title">Contact</h3>
           <div class="footer-contact-list">
-            <a href="tel:+250780430710" class="footer-contact-item" aria-label="Call 0780430710">
-              <span class="footer-contact-icon"><i class="fa-solid fa-phone-volume" aria-hidden="true"></i></span>
-              <span class="footer-contact-copy">
-                <strong>0780430710</strong>
-                <small>Call or WhatsApp</small>
-              </span>
+            <a href="tel:+250780430710" class="footer-contact-item">
+              <i class="fa-solid fa-phone" aria-hidden="true"></i>
+              <span>0780 430 710</span>
             </a>
-            <a href="tel:+250723731250" class="footer-contact-item" aria-label="Call 0723731250">
-              <span class="footer-contact-icon"><i class="fa-brands fa-whatsapp" aria-hidden="true"></i></span>
-              <span class="footer-contact-copy">
-                <strong>0723731250</strong>
-                <small>Call or WhatsApp</small>
-              </span>
+            <a href="tel:+250723731250" class="footer-contact-item">
+              <i class="fa-brands fa-whatsapp" aria-hidden="true"></i>
+              <span>0723 731 250</span>
             </a>
-            <a href="mailto:byosemarket@gmail.com" class="footer-contact-item" aria-label="Email byosemarket@gmail.com">
-              <span class="footer-contact-icon"><i class="fa-regular fa-envelope" aria-hidden="true"></i></span>
-              <span class="footer-contact-copy">
-                <strong>byosemarket@gmail.com</strong>
-                <small>Email support</small>
-              </span>
+            <a href="mailto:byosemarket@gmail.com" class="footer-contact-item">
+              <i class="fa-regular fa-envelope" aria-hidden="true"></i>
+              <span>byosemarket@gmail.com</span>
             </a>
-            <div class="footer-contact-item footer-contact-static" aria-label="Location Kigali, Rwanda">
-              <span class="footer-contact-icon"><i class="fa-solid fa-location-dot" aria-hidden="true"></i></span>
-              <span class="footer-contact-copy">
-                <strong>Kigali, Rwanda</strong>
-                <small>We serve customers nationwide</small>
-              </span>
+            <div class="footer-contact-item footer-contact-static">
+              <i class="fa-solid fa-location-dot" aria-hidden="true"></i>
+              <span>Kigali, Rwanda</span>
             </div>
           </div>
         </section>
 
-        <section class="footer-card footer-column footer-subscribe-card" aria-labelledby="footer-subscribe-title">
-          <span class="footer-eyebrow">Stay updated</span>
-          <h3 id="footer-subscribe-title">Subscribe</h3>
-          <p class="footer-subscribe-copy">Shyiramo email yawe ubone deals nshya, arrivals, n'amatangazo y'ibiciro byihariye.</p>
+        <section class="footer-column footer-subscribe" aria-labelledby="footer-subscribe-title">
+          <h3 id="footer-subscribe-title">Newsletter</h3>
+          <p class="footer-subscribe-copy">Get deals and new arrivals in your inbox.</p>
           <form id="footerSubscribeForm" class="footer-subscribe">
             <label class="sr-only" for="footerEmail">Email address</label>
-            <input type="email" id="footerEmail" placeholder="Andika email yawe" aria-label="Email address">
-            <button type="submit">Join now</button>
+            <input type="email" id="footerEmail" placeholder="Your email" aria-label="Email address" required>
+            <button type="submit">Subscribe</button>
           </form>
-          <p class="footer-note" id="footerNote">Menya deals nshya buri cyumweru.</p>
+          <p class="footer-note" id="footerNote">Weekly deals, no spam.</p>
         </section>
       </div>
       <div class="footer-bottom">
-        <span>© 2026 Byose Market. All rights reserved.</span>
-        <span>Smart shopping experience for Rwanda.</span>
+        <span>&copy; 2026 Byose Market. All rights reserved.</span>
       </div>
     </div>
   </footer>

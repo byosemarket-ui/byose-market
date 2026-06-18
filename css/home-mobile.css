@@ -218,28 +218,6 @@
     font-size: 0.72rem;
   }
 
-  .compact-banner {
-    flex-direction: column;
-    align-items: stretch;
-    padding: 14px;
-    gap: 10px;
-    border-radius: 14px;
-  }
-
-  .banner-copy p {
-    font-size: 0.82rem;
-  }
-
-  .banner-tags {
-    justify-content: flex-start;
-    gap: 6px;
-  }
-
-  .banner-tags span {
-    padding: 7px 8px;
-    font-size: 0.68rem;
-  }
-
   .compact-heading {
     flex-direction: column;
     align-items: flex-start;
@@ -263,57 +241,6 @@
     min-height: 30px;
     padding: 0 10px;
     font-size: 0.72rem;
-  }
-
-  .product-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
-  }
-
-  .product-card {
-    padding: 6px;
-    gap: 6px;
-    border-radius: 12px;
-  }
-
-  .product-badge {
-    top: 6px;
-    left: 6px;
-    padding: 4px 6px;
-    font-size: 0.58rem;
-  }
-
-  .product-title {
-    font-size: 0.72rem;
-  }
-
-  .product-subtitle {
-    display: none;
-  }
-
-  .product-pricing {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-  }
-
-  .product-price {
-    font-size: 0.86rem;
-  }
-
-  .product-old-price,
-  .product-meta,
-  .tiny-link {
-    font-size: 0.6rem;
-  }
-
-  .product-meta {
-    padding: 5px 7px;
-  }
-
-  .tiny-link {
-    min-height: 26px;
-    padding: 0 8px;
   }
 
   .benefits-section {
@@ -341,104 +268,5 @@
 
   .benefit-card span {
     font-size: 0.66rem;
-  }
-
-  .site-footer {
-    padding: 22px 0 calc(88px + env(safe-area-inset-bottom, 0px));
-  }
-
-  .footer-shell {
-    gap: 14px;
-  }
-
-  .footer-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-    align-items: start;
-  }
-
-  .footer-about-card,
-  .footer-subscribe-card {
-    grid-column: 1 / -1;
-  }
-
-  .footer-links-card,
-  .footer-contact-card {
-    grid-column: span 1;
-    min-width: 0;
-  }
-
-  .footer-card {
-    min-width: 0;
-    padding: 16px;
-    border-radius: 20px;
-  }
-
-  .footer-column h3 {
-    font-size: 0.96rem;
-  }
-
-  .footer-column p,
-  .footer-column a,
-  .footer-column span,
-  .footer-note,
-  .footer-subscribe-copy {
-    font-size: 0.85rem;
-  }
-
-  .footer-links-list a,
-  .footer-contact-item {
-    min-width: 0;
-    padding: 10px 11px;
-  }
-
-  .footer-contact-item {
-    grid-template-columns: 36px minmax(0, 1fr);
-    gap: 8px;
-  }
-
-  .footer-contact-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 11px;
-    font-size: 0.84rem;
-  }
-
-  .footer-contact-copy,
-  .footer-links-list,
-  .footer-contact-list {
-    min-width: 0;
-  }
-
-  .footer-contact-copy strong,
-  .footer-contact-copy small,
-  .footer-links-list a {
-    overflow-wrap: anywhere;
-  }
-
-  .footer-contact-copy strong {
-    font-size: 0.8rem;
-  }
-
-  .footer-contact-copy small {
-    font-size: 0.7rem;
-  }
-
-  .footer-subscribe {
-    grid-template-columns: 1fr;
-  }
-
-  .footer-subscribe input,
-  .footer-subscribe button {
-    min-height: 46px;
-  }
-
-  .footer-subscribe button {
-    width: 100%;
-  }
-
-  .footer-bottom {
-    justify-content: center;
-    text-align: center;
   }
 }

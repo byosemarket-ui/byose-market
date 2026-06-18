@@ -16,10 +16,7 @@ function createCategoryLabel(category) {
 
 function buildCard(product) {
   // Use unified product card system from STEP 3K
-  return ProductCardSystem.renderCard(product, {
-    includeDescription: true,
-    includeFooter: true
-  });
+  return ProductCardSystem.renderCard(product);
 }
 
 export function renderRelatedProducts(container, products) {

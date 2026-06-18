@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupSearchForms();
   setupDesktopSearchToggle();
   setupHomeSearchRedirect();
+  setupFooterSubscribe();
 
   // MOBILE MENU TOGGLE
   const mobileMenuBtn = document.getElementById('mobileMenuBtn');
@@ -397,4 +398,38 @@ function showFeedback(type, message) {
   if (type === 'info' && typeof Util.showInfo === 'function') {
     Util.showInfo(message);
   }
+}
+
+function setupFooterSubscribe() {
+  const form = document.getElementById('footerSubscribeForm');
+  const input = document.getElementById('footerEmail');
+  const note = document.getElementById('footerNote');
+  const storageKey = 'byose_market_newsletter_subscribers';
+
+  if (!form || !input || !note) {
+    return;
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+
+    const email = input.value.trim().toLowerCase();
+    if (!email || !input.checkValidity()) {
+      note.textContent = 'Enter a valid email address.';
+      note.classList.remove('is-success');
+      return;
+    }
+
+    try {
+      const current = new Set(JSON.parse(localStorage.getItem(storageKey) || '[]'));
+      current.add(email);
+      localStorage.setItem(storageKey, JSON.stringify(Array.from(current)));
+      note.textContent = 'Thanks! You are subscribed.';
+      note.classList.add('is-success');
+      form.reset();
+    } catch (_error) {
+      note.textContent = 'Could not save your email. Please try again.';
+      note.classList.remove('is-success');
+    }
+  });
 }

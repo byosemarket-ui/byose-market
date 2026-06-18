@@ -3,7 +3,7 @@
 
 	const STOREFRONT_PRODUCTS_UPDATED_EVENT = 'byose:storefront-products-updated';
 	const STOREFRONT_PRODUCTS_ERROR_EVENT = 'byose:storefront-products-error';
-	const DEFAULT_DETAIL_PAGE = 'product-details1.html';
+	const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
 	const FALLBACK_IMAGE = window.location.pathname.includes('/details/') ? '../img/logo.png' : 'img/logo.png';
 	let syncInFlight = null;
 	let servicePromise = null;

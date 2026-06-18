@@ -1,4 +1,5 @@
 import { getAllProductContent } from './product-content.js';
+import { normalizeStorefrontAssetList, normalizeStorefrontAssetUrl } from '../../services/storefront-asset-url.js';
 
 const CATEGORY_COPY = {
   shoes: {
@@ -92,20 +93,14 @@ function getNumericId() {
 }
 
 function resolveAssetPath(path) {
-  const value = String(path || '').trim();
-
-  if (!value || /^(?:[a-z]+:|\/|\.\.\/|\.\/)/i.test(value)) {
-    return value;
-  }
-
-  return `../${value}`;
+  return normalizeStorefrontAssetUrl(path);
 }
 
 function normalizeGallery(mainImage, gallery) {
-  return Array.from(new Set([
+  return normalizeStorefrontAssetList([
     mainImage,
     ...(Array.isArray(gallery) ? gallery : [])
-  ].filter(Boolean).map(resolveAssetPath)));
+  ]);
 }
 
 function normalizeSpecEntries(specs) {
@@ -170,14 +165,36 @@ function mergeProductContent(product) {
   };
   const mainImage = resolveAssetPath(mergedProduct.mainImage || mergedProduct.image || product.mainImage || product.image);
   const gallery = normalizeGallery(mainImage, mergedProduct.gallery || product.gallery);
+  const price = Number(mergedProduct.price ?? product.price ?? product.salePrice ?? 0);
+  const compareCandidates = [
+    mergedProduct.oldPrice,
+    product.oldPrice,
+    mergedProduct.compareAtPrice,
+    product.compareAtPrice,
+    mergedProduct.originalPrice,
+    product.originalPrice,
+    mergedProduct.discountPrice,
+    product.discountPrice
+  ];
+  let oldPrice = 0;
+  for (const candidate of compareCandidates) {
+    const parsed = Number(candidate) || 0;
+    if (parsed > price) {
+      oldPrice = parsed;
+      break;
+    }
+  }
 
   return {
     ...mergedProduct,
     name: mergedProduct.name || product.name,
     category: mergedProduct.category || product.category,
     badge: mergedProduct.badge || product.badge,
-    price: Number(mergedProduct.price ?? product.price ?? 0),
-    oldPrice: Number(mergedProduct.oldPrice ?? product.oldPrice ?? 0),
+    price,
+    salePrice: price,
+    oldPrice,
+    originalPrice: oldPrice,
+    compareAtPrice: oldPrice,
     stock: Number(mergedProduct.stock ?? product.stock ?? 0),
     mainImage,
     gallery,
@@ -230,7 +247,7 @@ export function formatPrice(value) {
 }
 
 export function createProductUrl(product, mode = 'relative') {
-  const base = mode === 'root' ? 'details/product-details1.html' : 'product-details1.html';
+  const base = mode === 'root' ? 'details/product-details1.html' : 'details/product-details1.html';
   return `${base}?id=${encodeURIComponent(product.id)}`;
 }
 

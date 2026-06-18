@@ -14,11 +14,28 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
 
     resolvePublicPath(value) {
         const storagePath = this.resolveStoragePath(value);
-        if (storagePath) {
+        if (storagePath && /^(?:products|categories|users|reviews|temp)\//i.test(storagePath)) {
             return buildPublicUrlFromPath(storagePath);
         }
 
-        return this.normalizeText(value);
+        const raw = this.normalizeText(value);
+        if (!raw) {
+            return '';
+        }
+
+        if (raw.startsWith('/uploads/') || /^https?:\/\//i.test(raw)) {
+            return raw;
+        }
+
+        if (raw.startsWith('img/')) {
+            return `/${raw}`;
+        }
+
+        if (raw.startsWith('/img/')) {
+            return raw;
+        }
+
+        return raw;
     }
 
     prepareStorablePath(value) {
@@ -36,8 +53,8 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
                 const rawMainImage = row.main_image || row.image;
                 const imageStoragePath = this.resolveStoragePath(rawImage);
                 const mainImageStoragePath = this.resolveStoragePath(rawMainImage) || imageStoragePath;
-                const image = imageStoragePath ? buildPublicUrlFromPath(imageStoragePath) : this.normalizeText(rawImage);
-                const mainImage = mainImageStoragePath ? buildPublicUrlFromPath(mainImageStoragePath) : this.normalizeText(rawMainImage);
+                const image = this.resolvePublicPath(rawImage);
+                const mainImage = this.resolvePublicPath(rawMainImage);
 
                 const galleryEntries = Array.isArray(images) ? images : [];
                 const galleryPublic = [];
@@ -45,7 +62,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
 
                 galleryEntries.forEach((entry) => {
                     const storagePath = this.resolveStoragePath(entry.image_url);
-                    const publicPath = storagePath ? buildPublicUrlFromPath(storagePath) : this.normalizeText(entry.image_url);
+                    const publicPath = this.resolvePublicPath(entry.image_url);
                     if (publicPath && !galleryPublic.includes(publicPath)) {
                         galleryPublic.push(publicPath);
                         galleryStoragePaths.push(storagePath || this.resolveStoragePath(publicPath));

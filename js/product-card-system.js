@@ -5,12 +5,14 @@
  * Used across Home, Shop, Featured, Related, Categories, Search, Recommendations
  */
 
+import { normalizeStorefrontAssetUrl } from '../services/storefront-asset-url.js';
+
 export const ProductCardSystem = (() => {
   'use strict';
 
   // Constants
   const FALLBACK_IMAGE = 'img/logo.png';
-  const DEFAULT_DETAIL_PAGE = 'product-details1.html';
+  const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
   const DEFAULT_LOW_STOCK_THRESHOLD = 5;
   const BADGE_TYPES = {
     featured: 'featured',
@@ -141,9 +143,9 @@ export const ProductCardSystem = (() => {
    * Get safe image URL
    */
   function getSafeImageUrl(imageSource) {
-    const url = String(imageSource || '').trim();
+    const url = normalizeStorefrontAssetUrl(imageSource);
     if (!url || /^javascript:/i.test(url)) {
-      return FALLBACK_IMAGE;
+      return normalizeStorefrontAssetUrl(FALLBACK_IMAGE) || FALLBACK_IMAGE;
     }
     return url;
   }
@@ -196,12 +198,14 @@ export const ProductCardSystem = (() => {
   function renderDiscountBadge(product) {
     if (!product) return '';
 
-    const oldPrice = Number(product.oldPrice ?? product.compareAtPrice ?? 0);
-    const price = Number(product.price ?? product.currentPrice ?? 0);
+    const oldPrice = Number(product.oldPrice ?? product.compareAtPrice ?? product.originalPrice ?? 0);
+    const price = Number(product.price ?? product.salePrice ?? product.currentPrice ?? 0);
 
     if (oldPrice <= price) return '';
 
-    const discount = Math.round(((oldPrice - price) / oldPrice) * 100);
+    const discount = Number(product.discountPercent) > 0
+      ? Math.round(Number(product.discountPercent))
+      : Math.round(((oldPrice - price) / oldPrice) * 100);
     return `<span class="byose-product-badge byose-product-badge--discount" aria-label="Save ${discount} percent">-${discount}%</span>`;
   }
 
@@ -211,23 +215,21 @@ export const ProductCardSystem = (() => {
   function renderPricing(product) {
     if (!product) return '';
 
-    const price = Number(product.price ?? product.currentPrice ?? 0);
-    const oldPrice = Number(product.oldPrice ?? product.compareAtPrice ?? 0);
+    const price = Number(product.price ?? product.salePrice ?? product.currentPrice ?? 0);
+    const oldPrice = Number(product.oldPrice ?? product.compareAtPrice ?? product.originalPrice ?? 0);
     const hasDiscount = oldPrice > price;
 
     let priceHtml = `<span class="byose-product-price">${formatCurrency(price)}</span>`;
 
     if (hasDiscount) {
-      const savings = oldPrice - price;
       priceHtml += `<span class="byose-product-old-price">${formatCurrency(oldPrice)}</span>`;
-      priceHtml += `<span class="byose-product-saving">Save ${Math.round((savings / oldPrice) * 100)}%</span>`;
     }
 
     return `<div class="byose-product-pricing">${priceHtml}</div>`;
   }
 
   /**
-   * Render professional product card
+   * Render clean storefront product card
    */
   function renderCard(product, options = {}) {
     if (!product || !product.name) {
@@ -235,99 +237,32 @@ export const ProductCardSystem = (() => {
       return '';
     }
 
-    const {
-      includeDescription = true,
-      includeFooter = true,
-      includeQuickAdd = true,
-      featured = false,
-      variant = 'standard'
-    } = options;
+    const { featured = false } = options;
 
     const productId = escapeHtml(product.id || product.catalogId);
     const productName = escapeHtml(product.name || product.title || 'Product');
-    const productCategory = formatCategoryLabel(product.category || 'General');
     const productImage = getSafeImageUrl(product.mainImage || product.image);
     const productDetailUrl = getProductDetailUrl(productId);
-    const productDescription = getProductDescription(product);
-    const highlightTag = String(product.highlightTag || '').toLowerCase();
-    const highlightLabel = highlightTag === 'featured' ? 'Featured' :
-                          highlightTag === 'trending' ? 'Trending' :
-                          highlightTag === 'new' ? 'New' : productCategory;
-
-    const cardClass = featured ? 'byose-product-card--featured' : '';
-    const description = includeDescription && productDescription
-      ? `<p class="byose-product-description">${escapeHtml(productDescription)}</p>`
-      : '';
-
-    const badge = renderBadge(product);
     const discountBadge = renderDiscountBadge(product);
     const pricing = renderPricing(product);
-    const inventorySnapshot = getInventorySnapshot(product);
-    const inventoryBadge = getInventoryBadgeModel(inventorySnapshot);
-    const canQuickAdd = includeQuickAdd && inventorySnapshot.status !== 'out_of_stock' && inventorySnapshot.status !== 'discontinued';
-    const quickAddLabel = inventorySnapshot.available > 0 ? 'Quick Add' : 'Quick Add';
-
-    let footer = '';
-    if (includeFooter) {
-      footer = `
-        <div class="byose-product-footer">
-          <div class="byose-product-footer-top">
-            <span class="${inventoryBadge.className}">${inventoryBadge.label}</span>
-            <span class="byose-product-meta">${highlightLabel}</span>
-          </div>
-          <div class="byose-product-footer-actions">
-            ${canQuickAdd ? `
-              <button
-                type="button"
-                class="byose-product-quick-add"
-                data-id="${productId}"
-                data-name="${productName}"
-                data-price="${Number(product.price || 0)}"
-                data-image="${escapeHtml(productImage)}"
-                data-stock="${inventorySnapshot.available}"
-                data-availability="${escapeHtml(inventorySnapshot.status)}"
-                aria-label="Quick add ${productName} to cart"
-              >
-                <i class="fa-solid fa-cart-plus" aria-hidden="true"></i>
-                <span>${quickAddLabel}</span>
-              </button>
-            ` : `
-              <button type="button" class="byose-product-quick-add byose-product-quick-add--disabled" aria-disabled="true" disabled>
-                <i class="fa-solid fa-ban" aria-hidden="true"></i>
-                <span>Out of Stock</span>
-              </button>
-            `}
-            <a class="byose-product-action" href="${escapeHtml(productDetailUrl)}" aria-label="View ${productName}">
-              <span>View</span>
-              <i class="fa-solid fa-arrow-right"></i>
-            </a>
-          </div>
-        </div>
-      `;
-    }
+    const cardClass = featured ? 'byose-product-card--featured' : '';
 
     return `
       <article class="byose-product-card ${cardClass}" data-product-id="${productId}">
         <a class="byose-product-card-link" href="${escapeHtml(productDetailUrl)}" aria-label="View ${productName}">
           <div class="byose-product-image-wrapper">
-            <img class="byose-product-image" 
-                 src="${escapeHtml(productImage)}" 
+            <img class="byose-product-image"
+                 src="${escapeHtml(productImage)}"
                  alt="${productName}"
-                 loading="lazy" 
+                 loading="lazy"
                  decoding="async">
-            ${badge}
             ${discountBadge}
           </div>
-        </a>
-        <div class="byose-product-content">
-          <a class="byose-product-content-link" href="${escapeHtml(productDetailUrl)}" aria-label="Open ${productName}">
-            <span class="byose-product-category">${productCategory}</span>
+          <div class="byose-product-content">
             <h3 class="byose-product-title">${productName}</h3>
-            ${description}
             ${pricing}
-          </a>
-          ${footer}
-        </div>
+          </div>
+        </a>
       </article>
     `;
   }
@@ -350,8 +285,6 @@ export const ProductCardSystem = (() => {
    */
   function renderGrid(products, options = {}) {
     const {
-      includeDescription = true,
-      includeFooter = true,
       gridClass = 'byose-product-grid',
       gridColumns = 'auto',
       emptyMessage = 'No products available at this time.'
@@ -371,7 +304,7 @@ export const ProductCardSystem = (() => {
       .join(' ');
 
     const cardsHtml = products
-      .map(product => renderCard(product, { includeDescription, includeFooter }))
+      .map(product => renderCard(product))
       .join('');
 
     return `<div class="${gridClassList}">${cardsHtml}</div>`;
@@ -394,7 +327,7 @@ export const ProductCardSystem = (() => {
       }
 
       img.dataset.fallbackApplied = 'true';
-      img.src = FALLBACK_IMAGE;
+      img.src = normalizeStorefrontAssetUrl(FALLBACK_IMAGE) || FALLBACK_IMAGE;
       img.classList.add('is-error');
     }, true);
   }
@@ -418,44 +351,20 @@ export const ProductCardSystem = (() => {
       titleElement.textContent = product.name || product.title || 'Product';
     }
 
-    const categoryElement = cardElement.querySelector('.byose-product-category');
-    if (categoryElement) {
-      categoryElement.textContent = formatCategoryLabel(product.category || 'General');
-    }
-
-    const descriptionElement = cardElement.querySelector('.byose-product-description');
-    const nextDescription = getProductDescription(product);
-    if (descriptionElement) {
-      if (nextDescription) {
-        descriptionElement.textContent = nextDescription;
-      } else {
-        descriptionElement.remove();
-      }
-    }
-
-    // Update pricing
     const pricingElement = cardElement.querySelector('.byose-product-pricing');
     if (pricingElement) {
       pricingElement.outerHTML = renderPricing(product);
     }
 
-    const stockElement = cardElement.querySelector('.byose-product-stock');
-    if (stockElement) {
-      const inventoryBadge = getInventoryBadgeModel(getInventorySnapshot(product));
-      stockElement.className = inventoryBadge.className;
-      stockElement.textContent = inventoryBadge.label;
-    }
-
-    // Update badges
     const badges = cardElement.querySelectorAll('.byose-product-badge');
     badges.forEach(badge => badge.remove());
 
     const imageWrapper = cardElement.querySelector('.byose-product-image-wrapper');
     if (imageWrapper) {
-      const newBadge = renderBadge(product);
       const newDiscountBadge = renderDiscountBadge(product);
-      if (newBadge) imageWrapper.insertAdjacentHTML('beforeend', newBadge);
-      if (newDiscountBadge) imageWrapper.insertAdjacentHTML('beforeend', newDiscountBadge);
+      if (newDiscountBadge) {
+        imageWrapper.insertAdjacentHTML('beforeend', newDiscountBadge);
+      }
     }
   }
 

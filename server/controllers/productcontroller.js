@@ -3,7 +3,7 @@ const config = require('../config/env');
 const productDataService = require('../services/productdataservice');
 const getRealtimeEventService = require('../services/realtimeeventservice');
 
-const DEFAULT_DETAIL_PAGE = 'product-details1.html';
+const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
 
 function toTrimmedString(value, fallbackValue = '') {
     const result = String(value || '').trim();
@@ -318,11 +318,35 @@ function normalizeMetadata(payload = {}) {
     };
 }
 
+function resolveComparePrice(source, price) {
+    const candidates = [
+        source.oldPrice,
+        source.old_price,
+        source.compareAtPrice,
+        source.originalPrice,
+        source.discountPrice,
+        source.metadata?.compareAtPrice,
+        source.metadata?.originalPrice
+    ];
+
+    for (const candidate of candidates) {
+        const parsed = toNonNegativeNumber(candidate, 0);
+        if (parsed > price) {
+            return parsed;
+        }
+    }
+
+    return 0;
+}
+
 function normalizePayload(payload) {
     const name = toTrimmedString(payload?.name || payload?.title);
-    const price = toNonNegativeNumber(payload?.price, 0);
+    const price = toNonNegativeNumber(payload?.price ?? payload?.salePrice, 0);
     const mainImage = toTrimmedString(payload?.mainImage || payload?.image);
-    const oldPrice = toNonNegativeNumber(payload?.oldPrice, 0);
+    const oldPrice = toNonNegativeNumber(
+        payload?.oldPrice ?? payload?.originalPrice ?? payload?.compareAtPrice ?? payload?.discountPrice,
+        0
+    );
     const variantFoundation = normalizeVariantFoundation(payload?.variants, payload?.attributes);
     const normalizedAttributes = buildAttributesFromVariantFoundation(variantFoundation, payload?.attributes);
     const metadata = normalizeMetadata(payload);
@@ -378,6 +402,12 @@ function serializeProduct(product) {
         : buildAttributesFromVariantFoundation(variants, source.attributes);
 
     const metadata = normalizeMetadata(source);
+    const price = toNonNegativeNumber(source.price ?? source.salePrice, 0);
+    const oldPrice = resolveComparePrice(source, price);
+    const resolvedOldPrice = oldPrice > price ? oldPrice : 0;
+    const discountPercent = resolvedOldPrice > price
+        ? Math.round(((resolvedOldPrice - price) / resolvedOldPrice) * 100)
+        : 0;
 
     return {
         ...source,
@@ -386,6 +416,12 @@ function serializeProduct(product) {
         title: source.title || source.name,
         description: source.description || source.shortDescription || '',
         shortDescription: source.shortDescription || source.description || '',
+        price,
+        salePrice: price,
+        oldPrice: resolvedOldPrice,
+        originalPrice: resolvedOldPrice,
+        compareAtPrice: resolvedOldPrice,
+        discountPercent,
         mainImage: source.mainImage || source.image || '',
         image: source.image || source.mainImage || '',
         mainImageStoragePath: source.mainImageStoragePath || source.imageStoragePath || '',

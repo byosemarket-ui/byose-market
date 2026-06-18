@@ -57,9 +57,7 @@ button {
 }
 
 .card-surface,
-.compact-banner,
 .benefit-card,
-.site-footer,
 .category-card,
 .product-card {
   background: var(--home-surface);
@@ -581,51 +579,6 @@ button {
   margin-top: 8px;
   font-size: 0.84rem;
   font-weight: 800;
-}
-
-.compact-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 18px;
-  margin: 6px auto 10px;
-  border-radius: 18px;
-}
-
-.banner-copy h2 {
-  margin: 6px 0 4px;
-  font-family: "Outfit", sans-serif;
-  font-size: clamp(1.1rem, 1vw + 0.8rem, 1.55rem);
-}
-
-.banner-copy p {
-  margin: 0;
-  color: var(--home-muted);
-}
-
-.banner-tags {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.banner-tags span,
-.filter-pill,
-.product-meta,
-.product-badge,
-.tiny-link {
-  border-radius: 999px;
-}
-
-.banner-tags span,
-.product-meta {
-  padding: 8px 10px;
-  background: #f5f7f7;
-  color: var(--home-muted);
-  font-size: 0.74rem;
-  font-weight: 700;
 }
 
 .compact-heading {

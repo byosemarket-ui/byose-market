@@ -8,10 +8,11 @@
 
 import productService from './services/centralized-products.service.js';
 import ProductCardSystem from './js/product-card-system.js';
+import { normalizeStorefrontAssetUrl } from './services/storefront-asset-url.js';
 
 const DEFAULT_FILTER = 'all';
 const DEFAULT_CATEGORY = 'featured';
-const DEFAULT_DETAIL_PAGE = 'product-details1.html';
+const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
 const FALLBACK_IMAGE = 'img/logo.png';
 const PRIMARY_GRID_LIMIT = 10;
 const SPOTLIGHT_LIMIT = 6;
@@ -67,7 +68,6 @@ function initializeHomePage() {
   syncCatalog();
   setupFilterControls();
   setupHeroSlider();
-  setupFooterSubscribe();
 
   // Listen for backend product synchronization events
   window.addEventListener(productService.GLOBAL_SYNC_EVENT, syncCatalog);
@@ -227,9 +227,25 @@ function normalizeProduct(product, index) {
   const highlightTag = normalizeHighlightTag(product && product.highlightTag);
   const shortDescription = String(product && product.shortDescription ? product.shortDescription : '').trim();
   const imageSource = product && (product.mainImage || product.image);
-  const image = isSafePath(imageSource) ? String(imageSource).trim() : FALLBACK_IMAGE;
-  const price = Number(product && product.price) || 0;
-  const oldPrice = Number(product && product.oldPrice) || 0;
+  const normalizedImage = normalizeStorefrontAssetUrl(imageSource);
+  const image = isSafePath(normalizedImage)
+    ? normalizedImage
+    : normalizeStorefrontAssetUrl(FALLBACK_IMAGE);
+  const price = Number(product && (product.price ?? product.salePrice)) || 0;
+  const compareCandidates = [
+    product?.oldPrice,
+    product?.compareAtPrice,
+    product?.originalPrice,
+    product?.discountPrice
+  ];
+  let oldPrice = 0;
+  for (const candidate of compareCandidates) {
+    const parsed = Number(candidate) || 0;
+    if (parsed > price) {
+      oldPrice = parsed;
+      break;
+    }
+  }
   const searchText = normalizeText([
     name,
     category,
@@ -282,11 +298,7 @@ function sortProductsByDisplay(left, right) {
 }
 
 function createProductCard(product) {
-  // Use unified product card system from STEP 3K
-  return ProductCardSystem.renderCard(product, {
-    includeDescription: true,
-    includeFooter: true
-  });
+  return ProductCardSystem.renderCard(product);
 }
 
 function bindGridImageFallback(grid) {
