@@ -14,6 +14,7 @@
     "pm2:stop": "pm2 delete byosemarket-api",
     "verify:api-routes": "node server/scripts/verify-api-routes.js",
     "verify:upload-flow": "node server/scripts/verify-upload-flow.js",
+    "verify:product-images": "node scripts/verify-product-image-flow.mjs",
     "verify:vps-config": "node server/scripts/verify-vps-production-config.js",
     "verify:admin-auth": "node scripts/verify-admin-auth-config.js",
     "ensure:production-env": "node scripts/ensure-production-env.js",

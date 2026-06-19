@@ -4,6 +4,25 @@ const productDataService = require('../services/productdataservice');
 const getRealtimeEventService = require('../services/realtimeeventservice');
 
 const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
+const DEFAULT_SITE_ORIGIN = 'https://byosemarket.com';
+
+function absolutizePublicAssetUrl(value) {
+    const normalized = toTrimmedString(value);
+    if (!normalized) {
+        return '';
+    }
+
+    if (/^https?:\/\//i.test(normalized)) {
+        return normalized;
+    }
+
+    const base = toTrimmedString(config.appBaseUrl || process.env.APP_BASE_URL || DEFAULT_SITE_ORIGIN).replace(/\/+$/, '');
+    return normalized.startsWith('/') ? `${base}${normalized}` : `${base}/${normalized}`;
+}
+
+function absolutizePublicAssetList(values) {
+    return uniqueStrings(toStringArray(values).map((entry) => absolutizePublicAssetUrl(entry)).filter(Boolean));
+}
 
 function toTrimmedString(value, fallbackValue = '') {
     const result = String(value || '').trim();
@@ -408,6 +427,10 @@ function serializeProduct(product) {
     const discountPercent = resolvedOldPrice > price
         ? Math.round(((resolvedOldPrice - price) / resolvedOldPrice) * 100)
         : 0;
+    const rawMainImage = source.mainImage || source.image || '';
+    const rawGallery = uniqueStrings(source.gallery || []);
+    const mainImage = absolutizePublicAssetUrl(rawMainImage);
+    const gallery = absolutizePublicAssetList(rawGallery.length ? rawGallery : [rawMainImage]);
 
     return {
         ...source,
@@ -422,11 +445,12 @@ function serializeProduct(product) {
         originalPrice: resolvedOldPrice,
         compareAtPrice: resolvedOldPrice,
         discountPercent,
-        mainImage: source.mainImage || source.image || '',
-        image: source.image || source.mainImage || '',
+        mainImage,
+        image: mainImage,
+        thumbnail: mainImage,
         mainImageStoragePath: source.mainImageStoragePath || source.imageStoragePath || '',
         imageStoragePath: source.imageStoragePath || source.mainImageStoragePath || '',
-        gallery: uniqueStrings(source.gallery || []),
+        gallery,
         galleryStoragePaths: Array.isArray(source.galleryStoragePaths) ? source.galleryStoragePaths : [],
         keywords: uniqueStrings(source.keywords || []),
         specs: Array.isArray(source.specs)

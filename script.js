@@ -8,7 +8,7 @@
 
 import productService from './services/centralized-products.service.js';
 import ProductCardSystem from './js/product-card-system.js';
-import { normalizeStorefrontAssetUrl } from './services/storefront-asset-url.js';
+import { normalizeStorefrontAssetUrl, resolveProductImageUrl } from './services/storefront-asset-url.js';
 
 const DEFAULT_FILTER = 'all';
 const DEFAULT_CATEGORY = 'featured';
@@ -226,11 +226,8 @@ function normalizeProduct(product, index) {
   const orderIndex = Math.max(0, Number(product && product.orderIndex) || 0);
   const highlightTag = normalizeHighlightTag(product && product.highlightTag);
   const shortDescription = String(product && product.shortDescription ? product.shortDescription : '').trim();
-  const imageSource = product && (product.mainImage || product.image);
-  const normalizedImage = normalizeStorefrontAssetUrl(imageSource);
-  const image = isSafePath(normalizedImage)
-    ? normalizedImage
-    : normalizeStorefrontAssetUrl(FALLBACK_IMAGE);
+  const productImage = resolveProductImageUrl(product);
+  const image = productImage || normalizeStorefrontAssetUrl(FALLBACK_IMAGE);
   const price = Number(product && (product.price ?? product.salePrice)) || 0;
   const compareCandidates = [
     product?.oldPrice,
@@ -268,6 +265,7 @@ function normalizeProduct(product, index) {
     shortDescription,
     defaultIndex: index,
     mainImage: image,
+    image,
     oldPrice: oldPrice > price ? oldPrice : 0,
     price,
     href: getProductHref(id),

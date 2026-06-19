@@ -5,7 +5,7 @@
  * Used across Home, Shop, Featured, Related, Categories, Search, Recommendations
  */
 
-import { normalizeStorefrontAssetUrl } from '../services/storefront-asset-url.js';
+import { normalizeStorefrontAssetUrl, resolveProductImageUrl } from '../services/storefront-asset-url.js';
 
 export const ProductCardSystem = (() => {
   'use strict';
@@ -142,8 +142,9 @@ export const ProductCardSystem = (() => {
   /**
    * Get safe image URL
    */
-  function getSafeImageUrl(imageSource) {
-    const url = normalizeStorefrontAssetUrl(imageSource);
+  function getSafeImageUrl(imageSource, product) {
+    const resolvedProductImage = product ? resolveProductImageUrl(product) : '';
+    const url = resolvedProductImage || normalizeStorefrontAssetUrl(imageSource);
     if (!url || /^javascript:/i.test(url)) {
       return normalizeStorefrontAssetUrl(FALLBACK_IMAGE) || FALLBACK_IMAGE;
     }
@@ -241,7 +242,8 @@ export const ProductCardSystem = (() => {
 
     const productId = escapeHtml(product.id || product.catalogId);
     const productName = escapeHtml(product.name || product.title || 'Product');
-    const productImage = getSafeImageUrl(product.mainImage || product.image);
+    const productImage = resolveProductImageUrl(product);
+    const displayImage = productImage || normalizeStorefrontAssetUrl(FALLBACK_IMAGE) || FALLBACK_IMAGE;
     const productDetailUrl = getProductDetailUrl(productId);
     const discountBadge = renderDiscountBadge(product);
     const pricing = renderPricing(product);
@@ -252,7 +254,9 @@ export const ProductCardSystem = (() => {
         <a class="byose-product-card-link" href="${escapeHtml(productDetailUrl)}" aria-label="View ${productName}">
           <div class="byose-product-image-wrapper">
             <img class="byose-product-image"
-                 src="${escapeHtml(productImage)}"
+                 src="${escapeHtml(displayImage)}"
+                 data-product-image-src="${escapeHtml(productImage || '')}"
+                 data-has-product-image="${productImage ? 'true' : 'false'}"
                  alt="${productName}"
                  loading="lazy"
                  decoding="async">
@@ -326,6 +330,17 @@ export const ProductCardSystem = (() => {
         return;
       }
 
+      if (img.dataset.hasProductImage === 'true') {
+        const originalSrc = String(img.dataset.productImageSrc || img.getAttribute('src') || '').trim();
+        if (originalSrc && img.dataset.retried !== 'true') {
+          img.dataset.retried = 'true';
+          const separator = originalSrc.includes('?') ? '&' : '?';
+          img.src = `${originalSrc}${separator}v=${Date.now()}`;
+          return;
+        }
+        return;
+      }
+
       img.dataset.fallbackApplied = 'true';
       img.src = normalizeStorefrontAssetUrl(FALLBACK_IMAGE) || FALLBACK_IMAGE;
       img.classList.add('is-error');
@@ -341,7 +356,7 @@ export const ProductCardSystem = (() => {
     // Update image
     const imgElement = cardElement.querySelector('.byose-product-image');
     if (imgElement) {
-      imgElement.src = getSafeImageUrl(product.mainImage || product.image);
+      imgElement.src = getSafeImageUrl(product.mainImage || product.image, product);
       imgElement.alt = escapeHtml(product.name);
     }
 

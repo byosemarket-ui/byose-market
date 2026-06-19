@@ -204,7 +204,7 @@
     const name = String(product && product.name ? product.name : "").trim() || `Product ${id}`;
     const badge = String(product && product.badge ? product.badge : "").trim();
     const category = normalizeCategory(product && product.category);
-    const image = String(product && (product.mainImage || product.image) ? (product.mainImage || product.image) : "").trim() || FALLBACK_IMAGE;
+    const image = String(product && (product.mainImage || product.image) ? (product.mainImage || product.image) : "").trim();
     const visibility = normalizeVisibility(product && product.visibility);
     const priority = normalizePriority(product && product.priority);
     const orderIndex = toPositiveNumber(product && product.orderIndex, 0);
@@ -230,6 +230,7 @@
       highlightTag,
       defaultIndex: index,
       image,
+      mainImage: image || String(product && (product.mainImage || product.image) ? (product.mainImage || product.image) : "").trim(),
       keywords,
       oldPrice: oldPrice > price ? oldPrice : 0,
       page: DEFAULT_DETAIL_PAGE,
@@ -301,22 +302,14 @@
     targetGrid.classList.add('byose-product-grid', 'byose-product-grid--storefront', 'byose-product-grid--shop');
   }
 
-  function bindGridImageFallback(targetGrid) {
+  async function bindGridImageFallback(targetGrid) {
     if (!targetGrid || targetGrid.dataset.shopImageFallbackBound === "true") {
       return;
     }
 
+    const cardSystem = await loadProductCardSystem();
+    cardSystem.bindImageFallback(targetGrid);
     targetGrid.dataset.shopImageFallbackBound = "true";
-    targetGrid.addEventListener("error", event => {
-      const image = event.target;
-
-      if (!(image instanceof HTMLImageElement) || image.dataset.fallbackApplied === "true") {
-        return;
-      }
-
-      image.dataset.fallbackApplied = "true";
-      image.src = FALLBACK_IMAGE;
-    }, true);
   }
 
   async function renderProductGrid(targetGrid, items, emptyMessage) {
@@ -325,7 +318,7 @@
     }
 
     applyStorefrontGridClasses(targetGrid);
-    bindGridImageFallback(targetGrid);
+    await bindGridImageFallback(targetGrid);
     targetGrid.setAttribute('aria-busy', 'true');
     const markup = await createProductGridMarkup(items, emptyMessage);
     targetGrid.innerHTML = markup;
@@ -405,7 +398,7 @@
     }
 
     applyStorefrontGridClasses(elements.grid);
-    bindGridImageFallback(elements.grid);
+    await bindGridImageFallback(elements.grid);
     elements.grid.setAttribute('aria-busy', 'false');
     elements.grid.innerHTML = state.markupCache.get(state.currentFilter) || "";
     updateResultsSummary(elements.resultsSummary, filtered.length, label);

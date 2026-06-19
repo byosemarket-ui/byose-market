@@ -154,7 +154,7 @@ export function isPersistableAssetUrl(value) {
     return false;
   }
 
-  return /^(?:https?:|products\/|categories\/|users\/|reviews\/|temp\/)/i.test(normalized);
+  return /^(?:https?:|\/uploads\/|products\/|categories\/|users\/|reviews\/|temp\/)/i.test(normalized);
 }
 
 export const ALLOWED_IMAGE_MIME_TYPES = [

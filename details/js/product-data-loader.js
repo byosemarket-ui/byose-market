@@ -1,5 +1,5 @@
 import { getAllProductContent } from './product-content.js';
-import { normalizeStorefrontAssetList, normalizeStorefrontAssetUrl } from '../../services/storefront-asset-url.js';
+import { normalizeStorefrontAssetList, normalizeStorefrontAssetUrl, resolveProductImageUrl } from '../../services/storefront-asset-url.js';
 
 const CATEGORY_COPY = {
   shoes: {
@@ -163,7 +163,16 @@ function mergeProductContent(product) {
   const mergedProduct = {
     ...product
   };
-  const mainImage = resolveAssetPath(mergedProduct.mainImage || mergedProduct.image || product.mainImage || product.image);
+  const mainImage = resolveProductImageUrl({
+    ...mergedProduct,
+    mainImage: mergedProduct.mainImage || mergedProduct.image || product.mainImage || product.image,
+    image: mergedProduct.image || mergedProduct.mainImage || product.image || product.mainImage,
+    thumbnail: mergedProduct.thumbnail || product.thumbnail,
+    gallery: mergedProduct.gallery || product.gallery,
+    mainImageStoragePath: mergedProduct.mainImageStoragePath || product.mainImageStoragePath || product.imageStoragePath,
+    imageStoragePath: mergedProduct.imageStoragePath || product.imageStoragePath,
+    galleryStoragePaths: mergedProduct.galleryStoragePaths || product.galleryStoragePaths
+  });
   const gallery = normalizeGallery(mainImage, mergedProduct.gallery || product.gallery);
   const price = Number(mergedProduct.price ?? product.price ?? product.salePrice ?? 0);
   const compareCandidates = [

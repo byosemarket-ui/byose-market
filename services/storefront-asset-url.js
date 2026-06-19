@@ -1,4 +1,10 @@
 export const PRODUCTION_SITE_ORIGIN = "https://byosemarket.com";
+export const STOREFRONT_CATALOG_CACHE_KEYS = [
+  "byose_market_products_catalog_v1",
+  "byose_market_products_catalog_v2",
+  "byose_market_products_catalog_v3",
+  "byose_market_products_catalog_v4"
+];
 
 function normalizeBaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
@@ -68,9 +74,61 @@ export function normalizeStorefrontAssetList(values = []) {
   return output;
 }
 
+export function collectProductImageCandidates(product) {
+  if (!product || typeof product !== "object") {
+    return [];
+  }
+
+  const gallery = Array.isArray(product.gallery) ? product.gallery : [];
+  const galleryStoragePaths = Array.isArray(product.galleryStoragePaths) ? product.galleryStoragePaths : [];
+
+  return [
+    product.mainImage,
+    product.image,
+    product.thumbnail,
+    ...gallery,
+    product.mainImageStoragePath,
+    product.imageStoragePath,
+    ...galleryStoragePaths
+  ];
+}
+
+export function resolveProductImageUrl(product) {
+  for (const candidate of collectProductImageCandidates(product)) {
+    const normalized = normalizeStorefrontAssetUrl(candidate);
+    if (normalized && !/^javascript:/i.test(normalized)) {
+      return normalized;
+    }
+  }
+
+  return "";
+}
+
+export function purgeLegacyStorefrontCatalogCache(activeKey = "byose_market_products_catalog_v4") {
+  if (typeof window === "undefined" || typeof window.localStorage === "undefined") {
+    return;
+  }
+
+  STOREFRONT_CATALOG_CACHE_KEYS.forEach((key) => {
+    if (key === activeKey) {
+      return;
+    }
+
+    try {
+      window.localStorage.removeItem(key);
+    } catch (_error) {
+      // Ignore storage failures.
+    }
+  });
+}
+
 export default {
   PRODUCTION_SITE_ORIGIN,
+  STOREFRONT_CATALOG_CACHE_KEYS,
+  collectProductImageCandidates,
   normalizeStorefrontAssetUrl,
   normalizeStorefrontAssetList,
+  purgeLegacyStorefrontCatalogCache,
+  resolveProductImageUrl,
   resolveStorefrontOrigin
 };

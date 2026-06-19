@@ -15,6 +15,7 @@
 set -euo pipefail
 
 DEPLOY_DIR="${DEPLOY_DIR:-/root/BYOSESEMARKET4}"
+WEB_ROOT="${WEB_ROOT:-/var/www/byosemarket}"
 DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
 PM2_APP_NAME="${PM2_APP_NAME:-byosemarket-api}"
 API_PORT="${API_PORT:-5000}"
@@ -75,6 +76,64 @@ verify_health_endpoint() {
 
   rm -f "${body_file}"
   return 1
+}
+
+sync_storefront_static() {
+  if [[ ! -d "${WEB_ROOT}" ]]; then
+    log "WEB_ROOT ${WEB_ROOT} not found; skipping storefront static sync."
+    return 0
+  fi
+
+  if ! command -v rsync >/dev/null 2>&1; then
+    fail "rsync is required to publish storefront files to ${WEB_ROOT}"
+  fi
+
+  log "Syncing storefront static assets to ${WEB_ROOT}..."
+
+  local dirs=(
+    css
+    js
+    services
+    details
+    config
+    shared
+    img
+    components
+    orders
+    account
+    admin
+  )
+
+  local files=(
+    index.html
+    shop.html
+    cart.html
+    search.html
+    contact.html
+    login.html
+    signup.html
+    product-details1.html
+    shop.css
+    mobile-nav.css
+    index.js
+    script.js
+    shop.js
+  )
+
+  for dir in "${dirs[@]}"; do
+    if [[ -d "${DEPLOY_DIR}/${dir}" ]]; then
+      mkdir -p "${WEB_ROOT}/${dir}"
+      rsync -a --delete "${DEPLOY_DIR}/${dir}/" "${WEB_ROOT}/${dir}/"
+    fi
+  done
+
+  for file in "${files[@]}"; do
+    if [[ -f "${DEPLOY_DIR}/${file}" ]]; then
+      cp -f "${DEPLOY_DIR}/${file}" "${WEB_ROOT}/${file}"
+    fi
+  done
+
+  log "Storefront static sync complete."
 }
 
 wait_for_healthy_api() {
@@ -152,6 +211,8 @@ else
 fi
 
 pm2 save
+
+sync_storefront_static
 
 log "Waiting for API health checks (HTTP 200 + JSON status field)..."
 if wait_for_healthy_api; then

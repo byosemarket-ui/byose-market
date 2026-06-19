@@ -16,9 +16,57 @@
 		return servicePromise;
 	}
 
+	function resolveProductImage(product) {
+		const gallery = Array.isArray(product && product.gallery) ? product.gallery : [];
+		const galleryStoragePaths = Array.isArray(product && product.galleryStoragePaths) ? product.galleryStoragePaths : [];
+		const candidates = [
+			product && product.mainImage,
+			product && product.image,
+			product && product.thumbnail,
+			...gallery,
+			product && product.mainImageStoragePath,
+			product && product.imageStoragePath,
+			...galleryStoragePaths
+		];
+
+		for (const candidate of candidates) {
+			const value = String(candidate || '').trim();
+			if (!value || /^javascript:/i.test(value)) {
+				continue;
+			}
+
+			if (/^https?:\/\//i.test(value)) {
+				return value;
+			}
+
+			const origin = String(window.location && window.location.origin || 'https://byosemarket.com').replace(/\/+$/, '');
+			if (value.startsWith('/uploads/') || value.startsWith('/img/')) {
+				return origin + value;
+			}
+
+			if (value.startsWith('uploads/')) {
+				return origin + '/' + value.replace(/^\/+/, '');
+			}
+
+			if (/^(?:products|categories|users|reviews|temp)\//i.test(value)) {
+				return origin + '/uploads/' + value.replace(/^\/+/, '');
+			}
+
+			if (value.startsWith('img/')) {
+				return origin + '/' + value;
+			}
+
+			if (value.startsWith('/')) {
+				return origin + value;
+			}
+		}
+
+		return '';
+	}
+
 	function mapStorefrontProduct(product) {
 		const id = String(product && (product.id || product.catalogId) ? (product.id || product.catalogId) : '').trim();
-		const image = String(product && (product.mainImage || product.image) ? (product.mainImage || product.image) : FALLBACK_IMAGE).trim() || FALLBACK_IMAGE;
+		const image = resolveProductImage(product);
 
 		return {
 			...product,

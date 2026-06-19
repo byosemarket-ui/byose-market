@@ -2,7 +2,7 @@ export const GLOBAL_SYNC_EVENT = "byose:products-synchronized";
 export const PRODUCT_CHANGED_EVENT = "byose:products-changed";
 
 import { buildApiUrl, ensureUploadCapableApiBaseUrl, resolveApiBaseUrl } from "./api-origin.js";
-import { normalizeStorefrontAssetList, normalizeStorefrontAssetUrl } from "./storefront-asset-url.js";
+import { normalizeStorefrontAssetList, normalizeStorefrontAssetUrl, purgeLegacyStorefrontCatalogCache, resolveProductImageUrl } from "./storefront-asset-url.js";
 
 if (typeof window !== "undefined") {
   window.addEventListener("load", () => {
@@ -11,7 +11,9 @@ if (typeof window !== "undefined") {
 }
 
 const DEFAULT_DETAIL_PAGE = "details/product-details1.html";
-const STOREFRONT_CATALOG_STORAGE_KEY = "byose_market_products_catalog_v2";
+const STOREFRONT_CATALOG_STORAGE_KEY = "byose_market_products_catalog_v4";
+
+purgeLegacyStorefrontCatalogCache(STOREFRONT_CATALOG_STORAGE_KEY);
 const STALE_THRESHOLD_MS = 45000;
 const DEFAULT_RETRY_COUNT = 2;
 const DEFAULT_TIMEOUT_MS = 90000;
@@ -178,7 +180,7 @@ function readStoredProducts() {
     }
 
     const parsed = JSON.parse(raw);
-    return asArray(parsed);
+    return asArray(parsed).map((entry) => normalizeProductRecord(entry));
   } catch (_error) {
     return [];
   }
@@ -333,14 +335,48 @@ function resolveComparePrice(source, price) {
   return 0;
 }
 
+function resolveProductImages(source) {
+  const galleryRaw = asArray(parseJsonArray(source.gallery).map((entry) => normalizeText(entry))).filter(Boolean);
+  const galleryStorageRaw = asArray(parseJsonArray(source.gallery_storage_paths ?? source.galleryStoragePaths)).map((entry) => normalizeText(entry)).filter(Boolean);
+
+  const resolvedMainImage = normalizeText(
+    source.main_image
+      ?? source.mainImage
+      ?? source.image
+      ?? source.thumbnail
+      ?? galleryRaw[0]
+      ?? galleryStorageRaw[0]
+  );
+
+  const mainImage = resolveProductImageUrl({
+    mainImage: resolvedMainImage,
+    image: resolvedMainImage,
+    thumbnail: source.thumbnail,
+    gallery: galleryRaw,
+    mainImageStoragePath: source.main_image_storage_path ?? source.mainImageStoragePath ?? source.imageStoragePath,
+    imageStoragePath: source.image_storage_path ?? source.imageStoragePath,
+    galleryStoragePaths: galleryStorageRaw
+  }) || normalizeStorefrontAssetUrl(resolvedMainImage);
+
+  const gallery = normalizeStorefrontAssetList([
+    mainImage,
+    ...galleryRaw,
+    ...galleryStorageRaw
+  ]);
+
+  return {
+    mainImage: mainImage || gallery[0] || "",
+    image: mainImage || gallery[0] || "",
+    gallery
+  };
+}
+
 function normalizeProductRecord(record) {
   const source = asObject(record);
   const catalogId = Math.max(0, Math.floor(toNumber(source.catalog_id ?? source.catalogId ?? source.id, 0)));
-  const resolvedMainImage = normalizeText(source.main_image ?? source.mainImage ?? source.image);
-  const mainImage = normalizeStorefrontAssetUrl(resolvedMainImage);
-  const gallery = normalizeStorefrontAssetList(
-    asArray(parseJsonArray(source.gallery).map((entry) => normalizeText(entry))).filter(Boolean)
-  );
+  const images = resolveProductImages(source);
+  const mainImage = images.mainImage;
+  const gallery = images.gallery;
   const createdAt = toIsoString(source.created_at ?? source.createdAt) || new Date().toISOString();
   const updatedAt = toIsoString(source.updated_at ?? source.updatedAt) || createdAt;
   const visibility = normalizeVisibility(source.visibility);
@@ -370,6 +406,7 @@ function normalizeProductRecord(record) {
     availableStock: Math.max(0, Math.floor(toNumber(source.stock, 0))),
     image: mainImage,
     mainImage,
+    thumbnail: mainImage,
     gallery,
     keywords: parseJsonArray(source.keywords).length ? parseJsonArray(source.keywords) : buildKeywords(source),
     highlights: parseJsonArray(source.highlights),

@@ -6,6 +6,11 @@
   var PRODUCTION_API_BASE = "https://byosemarket.com/api";
   var LEGACY_API_PATTERN = /(?:onrender\.com|localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i;
   var STORAGE_KEYS = ["adminApiBaseUrl", "adminValidatedApiBaseUrl"];
+  var LEGACY_CATALOG_KEYS = [
+    "byose_market_products_catalog_v1",
+    "byose_market_products_catalog_v2",
+    "byose_market_products_catalog_v3"
+  ];
 
   function normalizeApiBase(value) {
     var normalized = String(value || "").trim().replace(/\/+$/, "").replace(/\/admin$/i, "");
@@ -56,4 +61,14 @@
   }
 
   migrateStoredApiBase(normalizeApiBase(global.BYOSE_API_BASE_URL || resolvedApiBase));
+
+  if (typeof global.localStorage !== "undefined") {
+    LEGACY_CATALOG_KEYS.forEach(function purgeCatalogKey(key) {
+      try {
+        global.localStorage.removeItem(key);
+      } catch (_error) {
+        // Ignore storage failures.
+      }
+    });
+  }
 })(typeof window !== "undefined" ? window : globalThis);
