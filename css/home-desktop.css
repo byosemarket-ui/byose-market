@@ -8,17 +8,6 @@
     max-height: 340px;
   }
 
-  .category-grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-
-}
-
-@media (min-width: 1024px) {
-  .footer-grid {
-    grid-template-columns: 1.4fr 0.8fr 1fr 1.2fr;
-    align-items: start;
-  }
 }
 
 @media (min-width: 769px) and (max-width: 1199px) {

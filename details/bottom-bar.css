@@ -1,9 +1,9 @@
 body.details-page {
-  padding-bottom: 96px;
+  padding-bottom: 0;
 }
 
 body.details-page .details-main {
-  padding-bottom: 28px;
+  padding-bottom: 20px;
 }
 
 .details-bottom-bar {

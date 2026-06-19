@@ -51,7 +51,7 @@
   };
 
   const elements = {
-    filterRoot: document.querySelector(".filters"),
+    filterRoot: document.getElementById("shopFilters"),
     grid: document.getElementById("shopProductGrid"),
     resultsSummary: document.getElementById("resultsSummary")
   };
@@ -339,7 +339,7 @@
     }
 
     const normalizedCategory = normalizeCategory(category);
-    if (!normalizedCategory || normalizedCategory === DEFAULT_FILTER) {
+    if (!normalizedCategory || normalizedCategory === DEFAULT_FILTER || normalizedCategory === "all") {
       return items;
     }
 
@@ -348,7 +348,7 @@
 
   function getFilteredProducts(category) {
     const normalizedCategory = normalizeCategory(category);
-    if (normalizedCategory === DEFAULT_FILTER) {
+    if (!normalizedCategory || normalizedCategory === DEFAULT_FILTER || normalizedCategory === "all") {
       return state.products;
     }
 
@@ -359,13 +359,34 @@
     return state.filteredCache.get(normalizedCategory) || [];
   }
 
+  function getFilterLabel(button) {
+    return String(button.dataset.label || button.textContent || "")
+      .replace(/\s*✓\s*$/u, "")
+      .trim();
+  }
+
   function syncFilterButtons() {
-    const buttons = Array.from(document.querySelectorAll(".filters button"));
+    const buttons = Array.from(document.querySelectorAll(".shop-filters .shop-filter-pill"));
     buttons.forEach(button => {
       const buttonFilter = normalizeCategory(button.dataset.filter || DEFAULT_FILTER);
       const isActive = buttonFilter === state.currentFilter;
+      const label = getFilterLabel(button);
+
+      if (!button.dataset.label) {
+        button.dataset.label = label;
+      }
+
       button.classList.toggle("active", isActive);
       button.setAttribute("aria-pressed", String(isActive));
+      button.textContent = isActive ? `${label} ✓` : label;
+
+      if (isActive) {
+        button.scrollIntoView({
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+          inline: "center",
+          block: "nearest"
+        });
+      }
     });
   }
 
@@ -390,7 +411,9 @@
     }
 
     const filtered = getFilteredProducts(state.currentFilter);
-    const label = state.currentFilter === DEFAULT_FILTER ? "All items" : createCategoryLabel(state.currentFilter);
+    const label = !state.currentFilter || state.currentFilter === DEFAULT_FILTER || state.currentFilter === "all"
+      ? "All items"
+      : createCategoryLabel(state.currentFilter);
 
     if (!state.markupCache.has(state.currentFilter)) {
       const markup = await createProductGridMarkup(filtered, "No products available in this category right now.");
@@ -406,8 +429,8 @@
 
   async function setFilter(nextFilter, options) {
     const config = options || {};
-    const normalizedFilter = normalizeCategory(nextFilter);
-    state.currentFilter = normalizedFilter || DEFAULT_FILTER;
+    const rawFilter = String(nextFilter || DEFAULT_FILTER).trim().toLowerCase();
+    state.currentFilter = rawFilter === "all" ? DEFAULT_FILTER : normalizeCategory(nextFilter);
     syncFilterButtons();
 
     if (!config.skipUrlUpdate) {
@@ -420,8 +443,8 @@
   function getInitialFilter() {
     const params = new URLSearchParams(window.location.search);
     const rawFilter = params.get("category") || params.get("filter") || DEFAULT_FILTER;
-    const normalizedFilter = normalizeCategory(rawFilter);
-    return normalizedFilter || DEFAULT_FILTER;
+    const normalized = String(rawFilter).trim().toLowerCase();
+    return normalized === "all" ? DEFAULT_FILTER : normalizeCategory(rawFilter);
   }
 
   function initializeShopPage() {

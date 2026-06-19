@@ -121,6 +121,8 @@ button {
 .hero-copy h1,
 .section-heading h2,
 .site-footer h3,
+.footer-panel__title,
+.footer-brand__name,
 .product-title {
   font-family: "Outfit", sans-serif;
 }
@@ -172,8 +174,7 @@ button {
 }
 
 .header-search button,
-.primary-cta,
-.footer-subscribe button {
+.primary-cta {
   border: 0;
   border-radius: 999px;
   background: linear-gradient(135deg, var(--home-primary) 0%, var(--home-primary-deep) 100%);
@@ -545,8 +546,7 @@ button {
 
 .category-grid,
 .product-grid,
-.benefits-section,
-.footer-grid {
+.benefits-section {
   display: grid;
 }
 
@@ -741,230 +741,7 @@ button {
   font-size: 0.78rem;
 }
 
-.site-footer {
-  margin-top: 18px;
-  padding: 26px 0 28px;
-  border-top: 1px solid rgba(18, 33, 39, 0.06);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(232, 250, 245, 0.78)),
-    radial-gradient(circle at top right, rgba(0, 184, 148, 0.14), transparent 34%);
-}
-
-.footer-shell {
-  display: grid;
-  gap: 18px;
-}
-
-.footer-grid {
-  display: grid;
-  gap: 18px;
-}
-
-.footer-card {
-  position: relative;
-  display: grid;
-  gap: 12px;
-  padding: 20px;
-  border-radius: 22px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 255, 251, 0.92));
-  border: 1px solid rgba(18, 33, 39, 0.08);
-  box-shadow: 0 16px 38px rgba(8, 45, 36, 0.08);
-  overflow: hidden;
-}
-
-.footer-card::after {
-  content: "";
-  position: absolute;
-  inset: 0 auto auto 0;
-  width: 82px;
-  height: 82px;
-  border-radius: 0 0 999px 0;
-  background: rgba(0, 184, 148, 0.08);
-  pointer-events: none;
-}
-
-.footer-column {
-  display: grid;
-  gap: 10px;
-  align-content: start;
-}
-
-.footer-eyebrow {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(0, 184, 148, 0.12);
-  color: var(--home-primary-deep);
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.footer-column h3 {
-  position: relative;
-  z-index: 1;
-  margin: 0;
-  font-size: 1.08rem;
-}
-
-.footer-column p,
-.footer-column a,
-.footer-column span,
-.footer-note,
-.footer-subscribe-copy {
-  position: relative;
-  z-index: 1;
-  margin: 0;
-  color: var(--home-muted);
-  font-size: 0.92rem;
-  line-height: 1.65;
-}
-
-.footer-brand p {
-  max-width: 34ch;
-}
-
-.footer-links-list,
-.footer-contact-list {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  gap: 10px;
-}
-
-.footer-links-list a {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(18, 33, 39, 0.06);
-  color: var(--home-text);
-  font-weight: 600;
-  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.footer-links-list a::after {
-  content: "\2192";
-  color: var(--home-primary-deep);
-  font-weight: 700;
-}
-
-.footer-links-list a:hover,
-.footer-links-list a:focus-visible,
-.footer-contact-item:hover,
-.footer-contact-item:focus-visible,
-.footer-subscribe button:hover,
-.footer-subscribe button:focus-visible {
-  transform: translateY(-1px);
-  border-color: rgba(0, 184, 148, 0.22);
-  box-shadow: 0 12px 24px rgba(0, 90, 72, 0.08);
-}
-
-.footer-contact-item {
-  display: grid;
-  grid-template-columns: 44px 1fr;
-  gap: 12px;
-  align-items: center;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid rgba(18, 33, 39, 0.06);
-  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.footer-contact-static {
-  cursor: default;
-}
-
-.footer-contact-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
-  background: linear-gradient(180deg, rgba(0, 184, 148, 0.16), rgba(0, 184, 148, 0.08));
-  color: var(--home-primary-deep);
-  font-size: 1rem;
-}
-
-.footer-contact-copy {
-  display: grid;
-  gap: 2px;
-}
-
-.footer-contact-copy strong {
-  color: var(--home-text);
-  font-size: 0.92rem;
-}
-
-.footer-contact-copy small {
-  color: var(--home-muted);
-  font-size: 0.78rem;
-}
-
-.footer-subscribe {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-}
-
-.footer-subscribe input {
-  min-height: 48px;
-  padding: 0 16px;
-  border-radius: 999px;
-  border: 1px solid rgba(18, 33, 39, 0.08);
-  background: rgba(255, 255, 255, 0.98);
-  color: var(--home-text);
-  outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.footer-subscribe input:focus {
-  border-color: rgba(0, 184, 148, 0.34);
-  box-shadow: 0 0 0 4px rgba(0, 184, 148, 0.12);
-}
-
-.footer-subscribe button {
-  min-height: 48px;
-  padding: 0 18px;
-  border: 0;
-  border-radius: 999px;
-  background: linear-gradient(135deg, var(--home-primary), var(--home-primary-deep));
-  color: #ffffff;
-  font-weight: 700;
-  box-shadow: 0 14px 24px rgba(0, 120, 96, 0.18);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
-}
-
-.footer-subscribe button:hover,
-.footer-subscribe button:focus-visible {
-  filter: saturate(1.05);
-}
-
-.footer-note.is-success {
-  color: var(--home-primary-deep);
-}
-
-.footer-bottom {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px 18px;
-  padding: 4px 4px 0;
-  color: var(--home-muted);
-  font-size: 0.82rem;
-}
+/* Footer styles live in css/storefront-footer.css */
 
 .sr-only {
   position: absolute;

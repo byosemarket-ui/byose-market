@@ -8,6 +8,7 @@
 
 import productService from './services/centralized-products.service.js';
 import ProductCardSystem from './js/product-card-system.js';
+import { initHomeCategorySlider } from './js/home-category-slider.js';
 import { normalizeStorefrontAssetUrl, resolveProductImageUrl } from './services/storefront-asset-url.js';
 
 const DEFAULT_FILTER = 'all';
@@ -68,6 +69,7 @@ function initializeHomePage() {
   syncCatalog();
   setupFilterControls();
   setupHeroSlider();
+  initHomeCategorySlider();
 
   // Listen for backend product synchronization events
   window.addEventListener(productService.GLOBAL_SYNC_EVENT, syncCatalog);

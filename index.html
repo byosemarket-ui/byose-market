@@ -28,6 +28,7 @@
   <link rel="stylesheet" href="css/storefront-footer.css">
   <link rel="stylesheet" href="css/home-mobile.css">
   <link rel="stylesheet" href="css/home-desktop.css">
+  <link rel="stylesheet" href="css/home-category-slider.css">
   <link rel="stylesheet" href="mobile-nav.css">
   <script src="config/runtime-api-bootstrap.js"></script>
 </head>
@@ -154,31 +155,36 @@
         <a href="shop.html" class="text-link">Reba byose</a>
       </div>
 
-      <div class="category-grid" id="categoryGrid">
-        <button type="button" class="category-card" data-filter="shoes">
-          <img src="img/categories 1.jpeg" alt="Inkweto">
-          <span>Inkweto</span>
-        </button>
-        <button type="button" class="category-card" data-filter="bags">
-          <img src="img/categories 2.jpeg" alt="Ibikapu">
-          <span>Ibikapu</span>
-        </button>
-        <button type="button" class="category-card" data-filter="fashion">
-          <img src="img/hiro 3 imyenda.jpg" alt="Imyenda">
-          <span>Imyenda</span>
-        </button>
-        <button type="button" class="category-card" data-filter="electronics">
-          <img src="img/hiro  4 electronics.jpg" alt="Electronics">
-          <span>Electronics</span>
-        </button>
-        <button type="button" class="category-card" data-filter="watches">
-          <img src="img/hiro 5b amasaha.jpg" alt="Amasaha">
-          <span>Amasaha</span>
-        </button>
-        <button type="button" class="category-card" data-filter="phones">
-          <img src="img/categories6.jpeg" alt="Phones">
-          <span>Phones</span>
-        </button>
+      <div class="category-slider" id="categorySlider">
+        <div class="category-slider__viewport" id="categorySliderViewport">
+          <div class="category-slider__track" id="categoryGrid">
+            <button type="button" class="category-card" data-filter="shoes">
+              <img src="img/categories 1.jpeg" alt="Inkweto" loading="lazy" decoding="async">
+              <span>Inkweto</span>
+            </button>
+            <button type="button" class="category-card" data-filter="bags">
+              <img src="img/categories 2.jpeg" alt="Ibikapu" loading="lazy" decoding="async">
+              <span>Ibikapu</span>
+            </button>
+            <button type="button" class="category-card" data-filter="fashion">
+              <img src="img/hiro 3 imyenda.jpg" alt="Imyenda" loading="lazy" decoding="async">
+              <span>Imyenda</span>
+            </button>
+            <button type="button" class="category-card" data-filter="electronics">
+              <img src="img/hiro  4 electronics.jpg" alt="Electronics" loading="lazy" decoding="async">
+              <span>Electronics</span>
+            </button>
+            <button type="button" class="category-card" data-filter="watches">
+              <img src="img/hiro 5b amasaha.jpg" alt="Amasaha" loading="lazy" decoding="async">
+              <span>Amasaha</span>
+            </button>
+            <button type="button" class="category-card" data-filter="phones">
+              <img src="img/categories6.jpeg" alt="Phones" loading="lazy" decoding="async">
+              <span>Phones</span>
+            </button>
+          </div>
+        </div>
+        <div class="category-slider__dots" id="categorySliderDots" aria-hidden="true"></div>
       </div>
     </section>
 
@@ -248,60 +254,75 @@
 
   <footer class="site-footer">
     <div class="container footer-shell">
-      <div class="footer-grid">
-        <section class="footer-column footer-brand" aria-labelledby="footer-brand-title">
+      <section class="footer-brand" aria-labelledby="footer-brand-title">
+        <div class="footer-brand__head">
           <a href="index.html" class="footer-logo-link" aria-label="Byose Market Home">
-            <img class="footer-logo" src="img/logo.png" alt="Byose Market logo" width="48" height="48">
+            <img class="footer-logo" src="img/logo.png" alt="" width="40" height="40">
           </a>
-          <h3 id="footer-brand-title" class="footer-brand-name">BYOSE MARKET</h3>
-          <p class="footer-brand-desc">Rwanda's trusted online marketplace for fashion, shoes, electronics and everyday essentials — fast, simple, affordable.</p>
-        </section>
+          <h2 id="footer-brand-title" class="footer-brand__name">BYOSE MARKET</h2>
+        </div>
+        <p class="footer-brand__desc">Rwanda's trusted online marketplace for fashion, shoes, electronics and everyday essentials — fast, simple, affordable.</p>
+      </section>
 
-        <nav class="footer-column footer-links" aria-labelledby="footer-links-title">
-          <h3 id="footer-links-title">Quick Links</h3>
-          <div class="footer-links-list">
-            <a href="index.html">Home</a>
-            <a href="shop.html">Shop</a>
-            <a href="contact.html">Contact</a>
-            <a href="search.html">Search</a>
-          </div>
+      <div class="footer-columns">
+        <nav class="footer-panel footer-panel--links" aria-labelledby="footer-links-title">
+          <h3 id="footer-links-title" class="footer-panel__title">Quick Links</h3>
+          <ul class="footer-links">
+            <li><a href="index.html">Home</a></li>
+            <li><a href="shop.html">Shop</a></li>
+            <li><a href="contact.html">Contact</a></li>
+            <li><a href="search.html">Search</a></li>
+          </ul>
         </nav>
 
-        <section class="footer-column footer-contact" aria-labelledby="footer-contact-title">
-          <h3 id="footer-contact-title">Contact</h3>
-          <div class="footer-contact-list">
-            <a href="tel:+250780430710" class="footer-contact-item">
-              <i class="fa-solid fa-phone" aria-hidden="true"></i>
-              <span>0780 430 710</span>
+        <section class="footer-panel footer-panel--contact" aria-labelledby="footer-contact-title">
+          <h3 id="footer-contact-title" class="footer-panel__title">Contact</h3>
+          <div class="footer-contact-cards">
+            <a href="tel:+250780430710" class="footer-touch-card">
+              <span class="footer-touch-card__icon footer-touch-card__icon--phone" aria-hidden="true"><i class="fa-solid fa-phone"></i></span>
+              <span class="footer-touch-card__copy">
+                <span class="footer-touch-card__label">Phone</span>
+                <span class="footer-touch-card__value">0780 430 710</span>
+              </span>
             </a>
-            <a href="tel:+250723731250" class="footer-contact-item">
-              <i class="fa-brands fa-whatsapp" aria-hidden="true"></i>
-              <span>0723 731 250</span>
+            <a href="https://wa.me/250723731250" class="footer-touch-card" target="_blank" rel="noopener noreferrer">
+              <span class="footer-touch-card__icon footer-touch-card__icon--whatsapp" aria-hidden="true"><i class="fa-brands fa-whatsapp"></i></span>
+              <span class="footer-touch-card__copy">
+                <span class="footer-touch-card__label">WhatsApp</span>
+                <span class="footer-touch-card__value">0723 731 250</span>
+              </span>
             </a>
-            <a href="mailto:byosemarket@gmail.com" class="footer-contact-item">
-              <i class="fa-regular fa-envelope" aria-hidden="true"></i>
-              <span>byosemarket@gmail.com</span>
+            <a href="mailto:byosemarket@gmail.com" class="footer-touch-card">
+              <span class="footer-touch-card__icon footer-touch-card__icon--email" aria-hidden="true"><i class="fa-regular fa-envelope"></i></span>
+              <span class="footer-touch-card__copy">
+                <span class="footer-touch-card__label">Email</span>
+                <span class="footer-touch-card__value">byosemarket@gmail.com</span>
+              </span>
             </a>
-            <div class="footer-contact-item footer-contact-static">
-              <i class="fa-solid fa-location-dot" aria-hidden="true"></i>
-              <span>Kigali, Rwanda</span>
-            </div>
+            <a href="https://maps.google.com/?q=Kigali,Rwanda" class="footer-touch-card" target="_blank" rel="noopener noreferrer">
+              <span class="footer-touch-card__icon footer-touch-card__icon--location" aria-hidden="true"><i class="fa-solid fa-location-dot"></i></span>
+              <span class="footer-touch-card__copy">
+                <span class="footer-touch-card__label">Location</span>
+                <span class="footer-touch-card__value">Kigali, Rwanda</span>
+              </span>
+            </a>
           </div>
         </section>
-
-        <section class="footer-column footer-subscribe" aria-labelledby="footer-subscribe-title">
-          <h3 id="footer-subscribe-title">Newsletter</h3>
-          <p class="footer-subscribe-copy">Get deals and new arrivals in your inbox.</p>
-          <form id="footerSubscribeForm" class="footer-subscribe">
-            <label class="sr-only" for="footerEmail">Email address</label>
-            <input type="email" id="footerEmail" placeholder="Your email" aria-label="Email address" required>
-            <button type="submit">Subscribe</button>
-          </form>
-          <p class="footer-note" id="footerNote">Weekly deals, no spam.</p>
-        </section>
       </div>
+
+      <section class="footer-newsletter" aria-labelledby="footer-newsletter-title">
+        <h3 id="footer-newsletter-title" class="footer-panel__title">Newsletter</h3>
+        <p class="footer-newsletter__copy">Get deals and new arrivals in your inbox.</p>
+        <form id="footerSubscribeForm" class="footer-newsletter__form">
+          <label class="sr-only" for="footerEmail">Email address</label>
+          <input type="email" id="footerEmail" placeholder="Your email" aria-label="Email address" required>
+          <button type="submit">Subscribe</button>
+        </form>
+        <p class="footer-newsletter__note" id="footerNote">Weekly deals, no spam.</p>
+      </section>
+
       <div class="footer-bottom">
-        <span>&copy; 2026 Byose Market. All rights reserved.</span>
+        <p>&copy; 2026 Byose Market. All rights reserved.</p>
       </div>
     </div>
   </footer>

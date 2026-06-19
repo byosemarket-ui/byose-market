@@ -79,91 +79,95 @@
   </header>
 
   <main class="shop-main">
-    <section class="container shop-toolbar-wrap">
-      <div class="shop-toolbar card-surface">
-        <div class="shop-toolbar-copy">
-          <span class="section-kicker">Quick filters</span>
-          <h2>Find products fast</h2>
-        </div>
-
-        <div class="filters" role="tablist" aria-label="Product filters">
-          <button type="button" data-filter="all" class="active" aria-pressed="true">All</button>
-          <button type="button" data-filter="fashion" aria-pressed="false">Fashion</button>
-          <button type="button" data-filter="shoes" aria-pressed="false">Shoes</button>
-          <button type="button" data-filter="electronics" aria-pressed="false">Electronics</button>
-        </div>
+    <section class="shop-filters-bar container" aria-label="Shop category filters">
+      <div class="shop-filters" id="shopFilters" role="tablist" aria-label="Filter products by category">
+        <button type="button" class="shop-filter-pill active" data-filter="all" data-label="All" aria-pressed="true">All</button>
+        <button type="button" class="shop-filter-pill" data-filter="fashion" data-label="Fashion" aria-pressed="false">Fashion</button>
+        <button type="button" class="shop-filter-pill" data-filter="shoes" data-label="Shoes" aria-pressed="false">Shoes</button>
+        <button type="button" class="shop-filter-pill" data-filter="electronics" data-label="Electronics" aria-pressed="false">Electronics</button>
+        <button type="button" class="shop-filter-pill" data-filter="phones" data-label="Phones" aria-pressed="false">Phones</button>
+        <button type="button" class="shop-filter-pill" data-filter="watches" data-label="Watches" aria-pressed="false">Watches</button>
+        <button type="button" class="shop-filter-pill" data-filter="bags" data-label="Bags" aria-pressed="false">Bags</button>
       </div>
+      <p class="shop-results" id="resultsSummary" aria-live="polite"></p>
     </section>
 
-    <section class="products-section container shop-products-section" aria-labelledby="shop-products-title">
-      <div class="section-heading compact-heading shop-results-head">
-        <div>
-          <span class="section-kicker">Browse products</span>
-          <h2 id="shop-products-title">Shop the latest picks</h2>
-        </div>
-        <p class="shop-results" id="resultsSummary" aria-live="polite"></p>
-      </div>
-
-      <div class="products-grid shop-product-grid" id="shopProductGrid"></div>
+    <section class="products-section container shop-products-section">
+      <div class="products-grid shop-product-grid" id="shopProductGrid" aria-live="polite"></div>
     </section>
   </main>
 
   <footer class="site-footer">
     <div class="container footer-shell">
-      <div class="footer-grid">
-        <section class="footer-column footer-brand" aria-labelledby="footer-brand-title">
+      <section class="footer-brand" aria-labelledby="footer-brand-title">
+        <div class="footer-brand__head">
           <a href="index.html" class="footer-logo-link" aria-label="Byose Market Home">
-            <img class="footer-logo" src="img/logo.png" alt="Byose Market logo" width="48" height="48">
+            <img class="footer-logo" src="img/logo.png" alt="" width="40" height="40">
           </a>
-          <h3 id="footer-brand-title" class="footer-brand-name">BYOSE MARKET</h3>
-          <p class="footer-brand-desc">Rwanda's trusted online marketplace for fashion, shoes, electronics and everyday essentials — fast, simple, affordable.</p>
-        </section>
+          <h2 id="footer-brand-title" class="footer-brand__name">BYOSE MARKET</h2>
+        </div>
+        <p class="footer-brand__desc">Rwanda's trusted online marketplace for fashion, shoes, electronics and everyday essentials — fast, simple, affordable.</p>
+      </section>
 
-        <nav class="footer-column footer-links" aria-labelledby="footer-links-title">
-          <h3 id="footer-links-title">Quick Links</h3>
-          <div class="footer-links-list">
-            <a href="index.html">Home</a>
-            <a href="shop.html">Shop</a>
-            <a href="contact.html">Contact</a>
-            <a href="search.html">Search</a>
-          </div>
+      <div class="footer-columns">
+        <nav class="footer-panel footer-panel--links" aria-labelledby="footer-links-title">
+          <h3 id="footer-links-title" class="footer-panel__title">Quick Links</h3>
+          <ul class="footer-links">
+            <li><a href="index.html">Home</a></li>
+            <li><a href="shop.html">Shop</a></li>
+            <li><a href="contact.html">Contact</a></li>
+            <li><a href="search.html">Search</a></li>
+          </ul>
         </nav>
 
-        <section class="footer-column footer-contact" aria-labelledby="footer-contact-title">
-          <h3 id="footer-contact-title">Contact</h3>
-          <div class="footer-contact-list">
-            <a href="tel:+250780430710" class="footer-contact-item">
-              <i class="fa-solid fa-phone" aria-hidden="true"></i>
-              <span>0780 430 710</span>
+        <section class="footer-panel footer-panel--contact" aria-labelledby="footer-contact-title">
+          <h3 id="footer-contact-title" class="footer-panel__title">Contact</h3>
+          <div class="footer-contact-cards">
+            <a href="tel:+250780430710" class="footer-touch-card">
+              <span class="footer-touch-card__icon footer-touch-card__icon--phone" aria-hidden="true"><i class="fa-solid fa-phone"></i></span>
+              <span class="footer-touch-card__copy">
+                <span class="footer-touch-card__label">Phone</span>
+                <span class="footer-touch-card__value">0780 430 710</span>
+              </span>
             </a>
-            <a href="tel:+250723731250" class="footer-contact-item">
-              <i class="fa-brands fa-whatsapp" aria-hidden="true"></i>
-              <span>0723 731 250</span>
+            <a href="https://wa.me/250723731250" class="footer-touch-card" target="_blank" rel="noopener noreferrer">
+              <span class="footer-touch-card__icon footer-touch-card__icon--whatsapp" aria-hidden="true"><i class="fa-brands fa-whatsapp"></i></span>
+              <span class="footer-touch-card__copy">
+                <span class="footer-touch-card__label">WhatsApp</span>
+                <span class="footer-touch-card__value">0723 731 250</span>
+              </span>
             </a>
-            <a href="mailto:byosemarket@gmail.com" class="footer-contact-item">
-              <i class="fa-regular fa-envelope" aria-hidden="true"></i>
-              <span>byosemarket@gmail.com</span>
+            <a href="mailto:byosemarket@gmail.com" class="footer-touch-card">
+              <span class="footer-touch-card__icon footer-touch-card__icon--email" aria-hidden="true"><i class="fa-regular fa-envelope"></i></span>
+              <span class="footer-touch-card__copy">
+                <span class="footer-touch-card__label">Email</span>
+                <span class="footer-touch-card__value">byosemarket@gmail.com</span>
+              </span>
             </a>
-            <div class="footer-contact-item footer-contact-static">
-              <i class="fa-solid fa-location-dot" aria-hidden="true"></i>
-              <span>Kigali, Rwanda</span>
-            </div>
+            <a href="https://maps.google.com/?q=Kigali,Rwanda" class="footer-touch-card" target="_blank" rel="noopener noreferrer">
+              <span class="footer-touch-card__icon footer-touch-card__icon--location" aria-hidden="true"><i class="fa-solid fa-location-dot"></i></span>
+              <span class="footer-touch-card__copy">
+                <span class="footer-touch-card__label">Location</span>
+                <span class="footer-touch-card__value">Kigali, Rwanda</span>
+              </span>
+            </a>
           </div>
         </section>
-
-        <section class="footer-column footer-subscribe" aria-labelledby="footer-subscribe-title">
-          <h3 id="footer-subscribe-title">Newsletter</h3>
-          <p class="footer-subscribe-copy">Get deals and new arrivals in your inbox.</p>
-          <form id="footerSubscribeForm" class="footer-subscribe">
-            <label class="sr-only" for="footerEmail">Email address</label>
-            <input type="email" id="footerEmail" placeholder="Your email" aria-label="Email address" required>
-            <button type="submit">Subscribe</button>
-          </form>
-          <p class="footer-note" id="footerNote">Weekly deals, no spam.</p>
-        </section>
       </div>
+
+      <section class="footer-newsletter" aria-labelledby="footer-newsletter-title">
+        <h3 id="footer-newsletter-title" class="footer-panel__title">Newsletter</h3>
+        <p class="footer-newsletter__copy">Get deals and new arrivals in your inbox.</p>
+        <form id="footerSubscribeForm" class="footer-newsletter__form">
+          <label class="sr-only" for="footerEmail">Email address</label>
+          <input type="email" id="footerEmail" placeholder="Your email" aria-label="Email address" required>
+          <button type="submit">Subscribe</button>
+        </form>
+        <p class="footer-newsletter__note" id="footerNote">Weekly deals, no spam.</p>
+      </section>
+
       <div class="footer-bottom">
-        <span>&copy; 2026 Byose Market. All rights reserved.</span>
+        <p>&copy; 2026 Byose Market. All rights reserved.</p>
       </div>
     </div>
   </footer>

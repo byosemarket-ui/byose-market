@@ -203,21 +203,6 @@
     font-size: 0.76rem;
   }
 
-  .category-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
-  }
-
-  .category-card {
-    padding: 7px;
-    border-radius: 12px;
-  }
-
-  .category-card span {
-    margin-top: 6px;
-    font-size: 0.72rem;
-  }
-
   .compact-heading {
     flex-direction: column;
     align-items: flex-start;
