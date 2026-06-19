@@ -160,7 +160,7 @@ function createApp() {
 
     app.use('/api', cors(getCorsOptions()), apiRouter);
     app.use(config.uploads.publicMountPath, express.static(config.uploads.rootDir, {
-        fallthrough: true,
+        fallthrough: false,
         index: false,
         maxAge: config.isProduction ? '1d' : 0
     }));

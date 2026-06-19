@@ -1,9 +1,10 @@
 const path = require('path');
 const dotenv = require('dotenv');
-const { PRODUCTION_CORS_ORIGINS, PRODUCTION_SITE_ORIGIN, PRODUCTION_API_BASE_URL } = require('./config/production-targets');
+const { PRODUCTION_CORS_ORIGINS, PRODUCTION_SITE_ORIGIN, PRODUCTION_API_BASE_URL, VPS } = require('./config/production-targets');
 
 const projectRoot = __dirname;
 const deployRoot = process.env.DEPLOY_ROOT || projectRoot;
+const uploadsRoot = process.env.UPLOADS_DIR || VPS.uploadsRoot || path.join(deployRoot, 'server/uploads');
 
 dotenv.config({ path: path.join(projectRoot, '.env') });
 
@@ -40,8 +41,8 @@ module.exports = {
                 DB_CLIENT: readEnv('DB_CLIENT', 'sqlite'),
                 SQLITE_DB_PATH: path.join(deployRoot, 'server/database/byosemarket.sqlite'),
                 SQLITE_MIGRATIONS_DIR: path.join(deployRoot, 'server/database/sqlite/migrations'),
-                UPLOADS_DIR: path.join(deployRoot, 'server/uploads'),
-                STORAGE_ROOT: path.join(deployRoot, 'server/uploads'),
+                UPLOADS_DIR: uploadsRoot,
+                STORAGE_ROOT: uploadsRoot,
                 UPLOADS_PUBLIC_PATH: readEnv('UPLOADS_PUBLIC_PATH', '/uploads'),
                 APP_BASE_URL: readEnv('APP_BASE_URL', PRODUCTION_SITE_ORIGIN),
                 API_BASE_URL: readEnv('API_BASE_URL', PRODUCTION_API_BASE_URL),

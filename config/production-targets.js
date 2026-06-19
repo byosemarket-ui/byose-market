@@ -8,9 +8,10 @@ const PRODUCTION_API_BASE_URL = "https://byosemarket.com/api";
 const VPS = {
   id: "vps3407735",
   host: "153.75.227.160",
-  deployRoot: "/var/www/byosemarket",
-  sqlitePath: "/var/www/byosemarket/server/database/byosemarket.sqlite",
-  uploadsRoot: "/var/www/byosemarket/server/uploads",
+  deployRoot: "/root/BYOSESEMARKET4",
+  webRoot: "/var/www/byosemarket",
+  sqlitePath: "/root/BYOSESEMARKET4/server/database/byosemarket.sqlite",
+  uploadsRoot: "/root/BYOSESEMARKET4/server/uploads",
   publicUploadsPath: "/uploads",
   apiPort: 5000
 };

@@ -136,6 +136,21 @@ sync_storefront_static() {
   log "Storefront static sync complete."
 }
 
+install_nginx_uploads_config() {
+  if [[ ! -f "${DEPLOY_DIR}/scripts/fix-vps-uploads-serving.sh" ]]; then
+    log "Upload nginx fix script not found; skipping nginx upload route install."
+    return 0
+  fi
+
+  if ! command -v nginx >/dev/null 2>&1; then
+    log "nginx not installed; skipping nginx upload route install."
+    return 0
+  fi
+
+  log "Installing nginx upload serving config..."
+  bash "${DEPLOY_DIR}/scripts/fix-vps-uploads-serving.sh"
+}
+
 wait_for_healthy_api() {
   local -a candidates=()
 
@@ -213,6 +228,8 @@ fi
 pm2 save
 
 sync_storefront_static
+
+install_nginx_uploads_config
 
 log "Waiting for API health checks (HTTP 200 + JSON status field)..."
 if wait_for_healthy_api; then

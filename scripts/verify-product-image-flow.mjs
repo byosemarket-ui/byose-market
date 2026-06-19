@@ -121,6 +121,12 @@ async function verifyLiveApi() {
       imageResponse.ok,
       `product ${product.id} image reachable (${imageResponse.status}): ${imageUrl}`
     );
+
+    const contentType = String(imageResponse.headers.get("content-type") || "").toLowerCase();
+    assert(
+      contentType.startsWith("image/"),
+      `product ${product.id} image Content-Type must be image/*, got: ${contentType || "unknown"}`
+    );
   }
 }
 
