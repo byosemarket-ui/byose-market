@@ -200,16 +200,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const relatedProducts = await getRelatedProducts(product);
     renderRelatedProducts(document.getElementById('relatedProducts'), relatedProducts);
-
-    let reloadTimerId = 0;
-    function queueReload() {
-      window.clearTimeout(reloadTimerId);
-      reloadTimerId = window.setTimeout(() => {
-        window.location.reload();
-      }, 60);
-    }
-
-    window.addEventListener('storage', queueReload);
-    window.addEventListener('byose:products-changed', queueReload);
   })();
 });

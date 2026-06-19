@@ -39,10 +39,25 @@ document.addEventListener('DOMContentLoaded', () => {
   // CART BUTTON
   const cartBtn = document.getElementById('cartBtn');
   if (cartBtn) {
+    const openCart = () => {
+      if (typeof Cart !== 'undefined' && typeof Cart.openCart === 'function') {
+        Cart.openCart();
+        return;
+      }
+
+      if (window.KCart && typeof window.KCart.open === 'function') {
+        window.KCart.open();
+        return;
+      }
+
+      const cartPath = window.location.pathname.includes('/details/') ? '../cart.html' : 'cart.html';
+      window.location.href = cartPath;
+    };
+
     if (document.getElementById('cartSidebar')) {
-      cartBtn.addEventListener('click', () => Cart.openCart());
+      cartBtn.addEventListener('click', openCart);
     } else {
-      cartBtn.addEventListener('click', () => window.location.href = 'cart.html');
+      cartBtn.addEventListener('click', openCart);
     }
   }
 

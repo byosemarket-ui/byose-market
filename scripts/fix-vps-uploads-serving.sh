@@ -50,6 +50,20 @@ mkdir -p /etc/nginx/snippets
 log "Installing uploads nginx snippet..."
 install -m 644 "${DEPLOY_DIR}/deploy/nginx-snippet-uploads.conf" "${NGINX_SNIPPET}"
 
+if [[ -f "${DEPLOY_DIR}/deploy/nginx-snippet-static-assets.conf" ]]; then
+  log "Installing static assets nginx snippet..."
+  install -m 644 "${DEPLOY_DIR}/deploy/nginx-snippet-static-assets.conf" /etc/nginx/snippets/byosemarket-static-assets.conf
+fi
+
+log "Ensuring root storefront JavaScript is published..."
+if [[ -d "${WEB_ROOT:-/var/www/byosemarket}" ]]; then
+  for file in "${DEPLOY_DIR}"/*.js; do
+    if [[ -f "${file}" ]]; then
+      cp -f "${file}" "${WEB_ROOT:-/var/www/byosemarket}/$(basename "${file}")"
+    fi
+  done
+fi
+
 log "Installing nginx site config (HTTP + HTTPS with /uploads alias)..."
 install -m 644 "${DEPLOY_DIR}/deploy/nginx-byosemarket.conf" "${NGINX_SITE}"
 ln -sfn "${NGINX_SITE}" "${NGINX_ENABLED}"

@@ -12,6 +12,10 @@ const Tracker = (function(){
   }
 
   function resolveApiOrigin(){
+    if (window.BYOSE_API_BASE_URL) {
+      return String(window.BYOSE_API_BASE_URL).replace(/\/api\/?$/i, '');
+    }
+
     if (window.ByoseStorefrontSync && typeof window.ByoseStorefrontSync.resolveApiOrigin === 'function') {
       return window.ByoseStorefrontSync.resolveApiOrigin();
     }

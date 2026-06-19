@@ -118,6 +118,7 @@ sync_storefront_static() {
     index.js
     script.js
     shop.js
+    cart.js
   )
 
   for dir in "${dirs[@]}"; do
@@ -130,6 +131,12 @@ sync_storefront_static() {
   for file in "${files[@]}"; do
     if [[ -f "${DEPLOY_DIR}/${file}" ]]; then
       cp -f "${DEPLOY_DIR}/${file}" "${WEB_ROOT}/${file}"
+    fi
+  done
+
+  for file in "${DEPLOY_DIR}"/*.js; do
+    if [[ -f "${file}" ]]; then
+      cp -f "${file}" "${WEB_ROOT}/$(basename "${file}")"
     fi
   done
 
