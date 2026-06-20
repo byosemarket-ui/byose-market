@@ -6,6 +6,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { VPS } = require("../config/production-targets");
 
 const projectRoot = path.resolve(__dirname, "..");
 const envPath = path.join(projectRoot, ".env");
@@ -126,6 +127,41 @@ function ensureAuthValues(entries) {
   return changed;
 }
 
+function ensureProductionUploadPaths(entries) {
+  let changed = false;
+  const currentUploads = String(entries.get("UPLOADS_DIR") || "").trim();
+  const currentStorage = String(entries.get("STORAGE_ROOT") || "").trim();
+  const legacyRelative = new Set(["server/uploads", "./server/uploads"]);
+  const legacyAbsolute = new Set((VPS.legacyUploadsRoots || []).map((entry) => String(entry || "").trim()).filter(Boolean));
+
+  const shouldUpgradeUploads =
+    !currentUploads ||
+    legacyRelative.has(currentUploads) ||
+    legacyAbsolute.has(currentUploads);
+
+  if (shouldUpgradeUploads) {
+    entries.set("UPLOADS_DIR", VPS.uploadsRoot);
+    changed = true;
+  }
+
+  const shouldUpgradeStorage =
+    !currentStorage ||
+    legacyRelative.has(currentStorage) ||
+    legacyAbsolute.has(currentStorage);
+
+  if (shouldUpgradeStorage) {
+    entries.set("STORAGE_ROOT", VPS.uploadsRoot);
+    changed = true;
+  }
+
+  if (!entries.get("UPLOADS_PUBLIC_PATH")) {
+    entries.set("UPLOADS_PUBLIC_PATH", VPS.publicUploadsPath || "/uploads");
+    changed = true;
+  }
+
+  return changed;
+}
+
 function main() {
   const templatePath = chooseTemplatePath();
   let sourceLines = [];
@@ -143,11 +179,13 @@ function main() {
   }
 
   const entries = parseEnvFile(fs.existsSync(envPath) ? envPath : templatePath);
-  const changed = ensureAuthValues(entries);
+  const authChanged = ensureAuthValues(entries);
+  const uploadsChanged = ensureProductionUploadPaths(entries);
+  const changed = authChanged || uploadsChanged;
 
   if (!fs.existsSync(envPath) || changed) {
     fs.writeFileSync(envPath, serializeEnvFile(entries, sourceLines), "utf8");
-    log(changed ? "Updated production authentication values in .env" : "Wrote .env");
+    log(changed ? "Updated production environment values in .env" : "Wrote .env");
   } else {
     log("No authentication changes required");
   }

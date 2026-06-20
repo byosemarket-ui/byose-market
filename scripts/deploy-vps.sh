@@ -155,6 +155,8 @@ install_nginx_uploads_config() {
   fi
 
   log "Installing nginx upload serving config..."
+  chmod +x "${DEPLOY_DIR}/scripts/fix-vps-uploads-serving.sh" 2>/dev/null || true
+  export UPLOADS_DIR="${UPLOADS_DIR:-/var/lib/byosemarket/uploads}"
   bash "${DEPLOY_DIR}/scripts/fix-vps-uploads-serving.sh"
 }
 
@@ -219,6 +221,16 @@ npm ci --omit=dev
 log "Ensuring production environment and admin auth configuration..."
 node scripts/ensure-production-env.js
 node scripts/verify-admin-auth-config.js
+
+export UPLOADS_DIR="${UPLOADS_DIR:-/var/lib/byosemarket/uploads}"
+if [[ -f "${DEPLOY_DIR}/scripts/migrate-production-uploads.sh" ]]; then
+  log "Preparing persistent uploads directory at ${UPLOADS_DIR}..."
+  chmod +x scripts/migrate-production-uploads.sh 2>/dev/null || true
+  bash scripts/migrate-production-uploads.sh
+fi
+
+log "Verifying production upload path configuration..."
+NODE_ENV=production UPLOADS_DIR="${UPLOADS_DIR}" node server/scripts/verify-vps-production-config.js
 
 log "Ensuring PM2 log directory exists..."
 mkdir -p logs

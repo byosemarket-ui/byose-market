@@ -36,9 +36,16 @@ function main() {
   assert(config.uploads.publicMountPath === VPS.publicUploadsPath, "UPLOADS_PUBLIC_PATH must be /uploads");
 
   if (config.isProduction) {
+    const resolvedUploads = path.resolve(config.uploads.rootDir);
+    const allowedRoots = [
+      path.resolve(VPS.uploadsRoot),
+      path.resolve(VPS.deployRoot, "server/uploads"),
+      ...(VPS.legacyUploadsRoots || []).map((entry) => path.resolve(entry))
+    ];
+
     assert(
-      path.resolve(config.uploads.rootDir).startsWith(VPS.deployRoot),
-      `Production UPLOADS_DIR should be under ${VPS.deployRoot}`
+      allowedRoots.some((allowedRoot) => resolvedUploads === allowedRoot),
+      `Production UPLOADS_DIR must be ${VPS.uploadsRoot} (legacy: ${(VPS.legacyUploadsRoots || []).join(", ")})`
     );
   }
 

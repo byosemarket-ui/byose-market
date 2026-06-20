@@ -11,7 +11,11 @@ const VPS = {
   deployRoot: "/root/BYOSESEMARKET4",
   webRoot: "/var/www/byosemarket",
   sqlitePath: "/root/BYOSESEMARKET4/server/database/byosemarket.sqlite",
-  uploadsRoot: "/root/BYOSESEMARKET4/server/uploads",
+  // Persistent uploads outside /root so nginx (www-data) can read files via alias.
+  uploadsRoot: "/var/lib/byosemarket/uploads",
+  legacyUploadsRoots: [
+    "/root/BYOSESEMARKET4/server/uploads"
+  ],
   publicUploadsPath: "/uploads",
   apiPort: 5000
 };
