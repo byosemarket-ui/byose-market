@@ -112,6 +112,7 @@ function serializeState(state) {
         email: normalizeEmail(state?.email),
         phone: normalizePhone(state?.phone),
         cartItems: sanitizeCartItems(state?.cartItems),
+        savedItems: sanitizeCartItems(state?.savedItems),
         directCheckout: sanitizePayloadValue(state?.directCheckout, sanitizeCartItem) || null,
         checkoutDraft: sanitizePayloadValue(state?.checkoutDraft, (draft) => draft),
         checkoutConfirmation: sanitizePayloadValue(state?.checkoutConfirmation, (confirmation) => confirmation),
@@ -150,6 +151,7 @@ exports.updateStorefrontState = async (req, res) => {
         const current = await storefrontStateService.getStateForUser(user);
         const nextState = {
             cartItems: current.cartItems,
+            savedItems: current.savedItems || [],
             directCheckout: current.directCheckout,
             checkoutDraft: current.checkoutDraft,
             checkoutConfirmation: current.checkoutConfirmation,
@@ -161,6 +163,10 @@ exports.updateStorefrontState = async (req, res) => {
         if (Object.prototype.hasOwnProperty.call(req.body || {}, 'cartItems')) {
             nextState.cartItems = sanitizeCartItems(req.body.cartItems);
             nextState.lastCartSyncedAt = now.toISOString();
+        }
+
+        if (Object.prototype.hasOwnProperty.call(req.body || {}, 'savedItems')) {
+            nextState.savedItems = sanitizeCartItems(req.body.savedItems);
         }
 
         if (Object.prototype.hasOwnProperty.call(req.body || {}, 'directCheckout')) {

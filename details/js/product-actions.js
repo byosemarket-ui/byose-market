@@ -69,8 +69,15 @@ function addItemsToCart(items) {
     return;
   }
 
+  if (window.ByoseCart && typeof window.ByoseCart.add === 'function') {
+    payloads.forEach((item) => {
+      window.ByoseCart.add(item);
+    });
+    return;
+  }
+
   if (window.KCart && typeof window.KCart.add === 'function') {
-    payloads.forEach(item => {
+    payloads.forEach((item) => {
       window.KCart.add(item);
     });
     return;

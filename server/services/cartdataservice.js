@@ -115,6 +115,67 @@ async function clearCart(user) {
     return enrichCart(saved, user);
 }
 
+async function updateCartItem(user, payload) {
+    const { carts } = getRepos();
+    const productId = normalizeText(payload?.productId || payload?.id);
+    const quantity = Math.max(0, Number(payload?.quantity || 0) || 0);
+    const cart = await carts.findByUserId(user.recordId);
+    if (!cart) {
+        return null;
+    }
+
+    const items = Array.isArray(cart.items) ? cart.items.slice() : [];
+    const index = items.findIndex((entry) => normalizeText(entry.productId || entry.id) === productId);
+    if (index < 0) {
+        return null;
+    }
+
+    if (quantity <= 0) {
+        items.splice(index, 1);
+    } else {
+        items[index] = {
+            ...items[index],
+            quantity
+        };
+    }
+
+    const saved = await carts.saveForUser(user.recordId, items);
+    return enrichCart(saved, user);
+}
+
+async function mergeCart(user, payload) {
+    const incoming = Array.isArray(payload?.cartItems) ? payload.cartItems : [];
+    const { carts } = getRepos();
+    const cart = await carts.findByUserId(user.recordId);
+    const items = Array.isArray(cart?.items) ? cart.items.slice() : [];
+
+    for (const entry of incoming) {
+        const productId = normalizeText(entry?.productId || entry?.id);
+        const quantity = Math.max(1, Number(entry?.qty || entry?.quantity || 1) || 1);
+        if (!productId) {
+            continue;
+        }
+
+        const product = await findProductByIdentifier(productId);
+        if (!product) {
+            continue;
+        }
+
+        const index = items.findIndex((item) => normalizeText(item.productId || item.id) === String(product.catalogId));
+        if (index >= 0) {
+            items[index] = {
+                productId: String(product.catalogId),
+                quantity: Math.max(1, Number(items[index].quantity || 1) || 1) + quantity
+            };
+        } else {
+            items.push({ productId: String(product.catalogId), quantity });
+        }
+    }
+
+    const saved = await carts.saveForUser(user.recordId, items);
+    return enrichCart(saved, user);
+}
+
 async function listAllCarts(users = []) {
     const { carts } = getRepos();
     const userLookup = new Map((Array.isArray(users) ? users : []).map((user) => [String(user.recordId), user]));
@@ -131,5 +192,7 @@ module.exports = {
     clearCart,
     getCartForUser,
     listAllCarts,
-    removeFromCart
+    mergeCart,
+    removeFromCart,
+    updateCartItem
 };

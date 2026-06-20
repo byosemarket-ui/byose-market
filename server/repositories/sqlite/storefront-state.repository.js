@@ -17,6 +17,7 @@ class SQLiteStorefrontStateRepository extends SQLiteBaseRepository {
             email: this.normalizeText(row.email).toLowerCase(),
             phone: this.normalizeText(row.phone),
             cartItems: this.parseJson(row.cart_items_json, []),
+            savedItems: this.parseJson(row.saved_items_json, []),
             directCheckout: this.parseJson(row.direct_checkout_json, null),
             checkoutDraft: this.parseJson(row.checkout_draft_json, null),
             checkoutConfirmation: this.parseJson(row.checkout_confirmation_json, null),
@@ -41,6 +42,7 @@ class SQLiteStorefrontStateRepository extends SQLiteBaseRepository {
             email: this.normalizeText(payload.email).toLowerCase(),
             phone: this.normalizeText(payload.phone),
             cartItems: this.stringifyJson(payload.cartItems || [], []),
+            savedItems: this.stringifyJson(payload.savedItems || [], []),
             directCheckout: this.stringifyJson(payload.directCheckout ?? null, null),
             checkoutDraft: this.stringifyJson(payload.checkoutDraft ?? null, null),
             checkoutConfirmation: this.stringifyJson(payload.checkoutConfirmation ?? null, null),
@@ -53,7 +55,7 @@ class SQLiteStorefrontStateRepository extends SQLiteBaseRepository {
         if (existing) {
             this.db.prepare(`
                 UPDATE storefront_states
-                SET user_public_id = ?, email = ?, phone = ?, cart_items_json = ?, direct_checkout_json = ?, checkout_draft_json = ?, checkout_confirmation_json = ?,
+                SET user_public_id = ?, email = ?, phone = ?, cart_items_json = ?, saved_items_json = ?, direct_checkout_json = ?, checkout_draft_json = ?, checkout_confirmation_json = ?,
                     last_cart_synced_at = ?, last_draft_synced_at = ?, last_checkout_synced_at = ?, updated_at = ?
                 WHERE user_id = ?
             `).run(
@@ -61,6 +63,7 @@ class SQLiteStorefrontStateRepository extends SQLiteBaseRepository {
                 values.email,
                 values.phone,
                 values.cartItems,
+                values.savedItems,
                 values.directCheckout,
                 values.checkoutDraft,
                 values.checkoutConfirmation,
@@ -73,15 +76,16 @@ class SQLiteStorefrontStateRepository extends SQLiteBaseRepository {
         } else {
             this.db.prepare(`
                 INSERT INTO storefront_states (
-                    user_id, user_public_id, email, phone, cart_items_json, direct_checkout_json, checkout_draft_json, checkout_confirmation_json,
+                    user_id, user_public_id, email, phone, cart_items_json, saved_items_json, direct_checkout_json, checkout_draft_json, checkout_confirmation_json,
                     last_cart_synced_at, last_draft_synced_at, last_checkout_synced_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `).run(
                 values.userId,
                 values.userPublicId,
                 values.email,
                 values.phone,
                 values.cartItems,
+                values.savedItems,
                 values.directCheckout,
                 values.checkoutDraft,
                 values.checkoutConfirmation,

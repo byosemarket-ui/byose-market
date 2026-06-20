@@ -163,11 +163,16 @@
   // 🛒 CART BADGE
   // ===============================
   function readCartCount() {
+    if (window.ByoseCart && typeof window.ByoseCart.getCount === 'function') {
+      return window.ByoseCart.getCount();
+    }
+
     let count = 0;
 
     try {
-      const cart = window.ByoseStorefrontSync?.readStateByKey?.('byose_market_cart_v1') || [];
-      count = cart.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
+      const cart = window.ByoseStorefrontSync?.readStateByKey?.('byose_market_cart_v1')
+        || JSON.parse(localStorage.getItem('byose_market_cart_v1') || '[]');
+      count = (Array.isArray(cart) ? cart : []).reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
     } catch (e) {}
 
     return count;
@@ -189,6 +194,7 @@
 
   function setupListeners() {
     document.addEventListener('cart:updated', updateBadge);
+    document.addEventListener('byose:cart-updated', updateBadge);
     window.addEventListener('byose:storefront-state-updated', updateBadge);
     window.addEventListener('popstate', updateActiveState);
     window.addEventListener('pageshow', updateActiveState);

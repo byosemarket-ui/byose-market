@@ -223,385 +223,9 @@ const Util = {
       if (!inThrottle) {
         func.apply(this, args);
         inThrottle = true;
-        setTimeout(() => inThrottle = false, limit);
+        setTimeout(() => { inThrottle = false; }, limit);
       }
     };
-
-    (function initializeByoseStorefrontSync(global) {
-      if (!global || global.ByoseStorefrontSync) {
-        return;
-      }
-
-      const PRODUCTION_API_ORIGIN = 'https://byosesemarket4.onrender.com';
-      const STOREFRONT_KEYS = {
-        byose_market_cart_v1: 'cartItems',
-        byose_direct_checkout: 'directCheckout',
-        byose_checkout_draft_v1: 'checkoutDraft',
-        byose_checkout_confirmation_v1: 'checkoutConfirmation'
-      };
-      let suppressSync = false;
-      let hydrationPromise = null;
-      let syncQueue = Promise.resolve({ skipped: true });
-      let pendingPatch = null;
-      const REQUEST_TIMEOUT_MS = 10000;
-      const STOREFRONT_STATE_EVENT = 'byose:storefront-state-updated';
-      const stateByField = {
-        cartItems: [],
-        directCheckout: null,
-        checkoutDraft: null,
-        checkoutConfirmation: null
-      };
-      const bootstrapState = {};
-
-      function cloneValue(value) {
-        if (value === undefined) {
-          return undefined;
-        }
-
-        return JSON.parse(JSON.stringify(value));
-      }
-
-      function hasValue(value) {
-        if (Array.isArray(value)) {
-          return value.length > 0;
-        }
-
-        return value !== null && value !== undefined;
-      }
-
-      function dispatchStateEvent(changedFields = []) {
-        const detail = {
-          changedFields: Array.from(new Set(changedFields.filter(Boolean))),
-          state: cloneValue(stateByField)
-        };
-
-        global.dispatchEvent(new CustomEvent(STOREFRONT_STATE_EVENT, { detail }));
-
-        if (detail.changedFields.some((field) => field === 'cartItems' || field === 'directCheckout')) {
-          global.dispatchEvent(new Event('kcart:updated'));
-          global.dispatchEvent(new Event('cart:updated'));
-        }
-      }
-
-      function applyField(field, value, options = {}) {
-        if (!field) {
-          return;
-        }
-
-        const normalizedValue = value === undefined ? null : cloneValue(value);
-        stateByField[field] = normalizedValue;
-
-        if (options.emit !== false) {
-          dispatchStateEvent([field]);
-        }
-      }
-
-      function readLegacyValue(key) {
-        try {
-          const raw = global.localStorage.getItem(key);
-          if (!raw) {
-            return undefined;
-          }
-
-          return JSON.parse(raw);
-        } catch (_error) {
-          return undefined;
-        }
-      }
-
-      function purgeLegacyStateKey(key) {
-        try {
-          global.localStorage.removeItem(key);
-        } catch (_error) {
-          // Ignore storage cleanup failures.
-        }
-      }
-
-      function readStateByKey(key) {
-        const field = STOREFRONT_KEYS[key];
-        if (!field) {
-          return undefined;
-        }
-
-        return cloneValue(stateByField[field]);
-      }
-
-      function writeStateByKey(key, value) {
-        const field = STOREFRONT_KEYS[key];
-        if (!field) {
-          return false;
-        }
-
-        applyField(field, value);
-        if (!suppressSync) {
-          void syncPatch({ [field]: value === undefined ? null : cloneValue(value) });
-        }
-        return true;
-      }
-
-      function removeStateByKey(key) {
-        return writeStateByKey(key, null);
-      }
-
-      function bootstrapLegacyState() {
-        Object.entries(STOREFRONT_KEYS).forEach(([key, field]) => {
-          const value = readLegacyValue(key);
-          if (value === undefined) {
-            return;
-          }
-
-          bootstrapState[field] = cloneValue(value);
-          stateByField[field] = cloneValue(value);
-          purgeLegacyStateKey(key);
-        });
-      }
-
-      function buildBootstrapPatch(remoteState) {
-        return Object.entries(bootstrapState).reduce((patch, [field, value]) => {
-          if (!hasValue(value) || hasValue(remoteState?.[field])) {
-            return patch;
-          }
-
-          patch[field] = cloneValue(value);
-          return patch;
-        }, {});
-      }
-
-      bootstrapLegacyState();
-
-      function normalizeBase(value) {
-        return String(value || '').trim().replace(/\/+$/, '');
-      }
-
-      function isLocalHost(hostname) {
-        return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
-      }
-
-      function shouldUseProductionApi(hostname) {
-        return /(^|\.)(github\.io|byosemarket\.com)$/i.test(String(hostname || ''));
-      }
-
-      function resolveApiOrigin() {
-        const explicit = normalizeBase(global.BYOSE_API_BASE_URL || global.__BYOSE_API_BASE__ || '');
-        if (explicit) {
-          return explicit;
-        }
-
-        const protocol = String(global.location?.protocol || '').toLowerCase();
-        const hostname = String(global.location?.hostname || '').trim();
-
-        if (protocol === 'file:' || isLocalHost(hostname)) {
-          return `http://${hostname || 'localhost'}:5000`;
-        }
-
-        if (shouldUseProductionApi(hostname)) {
-          return PRODUCTION_API_ORIGIN;
-        }
-
-        return normalizeBase(global.location?.origin || '');
-      }
-
-      function getStorefrontStateUrl() {
-        const base = resolveApiOrigin();
-        if (!base) {
-          return '';
-        }
-
-        return base.endsWith('/api') ? `${base}/storefront/state` : `${base}/api/storefront/state`;
-      }
-
-      function getToken() {
-        try {
-          if (global.authService && typeof global.authService.getToken === 'function') {
-            return String(global.authService.getToken() || '').trim();
-          }
-        } catch (error) {
-          console.error(error);
-        }
-
-        return String(global.localStorage.getItem('bm_auth_token') || '').trim();
-      }
-
-      async function requestStorefrontState(method, body) {
-        const endpoint = getStorefrontStateUrl();
-        const token = getToken();
-
-        if (!endpoint || !token) {
-          return { skipped: true };
-        }
-
-        const controller = typeof AbortController === 'function' ? new AbortController() : null;
-        const timeoutId = controller
-          ? global.setTimeout(() => controller.abort(new Error('Storefront state request timeout')), REQUEST_TIMEOUT_MS)
-          : 0;
-
-        try {
-          const response = await global.fetch(endpoint, {
-            method,
-            headers: {
-              ...(body ? { 'Content-Type': 'application/json' } : {}),
-              Accept: 'application/json',
-              Authorization: `Bearer ${token}`
-            },
-            ...(body ? { body: JSON.stringify(body) } : {}),
-            ...(controller ? { signal: controller.signal } : {})
-          });
-
-          const payload = await response.json().catch(() => null);
-          if (!response.ok) {
-            return {
-              success: false,
-              status: response.status,
-              message: payload?.message || `Storefront state request failed with status ${response.status}`
-            };
-          }
-
-          if (!payload || typeof payload !== 'object') {
-            return { success: false, message: 'Storefront state API returned an invalid response.' };
-          }
-
-          return payload;
-        } catch (error) {
-          return {
-            success: false,
-            timeout: error?.name === 'AbortError',
-            error,
-            message: error?.name === 'AbortError'
-              ? 'Storefront state request timed out.'
-              : 'Unable to reach the storefront state service.'
-          };
-        } finally {
-          if (timeoutId) {
-            global.clearTimeout(timeoutId);
-          }
-        }
-      }
-
-      function applyRemoteState(state) {
-        suppressSync = true;
-
-        try {
-          const changedFields = [];
-
-          if (Array.isArray(state?.cartItems)) {
-            stateByField.cartItems = cloneValue(state.cartItems);
-            changedFields.push('cartItems');
-          }
-
-          if (Object.prototype.hasOwnProperty.call(state || {}, 'directCheckout')) {
-            stateByField.directCheckout = cloneValue(state.directCheckout || null);
-            changedFields.push('directCheckout');
-          }
-
-          if (Object.prototype.hasOwnProperty.call(state || {}, 'checkoutDraft')) {
-            stateByField.checkoutDraft = cloneValue(state.checkoutDraft || null);
-            changedFields.push('checkoutDraft');
-          }
-
-          if (Object.prototype.hasOwnProperty.call(state || {}, 'checkoutConfirmation')) {
-            stateByField.checkoutConfirmation = cloneValue(state.checkoutConfirmation || null);
-            changedFields.push('checkoutConfirmation');
-          }
-
-          if (changedFields.length) {
-            dispatchStateEvent(changedFields);
-          }
-        } catch (error) {
-          console.warn('Unable to apply remote storefront state in memory.', error);
-        } finally {
-          suppressSync = false;
-        }
-      }
-
-      async function syncPatch(patch) {
-        if (!patch || !Object.keys(patch).length) {
-          return { skipped: true };
-        }
-
-        pendingPatch = {
-          ...(pendingPatch || {}),
-          ...(patch || {})
-        };
-
-        syncQueue = syncQueue.then(async () => {
-          const nextPatch = pendingPatch;
-          pendingPatch = null;
-
-          if (!nextPatch || !Object.keys(nextPatch).length) {
-            return { skipped: true };
-          }
-
-          const payload = await requestStorefrontState('PUT', nextPatch);
-          if (payload?.state) {
-            applyRemoteState(payload.state);
-          } else if (payload?.success === false) {
-            console.warn('Unable to sync storefront state to the API.', payload.message || payload.error || payload);
-          }
-
-          return payload;
-        });
-
-        return syncQueue;
-      }
-
-      function syncStorageKey(key, value) {
-        const field = STOREFRONT_KEYS[key];
-        if (!field) {
-          return;
-        }
-
-        applyField(field, value);
-        if (!suppressSync) {
-          void syncPatch({ [field]: value === undefined ? null : cloneValue(value) });
-        }
-      }
-
-      async function hydrate(force = false) {
-        if (hydrationPromise && !force) {
-          return hydrationPromise;
-        }
-
-        hydrationPromise = requestStorefrontState('GET')
-          .then((payload) => {
-            if (payload?.state) {
-              applyRemoteState(payload.state);
-              const bootstrapPatch = buildBootstrapPatch(payload.state);
-              if (Object.keys(bootstrapPatch).length && getToken()) {
-                void syncPatch(bootstrapPatch);
-              }
-              return cloneValue(stateByField);
-            }
-
-            if (payload?.success === false) {
-              console.warn('Unable to hydrate storefront state from the API.', payload.message || payload.error || payload);
-            }
-
-            const bootstrapPatch = buildBootstrapPatch(null);
-            if (Object.keys(bootstrapPatch).length && getToken()) {
-              void syncPatch(bootstrapPatch);
-            }
-
-            return cloneValue(stateByField);
-          })
-          .finally(() => {
-            hydrationPromise = null;
-          });
-
-        return hydrationPromise;
-      }
-
-      global.ByoseStorefrontSync = {
-        getToken,
-        hydrate,
-        isManagedKey: (key) => Boolean(STOREFRONT_KEYS[key]),
-        readStateByKey,
-        removeStateByKey,
-        resolveApiOrigin,
-        syncPatch,
-        syncStorageKey,
-        writeStateByKey
-      };
-    })(window);
   },
 
   // SCROLL
@@ -689,3 +313,386 @@ const Util = {
 
 // Make Util available globally
 window.Util = Util;
+
+(function initializeByoseStorefrontSync(global) {
+  if (!global || global.ByoseStorefrontSync) {
+    return;
+  }
+
+  const PRODUCTION_API_ORIGIN = 'https://byosesemarket4.onrender.com';
+  const STOREFRONT_KEYS = {
+    byose_market_cart_v1: 'cartItems',
+    byose_direct_checkout: 'directCheckout',
+    byose_checkout_draft_v1: 'checkoutDraft',
+    byose_checkout_confirmation_v1: 'checkoutConfirmation',
+    byose_market_saved_v1: 'savedItems'
+  };
+  let suppressSync = false;
+  let hydrationPromise = null;
+  let syncQueue = Promise.resolve({ skipped: true });
+  let pendingPatch = null;
+  const REQUEST_TIMEOUT_MS = 10000;
+  const STOREFRONT_STATE_EVENT = 'byose:storefront-state-updated';
+  const stateByField = {
+    cartItems: [],
+    directCheckout: null,
+    checkoutDraft: null,
+    checkoutConfirmation: null,
+    savedItems: []
+  };
+  const bootstrapState = {};
+
+  function cloneValue(value) {
+    if (value === undefined) {
+      return undefined;
+    }
+
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function hasValue(value) {
+    if (Array.isArray(value)) {
+      return value.length > 0;
+    }
+
+    return value !== null && value !== undefined;
+  }
+
+  function dispatchStateEvent(changedFields = []) {
+    const detail = {
+      changedFields: Array.from(new Set(changedFields.filter(Boolean))),
+      state: cloneValue(stateByField)
+    };
+
+    global.dispatchEvent(new CustomEvent(STOREFRONT_STATE_EVENT, { detail }));
+
+    if (detail.changedFields.some((field) => field === 'cartItems' || field === 'directCheckout')) {
+      global.dispatchEvent(new Event('kcart:updated'));
+      global.dispatchEvent(new Event('cart:updated'));
+    }
+  }
+
+  function applyField(field, value, options = {}) {
+    if (!field) {
+      return;
+    }
+
+    const normalizedValue = value === undefined ? null : cloneValue(value);
+    stateByField[field] = normalizedValue;
+
+    if (options.emit !== false) {
+      dispatchStateEvent([field]);
+    }
+  }
+
+  function readLegacyValue(key) {
+    try {
+      const raw = global.localStorage.getItem(key);
+      if (!raw) {
+        return undefined;
+      }
+
+      return JSON.parse(raw);
+    } catch (_error) {
+      return undefined;
+    }
+  }
+
+  function purgeLegacyStateKey(key) {
+    try {
+      global.localStorage.removeItem(key);
+    } catch (_error) {
+      // Ignore storage cleanup failures.
+    }
+  }
+
+  function readStateByKey(key) {
+    const field = STOREFRONT_KEYS[key];
+    if (!field) {
+      return undefined;
+    }
+
+    return cloneValue(stateByField[field]);
+  }
+
+  function writeStateByKey(key, value) {
+    const field = STOREFRONT_KEYS[key];
+    if (!field) {
+      return false;
+    }
+
+    applyField(field, value);
+    if (!suppressSync) {
+      void syncPatch({ [field]: value === undefined ? null : cloneValue(value) });
+    }
+    return true;
+  }
+
+  function removeStateByKey(key) {
+    return writeStateByKey(key, null);
+  }
+
+  function bootstrapLegacyState() {
+    Object.entries(STOREFRONT_KEYS).forEach(([key, field]) => {
+      const value = readLegacyValue(key);
+      if (value === undefined) {
+        return;
+      }
+
+      bootstrapState[field] = cloneValue(value);
+      stateByField[field] = cloneValue(value);
+      purgeLegacyStateKey(key);
+    });
+  }
+
+  function buildBootstrapPatch(remoteState) {
+    return Object.entries(bootstrapState).reduce((patch, [field, value]) => {
+      if (!hasValue(value) || hasValue(remoteState?.[field])) {
+        return patch;
+      }
+
+      patch[field] = cloneValue(value);
+      return patch;
+    }, {});
+  }
+
+  bootstrapLegacyState();
+
+  function normalizeBase(value) {
+    return String(value || '').trim().replace(/\/+$/, '');
+  }
+
+  function isLocalHost(hostname) {
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
+  }
+
+  function shouldUseProductionApi(hostname) {
+    return /(^|\.)(github\.io|byosemarket\.com)$/i.test(String(hostname || ''));
+  }
+
+  function resolveApiOrigin() {
+    const explicit = normalizeBase(global.BYOSE_API_BASE_URL || global.__BYOSE_API_BASE__ || '');
+    if (explicit) {
+      return explicit;
+    }
+
+    const protocol = String(global.location?.protocol || '').toLowerCase();
+    const hostname = String(global.location?.hostname || '').trim();
+
+    if (protocol === 'file:' || isLocalHost(hostname)) {
+      return `http://${hostname || 'localhost'}:5000`;
+    }
+
+    if (shouldUseProductionApi(hostname)) {
+      return PRODUCTION_API_ORIGIN;
+    }
+
+    return normalizeBase(global.location?.origin || '');
+  }
+
+  function getStorefrontStateUrl() {
+    const base = resolveApiOrigin();
+    if (!base) {
+      return '';
+    }
+
+    return base.endsWith('/api') ? `${base}/storefront/state` : `${base}/api/storefront/state`;
+  }
+
+  function getToken() {
+    try {
+      if (global.authService && typeof global.authService.getToken === 'function') {
+        return String(global.authService.getToken() || '').trim();
+      }
+    } catch (error) {
+      console.error(error);
+    }
+
+    return String(global.localStorage.getItem('bm_auth_token') || '').trim();
+  }
+
+  async function requestStorefrontState(method, body) {
+    const endpoint = getStorefrontStateUrl();
+    const token = getToken();
+
+    if (!endpoint || !token) {
+      return { skipped: true };
+    }
+
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timeoutId = controller
+      ? global.setTimeout(() => controller.abort(new Error('Storefront state request timeout')), REQUEST_TIMEOUT_MS)
+      : 0;
+
+    try {
+      const response = await global.fetch(endpoint, {
+        method,
+        headers: {
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+          Accept: 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        ...(controller ? { signal: controller.signal } : {})
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        return {
+          success: false,
+          status: response.status,
+          message: payload?.message || `Storefront state request failed with status ${response.status}`
+        };
+      }
+
+      if (!payload || typeof payload !== 'object') {
+        return { success: false, message: 'Storefront state API returned an invalid response.' };
+      }
+
+      return payload;
+    } catch (error) {
+      return {
+        success: false,
+        timeout: error?.name === 'AbortError',
+        error,
+        message: error?.name === 'AbortError'
+          ? 'Storefront state request timed out.'
+          : 'Unable to reach the storefront state service.'
+      };
+    } finally {
+      if (timeoutId) {
+        global.clearTimeout(timeoutId);
+      }
+    }
+  }
+
+  function applyRemoteState(state) {
+    suppressSync = true;
+
+    try {
+      const changedFields = [];
+
+      if (Array.isArray(state?.cartItems)) {
+        stateByField.cartItems = cloneValue(state.cartItems);
+        changedFields.push('cartItems');
+      }
+
+      if (Array.isArray(state?.savedItems)) {
+        stateByField.savedItems = cloneValue(state.savedItems);
+        changedFields.push('savedItems');
+      }
+
+      if (Object.prototype.hasOwnProperty.call(state || {}, 'directCheckout')) {
+        stateByField.directCheckout = cloneValue(state.directCheckout || null);
+        changedFields.push('directCheckout');
+      }
+
+      if (Object.prototype.hasOwnProperty.call(state || {}, 'checkoutDraft')) {
+        stateByField.checkoutDraft = cloneValue(state.checkoutDraft || null);
+        changedFields.push('checkoutDraft');
+      }
+
+      if (Object.prototype.hasOwnProperty.call(state || {}, 'checkoutConfirmation')) {
+        stateByField.checkoutConfirmation = cloneValue(state.checkoutConfirmation || null);
+        changedFields.push('checkoutConfirmation');
+      }
+
+      if (changedFields.length) {
+        dispatchStateEvent(changedFields);
+      }
+    } catch (error) {
+      console.warn('Unable to apply remote storefront state in memory.', error);
+    } finally {
+      suppressSync = false;
+    }
+  }
+
+  async function syncPatch(patch) {
+    if (!patch || !Object.keys(patch).length) {
+      return { skipped: true };
+    }
+
+    pendingPatch = {
+      ...(pendingPatch || {}),
+      ...(patch || {})
+    };
+
+    syncQueue = syncQueue.then(async () => {
+      const nextPatch = pendingPatch;
+      pendingPatch = null;
+
+      if (!nextPatch || !Object.keys(nextPatch).length) {
+        return { skipped: true };
+      }
+
+      const payload = await requestStorefrontState('PUT', nextPatch);
+      if (payload?.state) {
+        applyRemoteState(payload.state);
+      } else if (payload?.success === false) {
+        console.warn('Unable to sync storefront state to the API.', payload.message || payload.error || payload);
+      }
+
+      return payload;
+    });
+
+    return syncQueue;
+  }
+
+  function syncStorageKey(key, value) {
+    const field = STOREFRONT_KEYS[key];
+    if (!field) {
+      return;
+    }
+
+    applyField(field, value);
+    if (!suppressSync) {
+      void syncPatch({ [field]: value === undefined ? null : cloneValue(value) });
+    }
+  }
+
+  async function hydrate(force = false) {
+    if (hydrationPromise && !force) {
+      return hydrationPromise;
+    }
+
+    hydrationPromise = requestStorefrontState('GET')
+      .then((payload) => {
+        if (payload?.state) {
+          applyRemoteState(payload.state);
+          const bootstrapPatch = buildBootstrapPatch(payload.state);
+          if (Object.keys(bootstrapPatch).length && getToken()) {
+            void syncPatch(bootstrapPatch);
+          }
+          return cloneValue(stateByField);
+        }
+
+        if (payload?.success === false) {
+          console.warn('Unable to hydrate storefront state from the API.', payload.message || payload.error || payload);
+        }
+
+        const bootstrapPatch = buildBootstrapPatch(null);
+        if (Object.keys(bootstrapPatch).length && getToken()) {
+          void syncPatch(bootstrapPatch);
+        }
+
+        return cloneValue(stateByField);
+      })
+      .finally(() => {
+        hydrationPromise = null;
+      });
+
+    return hydrationPromise;
+  }
+
+  global.ByoseStorefrontSync = {
+    getToken,
+    hydrate,
+    isManagedKey: (key) => Boolean(STOREFRONT_KEYS[key]),
+    readStateByKey,
+    removeStateByKey,
+    resolveApiOrigin,
+    syncPatch,
+    syncStorageKey,
+    writeStateByKey
+  };
+})(window);

@@ -17,6 +17,9 @@ router.use(cartLimiter);
 
 router.post('/add', cartController.addToCart);
 router.get('/', cartController.getUserCart);
+router.patch('/:productId', cartController.updateCartItem);
+router.delete('/:productId', cartController.deleteCartItem);
+router.post('/merge', cartController.mergeCart);
 router.post('/remove', cartController.removeFromCart);
 router.post('/clear', cartController.clearCart);
 

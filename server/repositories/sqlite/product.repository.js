@@ -238,6 +238,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         const mainImageStoragePath = this.prepareStorablePath(product.mainImage || product.image) || imageStoragePath;
         const metadataSource = product.metadata && typeof product.metadata === 'object' ? product.metadata : {};
         const metadata = {
+            ...metadataSource,
             brand: this.normalizeText(product.brand || metadataSource.brand),
             sku: this.normalizeText(product.sku || metadataSource.sku),
             costPrice: this.toNumber(product.costPrice ?? metadataSource.costPrice, 0),

@@ -1,8 +1,14 @@
 import {
   CATEGORY_OPTIONS,
+  CURRENCY_OPTIONS,
   DRAFT_STORAGE_KEY,
+  PLACEMENT_OPTIONS,
+  POSITION_MODE_OPTIONS,
+  PRODUCT_CONDITION_OPTIONS,
+  PRODUCT_TYPE_OPTIONS,
+  SEO_SEARCH_VISIBILITY_OPTIONS,
   SIZE_PRESETS,
-  STOCK_STATUS_OPTIONS
+  WARRANTY_OPTIONS
 } from "./constants.js";
 import {
   clearJsonStorage,
@@ -33,7 +39,212 @@ function inferStockStatus(stock) {
   if (quantity <= 5) {
     return "low_stock";
   }
+  if (quantity <= 20) {
+    return "limited_stock";
+  }
   return "in_stock";
+}
+
+function createDefaultInfo() {
+  return {
+    name: "",
+    shortName: "",
+    category: "fashion",
+    brand: "",
+    manufacturer: "",
+    countryOfOrigin: "",
+    sku: "",
+    tags: "",
+    searchKeywords: "",
+    visibility: "both",
+    productType: "simple",
+    condition: "new",
+    highlights: "",
+    warranty: "none",
+    warrantyCustom: "",
+    featuredHomepage: false,
+    featuredProducts: false,
+    featuredBestSellers: false,
+    featuredFreshPicks: false,
+    placement: ["all"],
+    positionMode: "automatic",
+    priorityScore: "50",
+    shortDescription: "",
+    longDescription: "",
+    description: ""
+  };
+}
+
+function normalizePlacement(value) {
+  const allowed = PLACEMENT_OPTIONS.map((entry) => entry.value);
+  const items = Array.isArray(value)
+    ? value.map((entry) => String(entry || "").trim().toLowerCase()).filter(Boolean)
+    : String(value || "")
+      .split(",")
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean);
+
+  const unique = [...new Set(items.filter((entry) => allowed.includes(entry)))];
+  if (!unique.length || unique.includes("all")) {
+    return ["all"];
+  }
+  return unique;
+}
+
+function normalizeInfoFields(info = {}, defaults = createDefaultInfo()) {
+  const category = CATEGORY_OPTIONS.includes(String(info.category || "").toLowerCase())
+    ? String(info.category).toLowerCase()
+    : defaults.category;
+  const productType = PRODUCT_TYPE_OPTIONS.some((entry) => entry.value === info.productType)
+    ? info.productType
+    : defaults.productType;
+  const condition = PRODUCT_CONDITION_OPTIONS.some((entry) => entry.value === info.condition)
+    ? info.condition
+    : defaults.condition;
+  const warranty = WARRANTY_OPTIONS.some((entry) => entry.value === info.warranty)
+    ? info.warranty
+    : defaults.warranty;
+  const positionMode = POSITION_MODE_OPTIONS.some((entry) => entry.value === info.positionMode)
+    ? info.positionMode
+    : defaults.positionMode;
+  const longDescription = String(info.longDescription || info.description || "");
+  const shortDescription = String(info.shortDescription || "");
+
+  return {
+    name: String(info.name || ""),
+    shortName: String(info.shortName || ""),
+    category,
+    brand: String(info.brand || ""),
+    manufacturer: String(info.manufacturer || ""),
+    countryOfOrigin: String(info.countryOfOrigin || ""),
+    sku: String(info.sku || ""),
+    tags: Array.isArray(info.tags) ? info.tags.join(", ") : String(info.tags || ""),
+    searchKeywords: Array.isArray(info.searchKeywords)
+      ? info.searchKeywords.join(", ")
+      : String(info.searchKeywords || ""),
+    visibility: ["home", "shop", "both"].includes(String(info.visibility || "").toLowerCase())
+      ? String(info.visibility).toLowerCase()
+      : defaults.visibility,
+    productType,
+    condition,
+    highlights: Array.isArray(info.highlights) ? info.highlights.join(", ") : String(info.highlights || ""),
+    warranty,
+    warrantyCustom: String(info.warrantyCustom || ""),
+    featuredHomepage: Boolean(info.featuredHomepage),
+    featuredProducts: Boolean(info.featuredProducts),
+    featuredBestSellers: Boolean(info.featuredBestSellers),
+    featuredFreshPicks: Boolean(info.featuredFreshPicks),
+    placement: normalizePlacement(info.placement),
+    positionMode,
+    priorityScore: String(info.priorityScore ?? defaults.priorityScore),
+    shortDescription,
+    longDescription,
+    description: longDescription
+  };
+}
+
+function createDefaultPricing() {
+  return {
+    costPrice: "",
+    sellingPrice: "",
+    discountPrice: "",
+    taxRate: "",
+    taxIncluded: false,
+    currency: "RWF",
+    minOrderQty: "1",
+    maxOrderQty: "",
+    flashSaleEnabled: false,
+    flashSaleStart: "",
+    flashSaleEnd: ""
+  };
+}
+
+function normalizePricingFields(pricing = {}, defaults = createDefaultPricing()) {
+  const currency = CURRENCY_OPTIONS.some((entry) => entry.value === String(pricing.currency || "").toUpperCase())
+    ? String(pricing.currency).toUpperCase()
+    : defaults.currency;
+
+  return {
+    costPrice: String(pricing.costPrice ?? ""),
+    sellingPrice: String(pricing.sellingPrice ?? ""),
+    discountPrice: String(pricing.discountPrice ?? ""),
+    taxRate: String(pricing.taxRate ?? ""),
+    taxIncluded: Boolean(pricing.taxIncluded),
+    currency,
+    minOrderQty: String(pricing.minOrderQty ?? defaults.minOrderQty),
+    maxOrderQty: String(pricing.maxOrderQty ?? ""),
+    flashSaleEnabled: Boolean(pricing.flashSaleEnabled),
+    flashSaleStart: String(pricing.flashSaleStart ?? ""),
+    flashSaleEnd: String(pricing.flashSaleEnd ?? "")
+  };
+}
+
+function createDefaultInventory() {
+  return {
+    quantity: "0",
+    stockStatus: "out_of_stock",
+    variantsEnabled: false,
+    sizes: [],
+    customSizes: [],
+    attributes: {},
+    variants: []
+  };
+}
+
+function createDefaultSeo() {
+  return {
+    metaTitle: "",
+    metaDescription: "",
+    slug: "",
+    focusKeywordRw: "",
+    focusKeywordEn: "",
+    searchVisibility: "homepage_shop",
+    slugManual: false
+  };
+}
+
+function normalizeSeoFields(seo = {}, info = {}, defaults = createDefaultSeo()) {
+  const searchVisibility = SEO_SEARCH_VISIBILITY_OPTIONS.some((entry) => entry.value === seo.searchVisibility)
+    ? seo.searchVisibility
+    : defaults.searchVisibility;
+
+  return {
+    metaTitle: String(seo.metaTitle || info.name || ""),
+    metaDescription: String(seo.metaDescription || info.shortDescription || info.longDescription || info.description || ""),
+    slug: slugify(seo.slug || info.name || ""),
+    focusKeywordRw: String(seo.focusKeywordRw ?? ""),
+    focusKeywordEn: String(seo.focusKeywordEn ?? ""),
+    searchVisibility,
+    slugManual: Boolean(seo.slugManual)
+  };
+}
+
+function normalizeInventoryFields(inventory = {}, defaults = createDefaultInventory()) {
+  const variants = Array.isArray(inventory.variants)
+    ? inventory.variants.map((entry, index) => ({
+        label: String(entry?.label || "").trim() || `Variant ${index + 1}`,
+        colorName: String(entry?.colorName || "").trim(),
+        image: String(entry?.image || "").trim(),
+        stock: String(Math.max(0, Math.floor(toNumber(entry?.stock, 0))))
+      }))
+    : [];
+  const totalVariantStock = variants.reduce((sum, entry) => sum + toNumber(entry.stock, 0), 0);
+  const quantitySource = variants.length ? totalVariantStock : toNumber(inventory.quantity, 0);
+  const quantity = String(Math.max(0, Math.floor(quantitySource)));
+
+  return {
+    quantity,
+    stockStatus: inferStockStatus(quantity),
+    variantsEnabled: Boolean(inventory.variantsEnabled || variants.length),
+    sizes: Array.isArray(inventory.sizes)
+      ? inventory.sizes.map((entry) => String(entry || "").trim()).filter(Boolean)
+      : [...defaults.sizes],
+    customSizes: Array.isArray(inventory.customSizes)
+      ? inventory.customSizes.map((entry) => String(entry || "").trim()).filter(Boolean)
+      : [...defaults.customSizes],
+    attributes: inventory.attributes && typeof inventory.attributes === "object" ? inventory.attributes : {},
+    variants
+  };
 }
 
 export function createDefaultDraft() {
@@ -41,29 +252,9 @@ export function createDefaultDraft() {
     productId: "",
     step: "info",
     savedProductId: "",
-    info: {
-      name: "",
-      category: "fashion",
-      brand: "",
-      description: "",
-      sku: "",
-      tags: "",
-      visibility: "both"
-    },
-    pricing: {
-      costPrice: "",
-      sellingPrice: "",
-      discountPrice: "",
-      taxRate: "",
-      taxIncluded: false
-    },
-    inventory: {
-      quantity: "0",
-      stockStatus: "in_stock",
-      variantsEnabled: false,
-      sizes: [],
-      colors: []
-    },
+    info: createDefaultInfo(),
+    pricing: createDefaultPricing(),
+    inventory: createDefaultInventory(),
     media: {
       mainImage: "",
       mainImageStoragePath: "",
@@ -72,11 +263,7 @@ export function createDefaultDraft() {
       pendingMainFile: false,
       pendingGalleryCount: 0
     },
-    seo: {
-      metaTitle: "",
-      metaDescription: "",
-      slug: ""
-    }
+    seo: createDefaultSeo()
   };
 }
 
@@ -91,26 +278,6 @@ export function sanitizeDraft(input) {
   const category = CATEGORY_OPTIONS.includes(String(info.category || "").toLowerCase())
     ? String(info.category).toLowerCase()
     : defaults.info.category;
-  const sizeOptions = getSizeOptions(category);
-  const stockStatusValues = STOCK_STATUS_OPTIONS.map((entry) => entry.value);
-  const quantity = String(Math.max(0, Math.floor(toNumber(inventory.quantity, 0))));
-  const stockStatus = stockStatusValues.includes(String(inventory.stockStatus || "").toLowerCase())
-    ? String(inventory.stockStatus).toLowerCase()
-    : inferStockStatus(quantity);
-
-  const colors = Array.isArray(inventory.colors)
-    ? inventory.colors.map((entry, index) => ({
-        name: String(entry?.name || "").trim() || `Color ${index + 1}`,
-        hex: String(entry?.hex || "#00b894").trim() || "#00b894"
-      }))
-    : [];
-
-  const sizes = Array.isArray(inventory.sizes)
-    ? inventory.sizes
-        .map((entry) => String(entry || "").trim())
-        .filter((entry, index, array) => entry && array.indexOf(entry) === index)
-    : [];
-
   const persistedGallery = sanitizePersistedGallery(media.gallery, media.galleryStoragePaths);
   const galleryUrls = persistedGallery.gallery;
   const galleryStorage = persistedGallery.galleryStoragePaths;
@@ -123,31 +290,9 @@ export function sanitizeDraft(input) {
     productId: String(draft.productId || draft.savedProductId || ""),
     savedProductId: String(draft.savedProductId || draft.productId || ""),
     step: String(draft.step || "info"),
-    info: {
-      name: String(info.name || ""),
-      category,
-      brand: String(info.brand || ""),
-      description: String(info.description || ""),
-      sku: String(info.sku || ""),
-      tags: Array.isArray(info.tags) ? info.tags.join(", ") : String(info.tags || ""),
-      visibility: ["home", "shop", "both"].includes(String(info.visibility || "").toLowerCase())
-        ? String(info.visibility).toLowerCase()
-        : defaults.info.visibility
-    },
-    pricing: {
-      costPrice: String(pricing.costPrice ?? ""),
-      sellingPrice: String(pricing.sellingPrice ?? ""),
-      discountPrice: String(pricing.discountPrice ?? ""),
-      taxRate: String(pricing.taxRate ?? ""),
-      taxIncluded: Boolean(pricing.taxIncluded)
-    },
-    inventory: {
-      quantity,
-      stockStatus,
-      variantsEnabled: Boolean(inventory.variantsEnabled),
-      sizes,
-      colors
-    },
+    info: normalizeInfoFields(info, defaults.info),
+    pricing: normalizePricingFields(pricing, defaults.pricing),
+    inventory: normalizeInventoryFields(inventory, defaults.inventory),
     media: {
       mainImage: normalizedMainImage,
       mainImageStoragePath: normalizedMainStoragePath,
@@ -156,11 +301,7 @@ export function sanitizeDraft(input) {
       pendingMainFile: Boolean(media.pendingMainFile),
       pendingGalleryCount: Math.max(0, Math.floor(Number(media.pendingGalleryCount || 0)))
     },
-    seo: {
-      metaTitle: String(seo.metaTitle || ""),
-      metaDescription: String(seo.metaDescription || ""),
-      slug: slugify(seo.slug || info.name || "")
-    }
+    seo: normalizeSeoFields(seo, info, defaults.seo)
   };
 }
 
@@ -186,12 +327,24 @@ export function hydrateDraftFromProduct(product) {
   const attributes = Array.isArray(product.attributes) ? product.attributes : [];
   const colorAttribute = attributes.find((entry) => String(entry?.type || entry?.axis || "").toLowerCase() === "color");
   const sizeAttribute = attributes.find((entry) => String(entry?.type || entry?.axis || "").toLowerCase() === "size");
-  const colors = Array.isArray(colorAttribute?.options)
-    ? colorAttribute.options.map((option) => ({
-        name: String(option?.label || option?.value || "").trim(),
-        hex: String(option?.swatch || option?.hex || "#00b894").trim() || "#00b894"
-      })).filter((entry) => entry.name)
+  const variants = Array.isArray(product.variants?.items)
+    ? product.variants.items.map((entry, index) => ({
+        label: String(entry?.label || entry?.name || "").trim() || `Variant ${index + 1}`,
+        colorName: String(entry?.colorName || entry?.color || "").trim(),
+        image: String(entry?.image || "").trim(),
+        stock: String(Math.max(0, Math.floor(toNumber(entry?.stock, 0))))
+      }))
     : [];
+  if (!variants.length && Array.isArray(colorAttribute?.options)) {
+    variants.push(
+      ...colorAttribute.options.map((option, index) => ({
+        label: String(option?.label || option?.value || "").trim() || `Variant ${index + 1}`,
+        colorName: String(option?.label || "").trim(),
+        image: "",
+        stock: String(Math.max(0, Math.floor(toNumber(option?.stock, 0))))
+      }))
+    );
+  }
   const sizes = Array.isArray(sizeAttribute?.options)
     ? sizeAttribute.options.map((option) => String(option?.label || option?.value || "").trim()).filter(Boolean)
     : [];
@@ -199,31 +352,71 @@ export function hydrateDraftFromProduct(product) {
     ? product.tags
     : (Array.isArray(product.keywords) ? product.keywords : []);
 
+  const metadata = product.metadata && typeof product.metadata === "object" ? product.metadata : {};
+  const highlights = Array.isArray(product.highlights)
+    ? product.highlights
+    : (Array.isArray(metadata.highlights) ? metadata.highlights : []);
+  const placement = normalizePlacement(metadata.placement || product.placement || ["all"]);
+
   return sanitizeDraft({
     productId: catalogId,
     savedProductId: catalogId,
     info: {
       name: product.name || product.title || "",
+      shortName: metadata.shortName || product.shortName || "",
       category: product.category || "general",
       brand: product.brand || product.badge || "",
+      manufacturer: metadata.manufacturer || "",
+      countryOfOrigin: metadata.countryOfOrigin || "",
       description: product.description || product.shortDescription || "",
+      longDescription: product.description || metadata.longDescription || "",
+      shortDescription: product.shortDescription || metadata.shortDescription || "",
       sku: product.sku || "",
       tags: tags.join(", "),
-      visibility: product.visibility || "both"
+      searchKeywords: (Array.isArray(product.keywords) ? product.keywords : []).join(", "),
+      visibility: product.visibility || "both",
+      productType: metadata.productType || "simple",
+      condition: metadata.condition || "new",
+      highlights: highlights.join(", "),
+      warranty: metadata.warranty || "none",
+      warrantyCustom: metadata.warrantyCustom || "",
+      featuredHomepage: Boolean(metadata.featuredHomepage),
+      featuredProducts: Boolean(metadata.featuredProducts),
+      featuredBestSellers: Boolean(metadata.featuredBestSellers),
+      featuredFreshPicks: Boolean(metadata.featuredFreshPicks),
+      placement,
+      positionMode: metadata.positionMode || "automatic",
+      priorityScore: String(product.priority ?? metadata.priorityScore ?? 50)
     },
     pricing: {
-      costPrice: String(product.costPrice ?? ""),
-      sellingPrice: String(product.price ?? ""),
-      discountPrice: String(product.oldPrice ?? ""),
+      costPrice: String(product.costPrice ?? metadata.costPrice ?? ""),
+      sellingPrice: String(
+        Number(product.oldPrice ?? 0) > Number(product.price ?? 0)
+          ? product.oldPrice
+          : (product.price ?? "")
+      ),
+      discountPrice: String(
+        Number(product.oldPrice ?? 0) > Number(product.price ?? 0)
+          ? product.price
+          : ""
+      ),
       taxRate: String(product.taxRate ?? ""),
-      taxIncluded: Boolean(product.taxIncluded)
+      taxIncluded: Boolean(product.taxIncluded),
+      currency: metadata.currency || "RWF",
+      minOrderQty: String(metadata.minOrderQty ?? 1),
+      maxOrderQty: String(metadata.maxOrderQty ?? ""),
+      flashSaleEnabled: Boolean(metadata.flashSaleEnabled),
+      flashSaleStart: String(metadata.flashSaleStart ?? ""),
+      flashSaleEnd: String(metadata.flashSaleEnd ?? "")
     },
     inventory: {
       quantity: String(product.stock ?? 0),
       stockStatus: inferStockStatus(product.stock),
-      variantsEnabled: Boolean(product.variants?.enabled || colors.length || sizes.length),
+      variantsEnabled: Boolean(product.variants?.enabled || variants.length || sizes.length),
       sizes,
-      colors
+      customSizes: [],
+      attributes: metadata.inventoryAttributes && typeof metadata.inventoryAttributes === "object" ? metadata.inventoryAttributes : {},
+      variants
     },
     media: {
       mainImage: product.mainImage || product.image || "",
@@ -234,7 +427,11 @@ export function hydrateDraftFromProduct(product) {
     seo: {
       metaTitle: product.metaTitle || product.title || product.name || "",
       metaDescription: product.metaDescription || product.shortDescription || product.description || "",
-      slug: product.slug || slugify(product.name || product.title || "")
+      slug: product.slug || slugify(product.name || product.title || ""),
+      focusKeywordRw: metadata.focusKeywordRw || "",
+      focusKeywordEn: metadata.focusKeywordEn || "",
+      searchVisibility: metadata.searchVisibility || "homepage_shop",
+      slugManual: Boolean(metadata.slugManual)
     }
   });
 }

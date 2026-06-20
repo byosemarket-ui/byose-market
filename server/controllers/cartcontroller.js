@@ -113,3 +113,56 @@ exports.clearCart = async (req, res) => {
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
+
+exports.updateCartItem = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'cart' });
+    try {
+        const user = await resolveUser(req);
+        if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const productId = req.params.productId || req.body?.productId;
+        const { quantity } = req.body || {};
+        if (!productId) return res.status(400).json({ success: false, message: 'productId required' });
+
+        const populated = await cartDataService.updateCartItem(user, { productId, quantity });
+        if (!populated) return res.status(404).json({ success: false, message: 'Item not in cart' });
+
+        return res.json({ success: true, cart: populated });
+    } catch (err) {
+        logger.error('cart.update_failed', { error: err });
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.deleteCartItem = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'cart' });
+    try {
+        const user = await resolveUser(req);
+        if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const productId = req.params.productId || req.body?.productId;
+        if (!productId) return res.status(400).json({ success: false, message: 'productId required' });
+
+        const populated = await cartDataService.updateCartItem(user, { productId, quantity: 0 });
+        if (!populated) return res.status(404).json({ success: false, message: 'Item not in cart' });
+
+        return res.json({ success: true, cart: populated });
+    } catch (err) {
+        logger.error('cart.delete_failed', { error: err });
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.mergeCart = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'cart' });
+    try {
+        const user = await resolveUser(req);
+        if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const populated = await cartDataService.mergeCart(user, req.body || {});
+        return res.json({ success: true, cart: populated });
+    } catch (err) {
+        logger.error('cart.merge_failed', { error: err });
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};

@@ -40,6 +40,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const cartBtn = document.getElementById('cartBtn');
   if (cartBtn) {
     const openCart = () => {
+      if (typeof window.ByoseCart !== 'undefined' && typeof window.ByoseCart.open === 'function') {
+        window.ByoseCart.open();
+        return;
+      }
+
       if (typeof Cart !== 'undefined' && typeof Cart.openCart === 'function') {
         Cart.openCart();
         return;

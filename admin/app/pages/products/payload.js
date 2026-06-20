@@ -1,6 +1,49 @@
 import { slugify, toNumber, sanitizePersistedGallery, isPersistableAssetUrl, normalizeStoragePath } from "./utils.js";
 import { parseTagsInput } from "./draft.js";
 
+function resolveInfoPriority(info = {}) {
+  const mode = String(info.positionMode || "automatic").toLowerCase();
+  if (mode === "top") return 100;
+  if (mode === "middle") return 50;
+  if (mode === "bottom") return 10;
+  return Math.max(0, Math.min(100, Math.floor(toNumber(info.priorityScore, 50))));
+}
+
+function buildSeoMetadata(seo = {}) {
+  return {
+    focusKeywordRw: String(seo.focusKeywordRw || "").trim(),
+    focusKeywordEn: String(seo.focusKeywordEn || "").trim(),
+    searchVisibility: String(seo.searchVisibility || "homepage_shop"),
+    slugManual: Boolean(seo.slugManual)
+  };
+}
+
+function buildInfoMetadata(info = {}) {
+  const highlights = parseTagsInput(info.highlights);
+  const placement = Array.isArray(info.placement) ? info.placement : parseTagsInput(info.placement);
+
+  return {
+    shortName: String(info.shortName || "").trim(),
+    productType: String(info.productType || "simple"),
+    condition: String(info.condition || "new"),
+    manufacturer: String(info.manufacturer || "").trim(),
+    countryOfOrigin: String(info.countryOfOrigin || "").trim(),
+    searchKeywords: parseTagsInput(info.searchKeywords),
+    highlights,
+    warranty: String(info.warranty || "none"),
+    warrantyCustom: String(info.warrantyCustom || "").trim(),
+    featuredHomepage: Boolean(info.featuredHomepage),
+    featuredProducts: Boolean(info.featuredProducts),
+    featuredBestSellers: Boolean(info.featuredBestSellers),
+    featuredFreshPicks: Boolean(info.featuredFreshPicks),
+    placement,
+    positionMode: String(info.positionMode || "automatic"),
+    priorityScore: resolveInfoPriority(info),
+    shortDescription: String(info.shortDescription || "").trim(),
+    longDescription: String(info.longDescription || info.description || "").trim()
+  };
+}
+
 function buildColorAttribute(colors = []) {
   const options = colors
     .map((entry) => ({
@@ -24,6 +67,18 @@ function buildColorAttribute(colors = []) {
     required: false,
     options
   };
+}
+
+function buildVariantItems(variants = []) {
+  return (Array.isArray(variants) ? variants : [])
+    .map((entry, index) => ({
+      id: slugify(entry?.label || `variant-${index + 1}`) || `variant-${index + 1}`,
+      label: String(entry?.label || "").trim() || `Variant ${index + 1}`,
+      colorName: String(entry?.colorName || "").trim(),
+      image: String(entry?.image || "").trim(),
+      stock: Math.max(0, Math.floor(toNumber(entry?.stock, 0)))
+    }))
+    .filter((entry) => entry.label);
 }
 
 function buildSizeAttribute(sizes = []) {
@@ -91,6 +146,10 @@ export function buildProductPayload(draft, assetOverrides = {}) {
   const discountPrice = toNumber(pricing.discountPrice, 0);
   const oldPrice = discountPrice > sellingPrice ? discountPrice : 0;
   const tags = parseTagsInput(info.tags);
+  const searchKeywords = parseTagsInput(info.searchKeywords);
+  const keywords = [...new Set([...tags, ...searchKeywords])];
+  const infoMetadata = buildInfoMetadata(info);
+  const seoMetadata = buildSeoMetadata(seo);
   const slug = slugify(seo.slug || info.name);
   const persistedGallery = sanitizePersistedGallery(
     assetOverrides.gallery || media.gallery || [],
@@ -105,9 +164,14 @@ export function buildProductPayload(draft, assetOverrides = {}) {
   const gallery = persistedGallery.gallery;
   const galleryStoragePaths = persistedGallery.galleryStoragePaths;
 
+  const variantItems = buildVariantItems(inventory.variants);
+  const variantStock = variantItems.reduce((sum, entry) => sum + entry.stock, 0);
+  const totalStock = variantItems.length
+    ? variantStock
+    : Math.max(0, Math.floor(toNumber(inventory.quantity, 0)));
   const attributes = [];
   if (inventory.variantsEnabled) {
-    const colorAttribute = buildColorAttribute(inventory.colors);
+    const colorAttribute = buildColorAttribute(variantItems.map((entry) => ({ name: entry.colorName || entry.label })));
     const sizeAttribute = buildSizeAttribute(inventory.sizes);
     if (colorAttribute) {
       attributes.push(colorAttribute);
@@ -117,24 +181,32 @@ export function buildProductPayload(draft, assetOverrides = {}) {
     }
   }
 
-  const stockStatus = String(inventory.stockStatus || "in_stock").toLowerCase();
+  const stockStatus = totalStock <= 0
+    ? "out_of_stock"
+    : totalStock <= 5
+      ? "low_stock"
+      : totalStock <= 20
+        ? "limited_stock"
+        : "in_stock";
   const status = stockStatus === "out_of_stock" ? "inactive" : "active";
 
   return {
     name: String(info.name || "").trim(),
-    description: String(info.description || "").trim(),
-    shortDescription: String(info.description || "").trim(),
+    title: String(info.shortName || info.name || "").trim() || String(info.name || "").trim(),
+    description: String(info.longDescription || info.description || "").trim(),
+    shortDescription: String(info.shortDescription || info.longDescription || info.description || "").trim(),
     category: String(info.category || "general").toLowerCase(),
     brand: String(info.brand || "").trim(),
     sku: String(info.sku || "").trim(),
     tags,
-    keywords: tags,
+    keywords,
+    highlights: infoMetadata.highlights,
     price: sellingPrice,
     oldPrice,
     costPrice: toNumber(pricing.costPrice, 0),
     taxRate: toNumber(pricing.taxRate, 0),
     taxIncluded: Boolean(pricing.taxIncluded),
-    stock: Math.max(0, Math.floor(toNumber(inventory.quantity, 0))),
+    stock: totalStock,
     visibility: String(info.visibility || "both").toLowerCase(),
     status,
     mainImage,
@@ -144,13 +216,23 @@ export function buildProductPayload(draft, assetOverrides = {}) {
     gallery,
     galleryStoragePaths,
     metaTitle: String(seo.metaTitle || info.name || "").trim(),
-    metaDescription: String(seo.metaDescription || info.description || "").trim(),
+    metaDescription: String(seo.metaDescription || info.shortDescription || info.longDescription || info.description || "").trim(),
     slug,
     attributes,
-    variants: buildVariantFoundation(attributes),
+    variants: {
+      ...buildVariantFoundation(attributes),
+      items: variantItems
+    },
     badge: String(info.brand || "").trim(),
-    priority: 0,
-    orderIndex: 200
+    priority: resolveInfoPriority(info),
+    orderIndex: resolveInfoPriority(info) * 2,
+    metadata: {
+      ...infoMetadata,
+      ...seoMetadata,
+      inventoryAttributes: inventory.attributes && typeof inventory.attributes === "object" ? inventory.attributes : {},
+      customSizes: Array.isArray(inventory.customSizes) ? inventory.customSizes : [],
+      variantStockTotal: totalStock
+    }
   };
 }
 
@@ -170,6 +252,9 @@ export function validateStep(step, draft, options = {}) {
     if (!String(info.category || "").trim()) {
       errors.push("Category is required.");
     }
+    if (String(info.warranty || "") === "custom" && !String(info.warrantyCustom || "").trim()) {
+      errors.push("Enter custom warranty details.");
+    }
   }
 
   if (step === "pricing") {
@@ -187,9 +272,13 @@ export function validateStep(step, draft, options = {}) {
     if (toNumber(inventory.quantity, 0) < 0) {
       errors.push("Quantity cannot be negative.");
     }
-    if (inventory.variantsEnabled) {
-      if (!inventory.colors?.length && !inventory.sizes?.length) {
-        errors.push("Enable at least one color or size when variants are enabled.");
+    if (inventory.variantsEnabled && (!Array.isArray(inventory.variants) || !inventory.variants.length)) {
+      errors.push("Add at least one product variant.");
+    }
+    if (Array.isArray(inventory.variants)) {
+      const invalidVariant = inventory.variants.some((entry) => !String(entry?.label || "").trim());
+      if (invalidVariant) {
+        errors.push("Each variant must have a label.");
       }
     }
   }
@@ -204,6 +293,17 @@ export function validateStep(step, draft, options = {}) {
   if (step === "seo") {
     if (!String(seo.metaTitle || info.name || "").trim()) {
       errors.push("Meta title is required.");
+    }
+    if (!String(seo.slug || slugify(info.name)).trim()) {
+      errors.push("Product slug is required.");
+    }
+    const titleLength = String(seo.metaTitle || info.name || "").trim().length;
+    if (titleLength > 60) {
+      errors.push("Meta title should be 60 characters or fewer.");
+    }
+    const descLength = String(seo.metaDescription || "").trim().length;
+    if (descLength > 160) {
+      errors.push("Meta description should be 160 characters or fewer.");
     }
   }
 

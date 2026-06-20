@@ -308,7 +308,7 @@
     }
 
     const cardSystem = await loadProductCardSystem();
-    cardSystem.bindImageFallback(targetGrid);
+    cardSystem.bindCards(targetGrid);
     targetGrid.dataset.shopImageFallbackBound = "true";
   }
 

@@ -22,9 +22,14 @@
   }
 
   function getCartCount() {
+    if (window.ByoseCart && typeof window.ByoseCart.getCount === 'function') {
+      return window.ByoseCart.getCount();
+    }
+
     try {
-      const cart = window.ByoseStorefrontSync?.readStateByKey?.(CART_KEY) || [];
-      return cart.reduce((count, item) => count + (Number(item.qty) || 0), 0);
+      const cart = window.ByoseStorefrontSync?.readStateByKey?.(CART_KEY)
+        || JSON.parse(localStorage.getItem(CART_KEY) || '[]');
+      return (Array.isArray(cart) ? cart : []).reduce((count, item) => count + (Number(item.qty) || 0), 0);
     } catch (error) {
       return 0;
     }
@@ -96,6 +101,7 @@
     updateBodySpacing();
 
     document.addEventListener('cart:updated', updateCartBadge);
+    document.addEventListener('byose:cart-updated', updateCartBadge);
     window.addEventListener('kcart:updated', updateCartBadge);
     window.addEventListener('byose:storefront-state-updated', updateCartBadge);
     window.addEventListener('resize', updateBodySpacing, { passive: true });

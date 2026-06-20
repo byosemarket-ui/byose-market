@@ -301,8 +301,7 @@ function createProductCard(product) {
 }
 
 function bindGridImageFallback(grid) {
-  // Use unified product card system's image fallback handling
-  ProductCardSystem.bindImageFallback(grid);
+  ProductCardSystem.bindCards(grid);
 }
 
 function applyStorefrontGridClasses(grid) {

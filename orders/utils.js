@@ -1,5 +1,6 @@
 export const STORAGE_KEYS = {
   cart: 'byose_market_cart_v1',
+  checkoutActive: 'byose_checkout_active_v1',
   directCheckout: 'byose_direct_checkout',
   orders: 'byose_orders',
   draft: 'byose_checkout_draft_v1',
@@ -439,6 +440,11 @@ export function normalizeCartItem(item) {
 }
 
 export function readCartItems() {
+  const checkoutActive = readStorage(STORAGE_KEYS.checkoutActive, []);
+  if (Array.isArray(checkoutActive) && checkoutActive.length) {
+    return checkoutActive.map(normalizeCartItem);
+  }
+
   return readStorage(STORAGE_KEYS.cart, []).map(normalizeCartItem);
 }
 

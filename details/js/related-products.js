@@ -37,5 +37,5 @@ export function renderRelatedProducts(container, products) {
   // Wrap with unified grid classes (5 columns on desktop per related products convention)
   const cardsHtml = products.map(buildCard).join('');
   container.innerHTML = `<div class="byose-product-grid byose-product-grid--5col">${cardsHtml}</div>`;
-  ProductCardSystem.bindImageFallback(container);
+  ProductCardSystem.bindCards(container);
 }

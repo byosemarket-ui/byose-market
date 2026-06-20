@@ -1,769 +1,147 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Shopping Cart - Byose Market</title>
-
-  <!-- Icons & Fonts -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
-
-  <!-- Global Styles -->
-  <link rel="stylesheet" href="css/global.css" />
-  <link rel="stylesheet" href="cart.css" />
-
-  <style>
-    :root {
-      --bg: #f6f7fb;
-      --card: #ffffff;
-      --text: #0f172a;
-      --muted: #64748b;
-      --accent: #ef4444;
-      --accent-hover: #dc2626;
-      --accent-light: #fee2e2;
-      --success: #10b981;
-      --border: #e5e7eb;
-      --radius: 14px;
-      --shadow: 0 10px 30px rgba(2, 6, 23, 0.06);
-      --shadow-lg: 0 20px 50px rgba(2, 6, 23, 0.12);
-      --maxw: 1200px;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    html, body {
-      margin: 0;
-      font-family: Poppins, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-    }
-
-    a {
-      color: inherit;
-      text-decoration: none;
-    }
-
-    img {
-      max-width: 100%;
-      height: auto;
-    }
-
-    /* Header */
-    .cart-header {
-      background: var(--card);
-      border-bottom: 1px solid var(--border);
-      padding: 24px 0;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-    }
-
-    .container {
-      max-width: var(--maxw);
-      margin: 0 auto;
-      padding: 0 20px;
-    }
-
-    .cart-header-content {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 20px;
-    }
-
-    .cart-title {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-size: 28px;
-      font-weight: 700;
-    }
-
-    .cart-title i {
-      color: var(--accent);
-      font-size: 32px;
-    }
-
-    .cart-count {
-      background: var(--accent-light);
-      color: var(--accent);
-      padding: 6px 14px;
-      border-radius: 20px;
-      font-weight: 700;
-      font-size: 14px;
-    }
-
-    /* Main Content */
-    .cart-main {
-      display: grid;
-      grid-template-columns: 1fr 380px;
-      gap: 32px;
-      padding: 40px 0;
-      min-height: calc(100vh - 150px);
-    }
-
-    /* Cart Items Section */
-    .cart-items-section {
-      background: var(--card);
-      border-radius: var(--radius);
-      padding: 28px;
-      box-shadow: var(--shadow);
-      border: 1px solid var(--border);
-    }
-
-    .section-title {
-      font-size: 20px;
-      font-weight: 700;
-      margin-bottom: 24px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .section-title i {
-      color: var(--accent);
-    }
-
-    /* Cart Items List */
-    .cart-items-list {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .cart-item {
-      display: grid;
-      grid-template-columns: 100px 1fr 100px;
-      gap: 16px;
-      padding: 16px;
-      background: var(--bg);
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      align-items: center;
-      transition: all 0.3s ease;
-    }
-
-    .cart-item:hover {
-      box-shadow: var(--shadow);
-      border-color: var(--accent);
-      transform: translateY(-2px);
-    }
-
-    .item-image {
-      width: 100px;
-      height: 100px;
-      border-radius: 10px;
-      object-fit: cover;
-      border: 1px solid var(--border);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-      cursor: pointer;
-      transition: all 0.3s ease;
-    }
-
-    .item-image:hover {
-      transform: scale(1.05);
-    }
-
-    .item-details {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .item-name {
-      font-weight: 700;
-      font-size: 16px;
-      color: var(--text);
-      margin-bottom: 4px;
-    }
-
-    .item-price-row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-size: 14px;
-    }
-
-    .item-price {
-      color: var(--muted);
-    }
-
-    .item-price-value {
-      font-weight: 700;
-      color: var(--text);
-    }
-
-    .item-controls {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-top: 10px;
-    }
-
-    .qty-control {
-      display: inline-flex;
-      align-items: center;
-      border: 1.5px solid var(--border);
-      border-radius: 8px;
-      background: white;
-      overflow: hidden;
-    }
-
-    .qty-control button {
-      width: 32px;
-      height: 32px;
-      border: none;
-      background: transparent;
-      cursor: pointer;
-      color: var(--text);
-      font-weight: 700;
-      transition: all 0.2s ease;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .qty-control button:hover {
-      background: var(--bg);
-      color: var(--accent);
-    }
-
-    .qty-control input {
-      width: 44px;
-      height: 32px;
-      border: none;
-      border-left: 1px solid var(--border);
-      border-right: 1px solid var(--border);
-      text-align: center;
-      background: white;
-      color: var(--text);
-      font-weight: 700;
-      font-family: inherit;
-      font-size: 14px;
-    }
-
-    .qty-control input:focus {
-      outline: none;
-    }
-
-    .remove-btn {
-      background: none;
-      border: none;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 18px;
-      opacity: 0.6;
-      transition: all 0.2s ease;
-      padding: 4px;
-      border-radius: 6px;
-    }
-
-    .remove-btn:hover {
-      color: var(--accent);
-      opacity: 1;
-      background: var(--accent-light);
-    }
-
-    .item-subtotal {
-      text-align: right;
-      font-weight: 700;
-      font-size: 16px;
-      color: var(--accent);
-    }
-
-    /* Empty Cart State */
-    .empty-cart {
-      text-align: center;
-      padding: 60px 20px;
-    }
-
-    .empty-cart-icon {
-      font-size: 64px;
-      color: var(--muted);
-      margin-bottom: 16px;
-    }
-
-    .empty-cart-title {
-      font-size: 24px;
-      font-weight: 700;
-      margin-bottom: 12px;
-      color: var(--text);
-    }
-
-    .empty-cart-text {
-      color: var(--muted);
-      margin-bottom: 28px;
-      font-size: 15px;
-    }
-
-    /* Sidebar */
-    .cart-sidebar {
-      position: sticky;
-      top: 100px;
-      height: fit-content;
-    }
-
-    .summary-card {
-      background: var(--card);
-      border-radius: var(--radius);
-      padding: 24px;
-      box-shadow: var(--shadow);
-      border: 1px solid var(--border);
-      margin-bottom: 20px;
-    }
-
-    .summary-card-title {
-      font-size: 18px;
-      font-weight: 700;
-      margin-bottom: 20px;
-    }
-
-    .summary-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 12px;
-      font-size: 14px;
-      color: var(--muted);
-    }
-
-    .summary-row span:last-child {
-      font-weight: 600;
-      color: var(--text);
-    }
-
-    .summary-row.total {
-      font-size: 18px;
-      font-weight: 700;
-      padding-top: 12px;
-      margin-top: 12px;
-      border-top: 2px solid var(--border);
-      color: var(--text);
-    }
-
-    .summary-row.total span:last-child {
-      color: var(--accent);
-      font-size: 20px;
-    }
-
-    /* Buttons */
-    .btn {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      padding: 14px 20px;
-      border: none;
-      border-radius: 10px;
-      font-weight: 700;
-      font-size: 15px;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      font-family: inherit;
-      text-align: center;
-      width: 100%;
-    }
-
-    .btn-primary {
-      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
-      color: white;
-      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
-      margin-bottom: 10px;
-    }
-
-    .btn-primary:hover {
-      box-shadow: 0 8px 24px rgba(239, 68, 68, 0.4);
-      transform: translateY(-2px);
-    }
-
-    .btn-primary:active {
-      transform: translateY(0);
-    }
-
-    .btn-success {
-      background: linear-gradient(135deg, var(--success) 0%, #059669 100%);
-      color: white;
-      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-      margin-bottom: 10px;
-    }
-
-    .btn-success:hover {
-      box-shadow: 0 8px 24px rgba(16, 185, 129, 0.4);
-      transform: translateY(-2px);
-    }
-
-    .btn-secondary {
-      background: var(--border);
-      color: var(--text);
-    }
-
-    .btn-secondary:hover {
-      background: #d1d5db;
-    }
-
-    .btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none !important;
-    }
-
-    /* WhatsApp Section */
-    .whatsapp-card {
-      background: linear-gradient(135deg, rgba(34, 197, 94, 0.05) 0%, rgba(34, 197, 94, 0.02) 100%);
-      border: 2px dashed #22c55e;
-      border-radius: var(--radius);
-      padding: 20px;
-      text-align: center;
-      margin-bottom: 20px;
-    }
-
-    .whatsapp-title {
-      font-size: 15px;
-      font-weight: 700;
-      margin-bottom: 8px;
-      color: var(--text);
-    }
-
-    .whatsapp-desc {
-      font-size: 12px;
-      color: var(--muted);
-      margin-bottom: 12px;
-      line-height: 1.4;
-    }
-
-    .btn-whatsapp {
-      background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-      color: white !important;
-      box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
-      font-size: 14px;
-      padding: 12px 16px;
-    }
-
-    .btn-whatsapp:hover {
-      box-shadow: 0 8px 24px rgba(34, 197, 94, 0.4);
-      transform: translateY(-2px);
-    }
-
-    /* Mobile Responsive */
-    @media (max-width: 1024px) {
-      .cart-main {
-        grid-template-columns: 1fr;
-        gap: 24px;
-      }
-
-      .cart-sidebar {
-        position: relative;
-        top: auto;
-      }
-    }
-
-    @media (max-width: 768px) {
-      .cart-header-content {
-        flex-direction: column;
-        gap: 12px;
-        align-items: flex-start;
-      }
-
-      .cart-main {
-        padding: 20px 0;
-      }
-
-      .cart-items-section {
-        padding: 20px;
-      }
-
-      .cart-item {
-        grid-template-columns: 80px 1fr;
-        gap: 12px;
-      }
-
-      .item-image {
-        width: 80px;
-        height: 80px;
-      }
-
-      .item-subtotal {
-        grid-column: 1 / -1;
-        text-align: left;
-        margin-top: 8px;
-        padding-top: 8px;
-        border-top: 1px solid var(--border);
-      }
-
-      .summary-card {
-        padding: 20px;
-      }
-
-      .btn {
-        padding: 12px 16px;
-        font-size: 14px;
-      }
-    }
-
-    @media (max-width: 480px) {
-      .container {
-        padding: 0 16px;
-      }
-
-      .cart-title {
-        font-size: 24px;
-        gap: 8px;
-      }
-
-      .cart-title i {
-        font-size: 28px;
-      }
-
-      .cart-items-section {
-        padding: 16px;
-      }
-
-      .section-title {
-        font-size: 16px;
-        margin-bottom: 16px;
-      }
-
-      .cart-item {
-        gap: 10px;
-      }
-
-      .item-controls {
-        flex-wrap: wrap;
-        gap: 10px;
-      }
-
-      .cart-item:last-child {
-        margin-bottom: 0;
-      }
-    }
-  </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shopping Cart | Byose Market</title>
+  <meta name="description" content="Review your cart, save items for later, and proceed to checkout on Byose Market.">
+  <link rel="icon" href="img/logo.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="css/home.css">
+  <link rel="stylesheet" href="css/home-mobile.css">
+  <link rel="stylesheet" href="css/home-desktop.css">
+  <link rel="stylesheet" href="css/storefront-footer.css">
+  <link rel="stylesheet" href="css/cart-page.css">
+  <link rel="stylesheet" href="mobile-nav.css">
+  <script src="config/runtime-api-bootstrap.js"></script>
 </head>
-<body>
-  <!-- Header -->
-  <header class="cart-header">
-    <div class="container">
-      <div class="cart-header-content">
-        <div class="cart-title">
-          <i class="fas fa-shopping-cart"></i>
-          <span>Shopping Cart</span>
-        </div>
-        <div class="cart-count" id="cartCount">0 items</div>
-        <a href="shop.html" style="margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--accent); font-weight: 600; font-size: 14px;">
-          <i class="fas fa-arrow-left"></i> Continue Shopping
+<body class="home-page cart-page">
+  <header class="main-header" id="mainHeader" data-sticky-header>
+    <div class="container header-shell">
+      <div class="header-mobile-top">
+        <a class="brand brand-mobile" href="index.html" aria-label="Byose Market Home">
+          <img class="brand-logo" src="img/logo.png" alt="Byose Market logo">
+        </a>
+        <a href="cart.html" class="icon-btn mobile-messages-btn" aria-label="Cart">
+          <i class="fa-solid fa-cart-shopping" aria-hidden="true"></i>
         </a>
       </div>
+      <a class="brand header-desktop-brand" href="index.html" aria-label="Byose Market Home">
+        <img class="brand-logo" src="img/logo.png" alt="Byose Market logo">
+      </a>
+      <nav class="header-nav nav header-desktop-nav" aria-label="Main navigation">
+        <a href="index.html" class="nav-link" data-page="home"><i class="fa-solid fa-house"></i><span>Home</span></a>
+        <a href="shop.html" class="nav-link" data-page="shop"><i class="fa-solid fa-store"></i><span>Shop</span></a>
+        <a href="contact.html" class="nav-link" data-page="contact"><i class="fa-regular fa-envelope"></i><span>Contact</span></a>
+      </nav>
+      <form class="header-search header-desktop-search" role="search" action="search.html" method="get">
+        <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+        <input type="search" name="q" placeholder="Search products..." aria-label="Search products">
+        <button type="submit">Search</button>
+      </form>
+      <div class="header-actions header-desktop-actions">
+        <a href="cart.html" class="icon-btn" id="cartBtn" aria-label="Cart"><i class="fa-solid fa-cart-shopping"></i></a>
+        <a href="login.html" class="icon-btn" id="accountBtn" aria-label="Account"><i class="fa-regular fa-user"></i></a>
+      </div>
+      <a href="search.html" class="header-search-mobile-redirect" aria-label="Search products">
+        <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+        <input type="search" placeholder="Search products..." readonly tabindex="-1" aria-hidden="true">
+      </a>
     </div>
   </header>
 
-  <!-- Main Content -->
-  <main>
-    <div class="container">
-      <div class="cart-main">
-        <!-- Left: Cart Items -->
-        <section class="cart-items-section">
-          <h2 class="section-title">
-            <i class="fas fa-list"></i>
-            Cart Items
-          </h2>
-          <div id="cartItemsContainer" class="cart-items-list">
-            <!-- Items will load here -->
+  <main class="cart-page__main">
+    <div class="container cart-page__layout">
+      <section>
+        <div class="cart-page__header">
+          <h1 class="cart-page__title">Shopping Cart</h1>
+          <span class="cart-page__count" id="cartCount">0 items</span>
+        </div>
+
+        <div class="cart-panel">
+          <div class="cart-panel__head">
+            <h2 class="cart-panel__title">Cart items</h2>
+            <label class="cart-select-all">
+              <input type="checkbox" id="cartSelectAll" aria-label="Select all items">
+              Select all
+            </label>
+          </div>
+          <div class="cart-items" id="cartItems" aria-live="polite"></div>
+        </div>
+
+        <section class="cart-saved" id="savedSection" hidden>
+          <div class="cart-panel">
+            <div class="cart-panel__head">
+              <h2 class="cart-panel__title">Saved for later</h2>
+            </div>
+            <div class="cart-items" id="savedItems"></div>
           </div>
         </section>
+      </section>
 
-        <!-- Right: Sidebar -->
-        <aside class="cart-sidebar">
-          <!-- Summary Card -->
-          <div class="summary-card">
-            <h3 class="summary-card-title">Order Summary</h3>
-            <div class="summary-row">
-              <span>Subtotal</span>
-              <span id="subtotalValue">RWF 0</span>
-            </div>
-            <div class="summary-row">
-              <span>Shipping</span>
-              <span id="shippingValue">RWF 5,000</span>
-            </div>
-            <div class="summary-row total">
-              <span>Total</span>
-              <span id="totalValue">RWF 5,000</span>
-            </div>
-          </div>
-
-          <!-- WhatsApp Card -->
-          <div class="whatsapp-card">
-            <div class="whatsapp-title">
-              <i class="fab fa-whatsapp"></i> Quick Order via WhatsApp
-            </div>
-            <div class="whatsapp-desc">
-              Order directly on WhatsApp - no forms, just chat!
-            </div>
-            <button class="btn btn-whatsapp" id="whatsappCartBtn">
-              <i class="fab fa-whatsapp"></i> Order on WhatsApp
-            </button>
-          </div>
-
-          <!-- Action Buttons -->
-          <button class="btn btn-primary" id="checkoutBtn" onclick="goToCheckout()">
-            <i class="fas fa-credit-card"></i> Proceed to Checkout
-          </button>
-          <button class="btn btn-secondary" id="continueShopping" onclick="window.location.href='shop.html'">
-            <i class="fas fa-shopping-bag"></i> Continue Shopping
-          </button>
-          <button class="btn btn-secondary" id="clearCartBtn" onclick="clearCart()">
-            <i class="fas fa-trash-alt"></i> Clear Cart
-          </button>
-        </aside>
-      </div>
+      <aside class="cart-panel cart-summary" aria-label="Order summary">
+        <h2 class="cart-summary__title">Order summary</h2>
+        <div class="cart-summary__rows">
+          <div class="cart-summary__row"><span>Selected items</span><strong id="summarySelected">0</strong></div>
+          <div class="cart-summary__row"><span>Subtotal</span><strong id="summarySubtotal">RWF 0</strong></div>
+          <div class="cart-summary__row"><span>Discounts</span><strong id="summaryDiscount">RWF 0</strong></div>
+          <div class="cart-summary__row"><span>Delivery</span><strong id="summaryShipping">RWF 0</strong></div>
+          <div class="cart-summary__row"><span>Tax</span><strong id="summaryTax">RWF 0</strong></div>
+          <div class="cart-summary__row cart-summary__row--total"><span>Total</span><strong id="summaryTotal">RWF 0</strong></div>
+        </div>
+        <button type="button" class="cart-btn cart-btn--primary" id="checkoutBtn" disabled>Proceed to checkout</button>
+        <button type="button" class="cart-btn cart-btn--ghost" id="whatsappBtn" disabled><i class="fa-brands fa-whatsapp"></i> Order via WhatsApp</button>
+      </aside>
     </div>
   </main>
 
-  <!-- Cart JS Scripts -->
-  <script src="js/utils.js"></script>
-  <script src="js/cart.js"></script>
+  <div class="cart-sticky-checkout" aria-hidden="false">
+    <button type="button" class="cart-btn cart-btn--primary" id="stickyCheckoutBtn" disabled>
+      Checkout · <span id="stickyTotal">RWF 0</span>
+    </button>
+  </div>
 
-  <script>
-    function readCartItemAttributes(item) {
-      if (item && item.attributes && typeof item.attributes === 'object' && !Array.isArray(item.attributes)) {
-        return Object.entries(item.attributes).filter(([, value]) => value !== undefined && value !== null && value !== '');
-      }
-
-      const attributes = [];
-      if (item?.color) attributes.push(['Color', item.color]);
-      if (item?.size) attributes.push(['Size', item.size]);
-      return attributes;
-    }
-
-    function formatCartItemAttributes(item) {
-      const attributes = readCartItemAttributes(item);
-      return attributes.length
-        ? attributes.map(([key, value]) => `${key}: ${value}`).join(' | ')
-        : 'Standard option';
-    }
-
-    function getAttributesByVariantKey(variantKey) {
-      const item = Cart.getCart().find(entry => entry.variantKey === variantKey);
-      return item?.attributes || {};
-    }
-
-    // Load and render cart
-    function loadCart() {
-      const cart = Cart.getCart();
-      const container = document.getElementById('cartItemsContainer');
-      const countElement = document.getElementById('cartCount');
-      
-      if (cart.length === 0) {
-        container.innerHTML = `
-          <div class="empty-cart">
-            <div class="empty-cart-icon"><i class="fas fa-shopping-cart"></i></div>
-            <h3 class="empty-cart-title">Your Cart is Empty</h3>
-            <p class="empty-cart-text">Looks like you haven't added any items yet. Start shopping!</p>
-            <a href="shop.html" class="btn btn-primary" style="display: inline-flex; width: auto;">
-              <i class="fas fa-shopping-bag"></i> Start Shopping
-            </a>
-          </div>
-        `;
-        document.getElementById('checkoutBtn').disabled = true;
-        document.getElementById('whatsappCartBtn').disabled = true;
-        document.getElementById('clearCartBtn').disabled = true;
-        countElement.textContent = '0 items';
-        updateSummary([]);
-        return;
-      }
-
-      // Render items
-      container.innerHTML = cart.map(item => `
-        <div class="cart-item" data-id="${item.id}" data-variant-key="${item.variantKey || ''}">
-          <img src="${item.image || 'https://via.placeholder.com/100'}" alt="${item.name}" class="item-image">
-          <div class="item-details">
-            <div class="item-name">${item.name}</div>
-            <div class="item-options" style="font-size: 12px; color: #666; margin: 4px 0;">
-              ${formatCartItemAttributes(item)}
-            </div>
-            <div class="item-price-row">
-              <span class="item-price">Price:</span>
-              <span class="item-price-value">RWF ${Number(item.price).toLocaleString('en-US')}</span>
-            </div>
-            <div class="item-controls">
-              <div class="qty-control">
-                <button onclick="Cart.updateQty('${item.id}', getAttributesByVariantKey('${item.variantKey || ''}'), undefined, ${Math.max(0, item.qty - 1)})" aria-label="Decrease">−</button>
-                <input type="number" value="${item.qty}" min="1" data-id="${item.id}" data-variant-key="${item.variantKey || ''}" onchange="Cart.updateQty('${item.id}', getAttributesByVariantKey('${item.variantKey || ''}'), undefined, parseInt(this.value))">
-                <button onclick="Cart.updateQty('${item.id}', getAttributesByVariantKey('${item.variantKey || ''}'), undefined, ${item.qty + 1})" aria-label="Increase">+</button>
-              </div>
-              <button class="remove-btn" onclick="Cart.removeItem('${item.id}', getAttributesByVariantKey('${item.variantKey || ''}'), undefined)" title="Remove">
-                <i class="fas fa-trash-alt"></i>
-              </button>
-            </div>
-          </div>
-          <div class="item-subtotal">RWF ${(item.total || (item.price * item.qty)).toLocaleString('en-US')}</div>
+  <footer class="site-footer">
+    <div class="container footer-shell">
+      <section class="footer-brand" aria-labelledby="footer-brand-title">
+        <div class="footer-brand__head">
+          <a href="index.html" class="footer-logo-link" aria-label="Byose Market Home">
+            <img class="footer-logo" src="img/logo.png" alt="" width="40" height="40">
+          </a>
+          <h2 id="footer-brand-title" class="footer-brand__name">BYOSE MARKET</h2>
         </div>
-      `).join('');
+        <p class="footer-brand__desc">Rwanda's trusted online marketplace for fashion, shoes, electronics and everyday essentials.</p>
+      </section>
+      <nav class="footer-panel footer-panel--links" aria-labelledby="footer-links-title">
+        <h3 id="footer-links-title" class="footer-panel__title">Quick Links</h3>
+        <ul class="footer-links">
+          <li><a href="index.html">Home</a></li>
+          <li><a href="shop.html">Shop</a></li>
+          <li><a href="contact.html">Contact</a></li>
+        </ul>
+      </nav>
+      <section class="footer-panel footer-panel--contact" aria-labelledby="footer-contact-title">
+        <h3 id="footer-contact-title" class="footer-panel__title">Contact</h3>
+        <div class="footer-contact-cards">
+          <a href="tel:+250780430710" class="footer-touch-card"><span class="footer-touch-card__icon footer-touch-card__icon--phone"><i class="fa-solid fa-phone"></i></span><span class="footer-touch-card__copy"><span class="footer-touch-card__label">Phone</span><span class="footer-touch-card__value">0780 430 710</span></span></a>
+          <a href="https://wa.me/250723731250" class="footer-touch-card" target="_blank" rel="noopener"><span class="footer-touch-card__icon footer-touch-card__icon--whatsapp"><i class="fa-brands fa-whatsapp"></i></span><span class="footer-touch-card__copy"><span class="footer-touch-card__label">WhatsApp</span><span class="footer-touch-card__value">0723 731 250</span></span></a>
+        </div>
+      </section>
+      <section class="footer-newsletter" aria-labelledby="footer-newsletter-title">
+        <h3 id="footer-newsletter-title" class="footer-panel__title">Newsletter</h3>
+        <p class="footer-newsletter__copy">Get deals and new arrivals in your inbox.</p>
+      </section>
+      <div class="footer-bottom"><p>&copy; 2026 Byose Market. All rights reserved.</p></div>
+    </div>
+  </footer>
 
-      // Update count
-      const totalItems = cart.reduce((sum, item) => sum + item.qty, 0);
-      countElement.textContent = `${totalItems} ${totalItems === 1 ? 'item' : 'items'}`;
-
-      // Update summary
-      updateSummary(cart);
-
-      // Enable buttons
-      document.getElementById('checkoutBtn').disabled = false;
-      document.getElementById('whatsappCartBtn').disabled = false;
-      document.getElementById('clearCartBtn').disabled = false;
-    }
-
-    // Update summary
-    function updateSummary(cart) {
-      const summary = Cart.getSummary();
-      document.getElementById('subtotalValue').textContent = `RWF ${summary.subtotal.toLocaleString('en-US')}`;
-      document.getElementById('shippingValue').textContent = `RWF ${summary.shipping.toLocaleString('en-US')}`;
-      document.getElementById('totalValue').textContent = `RWF ${summary.total.toLocaleString('en-US')}`;
-    }
-
-    // Go to checkout
-    function goToCheckout() {
-      Cart.checkout();
-    }
-
-    // Clear cart
-    function clearCart() {
-      Cart.clear();
-    }
-
-    // WhatsApp button
-    document.getElementById('whatsappCartBtn').addEventListener('click', () => {
-      if(window.KCart && KCart.openWhatsAppOrder){
-        KCart.openWhatsAppOrder();
-      } else {
-        alert('WhatsApp order functionality not available');
-      }
-    });
-
-    // Load cart on page load
-    document.addEventListener('DOMContentLoaded', () => {
-      loadCart();
-      // Listen for cart updates from both cart implementations
-      window.addEventListener('cart:updated', loadCart);
-      window.addEventListener('kcart:updated', loadCart);
-    });
-  </script>
-  <!-- Mobile bottom navigation (mobile & tablet only) -->
-  <link rel="stylesheet" href="mobile-nav.css">
-  <script src="services/authservice.js"></script>
-  <script>
-    // Protect cart: require authentication
-    document.addEventListener('DOMContentLoaded', function(){
-      try {
-        if (typeof authService !== 'undefined' && !authService.isLoggedIn()) {
-          window.location.href = 'login.html';
-        }
-      } catch (e) { console.error(e); }
-    });
-  </script>
+  <script src="js/utils.js"></script>
+  <script type="module" src="js/byose-cart-bootstrap.js"></script>
+  <script src="js/header.js" defer></script>
   <script src="js/mobile-nav.js" defer></script>
+  <script type="module" src="js/cart-page.js"></script>
 </body>
 </html>
