@@ -28,7 +28,7 @@
   <link rel="stylesheet" href="css/storefront-footer.css">
   <link rel="stylesheet" href="css/home-mobile.css">
   <link rel="stylesheet" href="css/home-desktop.css">
-  <link rel="stylesheet" href="css/home-category-slider.css">
+  <link rel="stylesheet" href="css/home-category-nav.css">
   <link rel="stylesheet" href="mobile-nav.css">
   <script src="config/runtime-api-bootstrap.js"></script>
 </head>
@@ -146,64 +146,18 @@
       </div>
     </section>
 
-    <section class="category-section container">
-      <div class="section-heading">
-        <div>
-          <span class="section-kicker">Categories</span>
-          <h2>Shakisha byihuse ibyo ushaka</h2>
+    <section class="products-section container home-products-section" id="homeProducts">
+      <nav class="home-category-nav" aria-label="Filter products by category">
+        <div class="home-category-nav__track" id="filterPills" role="tablist">
+          <button type="button" role="tab" class="home-category-pill is-active" data-filter="all" aria-selected="true">All</button>
+          <button type="button" role="tab" class="home-category-pill" data-filter="fashion" aria-selected="false">Fashion</button>
+          <button type="button" role="tab" class="home-category-pill" data-filter="electronics" aria-selected="false">Electronics</button>
+          <button type="button" role="tab" class="home-category-pill" data-filter="shoes" aria-selected="false">Shoes</button>
+          <button type="button" role="tab" class="home-category-pill" data-filter="bags" aria-selected="false">Bags</button>
+          <button type="button" role="tab" class="home-category-pill" data-filter="watches" aria-selected="false">Watches</button>
+          <button type="button" role="tab" class="home-category-pill" data-filter="phones" aria-selected="false">Phones</button>
         </div>
-        <a href="shop.html" class="text-link">Reba byose</a>
-      </div>
-
-      <div class="category-slider" id="categorySlider">
-        <div class="category-slider__viewport" id="categorySliderViewport">
-          <div class="category-slider__track" id="categoryGrid">
-            <button type="button" class="category-card" data-filter="shoes">
-              <img src="img/categories 1.jpeg" alt="Inkweto" loading="lazy" decoding="async">
-              <span>Inkweto</span>
-            </button>
-            <button type="button" class="category-card" data-filter="bags">
-              <img src="img/categories 2.jpeg" alt="Ibikapu" loading="lazy" decoding="async">
-              <span>Ibikapu</span>
-            </button>
-            <button type="button" class="category-card" data-filter="fashion">
-              <img src="img/hiro 3 imyenda.jpg" alt="Imyenda" loading="lazy" decoding="async">
-              <span>Imyenda</span>
-            </button>
-            <button type="button" class="category-card" data-filter="electronics">
-              <img src="img/hiro  4 electronics.jpg" alt="Electronics" loading="lazy" decoding="async">
-              <span>Electronics</span>
-            </button>
-            <button type="button" class="category-card" data-filter="watches">
-              <img src="img/hiro 5b amasaha.jpg" alt="Amasaha" loading="lazy" decoding="async">
-              <span>Amasaha</span>
-            </button>
-            <button type="button" class="category-card" data-filter="phones">
-              <img src="img/categories6.jpeg" alt="Phones" loading="lazy" decoding="async">
-              <span>Phones</span>
-            </button>
-          </div>
-        </div>
-        <div class="category-slider__dots" id="categorySliderDots" aria-hidden="true"></div>
-      </div>
-    </section>
-
-    <section class="products-section container" id="homeProducts">
-      <div class="section-heading compact-heading">
-        <div>
-          <span class="section-kicker">Explore products</span>
-          <h2>Top deals kuri Home</h2>
-        </div>
-        <div class="filter-pills" id="filterPills">
-          <button type="button" class="filter-pill is-active" data-filter="all">All</button>
-          <button type="button" class="filter-pill" data-filter="fashion">Fashion</button>
-          <button type="button" class="filter-pill" data-filter="electronics">Electronics</button>
-          <button type="button" class="filter-pill" data-filter="shoes">Shoes</button>
-          <button type="button" class="filter-pill" data-filter="bags">Bags</button>
-          <button type="button" class="filter-pill" data-filter="watches">Watches</button>
-          <button type="button" class="filter-pill" data-filter="phones">Phones</button>
-        </div>
-      </div>
+      </nav>
 
       <div class="product-grid" id="homeProductGrid" aria-live="polite"></div>
     </section>

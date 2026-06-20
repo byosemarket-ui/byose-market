@@ -8,7 +8,7 @@
 
 import productService from './services/centralized-products.service.js';
 import ProductCardSystem from './js/product-card-system.js';
-import { initHomeCategorySlider } from './js/home-category-slider.js';
+import { initHomeCategoryNav, scrollHomeCategoryPillIntoView } from './js/home-category-nav.js';
 import { normalizeStorefrontAssetUrl, resolveProductImageUrl } from './services/storefront-asset-url.js';
 
 const DEFAULT_FILTER = 'all';
@@ -52,7 +52,6 @@ const state = {
 };
 
 const elements = {
-  categoryGrid: document.getElementById('categoryGrid'),
   filterPills: document.getElementById('filterPills'),
   homeProducts: document.getElementById('homeProducts'),
   productGrid: document.getElementById('homeProductGrid'),
@@ -69,7 +68,7 @@ function initializeHomePage() {
   syncCatalog();
   setupFilterControls();
   setupHeroSlider();
-  initHomeCategorySlider();
+  initHomeCategoryNav();
 
   // Listen for backend product synchronization events
   window.addEventListener(productService.GLOBAL_SYNC_EVENT, syncCatalog);
@@ -393,10 +392,13 @@ function matchesFilter(product, normalizedFilter) {
 
 function setActiveFilter(filter) {
   state.currentFilter = String(filter || DEFAULT_FILTER).trim() || DEFAULT_FILTER;
-  document.querySelectorAll('.filter-pill').forEach(pill => {
-    pill.classList.toggle('is-active', (pill.dataset.filter || DEFAULT_FILTER) === state.currentFilter);
+  document.querySelectorAll('.home-category-pill').forEach(pill => {
+    const isActive = (pill.dataset.filter || DEFAULT_FILTER) === state.currentFilter;
+    pill.classList.toggle('is-active', isActive);
+    pill.setAttribute('aria-selected', isActive ? 'true' : 'false');
   });
   renderProductGrid(state.currentFilter);
+  scrollHomeCategoryPillIntoView(state.currentFilter);
 }
 
 function renderProductGrid(filter) {
@@ -417,7 +419,7 @@ function renderSpotlightGrid() {
 function setupFilterControls() {
   if (elements.filterPills) {
     elements.filterPills.addEventListener('click', event => {
-      const pill = event.target.closest('.filter-pill');
+      const pill = event.target.closest('.home-category-pill');
       if (!pill) {
         return;
       }
@@ -425,30 +427,6 @@ function setupFilterControls() {
       setActiveFilter(pill.dataset.filter || DEFAULT_FILTER);
     });
   }
-
-  if (elements.categoryGrid) {
-    elements.categoryGrid.addEventListener('click', event => {
-      const card = event.target.closest('.category-card');
-      if (!card) {
-        return;
-      }
-
-      setActiveFilter(card.dataset.filter || DEFAULT_FILTER);
-      scrollToProducts();
-    });
-  }
-}
-
-function scrollToProducts() {
-  if (!elements.homeProducts) {
-    return;
-  }
-
-  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  elements.homeProducts.scrollIntoView({
-    behavior: prefersReducedMotion ? 'auto' : 'smooth',
-    block: 'start'
-  });
 }
 
 function setupHeroSlider() {

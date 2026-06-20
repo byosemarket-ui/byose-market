@@ -1,0 +1,175 @@
+/* Home page category navigation — index.html only */
+.home-products-section {
+  padding: 6px 0 10px;
+}
+
+.home-category-nav {
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.home-category-nav__track {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: 2px 2px 4px;
+  margin: 0;
+}
+
+.home-category-nav__track::-webkit-scrollbar {
+  display: none;
+}
+
+.home-category-pill {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(18, 33, 39, 0.1);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--home-text, #122127);
+  font-family: "Outfit", sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(8, 45, 36, 0.05);
+  transition: color 0.18s ease, background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.home-category-pill:hover,
+.home-category-pill:focus-visible {
+  border-color: rgba(0, 184, 148, 0.28);
+  box-shadow: 0 4px 12px rgba(0, 184, 148, 0.12);
+  outline: none;
+}
+
+.home-category-pill:active {
+  transform: scale(0.97);
+}
+
+.home-category-pill.is-active {
+  background: linear-gradient(135deg, var(--home-primary, #00b894), var(--home-primary-deep, #008f72));
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(0, 184, 148, 0.3);
+}
+
+.home-category-pill.is-active::after {
+  content: "✓";
+  margin-left: 5px;
+  font-size: 0.82em;
+  font-weight: 800;
+}
+
+.home-products-section .product-grid {
+  margin-top: 0;
+}
+
+/* Small phones: 320px–480px */
+@media (max-width: 480px) {
+  .home-products-section {
+    padding: 4px 0 8px;
+  }
+
+  .home-category-nav {
+    margin-bottom: 6px;
+  }
+
+  .home-category-nav__track {
+    gap: 6px;
+    padding: 1px 1px 3px;
+  }
+
+  .home-category-pill {
+    min-height: 34px;
+    padding: 0 12px;
+    font-size: 0.72rem;
+  }
+}
+
+/* Large phones: 481px–767px */
+@media (min-width: 481px) and (max-width: 767px) {
+  .home-category-nav__track {
+    gap: 8px;
+  }
+
+  .home-category-pill {
+    min-height: 36px;
+    font-size: 0.76rem;
+  }
+}
+
+/* Tablets: 768px–1024px */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .home-products-section {
+    padding: 8px 0 12px;
+  }
+
+  .home-category-nav {
+    margin-bottom: 10px;
+  }
+
+  .home-category-nav__track {
+    gap: 10px;
+    padding: 2px 2px 5px;
+  }
+
+  .home-category-pill {
+    min-height: 38px;
+    padding: 0 16px;
+    font-size: 0.8rem;
+  }
+}
+
+/* Desktop / laptop: center when space allows */
+@media (min-width: 1025px) {
+  .home-products-section {
+    padding: 10px 0 12px;
+  }
+
+  .home-category-nav {
+    margin-bottom: 12px;
+  }
+
+  .home-category-nav__track {
+    justify-content: center;
+    gap: 10px;
+    overflow-x: visible;
+    scroll-snap-type: none;
+    flex-wrap: nowrap;
+    padding: 2px 0 4px;
+  }
+
+  .home-category-pill {
+    min-height: 38px;
+    padding: 0 18px;
+    font-size: 0.82rem;
+  }
+
+  .home-category-pill:hover {
+    transform: translateY(-1px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-category-nav__track {
+    scroll-behavior: auto;
+  }
+
+  .home-category-pill {
+    transition: none;
+  }
+}
