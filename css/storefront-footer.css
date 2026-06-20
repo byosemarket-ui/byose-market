@@ -305,41 +305,7 @@
   display: none;
 }
 
-/* Tablet */
-@media (min-width: 600px) and (max-width: 1024px) {
-  .site-footer {
-    padding-top: 12px;
-  }
-
-  .site-footer .footer-shell {
-    column-gap: 14px;
-    row-gap: 10px;
-  }
-
-  .site-footer .footer-brand__desc {
-    font-size: 0.76rem;
-  }
-
-  .site-footer .footer-links a {
-    min-height: 34px;
-    font-size: 0.78rem;
-  }
-
-  .site-footer .footer-touch-card {
-    padding: 7px 8px;
-  }
-
-  .site-footer .footer-touch-card__value {
-    font-size: 0.72rem;
-  }
-
-  .site-footer .footer-newsletter__form input,
-  .site-footer .footer-newsletter__form button {
-    min-height: 38px;
-  }
-}
-
-/* Desktop */
+/* Desktop — DO NOT MODIFY */
 @media (min-width: 1025px) {
   .site-footer {
     padding-top: 14px;
@@ -389,9 +355,374 @@
   }
 }
 
-/* Product details sticky bar clearance */
-body.details-page .site-footer .footer-bottom {
-  padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+/* ==========================================================================
+   MOBILE & TABLET ONLY (max-width: 1024px)
+   Desktop rules above are untouched.
+   ========================================================================== */
+@media (max-width: 1024px) {
+  .site-footer {
+    --footer-nav-clearance: calc(var(--mobile-nav-height, 66px) + 20px + env(safe-area-inset-bottom, 0px));
+    margin-top: 2px;
+    padding: 8px 0 0;
+  }
+
+  .site-footer .footer-shell {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 8px;
+    row-gap: 6px;
+    grid-template-areas:
+      "brand brand"
+      "links contact"
+      "newsletter newsletter"
+      "copyright copyright";
+    align-items: start;
+  }
+
+  /* Legacy wrapper: side-by-side columns when footer-columns exists */
+  .site-footer .footer-columns {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 8px;
+    align-items: start;
+    min-width: 0;
+  }
+
+  .site-footer .footer-brand {
+    grid-area: brand;
+    gap: 3px;
+  }
+
+  .site-footer .footer-panel {
+    gap: 4px;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .site-footer .footer-panel--links {
+    grid-area: links;
+  }
+
+  .site-footer .footer-panel--contact {
+    grid-area: contact;
+  }
+
+  .site-footer .footer-panel__title {
+    font-size: 0.68rem;
+    margin-bottom: 1px;
+  }
+
+  .site-footer .footer-brand__name {
+    font-size: 0.84rem;
+  }
+
+  .site-footer .footer-brand__desc {
+    font-size: 0.7rem;
+    line-height: 1.3;
+    -webkit-line-clamp: 2;
+  }
+
+  .site-footer .footer-links {
+    gap: 3px;
+  }
+
+  .site-footer .footer-links a {
+    display: flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 5px 7px;
+    font-size: 0.72rem;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid rgba(18, 33, 39, 0.08);
+    box-sizing: border-box;
+    width: 100%;
+  }
+
+  .site-footer .footer-contact-cards {
+    display: grid;
+    gap: 4px;
+    width: 100%;
+  }
+
+  .site-footer .footer-touch-card {
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-height: 40px;
+    padding: 7px 8px;
+    border-radius: 10px;
+    background: #ffffff;
+    border: 1px solid rgba(18, 33, 39, 0.1);
+    box-shadow: 0 2px 6px rgba(8, 45, 36, 0.06);
+    box-sizing: border-box;
+    color: inherit;
+    text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .site-footer .footer-touch-card__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    font-size: 0.75rem;
+  }
+
+  .site-footer .footer-touch-card__copy {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .site-footer .footer-touch-card__label {
+    display: block;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--home-muted, #66767b);
+  }
+
+  .site-footer .footer-touch-card__value {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--home-text, #122127);
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .site-footer .footer-newsletter {
+    grid-area: newsletter;
+    gap: 5px;
+    padding: 7px 9px;
+    border-radius: 10px;
+  }
+
+  .site-footer .footer-newsletter__copy,
+  .site-footer .footer-newsletter__note {
+    font-size: 0.68rem;
+    line-height: 1.25;
+  }
+
+  .site-footer .footer-newsletter__form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .site-footer .footer-newsletter__form input {
+    min-width: 0;
+    width: 100%;
+    min-height: 36px;
+    padding: 0 9px;
+    font-size: 0.76rem;
+    box-sizing: border-box;
+  }
+
+  .site-footer .footer-newsletter__form button {
+    min-height: 36px;
+    padding: 0 11px;
+    font-size: 0.72rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .site-footer .footer-bottom {
+    grid-area: copyright;
+    padding: 5px 0 var(--footer-nav-clearance);
+  }
+
+  .site-footer .footer-bottom p {
+    font-size: 0.66rem;
+    text-align: center;
+  }
+
+  body.details-page .site-footer .footer-bottom {
+    padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Small phones: 320px–480px */
+@media (max-width: 480px) {
+  .site-footer .footer-shell {
+    column-gap: 6px;
+    row-gap: 5px;
+  }
+
+  .site-footer .footer-columns {
+    column-gap: 6px;
+  }
+
+  .site-footer .footer-logo {
+    width: 30px;
+    height: 30px;
+  }
+
+  .site-footer .footer-brand__name {
+    font-size: 0.8rem;
+  }
+
+  .site-footer .footer-brand__desc {
+    font-size: 0.66rem;
+  }
+
+  .site-footer .footer-panel__title {
+    font-size: 0.64rem;
+  }
+
+  .site-footer .footer-links a {
+    min-height: 30px;
+    padding: 4px 6px;
+    font-size: 0.68rem;
+  }
+
+  .site-footer .footer-touch-card {
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: 5px;
+    min-height: 38px;
+    padding: 6px;
+  }
+
+  .site-footer .footer-touch-card__icon {
+    width: 26px;
+    height: 26px;
+    font-size: 0.68rem;
+  }
+
+  .site-footer .footer-touch-card__label {
+    font-size: 0.56rem;
+  }
+
+  .site-footer .footer-touch-card__value {
+    font-size: 0.62rem;
+  }
+
+  .site-footer .footer-newsletter {
+    padding: 6px 8px;
+  }
+
+  .site-footer .footer-newsletter__form {
+    gap: 5px;
+  }
+
+  .site-footer .footer-newsletter__form input {
+    min-height: 34px;
+    padding: 0 8px;
+    font-size: 0.72rem;
+  }
+
+  .site-footer .footer-newsletter__form button {
+    min-height: 34px;
+    padding: 0 9px;
+    font-size: 0.68rem;
+  }
+}
+
+/* Large phones: 481px–767px */
+@media (min-width: 481px) and (max-width: 767px) {
+  .site-footer .footer-shell {
+    column-gap: 10px;
+    row-gap: 7px;
+  }
+
+  .site-footer .footer-columns {
+    column-gap: 10px;
+  }
+
+  .site-footer .footer-links a {
+    min-height: 34px;
+    font-size: 0.74rem;
+  }
+
+  .site-footer .footer-touch-card {
+    min-height: 42px;
+    padding: 8px 9px;
+  }
+
+  .site-footer .footer-touch-card__value {
+    font-size: 0.7rem;
+  }
+
+  .site-footer .footer-newsletter__form input,
+  .site-footer .footer-newsletter__form button {
+    min-height: 38px;
+  }
+}
+
+/* Tablets: 768px–1024px */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .site-footer {
+    padding-top: 10px;
+  }
+
+  .site-footer .footer-shell {
+    column-gap: 14px;
+    row-gap: 8px;
+  }
+
+  .site-footer .footer-columns {
+    column-gap: 14px;
+  }
+
+  .site-footer .footer-brand__desc {
+    font-size: 0.74rem;
+  }
+
+  .site-footer .footer-panel__title {
+    font-size: 0.72rem;
+  }
+
+  .site-footer .footer-links a {
+    min-height: 36px;
+    padding: 6px 9px;
+    font-size: 0.78rem;
+  }
+
+  .site-footer .footer-touch-card {
+    min-height: 44px;
+    padding: 8px 10px;
+    border-radius: 11px;
+  }
+
+  .site-footer .footer-touch-card__icon {
+    width: 32px;
+    height: 32px;
+    font-size: 0.78rem;
+  }
+
+  .site-footer .footer-touch-card__label {
+    font-size: 0.62rem;
+  }
+
+  .site-footer .footer-touch-card__value {
+    font-size: 0.74rem;
+  }
+
+  .site-footer .footer-newsletter {
+    padding: 9px 11px;
+  }
+
+  .site-footer .footer-newsletter__form input,
+  .site-footer .footer-newsletter__form button {
+    min-height: 40px;
+    font-size: 0.8rem;
+  }
+
+  .site-footer .footer-bottom p {
+    font-size: 0.7rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
