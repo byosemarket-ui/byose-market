@@ -1,5 +1,6 @@
 import { createProductUrl, formatPrice } from './product-data-loader.js';
 import ProductCardSystem from '../../js/product-card-system.js';
+import { buildDiscountedProductView } from '../../js/storefront-discount.js';
 
 function escapeHtml(value) {
   return String(value || '')
@@ -15,8 +16,8 @@ function createCategoryLabel(category) {
 }
 
 function buildCard(product) {
-  // Use unified product card system from STEP 3K
-  return ProductCardSystem.renderCard(product);
+  const normalized = buildDiscountedProductView(product);
+  return ProductCardSystem.renderCard(normalized);
 }
 
 export function renderRelatedProducts(container, products) {
@@ -36,6 +37,6 @@ export function renderRelatedProducts(container, products) {
 
   // Wrap with unified grid classes (5 columns on desktop per related products convention)
   const cardsHtml = products.map(buildCard).join('');
-  container.innerHTML = `<div class="byose-product-grid byose-product-grid--5col">${cardsHtml}</div>`;
+  container.innerHTML = `<div class="byose-product-grid byose-product-grid--5col related-grid">${cardsHtml}</div>`;
   ProductCardSystem.bindCards(container);
 }

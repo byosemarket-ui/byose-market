@@ -1,7 +1,10 @@
 import {
   findMissingRequiredAttributes,
-  getSelectionStock
+  getEffectiveAttributes,
+  getSelectionStock,
+  isColorSizeInventory
 } from './product-attributes.js';
+import { COLOR_ATTR_NAME, SIZE_ATTR_NAME } from '../../js/color-variant-inventory.js';
 import { buildModalMarkup } from './product-ui-renderer.js';
 
 function clampQuantity(value, max, min = 0) {
@@ -67,17 +70,33 @@ function chooseQuantityAttribute(attributes, visualAttribute) {
   return ranked[0]?.attribute || null;
 }
 
-function createLayout(attributes) {
-  const visualAttribute = chooseVisualAttribute(attributes);
-  const quantityAttribute = chooseQuantityAttribute(attributes, visualAttribute);
-  const supportingAttributes = attributes.filter(attribute => (
+function createLayout(attributes, product, selectedAttributes = {}) {
+  const effectiveAttributes = getEffectiveAttributes(product, attributes, selectedAttributes);
+  const visualAttribute = chooseVisualAttribute(effectiveAttributes);
+
+  if (isColorSizeInventory(product)) {
+    const sizeAttribute = effectiveAttributes.find((attribute) => (
+      attribute.name === SIZE_ATTR_NAME || attribute.type === 'size' || attribute.axis === 'size'
+    )) || null;
+
+    return {
+      visualAttribute,
+      quantityAttribute: null,
+      supportingAttributes: sizeAttribute ? [sizeAttribute] : [],
+      effectiveAttributes
+    };
+  }
+
+  const quantityAttribute = chooseQuantityAttribute(effectiveAttributes, visualAttribute);
+  const supportingAttributes = effectiveAttributes.filter(attribute => (
     attribute !== visualAttribute && attribute !== quantityAttribute
   ));
 
   return {
     visualAttribute,
     quantityAttribute,
-    supportingAttributes
+    supportingAttributes,
+    effectiveAttributes
   };
 }
 
@@ -97,11 +116,24 @@ function createSelection(state, quantityAttribute, optionValue) {
   };
 }
 
+function hasValidColorSizeSelection(product, attributes, selectedAttributes, quantity) {
+  const colorId = selectedAttributes?.[COLOR_ATTR_NAME];
+  const sizeValue = selectedAttributes?.[SIZE_ATTR_NAME];
+  if (!colorId || !sizeValue) {
+    return false;
+  }
+
+  const stock = getSelectionStock(product, attributes, selectedAttributes);
+  const qty = Math.max(1, Number(quantity) || 1);
+  return Number.isFinite(stock) && stock > 0 && qty >= 1 && qty <= stock;
+}
+
 export function createProductModal({ product, attributes, onSubmit, showToast }) {
   const modalRoot = document.getElementById('productConfigModal');
   const modalBody = document.getElementById('productConfigModalBody');
-  const layout = createLayout(attributes);
+  let layout = createLayout(attributes, product, {});
   let pageScrollY = 0;
+  const usesColorSizeInventory = isColorSizeInventory(product);
 
   if (!modalRoot || !modalBody) {
     return {
@@ -159,7 +191,12 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
     return findMissingRequiredAttributes(requiredAttributes, state.selectedAttributes);
   }
 
+  function refreshLayout() {
+    layout = createLayout(attributes, product, state.selectedAttributes);
+  }
+
   function getQuantityRows() {
+    refreshLayout();
     if (!layout.quantityAttribute) {
       return [];
     }
@@ -179,6 +216,22 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
   }
 
   function getVariants() {
+    if (usesColorSizeInventory) {
+      if (!hasValidColorSizeSelection(product, attributes, state.selectedAttributes, state.currentQuantity)) {
+        return [];
+      }
+
+      return [{
+        qty: clampQuantity(
+          state.currentQuantity,
+          getSelectionStock(product, attributes, state.selectedAttributes),
+          1
+        ),
+        attributes: { ...state.selectedAttributes },
+        maxQty: getSelectionStock(product, attributes, state.selectedAttributes)
+      }];
+    }
+
     if (layout.quantityAttribute) {
       return getQuantityRows()
         .filter(row => row.qty > 0)
@@ -197,7 +250,10 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
 
   function syncCurrentQuantity(preferredQuantity = state.currentQuantity) {
     const maxQty = getSelectionStock(product, attributes, state.selectedAttributes);
-    state.currentQuantity = clampQuantity(preferredQuantity, maxQty, 1);
+    const minQty = usesColorSizeInventory && state.selectedAttributes?.[COLOR_ATTR_NAME] && state.selectedAttributes?.[SIZE_ATTR_NAME]
+      ? 1
+      : 0;
+    state.currentQuantity = clampQuantity(preferredQuantity, maxQty, minQty || 1);
   }
 
   function syncOptionQuantity(optionValue, preferredQuantity) {
@@ -214,7 +270,74 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
     };
   }
 
+  function canSubmitSelection() {
+    if (usesColorSizeInventory) {
+      return hasValidColorSizeSelection(
+        product,
+        attributes,
+        state.selectedAttributes,
+        state.currentQuantity
+      );
+    }
+
+    const missingRequired = getMissingRequired(!layout.quantityAttribute);
+    const variants = getVariants().filter(variant => variant.qty > 0);
+    return variants.length > 0 && missingRequired.length === 0;
+  }
+
   function validate(action) {
+    refreshLayout();
+
+    if (usesColorSizeInventory) {
+      const colorId = state.selectedAttributes?.[COLOR_ATTR_NAME];
+      const sizeValue = state.selectedAttributes?.[SIZE_ATTR_NAME];
+
+      if (!colorId) {
+        const message = 'Please select a color to continue.';
+        state.validationMessage = message;
+        render();
+        showToast?.(message);
+        return false;
+      }
+
+      if (!sizeValue) {
+        const message = 'Please select a size for your chosen color.';
+        state.validationMessage = message;
+        render();
+        showToast?.(message);
+        return false;
+      }
+
+      const stock = getSelectionStock(product, attributes, state.selectedAttributes);
+      if (!Number.isFinite(stock) || stock <= 0) {
+        const message = 'This color and size combination is currently out of stock.';
+        state.validationMessage = message;
+        render();
+        showToast?.(message);
+        return false;
+      }
+
+      if (state.currentQuantity > stock) {
+        syncCurrentQuantity(stock);
+        const message = `Quantity adjusted to ${stock} based on available stock.`;
+        state.validationMessage = message;
+        render();
+        showToast?.(message);
+        return state.currentQuantity > 0;
+      }
+
+      if (state.currentQuantity < 1) {
+        const message = 'Choose a quantity of at least 1.';
+        state.validationMessage = message;
+        render();
+        showToast?.(message);
+        return false;
+      }
+
+      state.validationMessage = '';
+      return true;
+    }
+
     const missingRequired = getMissingRequired(!layout.quantityAttribute);
     if (missingRequired.length) {
       const message = `Please select ${formatList(missingRequired)}`;
@@ -267,12 +390,32 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
       readScrollPosition();
       const attributeName = optionButton.getAttribute('data-attribute-name');
       const attributeValue = optionButton.getAttribute('data-attribute-value');
-      state.selectedAttributes = {
+      const nextSelection = {
         ...state.selectedAttributes,
         [attributeName]: attributeValue
       };
 
-      if (!layout.quantityAttribute) {
+      if (
+        usesColorSizeInventory
+        && attributeName === COLOR_ATTR_NAME
+        && state.selectedAttributes?.[COLOR_ATTR_NAME] !== attributeValue
+      ) {
+        delete nextSelection[SIZE_ATTR_NAME];
+        state.quantityByOption = {};
+        state.currentQuantity = 1;
+      }
+
+      if (
+        usesColorSizeInventory
+        && attributeName === SIZE_ATTR_NAME
+        && state.selectedAttributes?.[SIZE_ATTR_NAME] !== attributeValue
+      ) {
+        state.currentQuantity = 1;
+      }
+
+      state.selectedAttributes = nextSelection;
+
+      if (!layout.quantityAttribute || usesColorSizeInventory) {
         syncCurrentQuantity(state.currentQuantity);
       }
 
@@ -339,6 +482,8 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
   }
 
   function render() {
+    refreshLayout();
+    const effectiveAttributes = layout.effectiveAttributes || attributes;
     const missingRequired = getMissingRequired(false);
     const quantityRows = getQuantityRows();
     const variants = getVariants().filter(variant => variant.qty > 0);
@@ -348,10 +493,11 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
     const blockerMessage = quantityBlocked
       ? `Select ${formatList(missingRequired)} to enable ${layout.quantityAttribute.name.toLowerCase()} quantities.`
       : '';
+    const selectionStock = getSelectionStock(product, attributes, state.selectedAttributes);
 
     modalBody.innerHTML = buildModalMarkup({
       product,
-      attributes,
+      attributes: effectiveAttributes,
       layout,
       selectedAttributes: state.selectedAttributes,
       quantityRows,
@@ -361,8 +507,9 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
       totalItems,
       quantityBlocked,
       blockerMessage,
-      canSubmit: variants.length > 0 && !missingRequired.length,
-      preferredAction: state.action
+      canSubmit: canSubmitSelection(),
+      preferredAction: state.action,
+      selectionStock
     });
     restoreScrollPosition();
   }

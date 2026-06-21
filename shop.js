@@ -18,6 +18,26 @@
     return ProductCardSystem;
   };
 
+  // Dynamic import of storefront display helpers
+  const displayHelpersPromise = import("./js/storefront-display.js");
+  const discountHelpersPromise = import("./js/storefront-discount.js");
+  let displayHelpers = null;
+  let discountHelpers = null;
+
+  async function ensureDisplayHelpers() {
+    if (!displayHelpers) {
+      displayHelpers = await displayHelpersPromise;
+    }
+    return displayHelpers;
+  }
+
+  async function ensureDiscountHelpers() {
+    if (!discountHelpers) {
+      discountHelpers = await discountHelpersPromise;
+    }
+    return discountHelpers;
+  }
+
   // Dynamic import of centralized product service
   const productService = (() => {
     let service = null;
@@ -118,34 +138,6 @@
     return "both";
   }
 
-  function normalizePriority(value) {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      const normalized = Math.floor(value);
-      return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
-    }
-
-    const normalizedText = normalizeText(value);
-    if (!normalizedText || normalizedText === "normal") {
-      return 0;
-    }
-
-    if (normalizedText === "top") {
-      return 1;
-    }
-
-    if (normalizedText === "featured") {
-      return 2;
-    }
-
-    const parsed = Number(normalizedText);
-    if (Number.isFinite(parsed)) {
-      const normalized = Math.floor(parsed);
-      return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
-    }
-
-    return 0;
-  }
-
   function normalizeHighlightTag(value) {
     const normalized = normalizeText(value).replace(/\s+/g, "-");
     return normalized === "featured" || normalized === "trending" || normalized === "new"
@@ -196,19 +188,35 @@
     return DEFAULT_DETAIL_PAGE;
   }
 
-  function normalizeProduct(product, index) {
+  function normalizePriority(value, helpers) {
+    if (helpers?.normalizeDisplayPriority) {
+      return helpers.normalizeDisplayPriority(value);
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, Math.min(100, Math.floor(parsed))) : 50;
+  }
+
+  function normalizeProduct(product, index, helpers, discounts) {
     const fallbackId = `product-${index + 1}`;
     const id = String(product && (product.id || product.catalogId) ? (product.id || product.catalogId) : fallbackId).trim() || fallbackId;
-    const price = toPositiveNumber(product && product.price, 0);
-    const oldPrice = toPositiveNumber(product && product.oldPrice, 0);
+    const price = toPositiveNumber(product && (product.price ?? product.salePrice), 0);
+    const pricing = discounts?.buildDiscountedProductView
+      ? discounts.buildDiscountedProductView({ ...product, price })
+      : { price, oldPrice: 0, originalPrice: 0, compareAtPrice: 0, discountPercent: 0 };
+    const oldPrice = pricing.oldPrice;
+    const discountPercent = pricing.discountPercent;
     const name = String(product && product.name ? product.name : "").trim() || `Product ${id}`;
     const badge = String(product && product.badge ? product.badge : "").trim();
     const category = normalizeCategory(product && product.category);
     const image = String(product && (product.mainImage || product.image) ? (product.mainImage || product.image) : "").trim();
-    const visibility = normalizeVisibility(product && product.visibility);
-    const priority = normalizePriority(product && product.priority);
-    const orderIndex = toPositiveNumber(product && product.orderIndex, 0);
-    const highlightTag = normalizeHighlightTag(product && product.highlightTag);
+    const visibility = helpers?.normalizeVisibility
+      ? helpers.normalizeVisibility(product && product.visibility)
+      : normalizeVisibility(product && product.visibility);
+    const priority = normalizePriority(product?.priority ?? product?.metadata?.priorityScore, helpers);
+    const orderIndex = toPositiveNumber(product && (product.orderIndex ?? product.order_index), 0);
+    const placements = helpers?.getProductPlacements ? helpers.getProductPlacements(product) : [];
+    const highlightTag = normalizeHighlightTag(product && product.highlightTag)
+      || (helpers?.resolveHighlightTagFromPlacements ? helpers.resolveHighlightTagFromPlacements(placements) : "");
     const keywords = Array.isArray(product && product.keywords)
       ? product.keywords.map(item => String(item || "").trim()).filter(Boolean)
       : [];
@@ -227,49 +235,55 @@
       visibility,
       priority,
       orderIndex,
+      placements,
       highlightTag,
       defaultIndex: index,
       image,
       mainImage: image || String(product && (product.mainImage || product.image) ? (product.mainImage || product.image) : "").trim(),
       keywords,
-      oldPrice: oldPrice > price ? oldPrice : 0,
+      oldPrice,
+      originalPrice: pricing.originalPrice,
+      compareAtPrice: pricing.compareAtPrice,
+      discountPercent,
       page: DEFAULT_DETAIL_PAGE,
-      price,
+      price: pricing.price,
+      salePrice: pricing.price,
       href,
       url: href
     };
   }
 
-  function shouldShowOnSurface(product, surface) {
+  function shouldShowOnSurface(product, surface, helpers) {
+    if (helpers?.shouldShowOnSurface) {
+      return helpers.shouldShowOnSurface(product, surface);
+    }
     const visibility = normalizeVisibility(product && product.visibility);
     return visibility === "both" || visibility === surface;
   }
 
-  function sortProductsByDisplay(items) {
+  function sortProductsByDisplay(items, helpers) {
+    if (helpers?.sortProductsByDisplay) {
+      return items.slice().sort(helpers.sortProductsByDisplay);
+    }
     return items.slice().sort((left, right) => {
-      const leftPriority = normalizePriority(left && left.priority);
-      const rightPriority = normalizePriority(right && right.priority);
-
-      if (leftPriority !== rightPriority) {
-        return rightPriority - leftPriority;
-      }
-
       const leftOrder = toPositiveNumber(left && left.orderIndex, 0);
       const rightOrder = toPositiveNumber(right && right.orderIndex, 0);
       if (leftOrder !== rightOrder) {
         return rightOrder - leftOrder;
       }
-
-      return toPositiveNumber(left && left.defaultIndex, 0) - toPositiveNumber(right && right.defaultIndex, 0);
+      return normalizePriority(left?.priority, helpers) - normalizePriority(right?.priority, helpers);
     });
   }
 
-  function getCatalog(source) {
+  async function getCatalog(source) {
+    const helpers = await ensureDisplayHelpers();
+    const discounts = await ensureDiscountHelpers();
     const items = Array.isArray(source) ? source : [];
     return sortProductsByDisplay(
       items
-        .map(normalizeProduct)
-        .filter(product => shouldShowOnSurface(product, "shop"))
+        .map((product, index) => normalizeProduct(product, index, helpers, discounts))
+        .filter(product => shouldShowOnSurface(product, "shop", helpers)),
+      helpers
     );
   }
 
@@ -480,7 +494,7 @@
     try {
       const service = await productService();
       const products = await service.getProductsWithRetry();
-      state.products = getCatalog(products);
+      state.products = await getCatalog(products);
       state.filteredCache.clear();
       state.markupCache.clear();
       await renderShopPage();
@@ -490,7 +504,7 @@
       const service = await productService();
       const cached = service.getCachedProducts();
       if (Array.isArray(cached) && cached.length > 0) {
-        state.products = getCatalog(cached);
+        state.products = await getCatalog(cached);
         state.filteredCache.clear();
         state.markupCache.clear();
         await renderShopPage();

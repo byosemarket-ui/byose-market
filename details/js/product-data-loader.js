@@ -1,5 +1,6 @@
 import { getAllProductContent } from './product-content.js';
 import { normalizeStorefrontAssetList, normalizeStorefrontAssetUrl, resolveProductImageUrl } from '../../services/storefront-asset-url.js';
+import { buildDiscountedProductView } from '../../js/storefront-discount.js';
 
 const CATEGORY_COPY = {
   shoes: {
@@ -79,6 +80,19 @@ async function getCatalog() {
 
 function getCategoryProfile(category) {
   return CATEGORY_COPY[String(category || '').toLowerCase()] || CATEGORY_COPY.default;
+}
+
+function splitDescriptionParagraphs(value) {
+  if (Array.isArray(value) && value.length) {
+    return value.map((entry) => String(entry || "").trim()).filter(Boolean);
+  }
+
+  const text = String(value || "").trim();
+  if (!text) {
+    return [];
+  }
+
+  return text.split(/\n{2,}|\r\n{2,}/).map((entry) => entry.trim()).filter(Boolean);
 }
 
 function titleCase(value) {
@@ -204,6 +218,9 @@ function mergeProductContent(product) {
     oldPrice,
     originalPrice: oldPrice,
     compareAtPrice: oldPrice,
+    discountPercent: Number(mergedProduct.discountPercent ?? product.discountPercent ?? 0) > 0
+      ? Math.round(Number(mergedProduct.discountPercent ?? product.discountPercent))
+      : (oldPrice > price ? Math.round(((oldPrice - price) / oldPrice) * 100) : 0),
     stock: Number(mergedProduct.stock ?? product.stock ?? 0),
     mainImage,
     gallery,
@@ -278,10 +295,26 @@ export async function loadProductData() {
     ? mergedProduct.specs
     : profile.specs;
   const specs = buildSpecs({ ...mergedProduct, price: mergedProduct.price, oldPrice: mergedProduct.oldPrice }, { ...profile, specs: baseSpecs });
-  const discount = getDiscount(mergedProduct.price, mergedProduct.oldPrice);
-  const longDescription = Array.isArray(mergedProduct.longDescription) && mergedProduct.longDescription.length
-    ? mergedProduct.longDescription
-    : profile.longDescription;
+  const discount = Number(mergedProduct.discountPercent ?? product.discountPercent ?? 0) > 0
+    ? Math.round(Number(mergedProduct.discountPercent ?? product.discountPercent))
+    : getDiscount(mergedProduct.price, mergedProduct.oldPrice);
+  const longDescription = (() => {
+    const fromArray = splitDescriptionParagraphs(mergedProduct.longDescription);
+    if (fromArray.length) {
+      return fromArray;
+    }
+
+    const fromText = splitDescriptionParagraphs(
+      mergedProduct.description
+      || mergedProduct.metadata?.longDescription
+      || mergedProduct.metadata?.description
+    );
+    if (fromText.length) {
+      return fromText;
+    }
+
+    return profile.longDescription;
+  })();
   const highlights = Array.isArray(mergedProduct.highlights) && mergedProduct.highlights.length
     ? mergedProduct.highlights
     : profile.highlights;
@@ -298,7 +331,10 @@ export async function loadProductData() {
     stockCount,
     stockLabel: stockCount > 0 ? `${stockCount} in stock` : 'Limited stock',
     discount,
+    discountPercent: discount,
     shortDescription: mergedProduct.shortDescription || mergedProduct.description || profile.description,
+    metaTitle: mergedProduct.metaTitle || mergedProduct.metadata?.metaTitle || mergedProduct.name,
+    metaDescription: mergedProduct.metaDescription || mergedProduct.metadata?.metaDescription || mergedProduct.shortDescription || mergedProduct.description,
     longDescription,
     highlights,
     trust,
@@ -322,13 +358,15 @@ export async function getRelatedProducts(currentProduct, limit = 5) {
     .slice(0, limit)
     .map(item => {
       const mergedProduct = mergeProductContent(item);
+      const pricing = buildDiscountedProductView(mergedProduct);
 
       return {
         ...mergedProduct,
+        ...pricing,
         categoryLabel: titleCase(mergedProduct.category),
         href: createProductUrl(mergedProduct),
-        priceLabel: formatPrice(mergedProduct.price),
-        oldPriceLabel: Number(mergedProduct.oldPrice) > Number(mergedProduct.price) ? formatPrice(mergedProduct.oldPrice) : ''
+        priceLabel: formatPrice(pricing.price),
+        oldPriceLabel: pricing.oldPrice > pricing.price ? formatPrice(pricing.oldPrice) : ''
       };
     });
 }

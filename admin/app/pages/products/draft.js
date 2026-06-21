@@ -1,7 +1,15 @@
 import {
+  extractColorVariantsFromProduct,
+  migrateLegacyToColorVariants,
+  normalizeColorVariants,
+  computeProductTotalStock
+} from "../../../../js/color-variant-inventory.js";
+import {
   CATEGORY_OPTIONS,
   CURRENCY_OPTIONS,
   DRAFT_STORAGE_KEY,
+  PLACEMENT_OPTIONS,
+  POSITION_MODE_OPTIONS,
   PRODUCT_CONDITION_OPTIONS,
   PRODUCT_STATUS_OPTIONS,
   PRODUCT_TYPE_OPTIONS,
@@ -59,12 +67,28 @@ function createDefaultInfo() {
     warranty: "none",
     warrantyCustom: "",
     featuredProduct: false,
+    placement: [],
+    positionMode: "automatic",
+    priorityScore: "50",
     publishStatus: "active"
   };
 }
 
+const VALID_PLACEMENT_VALUES = new Set(PLACEMENT_OPTIONS.map((entry) => entry.value));
+const VALID_POSITION_MODES = new Set(POSITION_MODE_OPTIONS.map((entry) => entry.value));
+
 function normalizePlacement(value) {
-  return ["all"];
+  const source = Array.isArray(value) ? value : (value ? [value] : []);
+  const normalized = source
+    .map((entry) => String(entry || "").trim().toLowerCase())
+    .map((entry) => {
+      if (entry === "featured") {
+        return "featured_products";
+      }
+      return entry;
+    })
+    .filter((entry) => VALID_PLACEMENT_VALUES.has(entry));
+  return [...new Set(normalized)];
 }
 
 function getCategoryValue(category) {
@@ -113,6 +137,13 @@ function normalizeInfoFields(info = {}, defaults = createDefaultInfo()) {
       || info.featuredHomepage
       || info.featuredProducts
     ),
+    placement: normalizePlacement(info.placement),
+    positionMode: VALID_POSITION_MODES.has(String(info.positionMode || "").toLowerCase())
+      ? String(info.positionMode).toLowerCase()
+      : defaults.positionMode,
+    priorityScore: String(
+      Math.max(0, Math.min(100, Math.floor(toNumber(info.priorityScore, toNumber(defaults.priorityScore, 50)))))
+    ),
     publishStatus
   };
 }
@@ -120,16 +151,9 @@ function normalizeInfoFields(info = {}, defaults = createDefaultInfo()) {
 function createDefaultPricing() {
   return {
     costPrice: "",
+    originalPrice: "",
     sellingPrice: "",
-    discountPrice: "",
-    taxRate: "",
-    taxIncluded: false,
-    currency: "RWF",
-    minOrderQty: "1",
-    maxOrderQty: "",
-    flashSaleEnabled: false,
-    flashSaleStart: "",
-    flashSaleEnd: ""
+    currency: "RWF"
   };
 }
 
@@ -140,16 +164,9 @@ function normalizePricingFields(pricing = {}, defaults = createDefaultPricing())
 
   return {
     costPrice: String(pricing.costPrice ?? ""),
+    originalPrice: String(pricing.originalPrice ?? pricing.discountPrice ?? ""),
     sellingPrice: String(pricing.sellingPrice ?? ""),
-    discountPrice: String(pricing.discountPrice ?? ""),
-    taxRate: String(pricing.taxRate ?? ""),
-    taxIncluded: Boolean(pricing.taxIncluded),
-    currency,
-    minOrderQty: String(pricing.minOrderQty ?? defaults.minOrderQty),
-    maxOrderQty: String(pricing.maxOrderQty ?? ""),
-    flashSaleEnabled: Boolean(pricing.flashSaleEnabled),
-    flashSaleStart: String(pricing.flashSaleStart ?? ""),
-    flashSaleEnd: String(pricing.flashSaleEnd ?? "")
+    currency
   };
 }
 
@@ -162,7 +179,8 @@ function createDefaultInventory() {
     sizes: [],
     customSizes: [],
     attributes: {},
-    variants: []
+    variants: [],
+    colorVariants: []
   };
 }
 
@@ -209,7 +227,23 @@ function normalizeDescriptionFields(description = {}) {
 }
 
 function normalizeInventoryFields(inventory = {}, defaults = createDefaultInventory()) {
-  const variants = Array.isArray(inventory.variants)
+  const colorVariants = normalizeColorVariants(
+    Array.isArray(inventory.colorVariants) && inventory.colorVariants.length
+      ? inventory.colorVariants
+      : migrateLegacyToColorVariants(inventory.variants, inventory.sizes)
+  ).map((entry) => ({
+    id: entry.id,
+    clientKey: entry.clientKey || entry.id,
+    colorName: entry.colorName,
+    image: entry.image,
+    imageStoragePath: entry.imageStoragePath || "",
+    sizes: entry.sizes.map((row) => ({
+      size: row.size,
+      stock: String(row.stock)
+    }))
+  }));
+
+  const legacyVariants = Array.isArray(inventory.variants)
     ? inventory.variants.map((entry, index) => ({
         label: String(entry?.label || "").trim() || `Variant ${index + 1}`,
         colorName: String(entry?.colorName || "").trim(),
@@ -217,15 +251,16 @@ function normalizeInventoryFields(inventory = {}, defaults = createDefaultInvent
         stock: String(Math.max(0, Math.floor(toNumber(entry?.stock, 0))))
       }))
     : [];
-  const totalVariantStock = variants.reduce((sum, entry) => sum + toNumber(entry.stock, 0), 0);
-  const quantitySource = variants.length ? totalVariantStock : toNumber(inventory.quantity, 0);
+
+  const totalColorStock = computeProductTotalStock(colorVariants, toNumber(inventory.quantity, 0));
+  const quantitySource = colorVariants.length ? totalColorStock : toNumber(inventory.quantity, 0);
   const quantity = String(Math.max(0, Math.floor(quantitySource)));
 
   return {
     quantity,
     stockStatus: inferStockStatus(quantity),
     sku: String(inventory.sku ?? defaults.sku ?? ""),
-    variantsEnabled: Boolean(inventory.variantsEnabled || variants.length),
+    variantsEnabled: Boolean(inventory.variantsEnabled || colorVariants.length || legacyVariants.length),
     sizes: Array.isArray(inventory.sizes)
       ? inventory.sizes.map((entry) => String(entry || "").trim()).filter(Boolean)
       : [...defaults.sizes],
@@ -233,7 +268,8 @@ function normalizeInventoryFields(inventory = {}, defaults = createDefaultInvent
       ? inventory.customSizes.map((entry) => String(entry || "").trim()).filter(Boolean)
       : [...defaults.customSizes],
     attributes: inventory.attributes && typeof inventory.attributes === "object" ? inventory.attributes : {},
-    variants
+    variants: legacyVariants,
+    colorVariants
   };
 }
 
@@ -326,22 +362,23 @@ export function hydrateDraftFromProduct(product) {
         label: String(entry?.label || entry?.name || "").trim() || `Variant ${index + 1}`,
         colorName: String(entry?.colorName || entry?.color || "").trim(),
         image: String(entry?.image || "").trim(),
-        stock: String(Math.max(0, Math.floor(toNumber(entry?.stock, 0))))
+        stock: String(Math.max(0, Math.floor(toNumber(entry?.stock ?? entry?.available, 0))))
       }))
     : [];
-  if (!variants.length && Array.isArray(colorAttribute?.options)) {
-    variants.push(
-      ...colorAttribute.options.map((option, index) => ({
-        label: String(option?.label || option?.value || "").trim() || `Variant ${index + 1}`,
-        colorName: String(option?.label || "").trim(),
-        image: "",
-        stock: String(Math.max(0, Math.floor(toNumber(option?.stock, 0))))
-      }))
-    );
-  }
   const sizes = Array.isArray(sizeAttribute?.options)
     ? sizeAttribute.options.map((option) => String(option?.label || option?.value || "").trim()).filter(Boolean)
     : [];
+  const colorVariants = extractColorVariantsFromProduct(product).map((entry) => ({
+    id: entry.id,
+    clientKey: entry.clientKey || entry.id,
+    colorName: entry.colorName,
+    image: entry.image,
+    imageStoragePath: entry.imageStoragePath || "",
+    sizes: entry.sizes.map((row) => ({
+      size: row.size,
+      stock: String(row.stock)
+    }))
+  }));
   const tags = Array.isArray(product.tags)
     ? product.tags
     : (Array.isArray(product.keywords) ? product.keywords : []);
@@ -350,7 +387,7 @@ export function hydrateDraftFromProduct(product) {
   const highlights = Array.isArray(product.highlights)
     ? product.highlights
     : (Array.isArray(metadata.highlights) ? metadata.highlights : []);
-  const placement = normalizePlacement(metadata.placement || product.placement || ["all"]);
+  const placement = normalizePlacement(metadata.placement || product.placement || []);
 
   return sanitizeDraft({
     productId: catalogId,
@@ -373,6 +410,12 @@ export function hydrateDraftFromProduct(product) {
         metadata.featuredProduct
         || metadata.featuredHomepage
         || metadata.featuredProducts
+        || placement.includes("featured_products")
+      ),
+      placement,
+      positionMode: metadata.positionMode || "automatic",
+      priorityScore: String(
+        Math.max(0, Math.min(100, Math.floor(toNumber(metadata.priorityScore ?? product.priority, 50))))
       ),
       publishStatus: product.status === "inactive" ? "inactive" : (metadata.publishStatus || "active")
     },
@@ -383,34 +426,24 @@ export function hydrateDraftFromProduct(product) {
     },
     pricing: {
       costPrice: String(product.costPrice ?? metadata.costPrice ?? ""),
-      sellingPrice: String(
-        Number(product.oldPrice ?? 0) > Number(product.price ?? 0)
-          ? product.oldPrice
-          : (product.price ?? "")
-      ),
-      discountPrice: String(
-        Number(product.oldPrice ?? 0) > Number(product.price ?? 0)
-          ? product.price
+      originalPrice: String(
+        Number(product.oldPrice ?? metadata.originalPrice ?? 0) > Number(product.price ?? 0)
+          ? (product.oldPrice ?? metadata.originalPrice ?? "")
           : ""
       ),
-      taxRate: String(product.taxRate ?? ""),
-      taxIncluded: Boolean(product.taxIncluded),
-      currency: metadata.currency || "RWF",
-      minOrderQty: String(metadata.minOrderQty ?? 1),
-      maxOrderQty: String(metadata.maxOrderQty ?? ""),
-      flashSaleEnabled: Boolean(metadata.flashSaleEnabled),
-      flashSaleStart: String(metadata.flashSaleStart ?? ""),
-      flashSaleEnd: String(metadata.flashSaleEnd ?? "")
+      sellingPrice: String(product.price ?? ""),
+      currency: metadata.currency || "RWF"
     },
     inventory: {
       sku: product.sku || "",
       quantity: String(product.stock ?? 0),
       stockStatus: inferStockStatus(product.stock),
-      variantsEnabled: Boolean(product.variants?.enabled || variants.length || sizes.length),
+      variantsEnabled: Boolean(product.variants?.enabled || colorVariants.length || variants.length),
       sizes,
-      customSizes: [],
+      customSizes: Array.isArray(metadata.customSizes) ? metadata.customSizes : [],
       attributes: metadata.inventoryAttributes && typeof metadata.inventoryAttributes === "object" ? metadata.inventoryAttributes : {},
-      variants
+      variants,
+      colorVariants
     },
     media: {
       mainImage: product.mainImage || product.image || "",

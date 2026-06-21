@@ -4,6 +4,7 @@
  */
 
 import { normalizeStorefrontAssetUrl, resolveProductImageUrl } from '../services/storefront-asset-url.js';
+import { formatDiscountBadgeLabel, resolveProductDiscount } from './storefront-discount.js';
 
 export const ProductCardSystem = (() => {
   'use strict';
@@ -72,23 +73,34 @@ export const ProductCardSystem = (() => {
     return true;
   }
 
-  function renderDiscountBadge(product) {
+  function renderHighlightBadge(product) {
+    const tag = String(product?.highlightTag || '').trim().toLowerCase();
+    const labels = {
+      featured: 'Featured',
+      new: 'New',
+      trending: 'Flash Deal'
+    };
+    if (!labels[tag]) {
+      return '';
+    }
+    return `<span class="byose-product-badge byose-product-badge--${escapeHtml(tag)}" aria-label="${escapeHtml(labels[tag])}">${escapeHtml(labels[tag])}</span>`;
+  }
+
+  function getCardDisplayName(product) {
+    const metadata = product?.metadata && typeof product.metadata === 'object' ? product.metadata : {};
+    return String(metadata.shortName || product?.shortName || product?.name || product?.title || 'Product').trim();
+  }
     if (!product) {
       return '';
     }
 
-    const oldPrice = Number(product.oldPrice ?? product.compareAtPrice ?? product.originalPrice ?? 0);
-    const price = Number(product.price ?? product.salePrice ?? product.currentPrice ?? 0);
-
-    if (oldPrice <= price) {
+    const discount = resolveProductDiscount(product);
+    if (!discount.hasDiscount || discount.discountPercent <= 0) {
       return '';
     }
 
-    const discount = Number(product.discountPercent) > 0
-      ? Math.round(Number(product.discountPercent))
-      : Math.round(((oldPrice - price) / oldPrice) * 100);
-
-    return `<span class="byose-product-badge byose-product-badge--discount" aria-label="Save ${discount} percent">-${discount}%</span>`;
+    const label = formatDiscountBadgeLabel(discount.discountPercent);
+    return `<span class="byose-product-badge byose-product-badge--discount" aria-label="Save ${escapeHtml(String(discount.discountPercent))} percent">${escapeHtml(label)}</span>`;
   }
 
   function renderWishlistButton(productId) {
@@ -109,14 +121,12 @@ export const ProductCardSystem = (() => {
       return '';
     }
 
-    const price = Number(product.price ?? product.salePrice ?? product.currentPrice ?? 0);
-    const oldPrice = Number(product.oldPrice ?? product.compareAtPrice ?? product.originalPrice ?? 0);
-    const hasDiscount = oldPrice > price;
+    const discount = resolveProductDiscount(product);
 
     return `
       <div class="byose-product-pricing">
-        <span class="byose-product-price">${formatCurrency(price)}</span>
-        ${hasDiscount ? `<span class="byose-product-old-price">${formatCurrency(oldPrice)}</span>` : ''}
+        <span class="byose-product-price">${formatCurrency(discount.price)}</span>
+        ${discount.hasDiscount ? `<span class="byose-product-old-price">${formatCurrency(discount.oldPrice)}</span>` : ''}
       </div>
     `;
   }
@@ -127,13 +137,21 @@ export const ProductCardSystem = (() => {
       return '';
     }
 
-    const productId = String(product.id || product.catalogId || '');
-    const productName = escapeHtml(product.name || product.title || 'Product');
+    const discount = resolveProductDiscount(product);
+    const normalizedProduct = {
+      ...product,
+      price: discount.price,
+      oldPrice: discount.oldPrice,
+      discountPercent: discount.discountPercent
+    };
+    const productId = String(product.id || product.catalogId || "");
+    const productName = escapeHtml(getCardDisplayName(product));
     const productImage = resolveProductImageUrl(product);
     const displayImage = productImage || normalizeStorefrontAssetUrl(FALLBACK_IMAGE) || FALLBACK_IMAGE;
     const productDetailUrl = escapeHtml(getProductDetailUrl(productId));
-    const discountBadge = renderDiscountBadge(product);
-    const pricing = renderPricing(product);
+    const discountBadge = renderDiscountBadge(normalizedProduct);
+    const highlightBadge = renderHighlightBadge(product);
+    const pricing = renderPricing(normalizedProduct);
     const wishlistButton = renderWishlistButton(productId);
 
     return `
@@ -149,6 +167,7 @@ export const ProductCardSystem = (() => {
                  decoding="async">
           </a>
           ${discountBadge}
+          ${highlightBadge}
           ${wishlistButton}
         </div>
         <a class="byose-product-content-link" href="${productDetailUrl}">
@@ -259,6 +278,14 @@ export const ProductCardSystem = (() => {
       return;
     }
 
+    const discount = resolveProductDiscount(product);
+    const normalizedProduct = {
+      ...product,
+      price: discount.price,
+      oldPrice: discount.oldPrice,
+      discountPercent: discount.discountPercent
+    };
+
     const imgElement = cardElement.querySelector('.byose-product-image');
     if (imgElement) {
       imgElement.src = getSafeImageUrl(product.mainImage || product.image, product);
@@ -272,14 +299,14 @@ export const ProductCardSystem = (() => {
 
     const pricingElement = cardElement.querySelector('.byose-product-pricing');
     if (pricingElement) {
-      pricingElement.outerHTML = renderPricing(product);
+      pricingElement.outerHTML = renderPricing(normalizedProduct);
     }
 
     const badge = cardElement.querySelector('.byose-product-badge--discount');
     badge?.remove();
 
     const imageWrapper = cardElement.querySelector('.byose-product-image-wrapper');
-    const discountBadge = renderDiscountBadge(product);
+    const discountBadge = renderDiscountBadge(normalizedProduct);
     const wishlistButton = cardElement.querySelector('.byose-product-wishlist');
     if (imageWrapper && discountBadge) {
       wishlistButton

@@ -64,12 +64,46 @@
 		return '';
 	}
 
+	function resolveDiscountFields(product) {
+		const price = Number(product?.price ?? product?.salePrice ?? 0) || 0;
+		const candidates = [
+			product?.oldPrice,
+			product?.compareAtPrice,
+			product?.originalPrice,
+			product?.metadata?.originalPrice
+		];
+		let oldPrice = 0;
+		for (const candidate of candidates) {
+			const parsed = Number(candidate) || 0;
+			if (parsed > price) {
+				oldPrice = parsed;
+				break;
+			}
+		}
+		const hasDiscount = oldPrice > price && price > 0;
+		const storedPercent = Number(product?.discountPercent ?? product?.metadata?.discountPercent ?? 0);
+		const discountPercent = hasDiscount
+			? (storedPercent > 0 ? Math.round(storedPercent) : Math.round(((oldPrice - price) / oldPrice) * 100))
+			: 0;
+
+		return {
+			price,
+			salePrice: price,
+			oldPrice: hasDiscount ? oldPrice : 0,
+			originalPrice: hasDiscount ? oldPrice : 0,
+			compareAtPrice: hasDiscount ? oldPrice : 0,
+			discountPercent
+		};
+	}
+
 	function mapStorefrontProduct(product) {
 		const id = String(product && (product.id || product.catalogId) ? (product.id || product.catalogId) : '').trim();
 		const image = resolveProductImage(product);
+		const pricing = resolveDiscountFields(product);
 
 		return {
 			...product,
+			...pricing,
 			id,
 			catalogId: String(product && (product.catalogId || product.id) ? (product.catalogId || product.id) : id).trim() || id,
 			image,

@@ -121,6 +121,63 @@ export function removeGalleryItem(draft, index) {
   };
 }
 
+export async function uploadColorVariantImage(file, previousPath = "", onProgress) {
+  const cleanupPaths = previousPath ? [normalizeStoragePath(previousPath)] : [];
+  const result = await uploadWithRetry(file, {
+    onProgress,
+    progressLabel: "Uploading color image...",
+    cleanupPaths: cleanupPaths.filter(Boolean)
+  });
+
+  const image = normalizeAssetUrl(result.publicUrl || result.url || result.path);
+  const imageStoragePath = normalizeStoragePath(result.storagePath || result.path || result.publicUrl);
+
+  if (!isPersistableAssetUrl(image)) {
+    throw new Error("Color image upload did not return a valid storage path.");
+  }
+
+  return { image, imageStoragePath };
+}
+
+export function removeColorVariantImage(color = {}) {
+  const next = { ...(color || {}) };
+  const removedStorage = next.imageStoragePath || normalizeStoragePath(next.image);
+  next.image = "";
+  next.imageStoragePath = "";
+
+  if (removedStorage && isPersistableAssetUrl(removedStorage)) {
+    void removeStoredAssets([removedStorage]);
+  }
+
+  return next;
+}
+
+export async function resolveColorVariantImages(inventory = {}, onProgress) {
+  const colorVariants = Array.isArray(inventory.colorVariants) ? inventory.colorVariants : [];
+
+  return {
+    ...inventory,
+    colorVariants: colorVariants.map((entry) => {
+      const image = String(entry?.image || "").trim();
+      if (isBlobUrl(image)) {
+        throw new Error(
+          `Color image preview expired for ${entry?.colorName || "a color variant"}. Re-upload the image before saving.`
+        );
+      }
+      if (image && !isPersistableAssetUrl(image)) {
+        throw new Error(
+          `Color image for ${entry?.colorName || "a color variant"} is not stored on the server. Upload again before saving.`
+        );
+      }
+      return {
+        ...entry,
+        image: isPersistableAssetUrl(image) ? normalizeAssetUrl(image) : "",
+        imageStoragePath: normalizeStoragePath(entry?.imageStoragePath || image)
+      };
+    })
+  };
+}
+
 export function removeMainImage(draft) {
   const media = { ...(draft.media || {}) };
   const removedStorage = media.mainImageStoragePath || normalizeStoragePath(media.mainImage);

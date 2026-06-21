@@ -1,5 +1,18 @@
+import {
+  applyColorSizeSelection,
+  buildAttributesFromColorVariants,
+  extractColorVariantsFromProduct,
+  isColorSizeInventory,
+  resolveMatrixStock
+} from '../../js/color-variant-inventory.js';
+import { normalizeStorefrontAssetUrl } from '../../services/storefront-asset-url.js';
+
 function resolveAssetPath(path) {
   const value = String(path || '').trim();
+  const normalized = normalizeStorefrontAssetUrl(value);
+  if (normalized) {
+    return normalized;
+  }
 
   if (!value || /^(?:[a-z]+:|\/|\.\.\/|\.\/)/i.test(value)) {
     return value;
@@ -109,6 +122,12 @@ function normalizeVariantFoundationAttributes(variants) {
 
 export function normalizeProductAttributes(product) {
   const fallbackStock = Number(product?.stock ?? product?.stockCount);
+
+  if (isColorSizeInventory(product)) {
+    const colorVariants = extractColorVariantsFromProduct(product);
+    return buildAttributesFromColorVariants(colorVariants);
+  }
+
   const rawAttributes = Array.isArray(product?.attributes) && product.attributes.length
     ? product.attributes
     : normalizeVariantFoundationAttributes(product?.variants);
@@ -175,6 +194,11 @@ export function buildVariantKey(attributes) {
 }
 
 export function getSelectionStock(product, attributes, selectedAttributes) {
+  const matrixStock = resolveMatrixStock(product, selectedAttributes);
+  if (Number.isFinite(matrixStock)) {
+    return matrixStock;
+  }
+
   const productStock = Number(product?.stock ?? product?.stockCount);
   let maxStock = Number.isFinite(productStock) ? Math.max(0, productStock) : Infinity;
 
@@ -214,6 +238,14 @@ export function createVariantSelection(product, attributes, selectedAttributes, 
   };
 }
 
+export function getEffectiveAttributes(product, attributes, selectedAttributes) {
+  if (!isColorSizeInventory(product)) {
+    return attributes;
+  }
+
+  return applyColorSizeSelection(attributes, product, selectedAttributes);
+}
+
 export function getPrimarySelectionImage(product, attributes, selectedAttributes) {
   for (const attribute of attributes) {
     const selectedValue = selectedAttributes?.[attribute.name];
@@ -229,3 +261,5 @@ export function getPrimarySelectionImage(product, attributes, selectedAttributes
 
   return product?.mainImage || product?.image || '';
 }
+
+export { isColorSizeInventory, resolveMatrixStock };

@@ -1,4 +1,5 @@
-import { buildVariantKey, normalizeProductAttributes } from './product-attributes.js';
+import { buildVariantKey, getPrimarySelectionImage, normalizeProductAttributes } from './product-attributes.js';
+import { resolveMatrixStock } from '../../js/color-variant-inventory.js';
 import { createProductModal } from './product-modal.js';
 import { renderProductOptionPreview } from './product-ui-renderer.js';
 
@@ -16,7 +17,11 @@ function createCartPayload(product, quantity, attributes = {}) {
   const normalizedAttributes = Object.fromEntries(
     Object.entries(attributes || {}).filter(([, value]) => value !== undefined && value !== null && value !== '')
   );
-  const image = product.image || product.mainImage || '';
+  const productAttributes = normalizeProductAttributes(product);
+  const image = getPrimarySelectionImage(product, productAttributes, normalizedAttributes)
+    || product.image
+    || product.mainImage
+    || '';
   const attributeSummary = Object.values(normalizedAttributes).join(' • ');
   const variantKey = buildVariantKey(normalizedAttributes);
 
@@ -87,6 +92,11 @@ function addItemsToCart(items) {
 }
 
 function resolveAvailableQuantity(product, attributes = {}) {
+  const matrixStock = resolveMatrixStock(product, attributes);
+  if (Number.isFinite(matrixStock)) {
+    return matrixStock;
+  }
+
   const baseAvailable = Number(product?.inventory?.available ?? product?.availableStock ?? product?.stock);
   if (Number.isFinite(baseAvailable) && baseAvailable >= 0) {
     return baseAvailable;
@@ -216,11 +226,11 @@ export function initProductActions(options) {
     }
   });
 
-  renderProductOptionPreview(optionsPreviewRoot, attributes);
+  renderProductOptionPreview(optionsPreviewRoot, attributes, product);
 
   if (purchaseCaption) {
     purchaseCaption.textContent = attributes.length
-      ? 'Select options and set quantities inside the purchase popup.'
+      ? 'Choose your color and size in the purchase modal. Stock updates automatically.'
       : 'Adjust quantity before adding to cart.';
   }
 
@@ -280,4 +290,8 @@ export function initProductActions(options) {
 
   addToCartButton?.addEventListener('click', () => handleSimpleAction('add'));
   buyNowButton?.addEventListener('click', () => handleSimpleAction('buy'));
+
+  optionsPreviewRoot?.querySelector('[data-open-config-modal]')?.addEventListener('click', () => {
+    modal.open({ action: 'add', initialQuantity: readQuantity() });
+  });
 }

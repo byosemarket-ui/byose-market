@@ -128,11 +128,13 @@ function setupToast() {
 }
 
 function applyMeta(product) {
-  document.title = `${product.name} | Byose Market`;
+  const pageTitle = String(product.metaTitle || product.name || "Product").trim();
+  document.title = `${pageTitle} | Byose Market`;
 
   const description = document.querySelector('meta[name="description"]');
   if (description) {
-    description.setAttribute('content', product.shortDescription);
+    const content = String(product.metaDescription || product.shortDescription || "").trim();
+    description.setAttribute("content", content);
   }
 }
 

@@ -65,30 +65,32 @@ function normalizeVisibility(value) {
 
 function normalizePriority(value) {
   if (typeof value === "number" && Number.isFinite(value)) {
-    const normalized = Math.floor(value);
-    return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
+    return Math.max(0, Math.min(100, Math.floor(value)));
   }
 
-  const normalizedText = normalizeText(value).toLowerCase();
-  if (!normalizedText || normalizedText === "normal") {
-    return 0;
+  const normalizedText = normalizeText(value);
+  if (!normalizedText || normalizedText === "normal" || normalizedText === "automatic") {
+    return 50;
   }
 
-  if (normalizedText === "top") {
-    return 1;
+  if (normalizedText === "top" || normalizedText === "featured") {
+    return 90;
   }
 
-  if (normalizedText === "featured") {
-    return 2;
+  if (normalizedText === "middle") {
+    return 50;
   }
 
-  const parsed = Number(normalizedText);
+  if (normalizedText === "bottom" || normalizedText === "low") {
+    return 10;
+  }
+
+  const parsed = Number(String(value || "").trim());
   if (Number.isFinite(parsed)) {
-    const normalized = Math.floor(parsed);
-    return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
+    return Math.max(0, Math.min(100, Math.floor(parsed)));
   }
 
-  return 0;
+  return 50;
 }
 
 function buildKeywords(product) {
@@ -383,7 +385,11 @@ function normalizeProductRecord(record) {
   const price = toNumber(source.price ?? source.salePrice, 0);
   const resolvedOldPrice = resolveComparePrice(source, price);
   const oldPrice = resolvedOldPrice > price ? resolvedOldPrice : 0;
-  const discountPercent = oldPrice > price ? Math.round(((oldPrice - price) / oldPrice) * 100) : 0;
+  const metadataObject = parseJsonObject(source.metadata);
+  const storedDiscountPercent = toNumber(metadataObject.discountPercent, NaN);
+  const discountPercent = Number.isFinite(storedDiscountPercent) && storedDiscountPercent > 0
+    ? Math.max(0, Math.min(100, Math.floor(storedDiscountPercent)))
+    : (oldPrice > price ? Math.round(((oldPrice - price) / oldPrice) * 100) : 0);
 
   return {
     ...source,
@@ -435,9 +441,15 @@ function normalizeProductRecord(record) {
     taxIncluded: Boolean(source.taxIncluded ?? source.metadata?.taxIncluded),
     metaTitle: normalizeText(source.metaTitle ?? source.metadata?.metaTitle ?? source.title),
     metaDescription: normalizeText(source.metaDescription ?? source.metadata?.metaDescription ?? source.shortDescription),
+    shortName: normalizeText(source.metadata?.shortName ?? source.shortName ?? ""),
     slug: normalizeText(source.slug ?? source.metadata?.slug),
     tags: parseJsonArray(source.tags).length ? parseJsonArray(source.tags) : asArray(source.metadata?.tags),
     metadata: parseJsonObject(source.metadata),
+    placement: parseJsonArray(parseJsonObject(source.metadata).placement).length
+      ? parseJsonArray(parseJsonObject(source.metadata).placement)
+      : [],
+    positionMode: normalizeText(parseJsonObject(source.metadata).positionMode, "automatic"),
+    priorityScore: normalizePriority(parseJsonObject(source.metadata).priorityScore ?? source.priority),
     inventory: asObject(source.inventory) || {
       available: Math.max(0, Math.floor(toNumber(source.stock, 0))),
       totalAvailable: Math.max(0, Math.floor(toNumber(source.stock, 0))),

@@ -10,6 +10,17 @@ import productService from './services/centralized-products.service.js';
 import ProductCardSystem from './js/product-card-system.js';
 import { initHomeCategoryNav, scrollHomeCategoryPillIntoView } from './js/home-category-nav.js';
 import { normalizeStorefrontAssetUrl, resolveProductImageUrl } from './services/storefront-asset-url.js';
+import {
+  filterProductsForSection,
+  getProductPlacements,
+  normalizeDisplayPriority,
+  normalizeVisibility,
+  productHasPlacement,
+  resolveHighlightTagFromPlacements,
+  shouldShowOnSurface,
+  sortProductsByDisplay
+} from './js/storefront-display.js';
+import { buildDiscountedProductView } from './js/storefront-discount.js';
 
 const DEFAULT_FILTER = 'all';
 const DEFAULT_CATEGORY = 'featured';
@@ -51,11 +62,19 @@ const state = {
   currentFilter: DEFAULT_FILTER
 };
 
+const PLACEMENT_SECTION_LIMIT = 6;
+
 const elements = {
   filterPills: document.getElementById('filterPills'),
   homeProducts: document.getElementById('homeProducts'),
   productGrid: document.getElementById('homeProductGrid'),
-  spotlightGrid: document.getElementById('spotlightGrid')
+  spotlightGrid: document.getElementById('spotlightGrid'),
+  featuredSection: document.getElementById('featuredSection'),
+  featuredGrid: document.getElementById('featuredGrid'),
+  bestSellersSection: document.getElementById('bestSellersSection'),
+  bestSellersGrid: document.getElementById('bestSellersGrid'),
+  flashDealsSection: document.getElementById('flashDealsSection'),
+  flashDealsGrid: document.getElementById('flashDealsGrid')
 };
 
 if (document.readyState === 'loading') {
@@ -82,12 +101,13 @@ async function syncCatalog() {
     
     state.catalog = products
       .map(normalizeProduct)
-      .filter(product => shouldShowOnSurface(product, 'home'))
-      .sort(sortProductsByDisplay);
+      .filter(product => shouldShowOnSurfaceLocal(product, 'home'))
+      .sort(sortProductsByDisplayLocal);
     
     state.filterCache.clear();
     state.markupCache.clear();
     renderProductGrid(state.currentFilter);
+    renderPlacementSections();
     renderSpotlightGrid();
   } catch (error) {
     console.error('[Homepage] Failed to sync products:', error);
@@ -96,9 +116,10 @@ async function syncCatalog() {
     if (Array.isArray(cached) && cached.length > 0) {
       state.catalog = cached
         .map(normalizeProduct)
-        .filter(product => shouldShowOnSurface(product, 'home'))
-        .sort(sortProductsByDisplay);
+        .filter(product => shouldShowOnSurfaceLocal(product, 'home'))
+        .sort(sortProductsByDisplayLocal);
       renderProductGrid(state.currentFilter);
+      renderPlacementSections();
       renderSpotlightGrid();
     }
   }
@@ -130,49 +151,12 @@ function normalizeCategory(category) {
   return CATEGORY_ALIASES[normalized] || normalized.replace(/\s+/g, '-');
 }
 
-function normalizeVisibility(value) {
-  const normalized = normalizeText(value).replace(/\s+/g, '-');
-  if (normalized === 'home' || normalized === 'shop' || normalized === 'both') {
-    return normalized;
-  }
-
-  if (normalized === 'home-only') {
-    return 'home';
-  }
-
-  if (normalized === 'shop-only') {
-    return 'shop';
-  }
-
-  return 'both';
+function normalizeVisibilityLocal(value) {
+  return normalizeVisibility(value);
 }
 
 function normalizePriority(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    const normalized = Math.floor(value);
-    return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
-  }
-
-  const normalizedText = normalizeText(value);
-  if (!normalizedText || normalizedText === 'normal') {
-    return 0;
-  }
-
-  if (normalizedText === 'top') {
-    return 1;
-  }
-
-  if (normalizedText === 'featured') {
-    return 2;
-  }
-
-  const parsed = Number(normalizedText);
-  if (Number.isFinite(parsed)) {
-    const normalized = Math.floor(parsed);
-    return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
-  }
-
-  return 0;
+  return normalizeDisplayPriority(value);
 }
 
 function normalizeHighlightTag(value) {
@@ -220,30 +204,30 @@ function normalizeProduct(product, index) {
   const fallbackId = index + 1;
   const id = product && product.id ? product.id : fallbackId;
   const name = String(product && product.name ? product.name : '').trim() || `Product ${fallbackId}`;
+  const shortName = String(
+    product?.shortName
+    || product?.metadata?.shortName
+    || product?.title
+    || ''
+  ).trim();
+  const cardName = shortName || name;
   const category = normalizeCategory(product && product.category);
   const badge = String(product && product.badge ? product.badge : '').trim();
-  const visibility = normalizeVisibility(product && product.visibility);
-  const priority = normalizePriority(product && product.priority);
-  const orderIndex = Math.max(0, Number(product && product.orderIndex) || 0);
-  const highlightTag = normalizeHighlightTag(product && product.highlightTag);
+  const visibility = normalizeVisibilityLocal(product && product.visibility);
+  const priority = normalizePriority(product?.priority ?? product?.metadata?.priorityScore);
+  const orderIndex = Math.max(0, Number(product && (product.orderIndex ?? product.order_index)) || 0);
+  const placements = getProductPlacements(product);
+  const highlightTag = normalizeHighlightTag(product && product.highlightTag)
+    || resolveHighlightTagFromPlacements(placements);
   const shortDescription = String(product && product.shortDescription ? product.shortDescription : '').trim();
   const productImage = resolveProductImageUrl(product);
   const image = productImage || normalizeStorefrontAssetUrl(FALLBACK_IMAGE);
   const price = Number(product && (product.price ?? product.salePrice)) || 0;
-  const compareCandidates = [
-    product?.oldPrice,
-    product?.compareAtPrice,
-    product?.originalPrice,
-    product?.discountPrice
-  ];
-  let oldPrice = 0;
-  for (const candidate of compareCandidates) {
-    const parsed = Number(candidate) || 0;
-    if (parsed > price) {
-      oldPrice = parsed;
-      break;
-    }
-  }
+  const pricing = buildDiscountedProductView({
+    ...product,
+    price
+  });
+  const oldPrice = pricing.oldPrice;
   const searchText = normalizeText([
     name,
     category,
@@ -257,43 +241,36 @@ function normalizeProduct(product, index) {
     ...product,
     id,
     name,
+    cardName,
+    shortName,
     badge,
     category,
     visibility,
     priority,
     orderIndex,
+    placements,
     highlightTag,
     shortDescription,
     defaultIndex: index,
     mainImage: image,
     image,
-    oldPrice: oldPrice > price ? oldPrice : 0,
-    price,
+    oldPrice,
+    price: pricing.price,
+    salePrice: pricing.price,
+    originalPrice: pricing.originalPrice,
+    compareAtPrice: pricing.compareAtPrice,
+    discountPercent: pricing.discountPercent,
     href: getProductHref(id),
     searchText
   };
 }
 
-function shouldShowOnSurface(product, surface) {
-  const visibility = normalizeVisibility(product && product.visibility);
-  return visibility === 'both' || visibility === surface;
+function shouldShowOnSurfaceLocal(product, surface) {
+  return shouldShowOnSurface(product, surface);
 }
 
-function sortProductsByDisplay(left, right) {
-  const leftPriority = normalizePriority(left && left.priority);
-  const rightPriority = normalizePriority(right && right.priority);
-
-  if (leftPriority !== rightPriority) {
-    return rightPriority - leftPriority;
-  }
-
-  const leftOrder = Math.max(0, Number(left && left.orderIndex) || 0);
-  const rightOrder = Math.max(0, Number(right && right.orderIndex) || 0);
-  if (leftOrder !== rightOrder) {
-    return rightOrder - leftOrder;
-  }
-
-  return Math.max(0, Number(left && left.defaultIndex) || 0) - Math.max(0, Number(right && right.defaultIndex) || 0);
+function sortProductsByDisplayLocal(left, right) {
+  return sortProductsByDisplay(left, right);
 }
 
 function createProductCard(product) {
@@ -405,7 +382,44 @@ function renderProductGrid(filter) {
   renderGrid(elements.productGrid, `home:${filter}`, items);
 }
 
+function renderPlacementSection(sectionEl, gridEl, cacheKey, placement, limit = PLACEMENT_SECTION_LIMIT) {
+  if (!gridEl) {
+    return;
+  }
+
+  const items = filterProductsForSection(state.catalog, placement, 'home').slice(0, limit);
+  if (sectionEl) {
+    sectionEl.hidden = items.length === 0;
+  }
+
+  if (!items.length) {
+    gridEl.innerHTML = '';
+    return;
+  }
+
+  renderGrid(gridEl, cacheKey, items);
+}
+
+function renderPlacementSections() {
+  renderPlacementSection(elements.featuredSection, elements.featuredGrid, 'featured', 'featured_products');
+  renderPlacementSection(elements.bestSellersSection, elements.bestSellersGrid, 'best-sellers', 'best_sellers');
+  renderPlacementSection(elements.flashDealsSection, elements.flashDealsGrid, 'flash-deals', 'flash_deals');
+}
+
 function getSpotlightProducts() {
+  const curated = filterProductsForSection(state.catalog, 'fresh_picks', 'home');
+  const newArrivals = filterProductsForSection(state.catalog, 'new_arrivals', 'home');
+  const combined = [...curated];
+  newArrivals.forEach((product) => {
+    if (!combined.some((entry) => Number(entry.id) === Number(product.id))) {
+      combined.push(product);
+    }
+  });
+
+  if (combined.length) {
+    return combined.slice(0, SPOTLIGHT_LIMIT);
+  }
+
   const spotlightSource = state.catalog.filter(product => ['electronics', 'fashion', 'shoes'].includes(product.category));
   const startIndex = Math.min(SPOTLIGHT_START_OFFSET, Math.max(0, spotlightSource.length - SPOTLIGHT_LIMIT));
   return spotlightSource.slice(startIndex, startIndex + SPOTLIGHT_LIMIT);

@@ -3,6 +3,9 @@ import {
   CATEGORY_OPTIONS,
   COUNTRY_OF_ORIGIN_OPTIONS,
   FALLBACK_IMAGE,
+  PLACEMENT_OPTIONS,
+  POSITION_MODE_OPTIONS,
+  PRIORITY_SCORE_PRESETS,
   PRODUCT_CONDITION_OPTIONS,
   PRODUCT_STATUS_OPTIONS,
   PRODUCT_TYPE_OPTIONS,
@@ -20,7 +23,15 @@ import {
   writeDraft
 } from "./draft.js";
 import { buildAutoSeo, buildProductPayload, validateAllSteps, validateStep } from "./payload.js";
-import { removeGalleryItem, removeMainImage, resolveDraftMedia } from "./upload.js";
+import { computeProductDiscount, renderAdminStorefrontPreview } from "./pricing.js";
+import { removeGalleryItem, removeMainImage, resolveDraftMedia, uploadColorVariantImage, removeColorVariantImage, resolveColorVariantImages } from "./upload.js";
+import {
+  collectColorVariantsFromForm,
+  createColorClientKey,
+  renderColorInventorySection
+} from "./inventory-ui.js";
+import { computeReviewHealth, renderDynamicReviewStep } from "./review-engine.js";
+import { computeProductTotalStock } from "../../../../js/color-variant-inventory.js";
 import {
   buildCreateHash,
   buildProductViewUrl,
@@ -236,22 +247,31 @@ function renderInfoStep(draft) {
 
 function renderPricingStep(draft) {
   const pricing = draft.pricing || {};
+  const info = draft.info || {};
+  const summary = computeProductDiscount(pricing);
+  const currency = pricing.currency || "RWF";
+  const previewName = info.shortName || info.name || "Product Preview";
+
   return `
-    <div class="pm-step-panel">
+    <div class="pm-step-panel pm-step-panel--pricing">
       <header class="pm-step-header">
         <h2><span class="pm-section-rw">Ibiciro</span> <span class="pm-section-sep">/</span> <span class="pm-section-en">Pricing</span></h2>
-        <p>Shyiraho igiciro cyo kugura, cyo kugurisha n'igabanywa rishobora kuba.</p>
+        <p>Andika igiciro cy'imbere n'igiciro cyo kugurisha. Igabanywa rigaragara ku makarita y'ubucuruzi nk'ikimenyetso gitsinda.</p>
       </header>
       <div class="pm-form-grid">
         ${renderBilingualField("Igiciro cyo Kugura", "Cost Price", `<input type="number" min="0" step="1" name="costPrice" value="${escapeHtml(pricing.costPrice)}" placeholder="0" />`, "Igiciro waguze product — byifashishwa mu raporo.")}
-        ${renderBilingualField("Igiciro cyo Kugurisha", "Selling Price", `<input type="number" min="0" step="1" name="sellingPrice" value="${escapeHtml(pricing.sellingPrice)}" placeholder="0" required />`, "Igiciro abakiriya babona ku rubuga.", "pm-field--required")}
-        ${renderBilingualField("Igiciro cyo Kugabanywa", "Discount Price", `<input type="number" min="0" step="1" name="discountPrice" value="${escapeHtml(pricing.discountPrice)}" placeholder="Igiciro cy'imbere y'igabanywa" />`, "Shyiraho igiciro kinini kugira ngo igabanywa rigaragare.")}
-        ${renderBilingualField("Umusoro (%)", "Tax Rate (%)", `<input type="number" min="0" max="100" step="0.1" name="taxRate" value="${escapeHtml(pricing.taxRate)}" placeholder="18" />`)}
+        ${renderBilingualField("Igiciro cy'Imbere", "Original Price", `<input type="number" min="0" step="1" name="originalPrice" value="${escapeHtml(pricing.originalPrice)}" placeholder="Urugero: 25000" data-pricing-original />`, "Igiciro cy'imbere y'igabanywa. Niba ari kimwe n'igiciro cyo kugurisha, nta badge igaragara.")}
+        ${renderBilingualField("Igiciro cyo Kugurisha", "Selling Price", `<input type="number" min="0" step="1" name="sellingPrice" value="${escapeHtml(pricing.sellingPrice)}" placeholder="Urugero: 20000" required data-pricing-selling />`, "Igiciro abakiriya babona ku rubuga.", "pm-field--required")}
       </div>
-      <label class="pm-check">
-        <input type="checkbox" name="taxIncluded" ${pricing.taxIncluded ? "checked" : ""} />
-        <span>Igiciro kirimo umusoro / Price includes tax</span>
-      </label>
+      <aside class="pm-pricing-preview card" data-pricing-preview aria-live="polite">
+        <div class="pm-pricing-preview-head">
+          <h3><span class="pm-section-rw">Uko Product Igaragara ku Rubuga</span> <span class="pm-section-sep">/</span> <span class="pm-section-en">Storefront Card Preview</span></h3>
+          <p class="pm-field-hint">Igabanywa (%) rikora mu buryo bwikora kandi rigaragara nk'ikimenyetso gitsinda hejuru ibumoso.</p>
+        </div>
+        <div class="pm-pricing-preview-stage" data-pricing-preview-stage>
+          ${renderAdminStorefrontPreview(summary, currency, previewName)}
+        </div>
+      </aside>
     </div>
   `;
 }
@@ -295,12 +315,14 @@ const INVENTORY_ATTRIBUTE_LABELS = {
 function renderInventoryStep(draft) {
   const inventory = draft.inventory || {};
   const category = String(draft.info?.category || "general").toLowerCase();
-  const baseSizes = getSizeOptionsForCategory(category);
-  const customSizes = Array.isArray(inventory.customSizes) ? inventory.customSizes : [];
-  const sizeOptions = [...new Set([...baseSizes, ...customSizes])];
-  const variants = Array.isArray(inventory.variants) ? inventory.variants : [];
-  const totalVariantStock = variants.reduce((sum, entry) => sum + Math.max(0, Math.floor(toNumber(entry?.stock, 0))), 0);
-  const quantityValue = variants.length ? totalVariantStock : Math.max(0, Math.floor(toNumber(inventory.quantity, 0)));
+  const sizePresets = getSizeOptionsForCategory(category);
+  const colorVariants = Array.isArray(inventory.colorVariants) ? inventory.colorVariants : [];
+  const totalStock = computeProductTotalStock(
+    colorVariants,
+    Math.max(0, Math.floor(toNumber(inventory.quantity, 0)))
+  );
+  const hasColorVariants = Boolean(inventory.variantsEnabled && colorVariants.length);
+  const quantityValue = hasColorVariants ? totalStock : Math.max(0, Math.floor(toNumber(inventory.quantity, 0)));
   const status = deriveInventoryStatus(quantityValue);
   const activeAttributes = CATEGORY_ATTRIBUTE_CONFIG[category] || [];
 
@@ -317,7 +339,7 @@ function renderInventoryStep(draft) {
     <div class="pm-step-panel pm-step-panel--inventory">
       <header class="pm-step-header">
         <h2><span class="pm-section-rw">Ububiko</span> <span class="pm-section-sep">/</span> <span class="pm-section-en">Inventory</span></h2>
-        <p>Genzura stock, SKU, ingano n'amoko ya product.</p>
+        <p>Genzura stock, SKU, n'amabara n'ingano z'ibyo bihari kuri buri bara.</p>
       </header>
 
       <section class="pm-form-section">
@@ -326,7 +348,7 @@ function renderInventoryStep(draft) {
         </header>
         <div class="pm-form-grid">
           ${renderBilingualField("SKU", "SKU", `<input type="text" name="sku" value="${escapeHtml(inventory.sku || "")}" placeholder="Kode y'ububiko" />`, "Kode yihariye yo gucunga stock.")}
-          ${renderBilingualField("Umubare wa Stock", "Stock Quantity", `<input type="number" min="0" step="1" name="quantity" value="${escapeHtml(String(quantityValue))}" ${variants.length ? "readonly" : ""} required />`, variants.length ? "Bibarwa mu buryo bwikora uhereye ku variants." : "Andika umubare uri mu bubiko.", "pm-field--required")}
+          ${renderBilingualField("Umubare wa Stock", "Stock Quantity", `<input type="number" min="0" step="1" name="quantity" value="${escapeHtml(String(quantityValue))}" ${hasColorVariants ? "readonly" : ""} required />`, hasColorVariants ? "Bibarwa mu buryo bwikora uhereye ku mabara n'ingano." : "Andika umubare uri mu bubiko.", "pm-field--required")}
           <div class="pm-field">
             <span class="pm-field-label pm-field-label--bilingual"><span class="pm-field-label-rw">Imiterere ya Stock</span><span class="pm-field-label-sep">/</span><span class="pm-field-label-en">Stock Status</span></span>
             <div class="pm-stock-badge pm-stock-badge--${escapeHtml(status.key)}" data-stock-status-badge>${escapeHtml(status.rw)} / ${escapeHtml(status.en)}</div>
@@ -335,56 +357,18 @@ function renderInventoryStep(draft) {
         </div>
       </section>
 
-      <section class="pm-form-section">
-        <header class="pm-form-section-head">
-          <h3 class="pm-form-section-title"><span class="pm-section-rw">Ingano n'Ibiranga</span><span class="pm-section-sep">/</span><span class="pm-section-en">Sizes & Attributes</span></h3>
-        </header>
-        <div class="pm-form-grid">
-          <div class="pm-field pm-field--span-2">
-            <span class="pm-field-label pm-field-label--bilingual"><span class="pm-field-label-rw">Ingano</span><span class="pm-field-label-sep">/</span><span class="pm-field-label-en">Sizes</span></span>
-            <div class="pm-chip-grid">
-              ${sizeOptions.map((size) => `
-                <label class="pm-chip">
-                  <input type="checkbox" name="sizes" value="${escapeHtml(size)}" ${inventory.sizes?.includes(size) ? "checked" : ""} />
-                  <span>${escapeHtml(size)}</span>
-                </label>
-              `).join("")}
-            </div>
-            <div class="pm-inline-add">
-              <input type="text" name="customSizeInput" placeholder="46, 47, 48..." />
-              <button type="button" class="pm-btn pm-btn-ghost" data-add-custom-size>Ongeramo Ingano / Add Custom Size</button>
-            </div>
-          </div>
-          ${attributeFields || `<div class="pm-field pm-field--span-2"><small class="pm-field-hint">Nta biranga by'icyiciro byongewe kuri iri cyiciro.</small></div>`}
-        </div>
-      </section>
+      ${renderColorInventorySection({ ...inventory, colorVariants }, sizePresets)}
 
-      <section class="pm-form-section">
-        <header class="pm-form-section-head">
-          <h3 class="pm-form-section-title"><span class="pm-section-rw">Amoko ya Product</span><span class="pm-section-sep">/</span><span class="pm-section-en">Product Variants</span></h3>
-        </header>
-        <div class="pm-form-section-block pm-form-section-block--full">
-          <div class="pm-variant-head">
-            <label class="pm-check">
-              <input type="checkbox" name="variantsEnabled" ${inventory.variantsEnabled ? "checked" : ""} />
-              <span>Koresha Variants / Enable Variants</span>
-            </label>
-            <button type="button" class="pm-btn pm-btn-ghost" data-add-variant ${inventory.variantsEnabled ? "" : "disabled"}>Ongeramo Variant / Add Variant</button>
+      ${activeAttributes.length ? `
+        <section class="pm-form-section">
+          <header class="pm-form-section-head">
+            <h3 class="pm-form-section-title"><span class="pm-section-rw">Ibiranga</span><span class="pm-section-sep">/</span><span class="pm-section-en">Category Attributes</span></h3>
+          </header>
+          <div class="pm-form-grid">
+            ${attributeFields}
           </div>
-          <div class="pm-variant-cards ${inventory.variantsEnabled ? "" : "is-disabled"}">
-            ${variants.map((variant, index) => `
-              <article class="pm-variant-item" data-variant-index="${index}">
-                <input type="text" name="variantLabel" value="${escapeHtml(variant.label || "")}" placeholder="Izina rya Variant / Variant Label" />
-                <input type="text" name="variantColor" value="${escapeHtml(variant.colorName || "")}" placeholder="Ibara / Color" />
-                <input type="url" name="variantImage" value="${escapeHtml(variant.image || "")}" placeholder="URL y'ifoto" />
-                <input type="number" min="0" step="1" name="variantStock" value="${escapeHtml(String(variant.stock || "0"))}" placeholder="Stock" />
-                <button type="button" class="pm-btn pm-btn-danger" data-remove-variant="${index}">Kuraho / Remove</button>
-              </article>
-            `).join("")}
-          </div>
-          <div class="pm-stock-total">Stock Yose / Total Stock: <strong data-total-variant-stock>${escapeHtml(String(quantityValue))}</strong></div>
-        </div>
-      </section>
+        </section>
+      ` : ""}
     </div>
   `;
 }
@@ -466,18 +450,62 @@ function renderMediaStep(draft) {
   `;
 }
 
+function renderPlacementCheckboxes(selectedValues = []) {
+  const selected = new Set(Array.isArray(selectedValues) ? selectedValues : []);
+  return `
+    <div class="pm-checkbox-grid pm-checkbox-grid--placement">
+      ${PLACEMENT_OPTIONS.map((option) => {
+        const checked = selected.has(option.value) ? "checked" : "";
+        return `
+          <label class="pm-check-card">
+            <input type="checkbox" name="placement" value="${escapeHtml(option.value)}" ${checked} />
+            <span class="pm-check-card-copy">
+              <strong>${escapeHtml(option.labelRw)} / ${escapeHtml(option.labelEn)}</strong>
+            </span>
+          </label>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function formatPlacementLabels(values = []) {
+  const selected = new Set(Array.isArray(values) ? values : []);
+  const labels = PLACEMENT_OPTIONS
+    .filter((entry) => selected.has(entry.value))
+    .map((entry) => `${entry.labelRw} / ${entry.labelEn}`);
+  return labels.length ? labels.join(", ") : "Nta gice cyihariye / No curated sections";
+}
+
 function renderPublishStep(draft) {
   const info = draft.info || {};
   const autoSeo = buildAutoSeo(info, draft.description || {}, info.brand);
+  const selectedPlacement = Array.isArray(info.placement) ? info.placement : [];
+  const positionMode = info.positionMode || "automatic";
+  const priorityScore = String(info.priorityScore ?? "50");
 
   const publishFields = `
+    ${renderBilingualField("Aho Product Igaragara", "Visibility", renderOptionSelect("visibility", VISIBILITY_OPTIONS, info.visibility, true), "Kugaragara ku Homepage, Shop cyangwa byombi. Ibi bigena catalog nyamukuru.", "pm-field--required")}
+    ${renderBilingualField("Ibice by'Icuruzwa", "Product Placement", renderPlacementCheckboxes(selectedPlacement), "Hitamo ibice byihariye (Featured, Best Sellers, n'ibindi). Visibility igena catalog; placement igena ibice byatoranyijwe.", "pm-field--span-2")}
+    ${renderBilingualField("Imiterere y'Aho Ihagaze", "Product Position", renderOptionSelect("positionMode", POSITION_MODE_OPTIONS, positionMode, true), "Hejuru = imbere, Hagati = hagati, Hasi = inyuma, Automatic = sisitemu ibikora.", "pm-field--required")}
+    ${renderBilingualField("Priority Score", "Priority Score", `
+      <div class="pm-priority-field">
+        <input type="number" min="0" max="100" step="1" name="priorityScore" value="${escapeHtml(priorityScore)}" required />
+        <div class="pm-priority-presets" aria-label="Priority presets">
+          ${PRIORITY_SCORE_PRESETS.map((preset) => `
+            <button type="button" class="pm-priority-preset" data-priority-preset="${preset.value}" title="${escapeHtml(preset.labelRw)} / ${escapeHtml(preset.labelEn)}">
+              ${escapeHtml(String(preset.value))}
+            </button>
+          `).join("")}
+        </div>
+      </div>
+    `, "100 = hejuru cyane, 50 = hagati, 10 = hasi. Bikoreshwa mu gucengeza product mu buryo bumwe.", "pm-field--required")}
     ${renderBilingualField("Product Yihariye", "Featured Product", `
       <label class="pm-check pm-check-inline">
         <input type="checkbox" name="featuredProduct" ${info.featuredProduct ? "checked" : ""} />
         <span>Erekana nk'igicuruzwa cy'ingenzi / Show as featured product</span>
       </label>
-    `, "Product yihariye igaragara ku homepage no mu byiciro by'ingenzi.")}
-    ${renderBilingualField("Aho Product Igaragara", "Visibility", renderOptionSelect("visibility", VISIBILITY_OPTIONS, info.visibility, true), "Hitamo aho product igaragara ku rubuga.")}
+    `, "Bishobora kongera Featured Products placement.")}
     ${renderBilingualField("Imiterere ya Product", "Product Status", renderOptionSelect("publishStatus", PRODUCT_STATUS_OPTIONS, info.publishStatus || "active", true), "Active = iragurishwa. Draft = ntirasohorwa. Inactive = iraboneka gusa.", "pm-field--required")}
   `;
 
@@ -485,12 +513,12 @@ function renderPublishStep(draft) {
     <div class="pm-step-panel pm-step-panel--publish">
       <header class="pm-step-header">
         <h2><span class="pm-section-rw">Gusohora Product</span> <span class="pm-section-sep">/</span> <span class="pm-section-en">Publishing</span></h2>
-        <p>Hitamo uko product igaragara no gusohora ku rubuga.</p>
+        <p>Hitamo uko product igaragara, aho ihagaze, n'ibice byatoranyijwe.</p>
       </header>
-      ${renderFormSection("Gusohora", "Publishing Options", "Featured, visibility na status ya product.", publishFields)}
+      ${renderFormSection("Gusohora", "Publishing Options", "Visibility, placement, position, priority na status.", publishFields)}
       <aside class="pm-auto-note card">
         <h3>Gushakishwa no Kumenyekana / Discovery & Search</h3>
-        <p>Sisitemu ikora mu buryo bwikora: gushakisha, SEO, ranking, Best Sellers, Recommended na Trending — ntacyo ugomba guhitamo wewe.</p>
+        <p>Sisitemu ikora mu buryo bwikora: gushakisha, SEO, na URL — ntacyo ugomba guhitamo wewe.</p>
         <dl class="pm-review-dl pm-review-dl--compact">
           ${renderReviewRow("Umutwe wa Meta", "Auto Meta Title", escapeHtml(autoSeo.metaTitle || "-"))}
           ${renderReviewRow("URL ya Product", "Auto Slug", escapeHtml(autoSeo.slug || "-"))}
@@ -501,216 +529,18 @@ function renderPublishStep(draft) {
 }
 
 function renderReviewStep(draft) {
-  const payload = buildProductPayload(draft);
-  const inventory = draft.inventory || {};
-  const info = draft.info || {};
-  const description = draft.description || {};
-  const pricing = draft.pricing || {};
   const media = draft.media || {};
   const validationOptions = getMainImageValidationOptions(draft);
-  const health = computeProductHealth(draft, validationOptions);
-  const pricingSummary = computePricingSummary(pricing);
-  const currency = pricing.currency || "RWF";
   const mainImageUrl = pendingMainPreviewUrl || media.mainImage || "";
-  const galleryItems = getReviewGalleryItems(draft);
-  const variantItems = Array.isArray(inventory.variants) ? inventory.variants : [];
-  const variantImages = variantItems.filter((entry) => String(entry?.image || "").trim());
-  const autoSeo = buildAutoSeo(info, description, info.brand);
-  const productUrl = `https://byosemarket.com/product/${payload.slug || slugify(info.name)}`;
-  const visibilityLabel = VISIBILITY_OPTIONS.find((entry) => entry.value === info.visibility);
-  const statusLabel = PRODUCT_STATUS_OPTIONS.find((entry) => entry.value === info.publishStatus);
-  const productTypeLabel = PRODUCT_TYPE_OPTIONS.find((entry) => entry.value === info.productType);
-  const conditionLabel = PRODUCT_CONDITION_OPTIONS.find((entry) => entry.value === info.condition);
-  const warrantyLabel = WARRANTY_OPTIONS.find((entry) => entry.value === info.warranty);
-  const categoryLabel = CATEGORY_OPTIONS.find((entry) => entry.value === info.category);
-  const allSizes = [...new Set([...(inventory.sizes || []), ...(inventory.customSizes || [])])];
-  const displayPrice = pricingSummary.current || payload.price;
-  const previewName = info.shortName || info.name || "Product Name";
-  const previewDesc = description.shortDescription || autoSeo.metaDescription || description.longDescription || "";
-
-  const warningCards = health.warnings.map((warning) => `
-    <div class="pm-review-warning">⚠ ${escapeHtml(warning)}</div>
-  `).join("");
-
-  const healthChecks = health.checks.map((check) => `
-    <li class="pm-review-health-item ${check.ok ? "is-done" : "is-missing"}">
-      <span>${check.ok ? "✅" : "❌"}</span>
-      <span>${escapeHtml(check.label)}</span>
-    </li>
-  `).join("");
-
-  const variantCards = variantItems.length
-    ? variantItems.map((variant, index) => `
-        <article class="pm-variant-review-card">
-          ${variant.image ? `<button type="button" class="pm-review-thumb-btn" data-review-image="${escapeHtml(variant.image)}"><img src="${escapeHtml(variant.image)}" alt="${escapeHtml(variant.label || `Variant ${index + 1}`)}" loading="lazy" /></button>` : `<div class="pm-review-thumb-empty">No Image</div>`}
-          <div class="pm-variant-review-copy">
-            <strong>${escapeHtml(variant.label || `Variant ${index + 1}`)}</strong>
-            <span>${escapeHtml(variant.colorName || "-")}</span>
-            <span>Stock: ${escapeHtml(String(variant.stock || "0"))}</span>
-            <span>Sizes: ${escapeHtml(formatReviewList(allSizes))}</span>
-          </div>
-        </article>
-      `).join("")
-    : `<p class="pm-review-empty">No variants configured.</p>`;
-
-  const mediaGallery = `
-    <div class="pm-review-media-grid">
-      ${mainImageUrl ? `
-        <figure class="pm-review-media-item">
-          <button type="button" class="pm-review-thumb-btn" data-review-image="${escapeHtml(mainImageUrl)}">
-            <img src="${escapeHtml(mainImageUrl)}" alt="Main product image" loading="lazy" />
-          </button>
-          <figcaption>Main Image</figcaption>
-        </figure>
-      ` : `<div class="pm-review-media-empty">Main image missing</div>`}
-      ${galleryItems.map((item, index) => `
-        <figure class="pm-review-media-item">
-          <button type="button" class="pm-review-thumb-btn" data-review-image="${escapeHtml(item.url)}">
-            <img src="${escapeHtml(item.url)}" alt="Gallery image ${index + 1}" loading="lazy" />
-          </button>
-          <figcaption>Gallery ${index + 1}</figcaption>
-        </figure>
-      `).join("")}
-      ${variantImages.map((item, index) => `
-        <figure class="pm-review-media-item">
-          <button type="button" class="pm-review-thumb-btn" data-review-image="${escapeHtml(item.image)}">
-            <img src="${escapeHtml(item.image)}" alt="Variant image ${index + 1}" loading="lazy" />
-          </button>
-          <figcaption>Variant Image</figcaption>
-        </figure>
-      `).join("")}
-    </div>
-    <p class="pm-review-media-counts">Main Image: ${mainImageUrl ? 1 : 0} · Gallery Images: ${galleryItems.length} · Variant Images: ${variantImages.length}</p>
-  `;
-
-  const infoRows = [
-    renderReviewRow("Izina rya Product", "Product Name", escapeHtml(info.name || "-")),
-    renderReviewRow("Izina Rigufi", "Short Product Name", escapeHtml(info.shortName || "-")),
-    renderReviewRow("Icyiciro", "Category", escapeHtml(categoryLabel ? `${categoryLabel.labelRw} / ${categoryLabel.labelEn}` : toLabel(info.category))),
-    renderReviewRow("Ubwoko bwa Product", "Product Type", escapeHtml(productTypeLabel ? `${productTypeLabel.labelRw} / ${productTypeLabel.labelEn}` : "-")),
-    renderReviewRow("Ikirango", "Brand", escapeHtml(info.brand || "-")),
-    renderReviewRow("Uruganda", "Manufacturer", escapeHtml(info.manufacturer || "-")),
-    renderReviewRow("Imiterere ya Product", "Product Condition", escapeHtml(conditionLabel ? `${conditionLabel.labelRw} / ${conditionLabel.labelEn}` : "-")),
-    renderReviewRow("Igihugu Yakorewemo", "Country of Origin", escapeHtml(info.countryOfOrigin || "-")),
-    renderReviewRow("Tags", "Tags", escapeHtml(formatReviewList(payload.tags))),
-    renderReviewRow("Iby'ingenzi", "Product Highlights", escapeHtml(formatReviewList(payload.highlights))),
-    renderReviewRow("Garanti", "Warranty", escapeHtml(warrantyLabel ? `${warrantyLabel.labelRw} / ${warrantyLabel.labelEn}${info.warrantyCustom ? ` (${info.warrantyCustom})` : ""}` : "-"))
-  ].join("");
-
-  const pricingRows = [
-    renderReviewRow("Igiciro cyo Kugura", "Cost Price", escapeHtml(pricing.costPrice ? formatReviewCurrency(payload.costPrice, currency) : "-")),
-    renderReviewRow("Igiciro cyo Kugurisha", "Selling Price", escapeHtml(pricing.sellingPrice ? formatReviewCurrency(pricingSummary.selling, currency) : "-")),
-    renderReviewRow("Igiciro cyo Kugabanywa", "Discount Price", escapeHtml(pricing.discountPrice ? formatReviewCurrency(pricingSummary.discountField, currency) : "-")),
-    renderReviewRow("Umusoro", "Tax Rate", escapeHtml(pricing.taxRate ? `${payload.taxRate}% ${payload.taxIncluded ? "(kirimo / included)" : "(ntikirimo / excluded)"}` : "-"))
-  ].join("");
-
-  const pricingDiscountBlock = pricingSummary.discountAmount > 0 ? `
-    <div class="pm-review-highlight">
-      <div><strong>Original Price:</strong> ${escapeHtml(formatReviewCurrency(pricingSummary.original, currency))}</div>
-      <div><strong>Discount Amount:</strong> ${escapeHtml(formatReviewCurrency(pricingSummary.discountAmount, currency))}</div>
-      <div><strong>Discount Percentage:</strong> ${escapeHtml(String(pricingSummary.discountPercent))}%</div>
-      <div><strong>Current Price:</strong> ${escapeHtml(formatReviewCurrency(pricingSummary.current, currency))}</div>
-    </div>
-  ` : `<div class="pm-review-highlight"><div><strong>Final Selling Price:</strong> ${escapeHtml(formatReviewCurrency(displayPrice, currency))}</div></div>`;
-
-  const inventoryRows = [
-    renderReviewRow("SKU", "SKU", escapeHtml(inventory.sku || "-")),
-    renderReviewRow("Stock Yose", "Total Quantity", escapeHtml(String(payload.stock))),
-    renderReviewRow("Imiterere ya Stock", "Stock Status", `<span class="pm-stock-badge pm-stock-badge--${escapeHtml(inventory.stockStatus || "out_of_stock")}">${escapeHtml(getStockStatusLabel(inventory.stockStatus))}</span>`),
-    renderReviewRow("Amoko", "Total Variants", escapeHtml(String(variantItems.length))),
-    renderReviewRow("Ingano Zihari", "Available Sizes", escapeHtml(formatReviewList(allSizes))),
-    renderReviewRow("Amoko ya Product", "Variants Enabled", escapeHtml(inventory.variantsEnabled ? "Yego / Yes" : "Oya / No")),
-    renderReviewRow("Ibiranga", "Category Attributes", escapeHtml(formatInventoryAttributes(inventory.attributes)))
-  ].join("");
-
-  const descriptionRows = [
-    renderReviewRow("Ibisobanuro Bigufi", "Short Description", escapeHtml(description.shortDescription || "-")),
-    renderReviewRow("Ibisobanuro Birambuye", "Long Description", escapeHtml(description.longDescription || description.description || "-"))
-  ].join("");
-
-  const publishRows = [
-    renderReviewRow("Product Yihariye", "Featured Product", escapeHtml(info.featuredProduct ? "Yego / Yes" : "Oya / No")),
-    renderReviewRow("Aho Product Igaragara", "Visibility", escapeHtml(visibilityLabel ? `${visibilityLabel.labelRw} / ${visibilityLabel.labelEn}` : "-")),
-    renderReviewRow("Imiterere", "Product Status", escapeHtml(statusLabel ? `${statusLabel.labelRw} / ${statusLabel.labelEn}` : "-"))
-  ].join("");
-
-  const seoRows = [
-    renderReviewRow("Umutwe wa Meta", "Auto Meta Title", escapeHtml(payload.metaTitle || "-")),
-    renderReviewRow("Ibisobanuro bya Meta", "Auto Meta Description", escapeHtml(payload.metaDescription || "-")),
-    renderReviewRow("URL ya Product", "Auto Slug", escapeHtml(payload.slug || "-"))
-  ].join("");
-
-  return `
-    <div class="pm-step-panel pm-step-panel--review">
-      <header class="pm-step-header">
-        <h2><span class="pm-section-rw">Gusuzuma no Kubika</span> <span class="pm-section-sep">/</span> <span class="pm-section-en">Review & Save</span></h2>
-        <p>Reba byose ushyireho mbere yo gusohora product ku rubuga.</p>
-      </header>
-
-      <section class="pm-review-dashboard">
-        <article class="pm-review-health card">
-          <div class="pm-review-health-head">
-            <div>
-              <h3>Product Health Check</h3>
-              <p>Urwego rwo Kurangiza / Completion Score</p>
-            </div>
-            <strong class="pm-review-completion">${health.percent}% Complete</strong>
-          </div>
-          <ul class="pm-review-health-list">${healthChecks}</ul>
-          ${warningCards ? `<div class="pm-review-warnings">${warningCards}</div>` : ""}
-        </article>
-      </section>
-
-      <div class="pm-review-sections">
-        ${renderReviewSection("Amakuru y'ibanze", "Basic Information", infoRows)}
-        ${renderReviewSection("Ibiciro", "Pricing Summary", pricingRows, pricingDiscountBlock)}
-        ${renderReviewSection("Ububiko", "Inventory Summary", inventoryRows)}
-        ${renderReviewSection("Ibisobanuro", "Description", descriptionRows)}
-        ${renderReviewSection("Amoko ya Product", "Variant Summary", renderReviewRow("Amoko", "Total Variants", escapeHtml(String(variantItems.length))), `<div class="pm-variant-review-grid">${variantCards}</div>`)}
-        ${renderReviewSection("Amafoto", "Media Summary", "", mediaGallery)}
-        ${renderReviewSection("Gusohora", "Publishing", publishRows)}
-        ${renderReviewSection("Gushakishwa", "Auto Search & SEO", seoRows, `
-          <div class="pm-seo-preview pm-seo-preview--google pm-review-google-preview">
-            <div class="pm-seo-preview-title">${escapeHtml(payload.metaTitle || info.name || "Product Title")}</div>
-            <div class="pm-seo-preview-url">${escapeHtml(productUrl)}</div>
-            <div class="pm-seo-preview-desc">${escapeHtml(payload.metaDescription || previewDesc || "Product description preview.")}</div>
-          </div>
-        `)}
-      </div>
-
-      <section class="pm-review-live-preview card">
-        <header class="pm-review-section-head">
-          <h3><span class="pm-section-rw">Reba Product Live</span><span class="pm-section-sep">/</span><span class="pm-section-en">Live Product Preview</span></h3>
-        </header>
-        <div class="pm-live-preview-grid">
-          <article class="pm-live-preview-card">
-            <span class="pm-live-preview-label">Homepage</span>
-            ${mainImageUrl ? `<img src="${escapeHtml(mainImageUrl)}" alt="" loading="lazy" />` : `<div class="pm-live-preview-empty">No image</div>`}
-            <strong>${escapeHtml(previewName)}</strong>
-            <p>${escapeHtml(formatReviewCurrency(displayPrice, currency))}</p>
-          </article>
-          <article class="pm-live-preview-card">
-            <span class="pm-live-preview-label">Shop Page</span>
-            ${mainImageUrl ? `<img src="${escapeHtml(mainImageUrl)}" alt="" loading="lazy" />` : `<div class="pm-live-preview-empty">No image</div>`}
-            <strong>${escapeHtml(previewName)}</strong>
-            <p>${escapeHtml(formatReviewCurrency(displayPrice, currency))}${pricingSummary.discountPercent ? ` · -${pricingSummary.discountPercent}%` : ""}</p>
-          </article>
-          <article class="pm-live-preview-card pm-live-preview-card--pdp">
-            <span class="pm-live-preview-label">Product Details</span>
-            ${mainImageUrl ? `<img src="${escapeHtml(mainImageUrl)}" alt="" loading="lazy" />` : `<div class="pm-live-preview-empty">No image</div>`}
-            <strong>${escapeHtml(info.name || previewName)}</strong>
-            <p>${escapeHtml(previewDesc || "Product description preview.")}</p>
-            <small>${escapeHtml(formatReviewCurrency(displayPrice, currency))}</small>
-          </article>
-        </div>
-      </section>
-
-      <div class="pm-lightbox is-hidden" data-review-lightbox aria-hidden="true">
-        <button type="button" class="pm-lightbox-close" data-close-lightbox aria-label="Close preview">&times;</button>
-        <img src="" alt="Enlarged product image" data-lightbox-image />
-      </div>
-    </div>
-  `;
+  const { html } = renderDynamicReviewStep(draft, validationOptions, {
+    escapeHtml,
+    formatReviewCurrency,
+    renderAdminStorefrontPreview,
+    computePricingSummary,
+    mainImageUrl,
+    galleryItems: getReviewGalleryItems(draft)
+  });
+  return html;
 }
 
 function renderSuccessState(savedProduct) {
@@ -731,7 +561,7 @@ function renderSuccessState(savedProduct) {
 function renderWizardMarkup(draft, currentStep) {
   const isEditing = Boolean(draft.productId);
   const reviewHealth = currentStep === "review"
-    ? computeProductHealth(draft, getMainImageValidationOptions(draft))
+    ? computeReviewHealth(draft, getMainImageValidationOptions(draft))
     : null;
   const stepContent = currentStep === "info" ? renderInfoStep(draft)
     : currentStep === "pricing" ? renderPricingStep(draft)
@@ -818,22 +648,15 @@ function formatReviewCurrency(value, currency = "RWF") {
 }
 
 function computePricingSummary(pricing = {}) {
-  const selling = toNumber(pricing.sellingPrice, 0);
-  const discountField = toNumber(pricing.discountPrice, 0);
-  let original = 0;
-  let current = selling;
-  if (discountField > selling) {
-    original = discountField;
-    current = selling;
-  } else if (selling > discountField && discountField > 0) {
-    original = selling;
-    current = discountField;
-  }
-  const discountAmount = original > current ? original - current : 0;
-  const discountPercent = original > 0 && discountAmount > 0
-    ? Math.round((discountAmount / original) * 100)
-    : 0;
-  return { original, current, discountAmount, discountPercent, selling, discountField };
+  const summary = computeProductDiscount(pricing);
+  return {
+    original: summary.originalPrice,
+    current: summary.sellingPrice,
+    discountAmount: summary.discountAmount,
+    discountPercent: summary.discountPercent,
+    selling: summary.sellingPrice,
+    hasDiscount: summary.hasDiscount
+  };
 }
 
 function getStockStatusLabel(status) {
@@ -883,45 +706,7 @@ function renderReviewSection(titleRw, titleEn, rowsHtml, extraHtml = "") {
 }
 
 function computeProductHealth(draft, options = {}) {
-  const info = draft?.info || {};
-  const description = draft?.description || {};
-  const pricing = draft?.pricing || {};
-  const inventory = draft?.inventory || {};
-  const hasImage = Boolean(options.hasPendingMainImage || draft?.media?.mainImage);
-  const variantStock = (inventory.variants || []).reduce((sum, entry) => sum + toNumber(entry?.stock, 0), 0);
-  const totalStock = inventory.variants?.length ? variantStock : toNumber(inventory.quantity, 0);
-  const validationErrors = validateAllSteps(draft, options);
-
-  const checks = [
-    { ok: Boolean(String(info.name || "").trim()), label: "Product Name / Izina rya Product" },
-    { ok: Boolean(String(info.category || "").trim()), label: "Category / Icyiciro" },
-    { ok: toNumber(pricing.sellingPrice, 0) > 0, label: "Price / Igiciro" },
-    { ok: hasImage, label: "Images / Amafoto" },
-    { ok: totalStock > 0, label: "Inventory / Ububiko" },
-    { ok: Boolean(String(description.shortDescription || "").trim()), label: "Description / Ibisobanuro" },
-    { ok: !inventory.variantsEnabled || (inventory.variants || []).length > 0, label: "Variants / Amoko" }
-  ];
-
-  const passed = checks.filter((entry) => entry.ok).length;
-  const percent = Math.round((passed / checks.length) * 100);
-  const warnings = [];
-  if (!hasImage) warnings.push("Product image missing");
-  if (totalStock <= 0) warnings.push("Stock quantity missing");
-  if (toNumber(pricing.sellingPrice, 0) <= 0) warnings.push("Price missing");
-  if (!String(description.shortDescription || "").trim()) warnings.push("Short description missing");
-  if (inventory.variantsEnabled && !(inventory.variants || []).length) warnings.push("Variants missing");
-  validationErrors.forEach((error) => {
-    if (!warnings.includes(error)) {
-      warnings.push(error);
-    }
-  });
-
-  return {
-    percent,
-    checks,
-    warnings,
-    canPublish: validationErrors.length === 0 && hasImage && toNumber(pricing.sellingPrice, 0) > 0
-  };
+  return computeReviewHealth(draft, options);
 }
 
 function collectDraftFromForm(form, draft, step = "") {
@@ -961,6 +746,9 @@ function collectDraftFromForm(form, draft, step = "") {
       ...nextDraft.info,
       featuredProduct: formData.get("featuredProduct") === "on",
       visibility: String(formData.get("visibility") || nextDraft.info.visibility || "both"),
+      placement: formData.getAll("placement").map((entry) => String(entry || "").trim()).filter(Boolean),
+      positionMode: String(formData.get("positionMode") || nextDraft.info.positionMode || "automatic"),
+      priorityScore: String(formData.get("priorityScore") ?? nextDraft.info.priorityScore ?? "50"),
       publishStatus: String(formData.get("publishStatus") || nextDraft.info.publishStatus || "active")
     };
   }
@@ -969,26 +757,16 @@ function collectDraftFromForm(form, draft, step = "") {
     nextDraft.pricing = {
       ...nextDraft.pricing,
       costPrice: String(formData.get("costPrice") ?? nextDraft.pricing.costPrice ?? ""),
-      sellingPrice: String(formData.get("sellingPrice") ?? nextDraft.pricing.sellingPrice ?? ""),
-      discountPrice: String(formData.get("discountPrice") ?? nextDraft.pricing.discountPrice ?? ""),
-      taxRate: String(formData.get("taxRate") ?? nextDraft.pricing.taxRate ?? ""),
-      taxIncluded: formData.get("taxIncluded") === "on"
+      originalPrice: String(formData.get("originalPrice") ?? nextDraft.pricing.originalPrice ?? ""),
+      sellingPrice: String(formData.get("sellingPrice") ?? nextDraft.pricing.sellingPrice ?? "")
     };
   }
 
   if (activeStep === "inventory") {
     const variantsEnabled = formData.get("variantsEnabled") === "on";
-    const variantRows = Array.from(form.querySelectorAll("[data-variant-index]"));
-    const variantEntries = variantsEnabled
-      ? variantRows.map((row, index) => ({
-          label: String(row.querySelector('[name="variantLabel"]')?.value || "").trim() || `Variant ${index + 1}`,
-          colorName: String(row.querySelector('[name="variantColor"]')?.value || "").trim(),
-          image: String(row.querySelector('[name="variantImage"]')?.value || "").trim(),
-          stock: String(Math.max(0, Math.floor(toNumber(row.querySelector('[name="variantStock"]')?.value, 0))))
-        }))
-      : [];
-    const variantTotal = variantEntries.reduce((sum, entry) => sum + toNumber(entry.stock, 0), 0);
-    const quantity = variantsEnabled
+    const colorVariantEntries = collectColorVariantsFromForm(form);
+    const variantTotal = computeProductTotalStock(colorVariantEntries, 0);
+    const quantity = variantsEnabled && colorVariantEntries.length
       ? String(variantTotal)
       : String(Math.max(0, Math.floor(toNumber(formData.get("quantity"), toNumber(nextDraft.inventory.quantity, 0)))));
     const status = deriveInventoryStatus(quantity).key;
@@ -1004,17 +782,11 @@ function collectDraftFromForm(form, draft, step = "") {
       quantity,
       stockStatus: status,
       variantsEnabled,
-      sizes: Array.from(form.querySelectorAll('[name="sizes"]:checked'))
-        .map((entry) => String(entry.value || "").trim())
-        .filter(Boolean),
-      customSizes: Array.from(new Set([
-        ...(nextDraft.inventory.customSizes || []),
-        ...Array.from(form.querySelectorAll('[name="sizes"]'))
-          .map((entry) => String(entry.value || "").trim())
-          .filter((value) => value && !getSizeOptionsForCategory(category).includes(value))
-      ])),
+      sizes: [],
+      customSizes: nextDraft.inventory.customSizes || [],
       attributes,
-      variants: variantEntries
+      variants: [],
+      colorVariants: colorVariantEntries
     };
   }
 
@@ -1077,26 +849,91 @@ function bindInfoStepEnhancements(form) {
   syncWarrantyCustom();
 }
 
-function bindInventoryStepEnhancements(form) {
+function bindPublishStepEnhancements(form) {
+  const priorityInput = form.querySelector("[name=\"priorityScore\"]");
+  form.querySelectorAll("[data-priority-preset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!priorityInput) {
+        return;
+      }
+      priorityInput.value = String(button.getAttribute("data-priority-preset") || "50");
+      priorityInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  });
+}
+
+function bindPricingStepEnhancements(form) {
+  const originalInput = form.querySelector("[data-pricing-original]");
+  const sellingInput = form.querySelector("[data-pricing-selling]");
+  const previewStage = form.querySelector("[data-pricing-preview-stage]");
+  const currency = "RWF";
+  const productName = form.querySelector(".pm-storefront-preview-name")?.textContent?.trim() || "Product Preview";
+
+  function syncDiscountPreview() {
+    if (!previewStage) {
+      return;
+    }
+    const summary = computeProductDiscount({
+      originalPrice: originalInput?.value || "",
+      sellingPrice: sellingInput?.value || ""
+    });
+    previewStage.innerHTML = renderAdminStorefrontPreview(summary, currency, productName);
+  }
+
+  originalInput?.addEventListener("input", syncDiscountPreview);
+  sellingInput?.addEventListener("input", syncDiscountPreview);
+  syncDiscountPreview();
+}
+
+function bindInventoryStepEnhancements(form, container) {
   const quantityInput = form.querySelector('[name="quantity"]');
   const statusBadge = form.querySelector("[data-stock-status-badge]");
-  const variantStockInputs = Array.from(form.querySelectorAll('[name="variantStock"]'));
-  const totalStockLabel = form.querySelector("[data-total-variant-stock]");
+  const totalStockLabel = form.querySelector("[data-total-product-stock]");
   const variantsEnabled = form.querySelector('[name="variantsEnabled"]');
-  const variantsContainer = form.querySelector(".pm-variant-cards");
-  const addVariantButton = form.querySelector("[data-add-variant]");
+  const colorStack = form.querySelector("[data-color-variant-stack]");
+  const addColorButton = form.querySelector("[data-add-color]");
+
+  function readColorTotals() {
+    const cards = Array.from(form.querySelectorAll(".pm-color-variant-card"));
+    return cards.map((card) => {
+      const rows = Array.from(card.querySelectorAll('[name="colorSizeStock"]'));
+      return rows.reduce((sum, input) => sum + Math.max(0, Math.floor(toNumber(input.value, 0))), 0);
+    });
+  }
+
+  function syncColorTotalFields() {
+    const cards = Array.from(form.querySelectorAll(".pm-color-variant-card"));
+    cards.forEach((card, index) => {
+      const rows = Array.from(card.querySelectorAll('[name="colorSizeStock"]'));
+      const total = rows.reduce((sum, input) => sum + Math.max(0, Math.floor(toNumber(input.value, 0))), 0);
+      const totalField = card.querySelector(`[data-color-total-stock="${index}"]`);
+      if (totalField) {
+        totalField.value = String(total);
+      }
+    });
+  }
 
   function syncStockUi() {
-    const hasVariants = variantsEnabled?.checked && variantStockInputs.length;
-    const total = hasVariants
-      ? variantStockInputs.reduce((sum, input) => sum + Math.max(0, Math.floor(toNumber(input.value, 0))), 0)
+    const enabled = Boolean(variantsEnabled?.checked);
+    const colorTotals = readColorTotals();
+    const hasColors = enabled && colorTotals.length > 0;
+    const total = hasColors
+      ? colorTotals.reduce((sum, value) => sum + value, 0)
       : Math.max(0, Math.floor(toNumber(quantityInput?.value, 0)));
-    if (quantityInput && hasVariants) {
+
+    syncColorTotalFields();
+
+    if (quantityInput && hasColors) {
       quantityInput.value = String(total);
+      quantityInput.readOnly = true;
+    } else if (quantityInput) {
+      quantityInput.readOnly = false;
     }
+
     if (totalStockLabel) {
       totalStockLabel.textContent = String(total);
     }
+
     if (statusBadge) {
       const status = deriveInventoryStatus(total);
       statusBadge.className = `pm-stock-badge pm-stock-badge--${status.key}`;
@@ -1106,20 +943,132 @@ function bindInventoryStepEnhancements(form) {
 
   function syncVariantState() {
     const enabled = Boolean(variantsEnabled?.checked);
-    variantsContainer?.classList.toggle("is-disabled", !enabled);
-    if (addVariantButton) {
-      addVariantButton.disabled = !enabled;
+    colorStack?.classList.toggle("is-disabled", !enabled);
+    if (addColorButton) {
+      addColorButton.disabled = !enabled;
     }
   }
 
   quantityInput?.addEventListener("input", syncStockUi);
-  variantStockInputs.forEach((input) => input.addEventListener("input", syncStockUi));
+  form.querySelectorAll('[name="colorSizeStock"], [name="colorSize"]').forEach((input) => {
+    input.addEventListener("input", syncStockUi);
+  });
   variantsEnabled?.addEventListener("change", () => {
     syncVariantState();
     syncStockUi();
   });
   syncVariantState();
   syncStockUi();
+  bindColorVariantImageUploads(form, container);
+}
+
+async function uploadColorImageForCard(form, container, colorIndex, file) {
+  const validationError = validateImageFile(file);
+  if (validationError) {
+    setFeedback("danger", validationError);
+    return;
+  }
+
+  activeDraft = collectDraftFromForm(form, activeDraft, getWizardStep(activeDraft.step || "inventory"));
+  const colors = [...(activeDraft.inventory.colorVariants || [])];
+  const color = colors[colorIndex];
+  if (!color) {
+    return;
+  }
+
+  const card = form.querySelector(`.pm-color-variant-card[data-color-index="${colorIndex}"]`);
+  const statusEl = card?.querySelector(`[data-color-upload-status="${colorIndex}"]`);
+  const previewWrap = card?.querySelector(".pm-color-upload-preview-wrap");
+  let blobUrl = "";
+
+  if (previewWrap) {
+    blobUrl = URL.createObjectURL(file);
+    previewWrap.innerHTML = `<img src="${escapeHtml(blobUrl)}" alt="Upload preview" class="pm-color-variant-preview" data-color-preview="${colorIndex}" />`;
+  }
+  if (statusEl) {
+    statusEl.textContent = "Uploading to server...";
+    statusEl.classList.remove("is-error", "is-success");
+    statusEl.classList.add("is-pending");
+  }
+
+  try {
+    const uploaded = await uploadColorVariantImage(
+      file,
+      color.imageStoragePath || color.image,
+      (progress) => {
+        if (statusEl) {
+          statusEl.textContent = progress.message || "Uploading color image...";
+        }
+      }
+    );
+    colors[colorIndex] = {
+      ...color,
+      image: uploaded.image,
+      imageStoragePath: uploaded.imageStoragePath
+    };
+    activeDraft.inventory.colorVariants = colors;
+    writeDraft(activeDraft);
+    if (blobUrl) {
+      URL.revokeObjectURL(blobUrl);
+    }
+    setFeedback("success", `${color.colorName || "Color"} image uploaded successfully.`);
+    rerenderWizard(container);
+  } catch (error) {
+    if (blobUrl) {
+      URL.revokeObjectURL(blobUrl);
+    }
+    if (statusEl) {
+      statusEl.textContent = error?.message || "Upload failed. Please try again.";
+      statusEl.classList.remove("is-pending");
+      statusEl.classList.add("is-error");
+    }
+    setFeedback("danger", error?.message || "Color image upload failed.");
+    rerenderWizard(container);
+  }
+}
+
+function bindColorVariantImageUploads(form, container) {
+  form.querySelectorAll("[data-color-drop]").forEach((dropzone) => {
+    const colorIndex = Number(dropzone.getAttribute("data-color-drop"));
+    const input = dropzone.querySelector(`[data-color-input="${colorIndex}"]`);
+    if (!input || dropzone.dataset.boundColorUpload === "true") {
+      return;
+    }
+    dropzone.dataset.boundColorUpload = "true";
+
+    bindDropzone(dropzone, input, (files) => {
+      const file = files[0];
+      if (!file) {
+        return;
+      }
+      void uploadColorImageForCard(form, container, colorIndex, file);
+    });
+  });
+
+  form.querySelectorAll("[data-replace-color-image]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const colorIndex = Number(button.getAttribute("data-replace-color-image"));
+      const input = form.querySelector(`[data-color-input="${colorIndex}"]`);
+      input?.click();
+    });
+  });
+
+  form.querySelectorAll("[data-remove-color-image]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const colorIndex = Number(button.getAttribute("data-remove-color-image"));
+      activeDraft = collectDraftFromForm(form, activeDraft, getWizardStep(activeDraft.step || "inventory"));
+      const colors = [...(activeDraft.inventory.colorVariants || [])];
+      const color = colors[colorIndex];
+      if (!color) {
+        return;
+      }
+      colors[colorIndex] = removeColorVariantImage(color);
+      activeDraft.inventory.colorVariants = colors;
+      writeDraft(activeDraft);
+      setFeedback("success", "Color image removed.");
+      rerenderWizard(container);
+    });
+  });
 }
 
 function bindReviewStepEnhancements(form, container) {
@@ -1263,8 +1212,14 @@ function mountWizard(container) {
   if (currentStep === "info") {
     bindInfoStepEnhancements(form);
   }
+  if (currentStep === "pricing") {
+    bindPricingStepEnhancements(form);
+  }
   if (currentStep === "inventory") {
-    bindInventoryStepEnhancements(form);
+    bindInventoryStepEnhancements(form, container);
+  }
+  if (currentStep === "publish") {
+    bindPublishStepEnhancements(form);
   }
   if (currentStep === "review") {
     bindReviewStepEnhancements(form, container);
@@ -1324,45 +1279,94 @@ function mountWizard(container) {
     goToStep(container, WIZARD_STEPS[Math.min(index + 1, WIZARD_STEPS.length - 1)].id);
   });
 
-  form.querySelector("[data-add-variant]")?.addEventListener("click", () => {
+  form.querySelector("[data-add-color]")?.addEventListener("click", () => {
     activeDraft = collectDraftFromForm(form, activeDraft, currentStep);
-    const nextIndex = (activeDraft.inventory.variants || []).length + 1;
-    activeDraft.inventory.variants = [
-      ...(activeDraft.inventory.variants || []),
-      { label: `Variant ${nextIndex}`, colorName: "", image: "", stock: "0" }
+    activeDraft.inventory.colorVariants = [
+      ...(activeDraft.inventory.colorVariants || []),
+      {
+        clientKey: createColorClientKey(),
+        colorName: "",
+        image: "",
+        imageStoragePath: "",
+        sizes: [{ size: "", stock: "0" }]
+      }
     ];
     activeDraft.inventory.variantsEnabled = true;
     writeDraft(activeDraft);
     rerenderWizard(container);
   });
 
-  form.querySelectorAll("[data-remove-variant]").forEach((button) => {
+  form.querySelectorAll("[data-remove-color]").forEach((button) => {
     button.addEventListener("click", () => {
-      const index = Number(button.getAttribute("data-remove-variant"));
+      const index = Number(button.getAttribute("data-remove-color"));
       activeDraft = collectDraftFromForm(form, activeDraft, currentStep);
-      activeDraft.inventory.variants = (activeDraft.inventory.variants || []).filter((_entry, entryIndex) => entryIndex !== index);
+      const colors = [...(activeDraft.inventory.colorVariants || [])];
+      const removed = colors[index];
+      if (removed?.imageStoragePath || removed?.image) {
+        removeColorVariantImage(removed);
+      }
+      activeDraft.inventory.colorVariants = colors.filter((_entry, entryIndex) => entryIndex !== index);
       writeDraft(activeDraft);
       rerenderWizard(container);
     });
   });
 
-  form.querySelector("[data-add-custom-size]")?.addEventListener("click", () => {
-    const input = form.querySelector('[name="customSizeInput"]');
-    const value = String(input?.value || "").trim();
-    if (!value) {
-      return;
-    }
-    activeDraft = collectDraftFromForm(form, activeDraft, currentStep);
-    const existing = new Set([...(activeDraft.inventory.sizes || []), ...(activeDraft.inventory.customSizes || [])]);
-    if (!existing.has(value)) {
-      activeDraft.inventory.customSizes = [...(activeDraft.inventory.customSizes || []), value];
-      activeDraft.inventory.sizes = [...(activeDraft.inventory.sizes || []), value];
-    }
-    if (input) {
-      input.value = "";
-    }
-    writeDraft(activeDraft);
-    rerenderWizard(container);
+  form.querySelectorAll("[data-add-size]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const colorIndex = Number(button.getAttribute("data-add-size"));
+      activeDraft = collectDraftFromForm(form, activeDraft, currentStep);
+      const colors = [...(activeDraft.inventory.colorVariants || [])];
+      const target = colors[colorIndex];
+      if (!target) {
+        return;
+      }
+      target.sizes = [...(target.sizes || []), { size: "", stock: "0" }];
+      activeDraft.inventory.colorVariants = colors;
+      writeDraft(activeDraft);
+      rerenderWizard(container);
+    });
+  });
+
+  form.querySelectorAll("[data-add-preset-size]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const colorIndex = Number(button.getAttribute("data-add-preset-size"));
+      const presetSize = String(button.getAttribute("data-preset-size") || "").trim();
+      if (!presetSize) {
+        return;
+      }
+      activeDraft = collectDraftFromForm(form, activeDraft, currentStep);
+      const colors = [...(activeDraft.inventory.colorVariants || [])];
+      const target = colors[colorIndex];
+      if (!target) {
+        return;
+      }
+      const existing = new Set((target.sizes || []).map((row) => String(row.size || "").trim()));
+      if (existing.has(presetSize)) {
+        return;
+      }
+      target.sizes = [...(target.sizes || []), { size: presetSize, stock: "0" }];
+      activeDraft.inventory.colorVariants = colors;
+      writeDraft(activeDraft);
+      rerenderWizard(container);
+    });
+  });
+
+  form.querySelectorAll("[data-remove-size]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const [colorIndexRaw, sizeIndexRaw] = String(button.getAttribute("data-remove-size") || "").split(":");
+      const colorIndex = Number(colorIndexRaw);
+      const sizeIndex = Number(sizeIndexRaw);
+      activeDraft = collectDraftFromForm(form, activeDraft, currentStep);
+      const colors = [...(activeDraft.inventory.colorVariants || [])];
+      const target = colors[colorIndex];
+      if (!target) {
+        return;
+      }
+      target.sizes = (target.sizes || []).filter((_entry, entryIndex) => entryIndex !== sizeIndex);
+      activeDraft.inventory.colorVariants = colors;
+      writeDraft(activeDraft);
+      rerenderWizard(container);
+    });
   });
 
   const mainInput = form.querySelector("[data-main-input]");
@@ -1498,6 +1502,17 @@ function mountWizard(container) {
           }
         }
       );
+
+      activeDraft.inventory = await resolveColorVariantImages(activeDraft.inventory, (progress) => {
+        uploadProgress = {
+          message: progress.message || "Uploading color images...",
+          percent: progress.percent ?? uploadProgress.percent ?? 20
+        };
+        const statusEl = container.querySelector(".pm-alert-neutral");
+        if (statusEl) {
+          statusEl.textContent = uploadProgress.message;
+        }
+      });
 
       traceWizard("save:upload-complete", {
         mainImage: resolvedMedia.mainImage || "",

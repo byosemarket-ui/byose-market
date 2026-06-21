@@ -1,10 +1,31 @@
 import { slugify, toNumber, sanitizePersistedGallery, isPersistableAssetUrl, normalizeStoragePath } from "./utils.js";
 import { parseTagsInput } from "./draft.js";
+import { PLACEMENT_OPTIONS, POSITION_MODE_OPTIONS } from "./constants.js";
+import { computeProductDiscount } from "./pricing.js";
+import {
+  buildAttributesFromColorVariants,
+  buildFlatInventoryItems,
+  buildVariantFoundationForColorSize,
+  computeProductTotalStock,
+  migrateLegacyToColorVariants,
+  normalizeColorVariants
+} from "../../../../js/color-variant-inventory.js";
+
+const VALID_PLACEMENT_VALUES = new Set(PLACEMENT_OPTIONS.map((entry) => entry.value));
+const VALID_POSITION_MODES = new Set(POSITION_MODE_OPTIONS.map((entry) => entry.value));
+const VALID_VISIBILITY = new Set(["both", "home", "shop"]);
 
 function toLabel(value) {
   return String(value || "")
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function splitLongDescription(text) {
+  return String(text || "")
+    .split(/\n{2,}|\r\n{2,}/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 function buildAutoKeywords(info = {}, description = {}) {
@@ -44,33 +65,72 @@ function buildAutoSeo(info = {}, description = {}, brand = "") {
   };
 }
 
-function resolveAutoPriority(info = {}) {
-  if (Boolean(info.featuredProduct)) {
-    return 75;
+function resolvePriorityScore(info = {}) {
+  return Math.max(0, Math.min(100, Math.floor(toNumber(info.priorityScore, 50))));
+}
+
+function resolvePositionMode(info = {}) {
+  const mode = String(info.positionMode || "automatic").trim().toLowerCase();
+  return VALID_POSITION_MODES.has(mode) ? mode : "automatic";
+}
+
+function resolveOrderIndex(positionMode, priorityScore) {
+  const score = resolvePriorityScore({ priorityScore });
+  if (positionMode === "top") {
+    return 3000 + score;
   }
-  return 50;
+  if (positionMode === "middle") {
+    return 2000 + score;
+  }
+  if (positionMode === "bottom") {
+    return 1000 + score;
+  }
+  if (score >= 75) {
+    return 2500 + score;
+  }
+  if (score >= 40) {
+    return 2000 + score;
+  }
+  return 1500 + score;
+}
+
+function normalizePlacementSelections(info = {}) {
+  const raw = Array.isArray(info.placement) ? info.placement : [];
+  const selected = raw
+    .map((entry) => String(entry || "").trim().toLowerCase())
+    .filter((entry) => VALID_PLACEMENT_VALUES.has(entry));
+
+  if (Boolean(info.featuredProduct) && !selected.includes("featured_products")) {
+    selected.push("featured_products");
+  }
+
+  return [...new Set(selected)];
+}
+
+function resolveHighlightTag(placement = [], featured = false) {
+  if (placement.includes("flash_deals")) {
+    return "trending";
+  }
+  if (placement.includes("new_arrivals")) {
+    return "new";
+  }
+  if (placement.includes("featured_products") || featured) {
+    return "featured";
+  }
+  return "";
 }
 
 function resolveAutoPlacement(info = {}) {
-  const visibility = String(info.visibility || "both").toLowerCase();
-  const placement = ["all"];
-  if (Boolean(info.featuredProduct)) {
-    placement.push("featured", "homepage");
-  }
-  if (visibility === "home" || visibility === "both") {
-    placement.push("homepage");
-  }
-  if (visibility === "shop" || visibility === "both") {
-    placement.push("shop");
-  }
-  return [...new Set(placement)];
+  return normalizePlacementSelections(info);
 }
 
 function buildInfoMetadata(info = {}, description = {}) {
   const highlights = parseTagsInput(info.highlights);
   const searchKeywords = buildAutoKeywords(info, description);
   const featured = Boolean(info.featuredProduct);
-  const priorityScore = resolveAutoPriority(info);
+  const placement = resolveAutoPlacement(info);
+  const positionMode = resolvePositionMode(info);
+  const priorityScore = resolvePriorityScore(info);
 
   return {
     shortName: String(info.shortName || "").trim(),
@@ -85,10 +145,10 @@ function buildInfoMetadata(info = {}, description = {}) {
     featuredProduct: featured,
     featuredHomepage: featured,
     featuredProducts: featured,
-    featuredBestSellers: false,
-    featuredFreshPicks: false,
-    placement: resolveAutoPlacement(info),
-    positionMode: "automatic",
+    featuredBestSellers: placement.includes("best_sellers"),
+    featuredFreshPicks: placement.includes("fresh_picks"),
+    placement,
+    positionMode,
     priorityScore,
     publishStatus: String(info.publishStatus || "active"),
     shortDescription: String(description.shortDescription || "").trim(),
@@ -121,16 +181,12 @@ function buildColorAttribute(colors = []) {
   };
 }
 
-function buildVariantItems(variants = []) {
-  return (Array.isArray(variants) ? variants : [])
-    .map((entry, index) => ({
-      id: slugify(entry?.label || `variant-${index + 1}`) || `variant-${index + 1}`,
-      label: String(entry?.label || "").trim() || `Variant ${index + 1}`,
-      colorName: String(entry?.colorName || "").trim(),
-      image: String(entry?.image || "").trim(),
-      stock: Math.max(0, Math.floor(toNumber(entry?.stock, 0)))
-    }))
-    .filter((entry) => entry.label);
+function buildColorVariantsFromInventory(inventory = {}) {
+  const fromDraft = normalizeColorVariants(inventory.colorVariants);
+  if (fromDraft.length) {
+    return fromDraft;
+  }
+  return migrateLegacyToColorVariants(inventory.variants, inventory.sizes);
 }
 
 function buildSizeAttribute(sizes = []) {
@@ -195,9 +251,11 @@ export function buildProductPayload(draft, assetOverrides = {}) {
   const media = safeDraft.media || {};
   const seoInput = safeDraft.seo || {};
 
-  const sellingPrice = toNumber(pricing.sellingPrice, 0);
-  const discountPrice = toNumber(pricing.discountPrice, 0);
-  const oldPrice = discountPrice > sellingPrice ? discountPrice : 0;
+  const discountSummary = computeProductDiscount(pricing);
+  const sellingPrice = discountSummary.sellingPrice;
+  const oldPrice = discountSummary.oldPrice;
+  const discountPercent = discountSummary.discountPercent;
+  const discountAmount = discountSummary.discountAmount;
   const tags = parseTagsInput(info.tags);
   const autoSeo = buildAutoSeo(info, description, info.brand);
   const infoMetadata = buildInfoMetadata(info, description);
@@ -212,6 +270,10 @@ export function buildProductPayload(draft, assetOverrides = {}) {
     || ""
   ).trim();
   const priorityScore = infoMetadata.priorityScore;
+  const positionMode = infoMetadata.positionMode;
+  const placement = infoMetadata.placement;
+  const orderIndex = resolveOrderIndex(positionMode, priorityScore);
+  const highlightTag = resolveHighlightTag(placement, infoMetadata.featuredProduct);
 
   const persistedGallery = sanitizePersistedGallery(
     assetOverrides.gallery || media.gallery || [],
@@ -226,22 +288,14 @@ export function buildProductPayload(draft, assetOverrides = {}) {
   const gallery = persistedGallery.gallery;
   const galleryStoragePaths = persistedGallery.galleryStoragePaths;
 
-  const variantItems = buildVariantItems(inventory.variants);
-  const variantStock = variantItems.reduce((sum, entry) => sum + entry.stock, 0);
-  const totalStock = variantItems.length
-    ? variantStock
+  const colorVariants = buildColorVariantsFromInventory(inventory);
+  const variantItems = buildFlatInventoryItems(colorVariants);
+  const totalStock = inventory.variantsEnabled && colorVariants.length
+    ? computeProductTotalStock(colorVariants, 0)
     : Math.max(0, Math.floor(toNumber(inventory.quantity, 0)));
-  const attributes = [];
-  if (inventory.variantsEnabled) {
-    const colorAttribute = buildColorAttribute(variantItems.map((entry) => ({ name: entry.colorName || entry.label })));
-    const sizeAttribute = buildSizeAttribute(inventory.sizes);
-    if (colorAttribute) {
-      attributes.push(colorAttribute);
-    }
-    if (sizeAttribute) {
-      attributes.push(sizeAttribute);
-    }
-  }
+  const attributes = inventory.variantsEnabled && colorVariants.length
+    ? buildAttributesFromColorVariants(colorVariants)
+    : [];
 
   const stockStatus = totalStock <= 0
     ? "out_of_stock"
@@ -261,6 +315,7 @@ export function buildProductPayload(draft, assetOverrides = {}) {
     title: String(info.shortName || info.name || "").trim() || String(info.name || "").trim(),
     description: String(description.longDescription || description.description || "").trim(),
     shortDescription: String(description.shortDescription || description.longDescription || description.description || "").trim(),
+    longDescription: splitLongDescription(description.longDescription || description.description || ""),
     category: String(info.category || "general").toLowerCase(),
     brand: String(info.brand || "").trim(),
     sku: String(inventory.sku || "").trim(),
@@ -269,9 +324,10 @@ export function buildProductPayload(draft, assetOverrides = {}) {
     highlights: infoMetadata.highlights,
     price: sellingPrice,
     oldPrice,
+    originalPrice: oldPrice,
+    compareAtPrice: oldPrice,
+    discountPercent,
     costPrice: toNumber(pricing.costPrice, 0),
-    taxRate: toNumber(pricing.taxRate, 0),
-    taxIncluded: Boolean(pricing.taxIncluded),
     stock: totalStock,
     visibility: String(info.visibility || "both").toLowerCase(),
     status,
@@ -286,18 +342,33 @@ export function buildProductPayload(draft, assetOverrides = {}) {
     slug,
     attributes,
     variants: {
-      ...buildVariantFoundation(attributes),
+      ...(inventory.variantsEnabled && colorVariants.length
+        ? buildVariantFoundationForColorSize(colorVariants)
+        : buildVariantFoundation(attributes)),
       items: variantItems
     },
     badge: String(info.brand || "").trim(),
     priority: priorityScore,
-    orderIndex: priorityScore * 2,
+    orderIndex,
+    highlightTag,
     metadata: {
       ...infoMetadata,
       inventoryAttributes: inventory.attributes && typeof inventory.attributes === "object" ? inventory.attributes : {},
       customSizes: Array.isArray(inventory.customSizes) ? inventory.customSizes : [],
+      colorVariants: colorVariants.map((entry) => ({
+        id: entry.id,
+        clientKey: entry.clientKey || entry.id,
+        colorName: entry.colorName,
+        image: entry.image,
+        imageStoragePath: entry.imageStoragePath || "",
+        sizes: entry.sizes.map((row) => ({ size: row.size, stock: row.stock }))
+      })),
       variantStockTotal: totalStock,
-      seoAutoGenerated: true
+      seoAutoGenerated: true,
+      originalPrice: oldPrice,
+      sellingPrice,
+      discountPercent,
+      discountAmount
     }
   };
 }
@@ -327,10 +398,10 @@ export function validateStep(step, draft, options = {}) {
     if (!String(pricing.sellingPrice || "").trim() || toNumber(pricing.sellingPrice, 0) <= 0) {
       errors.push("Igiciro cyo kugurisha kirakenewe / Selling price must be greater than zero.");
     }
-    const discount = toNumber(pricing.discountPrice, 0);
+    const original = toNumber(pricing.originalPrice, 0);
     const selling = toNumber(pricing.sellingPrice, 0);
-    if (discount > 0 && discount <= selling) {
-      errors.push("Igiciro cyo kugabanywa kigomba kuba kinini kurusha igiciro cyo kugurisha / Discount price must be higher than selling price.");
+    if (original > 0 && original < selling) {
+      errors.push("Igiciro cy'imbere rigomba kuba kinini cyangwa kingana n'igiciro cyo kugurisha / Original price must be greater than or equal to selling price.");
     }
   }
 
@@ -338,13 +409,28 @@ export function validateStep(step, draft, options = {}) {
     if (toNumber(inventory.quantity, 0) < 0) {
       errors.push("Umubare wa stock ntushobora kuba uciriritse / Quantity cannot be negative.");
     }
-    if (inventory.variantsEnabled && (!Array.isArray(inventory.variants) || !inventory.variants.length)) {
-      errors.push("Ongeramo nibura variant imwe / Add at least one product variant.");
-    }
-    if (Array.isArray(inventory.variants)) {
-      const invalidVariant = inventory.variants.some((entry) => !String(entry?.label || "").trim());
-      if (invalidVariant) {
-        errors.push("Buri variant igomba kugira izina / Each variant must have a label.");
+    if (inventory.variantsEnabled) {
+      const colorVariants = buildColorVariantsFromInventory(inventory);
+      if (!colorVariants.length) {
+        errors.push("Ongeramo nibura ibara rimwe / Add at least one color variant.");
+      }
+      const invalidColor = colorVariants.some((entry) => !String(entry?.colorName || "").trim());
+      if (invalidColor) {
+        errors.push("Buri bara rigomba kugira izina / Each color variant must have a name.");
+      }
+      const missingSizes = colorVariants.some((entry) => !Array.isArray(entry.sizes) || !entry.sizes.length);
+      if (missingSizes) {
+        errors.push("Buri bara rigomba kugira nibura ingano imwe / Each color must have at least one size.");
+      }
+      const invalidSize = colorVariants.some((entry) =>
+        (entry.sizes || []).some((row) => !String(row?.size || "").trim())
+      );
+      if (invalidSize) {
+        errors.push("Buri size igomba kugira izina / Each size row must have a size value.");
+      }
+      const missingImage = colorVariants.some((entry) => !isPersistableAssetUrl(entry?.image));
+      if (missingImage) {
+        errors.push("Buri bara rigomba kugira ifoto yoherejwe / Each color variant must have an uploaded image.");
       }
     }
   }
@@ -363,6 +449,27 @@ export function validateStep(step, draft, options = {}) {
   }
 
   if (step === "publish") {
+    const visibility = String(info.visibility || "both").toLowerCase();
+    if (!VALID_VISIBILITY.has(visibility)) {
+      errors.push("Hitamo aho product igaragara / Select product visibility.");
+    }
+
+    const placement = Array.isArray(info.placement) ? info.placement : [];
+    const invalidPlacement = placement.some((entry) => !VALID_PLACEMENT_VALUES.has(String(entry || "").trim().toLowerCase()));
+    if (invalidPlacement) {
+      errors.push("Hitamo ibice byemewe gusa / Select valid placement sections only.");
+    }
+
+    const positionMode = String(info.positionMode || "automatic").toLowerCase();
+    if (!VALID_POSITION_MODES.has(positionMode)) {
+      errors.push("Hitamo aho product ihagaze / Select a valid product position.");
+    }
+
+    const priorityScore = toNumber(info.priorityScore, NaN);
+    if (!Number.isFinite(priorityScore) || priorityScore < 0 || priorityScore > 100) {
+      errors.push("Priority Score igomba kuba hagati ya 0 na 100 / Priority score must be between 0 and 100.");
+    }
+
     if (!["active", "draft", "inactive"].includes(String(info.publishStatus || "active").toLowerCase())) {
       errors.push("Hitamo imiterere ya product / Select a product status.");
     }

@@ -1,4 +1,4 @@
-export const DRAFT_STORAGE_KEY = "byose-admin-product-wizard-v4";
+export const DRAFT_STORAGE_KEY = "byose-admin-product-wizard-v6";
 export const FALLBACK_IMAGE = "../img/logo.png";
 export const DETAIL_PAGE_PATH = "../product-details1.html";
 
@@ -39,6 +39,29 @@ export const VISIBILITY_OPTIONS = [
   { value: "both", labelRw: "Homepage na Shop", labelEn: "Homepage & Shop" },
   { value: "home", labelRw: "Homepage Gusa", labelEn: "Homepage Only" },
   { value: "shop", labelRw: "Shop Gusa", labelEn: "Shop Only" }
+];
+
+/** Curated storefront sections (homepage/shop visibility is controlled separately). */
+export const PLACEMENT_OPTIONS = [
+  { value: "featured_products", labelRw: "Product Zihariye", labelEn: "Featured Products" },
+  { value: "best_sellers", labelRw: "Byagurishije Cyane", labelEn: "Best Sellers" },
+  { value: "fresh_picks", labelRw: "Ibyatoranyijwe Bishya", labelEn: "Fresh Picks" },
+  { value: "new_arrivals", labelRw: "Ibipya", labelEn: "New Arrivals" },
+  { value: "recommended_products", labelRw: "Byasabwe", labelEn: "Recommended Products" },
+  { value: "flash_deals", labelRw: "Deals vuba", labelEn: "Flash Deals" }
+];
+
+export const POSITION_MODE_OPTIONS = [
+  { value: "automatic", labelRw: "Bikora mu buryo bwikora", labelEn: "Automatic" },
+  { value: "top", labelRw: "Hejuru", labelEn: "Top" },
+  { value: "middle", labelRw: "Hagati", labelEn: "Middle" },
+  { value: "bottom", labelRw: "Hasi", labelEn: "Bottom" }
+];
+
+export const PRIORITY_SCORE_PRESETS = [
+  { value: 100, labelRw: "Hejuru cyane", labelEn: "Highest (100)" },
+  { value: 50, labelRw: "Hagati", labelEn: "Medium (50)" },
+  { value: 10, labelRw: "Hasi", labelEn: "Low (10)" }
 ];
 
 export const PRODUCT_TYPE_OPTIONS = [

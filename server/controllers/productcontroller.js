@@ -51,30 +51,32 @@ function normalizeVisibility(value) {
 
 function normalizePriority(value) {
     if (typeof value === 'number' && Number.isFinite(value)) {
-        const normalized = Math.floor(value);
-        return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
+        return Math.max(0, Math.min(100, Math.floor(value)));
     }
 
     const normalizedText = toTrimmedString(value).toLowerCase();
-    if (!normalizedText || normalizedText === 'normal') {
-        return 0;
+    if (!normalizedText || normalizedText === 'normal' || normalizedText === 'automatic') {
+        return 50;
     }
 
-    if (normalizedText === 'top') {
-        return 1;
+    if (normalizedText === 'top' || normalizedText === 'featured') {
+        return 90;
     }
 
-    if (normalizedText === 'featured') {
-        return 2;
+    if (normalizedText === 'middle') {
+        return 50;
+    }
+
+    if (normalizedText === 'bottom' || normalizedText === 'low') {
+        return 10;
     }
 
     const parsed = Number(normalizedText);
     if (Number.isFinite(parsed)) {
-        const normalized = Math.floor(parsed);
-        return normalized === 2 ? 2 : normalized === 1 ? 1 : 0;
+        return Math.max(0, Math.min(100, Math.floor(parsed)));
     }
 
-    return 0;
+    return 50;
 }
 
 function normalizeHighlightTag(value) {
@@ -242,11 +244,14 @@ function normalizeVariantFoundation(source, fallbackAttributes = []) {
 
     return {
         enabled: Boolean(source?.enabled),
+        mode: toTrimmedString(source?.mode, ''),
         optionMode: toTrimmedString(source?.optionMode, 'structured'),
         imagePerColor: Boolean(source?.imagePerColor),
         pricingPerVariant: Boolean(source?.pricingPerVariant),
         inventoryReady: Boolean(source?.inventoryReady),
         skuPerVariant: Boolean(source?.skuPerVariant),
+        colorVariants: Array.isArray(source?.colorVariants) ? source.colorVariants : [],
+        items: Array.isArray(source?.items) ? source.items : [],
         groups
     };
 }
@@ -325,6 +330,7 @@ function normalizeMetadata(payload = {}) {
     const slug = normalizeSlug(payload?.slug || metadataSource.slug, payload?.name || payload?.title);
 
     return {
+        ...metadataSource,
         brand,
         sku,
         costPrice: toNonNegativeNumber(payload?.costPrice ?? metadataSource.costPrice, 0),
@@ -367,9 +373,15 @@ function normalizePayload(payload) {
         0
     );
     const variantFoundation = normalizeVariantFoundation(payload?.variants, payload?.attributes);
-    const normalizedAttributes = buildAttributesFromVariantFoundation(variantFoundation, payload?.attributes);
+    const normalizedAttributes = Array.isArray(payload?.attributes) && payload.attributes.length
+        ? normalizeAttributes(payload.attributes)
+        : buildAttributesFromVariantFoundation(variantFoundation, payload?.attributes);
     const metadata = normalizeMetadata(payload);
     const keywordSet = uniqueStrings([...toStringArray(payload?.keywords), ...metadata.tags]);
+    const variants = {
+        ...variantFoundation,
+        items: Array.isArray(payload?.variants?.items) ? payload.variants.items : variantFoundation.items
+    };
 
     return {
         name,
@@ -390,7 +402,7 @@ function normalizePayload(payload) {
         trust: toStringArray(payload?.trust),
         specs: normalizeSpecs(payload?.specs),
         attributes: normalizedAttributes.length ? normalizedAttributes : normalizeAttributes(payload?.attributes),
-        variants: variantFoundation,
+        variants,
         visibility: normalizeVisibility(payload?.visibility),
         priority: normalizePriority(payload?.priority),
         orderIndex: toNonNegativeNumber(payload?.orderIndex, 0),
@@ -415,7 +427,10 @@ function serializeProduct(product) {
         ? product.toObject({ versionKey: false })
         : { ...(product || {}) };
     const catalogId = Number(source.catalogId || source.id || 0);
-    const variants = normalizeVariantFoundation(source.variants, source.attributes);
+    const variants = {
+        ...normalizeVariantFoundation(source.variants, source.attributes),
+        items: Array.isArray(source?.variants?.items) ? source.variants.items : []
+    };
     const attributes = Array.isArray(source.attributes) && source.attributes.length
         ? normalizeAttributes(source.attributes)
         : buildAttributesFromVariantFoundation(variants, source.attributes);
@@ -424,9 +439,13 @@ function serializeProduct(product) {
     const price = toNonNegativeNumber(source.price ?? source.salePrice, 0);
     const oldPrice = resolveComparePrice(source, price);
     const resolvedOldPrice = oldPrice > price ? oldPrice : 0;
-    const discountPercent = resolvedOldPrice > price
-        ? Math.round(((resolvedOldPrice - price) / resolvedOldPrice) * 100)
-        : 0;
+    const metadataObject = source.metadata && typeof source.metadata === 'object' ? source.metadata : {};
+    const storedDiscountPercent = toNonNegativeNumber(metadataObject.discountPercent, NaN);
+    const discountPercent = Number.isFinite(storedDiscountPercent) && storedDiscountPercent > 0 && resolvedOldPrice > price
+        ? Math.max(0, Math.min(100, Math.floor(storedDiscountPercent)))
+        : (resolvedOldPrice > price
+            ? Math.round(((resolvedOldPrice - price) / resolvedOldPrice) * 100)
+            : 0);
     const rawMainImage = source.mainImage || source.image || '';
     const rawGallery = uniqueStrings(source.gallery || []);
     const mainImage = absolutizePublicAssetUrl(rawMainImage);
