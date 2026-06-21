@@ -10,14 +10,15 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/product-card-system.css">
   <link rel="stylesheet" href="css/home.css">
+  <link rel="stylesheet" href="css/product-card-system.css">
+  <link rel="stylesheet" href="css/storefront-footer.css">
   <link rel="stylesheet" href="css/home-mobile.css">
   <link rel="stylesheet" href="css/home-desktop.css">
   <link rel="stylesheet" href="mobile-nav.css">
   <link rel="stylesheet" href="shop.css">
-  <link rel="stylesheet" href="search-mobile.css">
-  <link rel="stylesheet" href="search-desktop.css">
+  <link rel="stylesheet" href="css/search-page.css">
+  <script src="config/runtime-api-bootstrap.js"></script>
 </head>
 <body class="home-page search-page">
   <header class="main-header" id="mainHeader" data-sticky-header>
@@ -63,24 +64,31 @@
 
   <main class="search-page-main">
     <section class="search-panel">
-      <form class="search-stage" id="searchPageForm" role="search" novalidate>
-        <label class="sr-only" for="searchPageInput">Search products</label>
-        <span class="search-stage__icon" aria-hidden="true">
-          <i class="fa-solid fa-magnifying-glass"></i>
-        </span>
-        <input
-          id="searchPageInput"
-          name="q"
-          type="search"
-          placeholder="Search products"
-          autocomplete="off"
-          aria-label="Search products"
-        >
-        <button class="search-stage__camera" id="imageSearchTrigger" type="button" aria-label="Search by image">
-          <i class="fa-solid fa-camera" aria-hidden="true"></i>
-        </button>
-        <input id="imageSearchInput" type="file" accept="image/*" hidden>
-      </form>
+      <div class="search-stage-wrap">
+        <form class="search-stage" id="searchPageForm" role="search" novalidate>
+          <label class="sr-only" for="searchPageInput">Search products</label>
+          <span class="search-stage__icon" aria-hidden="true">
+            <i class="fa-solid fa-magnifying-glass"></i>
+          </span>
+          <input
+            id="searchPageInput"
+            name="q"
+            type="search"
+            placeholder="Search products"
+            autocomplete="off"
+            aria-label="Search products"
+            aria-autocomplete="list"
+            aria-controls="searchSuggestions"
+            aria-expanded="false"
+          >
+          <button class="search-stage__camera" id="imageSearchTrigger" type="button" aria-label="Search by image">
+            <i class="fa-solid fa-camera" aria-hidden="true"></i>
+          </button>
+          <input id="imageSearchInput" type="file" accept="image/*" capture="environment" hidden>
+        </form>
+
+        <div class="search-suggestions" id="searchSuggestions" role="listbox" aria-label="Search suggestions" hidden></div>
+      </div>
 
       <section class="visual-search-panel" id="visualSearchPanel" hidden aria-live="polite" aria-hidden="true" data-visible="false">
         <div class="visual-search-panel__media">
@@ -105,6 +113,33 @@
         </div>
       </section>
 
+      <section class="search-discovery" id="searchDiscovery" aria-label="Search suggestions and history">
+        <div class="search-discovery__group">
+          <div class="search-discovery__head">
+            <h3 class="search-discovery__title">Popular searches</h3>
+          </div>
+          <div class="search-chip-row" id="popularSearches" role="list"></div>
+        </div>
+
+        <div class="search-discovery__group" id="recentSearchesGroup" hidden>
+          <div class="search-discovery__head">
+            <h3 class="search-discovery__title">Recent searches</h3>
+            <button class="search-discovery__clear" id="clearRecentSearches" type="button">Clear</button>
+          </div>
+          <div class="search-chip-row" id="recentSearches" role="list"></div>
+        </div>
+      </section>
+
+      <section class="search-empty-state" id="searchEmptyState" aria-live="polite">
+        <div class="search-empty-state__icon" aria-hidden="true">🔍</div>
+        <h2>Search our catalog</h2>
+        <p>Type a product name, category, or keyword to get started.</p>
+      </section>
+
+      <section class="search-filters-bar" id="searchFiltersBar" hidden aria-label="Search category filters">
+        <div class="shop-filters search-category-filters" id="searchCategoryFilters" role="tablist" aria-label="Filter search results by category"></div>
+      </section>
+
       <section class="search-results-section" id="searchResultsSection" hidden>
         <div class="section-heading compact-heading shop-results-head search-results-head">
           <div>
@@ -114,21 +149,97 @@
           <p class="shop-results" id="searchResultsSummary" aria-live="polite"></p>
         </div>
 
-        <div class="products-grid shop-product-grid search-results-grid" id="searchResults" aria-live="polite"></div>
+        <div class="products-grid shop-product-grid search-results-grid byose-product-grid" id="searchResults" aria-live="polite"></div>
+        <div class="search-empty-related" id="searchEmptyRelated" hidden aria-live="polite"></div>
       </section>
     </section>
   </main>
 
-  <script src="js/products.js" defer></script>
-  <script src="shop.js" defer></script>
-  <script src="search-utils.js" defer></script>
+  <footer class="site-footer">
+    <div class="container footer-shell">
+      <section class="footer-brand" aria-labelledby="footer-brand-title">
+        <div class="footer-brand__head">
+          <a href="index.html" class="footer-logo-link" aria-label="Byose Market Home">
+            <img class="footer-logo" src="img/logo.png" alt="" width="40" height="40">
+          </a>
+          <h2 id="footer-brand-title" class="footer-brand__name">BYOSE MARKET</h2>
+        </div>
+        <p class="footer-brand__desc">Rwanda's trusted online marketplace for fashion, shoes, electronics and everyday essentials — fast, simple, affordable.</p>
+      </section>
+
+      <nav class="footer-panel footer-panel--links" aria-labelledby="footer-links-title">
+        <h3 id="footer-links-title" class="footer-panel__title">Quick Links</h3>
+        <ul class="footer-links">
+          <li><a href="index.html">Home</a></li>
+          <li><a href="shop.html">Shop</a></li>
+          <li><a href="contact.html">Contact</a></li>
+          <li><a href="search.html">Search</a></li>
+        </ul>
+      </nav>
+
+      <section class="footer-panel footer-panel--contact" aria-labelledby="footer-contact-title">
+        <h3 id="footer-contact-title" class="footer-panel__title">Contact</h3>
+        <div class="footer-contact-cards">
+          <a href="tel:+250780430710" class="footer-touch-card">
+            <span class="footer-touch-card__icon footer-touch-card__icon--phone" aria-hidden="true"><i class="fa-solid fa-phone"></i></span>
+            <span class="footer-touch-card__copy">
+              <span class="footer-touch-card__label">Phone</span>
+              <span class="footer-touch-card__value">0780 430 710</span>
+            </span>
+          </a>
+          <a href="https://wa.me/250723731250" class="footer-touch-card" target="_blank" rel="noopener noreferrer">
+            <span class="footer-touch-card__icon footer-touch-card__icon--whatsapp" aria-hidden="true"><i class="fa-brands fa-whatsapp"></i></span>
+            <span class="footer-touch-card__copy">
+              <span class="footer-touch-card__label">WhatsApp</span>
+              <span class="footer-touch-card__value">0723 731 250</span>
+            </span>
+          </a>
+          <a href="mailto:byosemarket@gmail.com" class="footer-touch-card">
+            <span class="footer-touch-card__icon footer-touch-card__icon--email" aria-hidden="true"><i class="fa-regular fa-envelope"></i></span>
+            <span class="footer-touch-card__copy">
+              <span class="footer-touch-card__label">Email</span>
+              <span class="footer-touch-card__value">byosemarket@gmail.com</span>
+            </span>
+          </a>
+          <a href="https://maps.google.com/?q=Kigali,Rwanda" class="footer-touch-card" target="_blank" rel="noopener noreferrer">
+            <span class="footer-touch-card__icon footer-touch-card__icon--location" aria-hidden="true"><i class="fa-solid fa-location-dot"></i></span>
+            <span class="footer-touch-card__copy">
+              <span class="footer-touch-card__label">Location</span>
+              <span class="footer-touch-card__value">Kigali, Rwanda</span>
+            </span>
+          </a>
+        </div>
+      </section>
+
+      <section class="footer-newsletter" aria-labelledby="footer-newsletter-title">
+        <h3 id="footer-newsletter-title" class="footer-panel__title">Newsletter</h3>
+        <p class="footer-newsletter__copy">Get deals and new arrivals in your inbox.</p>
+        <form id="footerSubscribeForm" class="footer-newsletter__form">
+          <label class="sr-only" for="footerEmail">Email address</label>
+          <input type="email" id="footerEmail" placeholder="Your email" aria-label="Email address" required>
+          <button type="submit">Subscribe</button>
+        </form>
+        <p class="footer-newsletter__note" id="footerNote">Weekly deals, no spam.</p>
+      </section>
+
+      <div class="footer-bottom">
+        <p>&copy; 2026 Byose Market. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/products.js"></script>
+  <script src="js/utils.js"></script>
+  <script type="module" src="js/byose-cart-bootstrap.js"></script>
+  <script src="shop.js"></script>
+  <script src="services/storefront-search.service.js"></script>
+  <script src="search-utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js" defer></script>
-  <script src="search-ai.js" defer></script>
   <script src="search-image.js" defer></script>
   <script src="search.js" defer></script>
-  <script src="js/mobile-nav.js" defer></script>
-  <script src="shared/storage.js" defer></script>
-  <script src="js/header.js" defer></script>
+  <script src="js/mobile-nav.js"></script>
+  <script src="shared/storage.js"></script>
+  <script src="js/header.js"></script>
 </body>
 </html>

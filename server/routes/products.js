@@ -3,6 +3,7 @@ const router = express.Router();
 const productController = require('../controllers/productcontroller');
 const adminAccessDisabled = require('../middleware/adminaccessdisabled');
 const { createRateLimiter } = require('../middleware/ratelimiter');
+const { createVisualSearchUploadMiddleware } = require('../middleware/visualsearchupload');
 
 const publicProductLimiter = createRateLimiter({
 	windowMs: 60 * 1000,
@@ -18,7 +19,20 @@ const adminInventoryLimiter = createRateLimiter({
 	message: 'Too many inventory operations. Please retry shortly.'
 });
 
+const visualSearchLimiter = createRateLimiter({
+	windowMs: 60 * 1000,
+	max: 30,
+	code: 'VISUAL_SEARCH_RATE_LIMITED',
+	message: 'Too many visual search requests. Please try again shortly.'
+});
+
+const visualSearchUpload = createVisualSearchUploadMiddleware();
+
 // Public product routes
+router.get('/search/suggestions', publicProductLimiter, productController.getSearchSuggestions);
+router.get('/search/popular', publicProductLimiter, productController.getPopularSearchTerms);
+router.get('/search', publicProductLimiter, productController.searchProducts);
+router.post('/search/visual', visualSearchLimiter, visualSearchUpload, productController.searchProductsByImage);
 router.get('/', publicProductLimiter, productController.getAllProducts);
 
 // Admin product routes

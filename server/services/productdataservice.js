@@ -1,5 +1,6 @@
 const { getRepositoryBundle } = require('../repositories');
 const { collectProductManagedPaths, deleteManagedFiles, normalizeManagedPath } = require('./uploadstorage.service');
+const productSearchService = require('./productsearch.service');
 
 function decorateProduct(product) {
     if (!product || typeof product !== 'object') {
@@ -86,15 +87,36 @@ async function listProductReviews(productId) {
     return getRepos().reviews.listForProduct(productId);
 }
 
+async function searchProducts(options = {}) {
+    const results = await productSearchService.searchProducts(options);
+    return results.map((product) => decorateProduct(product));
+}
+
+async function getSearchSuggestions(options = {}) {
+    return productSearchService.getSearchSuggestions(options);
+}
+
+async function getPopularSearchTerms(options = {}) {
+    return productSearchService.getPopularSearchTerms(options);
+}
+
+function getRelatedSearchCategories(query, products = []) {
+    return productSearchService.getRelatedCategories(query, products);
+}
+
 module.exports = {
     bootstrapProducts,
     createProduct,
     deleteProduct,
     findProductByIdentifier,
     getNextCatalogId,
+    getPopularSearchTerms,
+    getRelatedSearchCategories,
+    getSearchSuggestions,
     listAllProducts,
     listCategories,
     listProductReviews,
     listProducts,
+    searchProducts,
     updateProduct
 };

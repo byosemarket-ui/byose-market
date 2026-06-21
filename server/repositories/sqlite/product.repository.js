@@ -198,6 +198,164 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         return this.list({ limit: 10000, offset: 0 });
     }
 
+    buildSearchLikePattern(query) {
+        const normalized = this.normalizeText(query).toLowerCase().replace(/[%_]/g, '');
+        if (!normalized) {
+            return '';
+        }
+
+        return `%${normalized}%`;
+    }
+
+    isActiveProductClause() {
+        return `(status IS NULL OR status = '' OR lower(status) IN ('active', 'published', 'live'))`;
+    }
+
+    sanitizeLikePattern(pattern) {
+        const normalized = String(pattern || '').trim().toLowerCase().replace(/[%_]/g, '');
+        if (!normalized) {
+            return '';
+        }
+
+        if (String(pattern || '').includes('%')) {
+            return String(pattern).trim().toLowerCase();
+        }
+
+        return `%${normalized}%`;
+    }
+
+    buildFieldMatchClause() {
+        return `(
+            lower(name) LIKE ?
+            OR lower(COALESCE(title, name)) LIKE ?
+            OR lower(COALESCE(description, '')) LIKE ?
+            OR lower(COALESCE(short_description, '')) LIKE ?
+            OR lower(COALESCE(category_slug, '')) LIKE ?
+            OR lower(COALESCE(keywords_json, '')) LIKE ?
+            OR lower(COALESCE(metadata_json, '')) LIKE ?
+            OR lower(COALESCE(badge, '')) LIKE ?
+            OR lower(COALESCE(variants_json, '')) LIKE ?
+            OR lower(COALESCE(attributes_json, '')) LIKE ?
+            OR lower(COALESCE(specs_json, '')) LIKE ?
+        )`;
+    }
+
+    async searchCandidates({ query = '', patterns = [], categorySlugs = [], category = '', limit = 200, offset = 0 } = {}) {
+        const likePatterns = Array.from(new Set(
+            (Array.isArray(patterns) ? patterns : [])
+                .map((entry) => this.sanitizeLikePattern(entry))
+                .concat(this.buildSearchLikePattern(query) ? [this.buildSearchLikePattern(query)] : [])
+                .filter(Boolean)
+        ));
+
+        const resolvedCategorySlugs = Array.from(new Set(
+            (Array.isArray(categorySlugs) ? categorySlugs : [])
+                .map((entry) => this.normalizeText(entry).toLowerCase())
+                .filter(Boolean)
+        ));
+
+        if (!likePatterns.length && !resolvedCategorySlugs.length) {
+            return [];
+        }
+
+        const normalizedCategory = this.normalizeText(category).toLowerCase();
+        const safeLimit = Math.max(1, Math.min(500, Number(limit) || 200));
+        const safeOffset = Math.max(0, Number(offset) || 0);
+        const params = [];
+        const conditions = [];
+
+        likePatterns.forEach((likePattern) => {
+            conditions.push(this.buildFieldMatchClause());
+            params.push(
+                likePattern,
+                likePattern,
+                likePattern,
+                likePattern,
+                likePattern,
+                likePattern,
+                likePattern,
+                likePattern,
+                likePattern,
+                likePattern,
+                likePattern
+            );
+        });
+
+        resolvedCategorySlugs.forEach((slug) => {
+            conditions.push('lower(COALESCE(category_slug, \'\')) = ?');
+            params.push(slug);
+        });
+
+        let sql = `
+            SELECT * FROM products
+            WHERE ${this.isActiveProductClause()}
+            AND (${conditions.join(' OR ')})
+        `;
+
+        if (normalizedCategory) {
+            sql += ' AND lower(category_slug) = ?';
+            params.push(normalizedCategory);
+        }
+
+        sql += ' ORDER BY priority DESC, order_index DESC, updated_at DESC, catalog_id ASC LIMIT ? OFFSET ?';
+        params.push(safeLimit, safeOffset);
+
+        const rows = this.db.prepare(sql).all(...params);
+        const imageLookup = this.loadImagesForProductIds(rows.map((row) => Number(row.id)));
+        return rows.map((row) => this.mapRow(row, imageLookup.get(Number(row.id)) || []));
+    }
+
+    async getPopularSearchInsights({ limit = 10 } = {}) {
+        const safeLimit = Math.min(20, Math.max(1, Number(limit) || 10));
+        const terms = new Set();
+
+        const categoryRows = this.db.prepare(`
+            SELECT category_slug, COUNT(*) AS product_count
+            FROM products
+            WHERE ${this.isActiveProductClause()}
+              AND category_slug IS NOT NULL
+              AND category_slug != ''
+            GROUP BY category_slug
+            ORDER BY product_count DESC, category_slug ASC
+            LIMIT ?
+        `).all(Math.min(6, safeLimit));
+
+        categoryRows.forEach((row) => {
+            const label = String(row.category_slug || '').replace(/-/g, ' ').trim();
+            if (label) {
+                terms.add(label);
+            }
+        });
+
+        const productRows = this.db.prepare(`
+            SELECT name, badge, metadata_json
+            FROM products
+            WHERE ${this.isActiveProductClause()}
+            ORDER BY priority DESC, order_index DESC, updated_at DESC, catalog_id ASC
+            LIMIT ?
+        `).all(8);
+
+        productRows.forEach((row) => {
+            const metadata = this.parseJson(row.metadata_json, {});
+            const brand = this.normalizeText(metadata.brand || row.badge);
+            if (brand) {
+                terms.add(brand);
+            }
+
+            const name = String(row.name || '').trim();
+            if (name) {
+                terms.add(name.split(/\s+/).slice(0, 2).join(' '));
+            }
+        });
+
+        const fallback = ['shoes', 'phones', 'fashion', 'bags', 'electronics', 'watches', 'samsung', 'laptop'];
+        fallback.forEach((entry) => terms.add(entry));
+
+        return {
+            terms: Array.from(terms).slice(0, safeLimit)
+        };
+    }
+
     async findByIdentifier(identifier) {
         const numericIdentifier = Number(identifier);
         let row = null;

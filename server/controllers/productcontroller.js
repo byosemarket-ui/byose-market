@@ -630,6 +630,131 @@ exports.getAllProducts = async (req, res) => {
     }
 };
 
+exports.searchProducts = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'inventory.search' });
+    try {
+        const query = toTrimmedString(req.query?.q || req.query?.query);
+        const category = toTrimmedString(req.query?.category).toLowerCase();
+        const limit = Math.min(120, Math.max(1, Number(req.query?.limit || 60) || 60));
+
+        if (!query) {
+            return res.json({
+                success: true,
+                query: '',
+                count: 0,
+                products: [],
+                relatedCategories: []
+            });
+        }
+
+        const products = await monitorAsyncOperation(
+            logger,
+            'database.product.search',
+            { query, category, limit },
+            () => productDataService.searchProducts({ query, category, limit }),
+            { slowThresholdMs: 900 }
+        );
+
+        const serialized = sortSerializedProducts(products.map(serializeProduct));
+
+        return res.json({
+            success: true,
+            query,
+            count: serialized.length,
+            products: serialized,
+            relatedCategories: productDataService.getRelatedSearchCategories(query, serialized)
+        });
+    } catch (error) {
+        logger.error('inventory.product_search_failed', { error, query: req.query?.q || req.query?.query || '' });
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.getSearchSuggestions = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'inventory.search' });
+    try {
+        const query = toTrimmedString(req.query?.q || req.query?.query);
+        const limit = Math.min(12, Math.max(1, Number(req.query?.limit || 8) || 8));
+        const suggestions = await monitorAsyncOperation(
+            logger,
+            'database.product.search_suggestions',
+            { query, limit },
+            () => productDataService.getSearchSuggestions({ query, limit }),
+            { slowThresholdMs: 500 }
+        );
+
+        return res.json({
+            success: true,
+            query,
+            suggestions
+        });
+    } catch (error) {
+        logger.error('inventory.product_search_suggestions_failed', { error, query: req.query?.q || '' });
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.getPopularSearchTerms = async (req, res) => {
+    try {
+        const limit = Math.min(12, Math.max(1, Number(req.query?.limit || 8) || 8));
+        const terms = await productDataService.getPopularSearchTerms({ limit });
+        return res.json({
+            success: true,
+            terms
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.searchProductsByImage = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'inventory.visual-search' });
+
+    try {
+        const query = toTrimmedString(req.body?.q || req.body?.query);
+        const limit = Math.min(120, Math.max(1, Number(req.body?.limit || req.query?.limit || 60) || 60));
+        const visualSearchService = require('../services/visualsearch.service');
+
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: 'An image file is required for visual search.'
+            });
+        }
+
+        const result = await monitorAsyncOperation(
+            logger,
+            'database.product.visual_search',
+            { query, fileName: req.file.originalname || '', size: req.file.size || 0 },
+            () => visualSearchService.searchByUpload({
+                file: req.file,
+                query,
+                analysis: req.body?.analysis,
+                limit
+            }),
+            { slowThresholdMs: 1200 }
+        );
+
+        const serialized = sortSerializedProducts((result.products || []).map(serializeProduct));
+
+        return res.json({
+            success: true,
+            query: result.query || query,
+            count: serialized.length,
+            products: serialized,
+            exactMatches: sortSerializedProducts((result.exactMatches || []).map(serializeProduct)),
+            similarProducts: sortSerializedProducts((result.similarProducts || []).map(serializeProduct)),
+            relatedProducts: sortSerializedProducts((result.relatedProducts || []).map(serializeProduct)),
+            relatedCategories: result.relatedCategories || [],
+            suggestedSearches: result.suggestedSearches || [],
+            analysis: result.analysis || {}
+        });
+    } catch (error) {
+        logger.error('inventory.visual_search_failed', { error: String(error?.message || error) });
+        return res.status(500).json({ success: false, message: 'Visual search failed.' });
+    }
+};
+
 exports.getProductById = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'inventory' });
     try {

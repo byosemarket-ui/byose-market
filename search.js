@@ -2,17 +2,27 @@
   document.addEventListener('DOMContentLoaded', async () => {
     const utils = window.ByoseSearchUtils;
     const shopApi = window.ByoseShop;
+    const searchApi = window.ByoseStorefrontSearch;
     const imageApi = window.ByoseImageSearch;
-    const aiApi = window.ByoseSearchAI;
     const productCatalog = window.ByoseProductCatalog;
 
     const elements = {
       form: document.getElementById('searchPageForm'),
       input: document.getElementById('searchPageInput'),
+      suggestions: document.getElementById('searchSuggestions'),
+      discovery: document.getElementById('searchDiscovery'),
+      popularSearches: document.getElementById('popularSearches'),
+      recentSearches: document.getElementById('recentSearches'),
+      recentSearchesGroup: document.getElementById('recentSearchesGroup'),
+      clearRecentSearches: document.getElementById('clearRecentSearches'),
+      emptyState: document.getElementById('searchEmptyState'),
+      filtersBar: document.getElementById('searchFiltersBar'),
+      categoryFilters: document.getElementById('searchCategoryFilters'),
       resultsSection: document.getElementById('searchResultsSection'),
       results: document.getElementById('searchResults'),
       resultsSummary: document.getElementById('searchResultsSummary'),
       resultsTitle: document.getElementById('search-results-title'),
+      emptyRelated: document.getElementById('searchEmptyRelated'),
       imageTrigger: document.getElementById('imageSearchTrigger'),
       imageInput: document.getElementById('imageSearchInput'),
       visualPanel: document.getElementById('visualSearchPanel'),
@@ -24,40 +34,55 @@
       imageReset: document.getElementById('imageSearchReset')
     };
 
-    if (!utils || !shopApi || !imageApi || !aiApi || !elements.form || !elements.input || !elements.resultsSection || !elements.results || !elements.resultsSummary) {
+    if (!utils || !shopApi || !searchApi || !imageApi || !elements.form || !elements.input || !elements.results) {
       return;
     }
 
-    const getCatalogSnapshot = () => {
+    const state = {
+      activeImageAnalysis: null,
+      activeImageFile: null,
+      catalog: [],
+      panelHideTimer: null,
+      searchRequestId: 0,
+      suggestionRequestId: 0,
+      activeCategory: 'all',
+      lastResults: [],
+      lastRelatedCategories: [],
+      lastSuggestedSearches: [],
+      lastRenderOptions: {},
+      suggestionsVisible: false,
+      activeSuggestionIndex: -1,
+      searchDebounceTimer: null,
+      suggestionDebounceTimer: null,
+      searchAbortController: null,
+      suggestionAbortController: null
+    };
+
+    const VISUAL_PANEL_TRANSITION_MS = 220;
+    const SEARCH_DEBOUNCE_MS = 200;
+    const SUGGESTION_DEBOUNCE_MS = 120;
+    const DEFAULT_CATEGORY = 'all';
+    const SKELETON_COUNT = 6;
+
+    function getCatalogSnapshot() {
       if (productCatalog && typeof productCatalog.getStorefrontCatalog === 'function') {
         return productCatalog.getStorefrontCatalog();
       }
 
-      if (Array.isArray(window.products)) {
-        return window.products.slice();
-      }
+      return Array.isArray(window.products) ? window.products.slice() : [];
+    }
 
-      return [];
-    };
-
-    const state = {
-      activeImageAnalysis: null,
-      catalog: getCatalogSnapshot(),
-      panelHideTimer: null,
-      requestId: 0
-    };
-
-    const VISUAL_PANEL_TRANSITION_MS = 220;
+    function mapSearchProducts(products) {
+      return (Array.isArray(products) ? products : []).map((product, index) => shopApi.normalizeProduct(product, index));
+    }
 
     function updateUrl(query) {
       const url = new URL(window.location.href);
-
       if (query) {
         url.searchParams.set('q', query);
       } else {
         url.searchParams.delete('q');
       }
-
       window.history.replaceState({}, '', url);
     }
 
@@ -67,18 +92,389 @@
       }
     }
 
-    function hideResults() {
-      elements.results.innerHTML = '';
-      elements.resultsSummary.textContent = '';
-      elements.resultsSection.hidden = true;
+    function showDiscovery() {
+      if (elements.discovery) {
+        elements.discovery.hidden = false;
+      }
     }
 
-    function showResults(items, options) {
+    function hideDiscovery() {
+      if (elements.discovery) {
+        elements.discovery.hidden = true;
+      }
+    }
+
+    function showEmptyState() {
+      if (elements.emptyState) {
+        elements.emptyState.hidden = false;
+      }
+      showDiscovery();
+    }
+
+    function hideEmptyState() {
+      if (elements.emptyState) {
+        elements.emptyState.hidden = true;
+      }
+    }
+
+    function hideCategoryFilters() {
+      if (elements.filtersBar) {
+        elements.filtersBar.hidden = true;
+      }
+      if (elements.categoryFilters) {
+        elements.categoryFilters.innerHTML = '';
+      }
+    }
+
+    function hideEmptyRelated() {
+      if (elements.emptyRelated) {
+        elements.emptyRelated.hidden = true;
+        elements.emptyRelated.innerHTML = '';
+      }
+    }
+
+    function hideResults() {
+      elements.results.innerHTML = '';
+      if (elements.resultsSummary) {
+        elements.resultsSummary.textContent = '';
+      }
+      if (elements.resultsSection) {
+        elements.resultsSection.hidden = true;
+      }
+      hideCategoryFilters();
+      hideEmptyRelated();
+      state.lastResults = [];
+      state.lastRelatedCategories = [];
+      state.activeCategory = DEFAULT_CATEGORY;
+    }
+
+    function renderSkeletonGrid() {
+      hideEmptyState();
+      hideDiscovery();
+      if (elements.resultsSection) {
+        elements.resultsSection.hidden = false;
+      }
+
+      elements.results.classList.add('byose-product-grid', 'byose-product-grid--storefront');
+      elements.results.innerHTML = Array.from({ length: SKELETON_COUNT }, () => `
+        <article class="byose-product-card byose-product-card--skeleton" aria-hidden="true">
+          <div class="byose-skeleton-image"></div>
+          <div class="byose-product-content">
+            <div class="byose-skeleton-line byose-skeleton-line--title"></div>
+            <div class="byose-skeleton-line byose-skeleton-line--price"></div>
+          </div>
+        </article>
+      `).join('');
+    }
+
+    function renderSearchChip(label, iconClass) {
+      return `
+        <button type="button" class="search-chip" data-query="${utils.escapeHtml(label)}">
+          ${iconClass ? `<i class="${iconClass}" aria-hidden="true"></i>` : ''}
+          <span>${utils.escapeHtml(label)}</span>
+        </button>
+      `;
+    }
+
+    function bindSearchChips(container, handler) {
+      if (!container) {
+        return;
+      }
+
+      container.querySelectorAll('.search-chip').forEach((button) => {
+        button.addEventListener('click', () => {
+          const query = String(button.dataset.query || '').trim();
+          if (!query) {
+            return;
+          }
+          handler(query);
+        });
+      });
+    }
+
+    function renderPopularSearches(terms) {
+      if (!elements.popularSearches) {
+        return;
+      }
+
+      const items = Array.isArray(terms) && terms.length ? terms : ['Shoes', 'Phones', 'Fashion', 'Bags', 'Electronics'];
+      elements.popularSearches.innerHTML = items
+        .map((term) => renderSearchChip(String(term).replace(/\b\w/g, (char) => char.toUpperCase()), 'fa-solid fa-arrow-trend-up'))
+        .join('');
+
+      bindSearchChips(elements.popularSearches, (query) => {
+        elements.input.value = query;
+        hideSuggestions();
+        runTextSearch(query, { immediate: true });
+      });
+    }
+
+    function renderRecentSearchChip(term) {
+      return `
+        <span class="search-chip search-chip--recent">
+          <button type="button" class="search-chip__action" data-query="${utils.escapeHtml(term)}">
+            <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
+            <span>${utils.escapeHtml(term)}</span>
+          </button>
+          <button type="button" class="search-chip__remove" data-remove-query="${utils.escapeHtml(term)}" aria-label="Remove ${utils.escapeHtml(term)} from recent searches">&times;</button>
+        </span>
+      `;
+    }
+
+    function renderRecentSearches() {
+      const recent = searchApi.readRecentSearches();
+
+      if (!elements.recentSearches || !elements.recentSearchesGroup) {
+        return;
+      }
+
+      if (!recent.length) {
+        elements.recentSearchesGroup.hidden = true;
+        elements.recentSearches.innerHTML = '';
+        return;
+      }
+
+      elements.recentSearchesGroup.hidden = false;
+      elements.recentSearches.innerHTML = recent.map((term) => renderRecentSearchChip(term)).join('');
+
+      elements.recentSearches.querySelectorAll('.search-chip__action').forEach((button) => {
+        button.addEventListener('click', () => {
+          const query = String(button.dataset.query || '').trim();
+          elements.input.value = query;
+          hideSuggestions();
+          runTextSearch(query, { immediate: true });
+        });
+      });
+
+      elements.recentSearches.querySelectorAll('.search-chip__remove').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation();
+          searchApi.removeRecentSearch(button.dataset.removeQuery || '');
+          renderRecentSearches();
+        });
+      });
+    }
+
+    async function loadPopularSearches() {
+      try {
+        const terms = await searchApi.fetchPopularTerms();
+        renderPopularSearches(terms);
+      } catch (_error) {
+        renderPopularSearches([]);
+      }
+    }
+
+    function collectCategories(items) {
+      const categories = new Set();
+      (items || []).forEach((product) => {
+        const normalized = utils.normalizeText(product && product.category);
+        if (normalized) {
+          categories.add(normalized.replace(/\s+/g, '-'));
+        }
+      });
+      return Array.from(categories).sort((left, right) => left.localeCompare(right));
+    }
+
+    function renderCategoryFilters(items) {
+      if (!elements.filtersBar || !elements.categoryFilters) {
+        return;
+      }
+
+      const categories = collectCategories(items);
+      if (!categories.length) {
+        hideCategoryFilters();
+        return;
+      }
+
+      const buttons = [
+        `<button type="button" class="shop-filter-pill${state.activeCategory === DEFAULT_CATEGORY ? ' active' : ''}" data-filter="${DEFAULT_CATEGORY}" aria-pressed="${state.activeCategory === DEFAULT_CATEGORY ? 'true' : 'false'}">All</button>`
+      ];
+
+      categories.forEach((category) => {
+        const label = shopApi.createCategoryLabel ? shopApi.createCategoryLabel(category) : category;
+        const isActive = state.activeCategory === category;
+        buttons.push(
+          `<button type="button" class="shop-filter-pill${isActive ? ' active' : ''}" data-filter="${utils.escapeHtml(category)}" aria-pressed="${isActive ? 'true' : 'false'}">${utils.escapeHtml(label)}</button>`
+        );
+      });
+
+      elements.categoryFilters.innerHTML = buttons.join('');
+      elements.filtersBar.hidden = false;
+
+      elements.categoryFilters.querySelectorAll('.shop-filter-pill').forEach((button) => {
+        button.addEventListener('click', () => {
+          state.activeCategory = String(button.dataset.filter || DEFAULT_CATEGORY).trim().toLowerCase() || DEFAULT_CATEGORY;
+          renderCategoryFilters(state.lastResults);
+          renderFilteredResults(state.lastResults, state.lastRenderOptions);
+        });
+      });
+    }
+
+    function filterByActiveCategory(items) {
+      if (!state.activeCategory || state.activeCategory === DEFAULT_CATEGORY) {
+        return items;
+      }
+      return shopApi.filterProductsByCategory(items, state.activeCategory);
+    }
+
+    function renderEmptyRelated(categories, query, suggestedSearches) {
+      if (!elements.emptyRelated) {
+        return;
+      }
+
+      const related = Array.isArray(categories) ? categories : [];
+      const suggested = Array.isArray(suggestedSearches) ? suggestedSearches : state.lastSuggestedSearches;
+      const blocks = [];
+
+      if (related.length) {
+        blocks.push(`
+          <p class="search-empty-related__title">Try browsing related categories for "${utils.escapeHtml(query)}":</p>
+          <div class="search-empty-related__chips">
+            ${related.map((category) => {
+              const label = shopApi.createCategoryLabel ? shopApi.createCategoryLabel(category) : category;
+              return renderSearchChip(label, 'fa-solid fa-tag');
+            }).join('')}
+          </div>
+        `);
+      }
+
+      if (suggested.length) {
+        blocks.push(`
+          <p class="search-empty-related__title">Suggested searches:</p>
+          <div class="search-empty-related__chips">
+            ${suggested.map((term) => renderSearchChip(String(term).replace(/\b\w/g, (char) => char.toUpperCase()), 'fa-solid fa-lightbulb')).join('')}
+          </div>
+        `);
+      }
+
+      if (!blocks.length) {
+        hideEmptyRelated();
+        return;
+      }
+
+      elements.emptyRelated.hidden = false;
+      elements.emptyRelated.innerHTML = blocks.join('');
+
+      bindSearchChips(elements.emptyRelated, (value) => {
+        elements.input.value = value;
+        runTextSearch(value, { immediate: true });
+      });
+    }
+
+    async function renderFilteredResults(items, options) {
       const config = options || {};
+      const filteredItems = filterByActiveCategory(items);
+
       setResultsTitle(config.title || 'Matching products');
-      shopApi.renderProductGrid(elements.results, items, config.emptyMessage);
-      shopApi.updateResultsSummary(elements.resultsSummary, items.length, config.label || '');
-      elements.resultsSection.hidden = false;
+      await shopApi.renderProductGrid(elements.results, filteredItems, config.emptyMessage);
+      shopApi.updateResultsSummary(elements.resultsSummary, filteredItems.length, config.label || '');
+
+      if (!filteredItems.length) {
+        renderEmptyRelated(
+          state.lastRelatedCategories,
+          config.query || elements.input.value.trim(),
+          state.lastSuggestedSearches
+        );
+      } else {
+        hideEmptyRelated();
+      }
+
+      if (elements.resultsSection) {
+        elements.resultsSection.hidden = false;
+      }
+    }
+
+    async function showResults(items, options) {
+      const config = options || {};
+      state.lastResults = Array.isArray(items) ? items.slice() : [];
+      state.lastRenderOptions = config;
+      hideEmptyState();
+      hideDiscovery();
+      renderCategoryFilters(state.lastResults);
+      await renderFilteredResults(state.lastResults, config);
+    }
+
+    function hideSuggestions() {
+      state.suggestionsVisible = false;
+      state.activeSuggestionIndex = -1;
+      if (elements.suggestions) {
+        elements.suggestions.hidden = true;
+        elements.suggestions.innerHTML = '';
+      }
+      elements.input.setAttribute('aria-expanded', 'false');
+    }
+
+    function renderSuggestionsList(suggestions) {
+      if (!elements.suggestions || !Array.isArray(suggestions) || !suggestions.length) {
+        hideSuggestions();
+        return;
+      }
+
+      elements.suggestions.innerHTML = suggestions
+        .map((entry, index) => `
+          <button
+            type="button"
+            class="search-suggestion${index === state.activeSuggestionIndex ? ' is-active' : ''}"
+            role="option"
+            data-label="${utils.escapeHtml(entry.label)}"
+            aria-selected="${index === state.activeSuggestionIndex ? 'true' : 'false'}"
+          >
+            <span class="search-suggestion__label">${utils.escapeHtml(entry.label)}</span>
+            <span class="search-suggestion__meta">${utils.escapeHtml(entry.meta || 'Suggestion')}</span>
+          </button>
+        `)
+        .join('');
+
+      elements.suggestions.hidden = false;
+      state.suggestionsVisible = true;
+      elements.input.setAttribute('aria-expanded', 'true');
+
+      elements.suggestions.querySelectorAll('.search-suggestion').forEach((button) => {
+        button.addEventListener('mousedown', (event) => event.preventDefault());
+        button.addEventListener('click', () => {
+          const label = String(button.dataset.label || '').trim();
+          elements.input.value = label;
+          hideSuggestions();
+          runTextSearch(label, { immediate: true });
+        });
+      });
+    }
+
+    async function fetchAndRenderSuggestions(query) {
+      const currentRequest = ++state.suggestionRequestId;
+
+      if (state.suggestionAbortController) {
+        state.suggestionAbortController.abort();
+      }
+
+      if (typeof AbortController !== 'undefined') {
+        state.suggestionAbortController = new AbortController();
+      }
+
+      try {
+        const suggestions = await searchApi.fetchSuggestions(query, {
+          limit: 8,
+          signal: state.suggestionAbortController?.signal
+        });
+        if (currentRequest !== state.suggestionRequestId) {
+          return;
+        }
+        renderSuggestionsList(suggestions);
+      } catch (error) {
+        if (error?.name === 'AbortError') {
+          return;
+        }
+        if (currentRequest === state.suggestionRequestId) {
+          hideSuggestions();
+        }
+      }
+    }
+
+    function scheduleSuggestions(query) {
+      window.clearTimeout(state.suggestionDebounceTimer);
+      state.suggestionDebounceTimer = window.setTimeout(() => {
+        fetchAndRenderSuggestions(query);
+      }, SUGGESTION_DEBOUNCE_MS);
     }
 
     function setVisualPanelVisible(visible) {
@@ -116,18 +512,15 @@
       if (!elements.imageStatus) {
         return;
       }
-
       elements.imageStatus.textContent = message;
       elements.imageStatus.dataset.state = stateName || 'idle';
     }
 
     function setPreview(previewUrl) {
       setVisualPanelVisible(Boolean(previewUrl));
-
       if (elements.imagePreview) {
         elements.imagePreview.src = previewUrl || '';
       }
-
       if (elements.imagePreviewShell) {
         elements.imagePreviewShell.hidden = !previewUrl;
       }
@@ -145,7 +538,6 @@
       }
 
       const chipValues = [];
-
       (analysis.objects || []).slice(0, 2).forEach((value) => chipValues.push({ label: 'Object', value }));
       (analysis.colors || []).slice(0, 2).forEach((entry) => chipValues.push({ label: 'Color', value: entry.name }));
       (analysis.styles || []).slice(0, 2).forEach((value) => chipValues.push({ label: 'Style', value }));
@@ -165,28 +557,28 @@
 
     function resetVisualSearch() {
       state.activeImageAnalysis = null;
-
+      state.activeImageFile = null;
       if (elements.imageInput) {
         elements.imageInput.value = '';
       }
-
       if (elements.imageReset) {
         elements.imageReset.hidden = true;
       }
-
       if (elements.imageTitle) {
         elements.imageTitle.textContent = 'Results for your image';
       }
 
       setPreview('');
       renderVisualChips(null);
-      setVisualStatus('Upload an image to search the existing product catalog.', 'idle');
+      setVisualStatus('Upload an image to search the live product catalog.', 'idle');
       setVisualPanelVisible(false);
 
       if (elements.input.value.trim()) {
-        runTextSearch(elements.input.value);
+        runTextSearch(elements.input.value, { immediate: true });
       } else {
         hideResults();
+        showEmptyState();
+        renderRecentSearches();
       }
     }
 
@@ -195,72 +587,173 @@
         try {
           await productCatalog.refreshCatalog({ silent: true, force: false });
         } catch (_error) {
-          // Keep the last known catalog snapshot if refresh fails.
+          // Keep the last known catalog snapshot for visual search fallback.
         }
       }
 
       state.catalog = getCatalogSnapshot();
 
       if (state.activeImageAnalysis) {
-        runCombinedSearch(elements.input.value);
+        await runCombinedSearch(elements.input.value);
         return;
       }
 
       if (elements.input.value.trim()) {
-        runTextSearch(elements.input.value);
+        await runTextSearch(elements.input.value, { immediate: true });
         return;
       }
 
       hideResults();
+      showEmptyState();
+      renderRecentSearches();
     }
 
     async function runCombinedSearch(query) {
       const trimmedQuery = String(query || '').trim();
-      const currentRequest = ++state.requestId;
-      const result = await aiApi.matchProductsByImage({
-        analysis: state.activeImageAnalysis,
-        products: state.catalog,
-        query: trimmedQuery,
-        limit: state.catalog.length
-      });
+      const currentRequest = ++state.searchRequestId;
+      hideSuggestions();
+      renderSkeletonGrid();
 
-      if (currentRequest !== state.requestId) {
+      if (!state.activeImageFile) {
+        setVisualStatus('Upload an image to search the live product catalog.', 'error');
         return;
       }
 
-      const labelParts = ['Results for your image'];
-      if (trimmedQuery) {
-        labelParts.push(`Search: ${trimmedQuery}`);
-      }
+      try {
+        const payload = await searchApi.searchByImage(state.activeImageFile, {
+          query: trimmedQuery,
+          analysis: state.activeImageAnalysis,
+          limit: 60
+        });
 
-      showResults(result.results, {
-        title: 'Results for your image',
-        label: labelParts.join(' • '),
-        emptyMessage: trimmedQuery
-          ? `No catalog products matched this image and "${trimmedQuery}".`
-          : 'No similar products were found for this image.'
-      });
+        if (currentRequest !== state.searchRequestId) {
+          return;
+        }
+
+        state.lastRelatedCategories = payload.relatedCategories || [];
+        state.lastSuggestedSearches = payload.suggestedSearches || [];
+
+        const labelParts = ['Visual search results'];
+        if (trimmedQuery) {
+          labelParts.push(`Search: ${trimmedQuery}`);
+        }
+
+        await showResults(mapSearchProducts(payload.products), {
+          title: 'Results for your image',
+          label: labelParts.join(' • '),
+          query: trimmedQuery,
+          emptyMessage: trimmedQuery
+            ? `No live catalog products matched this image and "${trimmedQuery}".`
+            : 'No similar products were found for this image in the live catalog.'
+        });
+
+        setVisualStatus(
+          payload.count
+            ? `Found ${payload.count} live catalog match${payload.count === 1 ? '' : 'es'} for your image.`
+            : 'No live catalog matches were found for this image.',
+          payload.count ? 'ready' : 'error'
+        );
+      } catch (error) {
+        if (currentRequest !== state.searchRequestId) {
+          return;
+        }
+
+        console.error('[Search] VPS visual search failed:', error);
+        setVisualStatus('Visual search failed. Please try another image.', 'error');
+        await showResults([], {
+          title: 'Results for your image',
+          label: trimmedQuery ? `Search: ${trimmedQuery}` : 'Visual search',
+          query: trimmedQuery,
+          emptyMessage: 'Unable to complete visual search right now. Please try again shortly.'
+        });
+      }
     }
 
-    function runTextSearch(query) {
+    async function executeTextSearch(query) {
       const trimmedQuery = String(query || '').trim();
       updateUrl(trimmedQuery);
+      state.activeCategory = DEFAULT_CATEGORY;
 
       if (state.activeImageAnalysis) {
-        return runCombinedSearch(trimmedQuery);
+        await runCombinedSearch(trimmedQuery);
+        return;
       }
 
       if (!trimmedQuery) {
         hideResults();
-        return Promise.resolve();
+        hideSuggestions();
+        showEmptyState();
+        renderRecentSearches();
+        return;
       }
 
-      const results = utils.searchProducts(state.catalog, trimmedQuery);
-      showResults(results, {
-        title: 'Matching products',
-        label: `Search: ${trimmedQuery}`,
-        emptyMessage: `No products found for "${trimmedQuery}".`
-      });
+      const currentRequest = ++state.searchRequestId;
+
+      if (state.searchAbortController) {
+        state.searchAbortController.abort();
+      }
+
+      if (typeof AbortController !== 'undefined') {
+        state.searchAbortController = new AbortController();
+      }
+
+      renderSkeletonGrid();
+
+      try {
+        const payload = await searchApi.searchProducts(trimmedQuery, {
+          category: state.activeCategory === DEFAULT_CATEGORY ? '' : state.activeCategory,
+          limit: 60,
+          signal: state.searchAbortController?.signal
+        });
+
+        if (currentRequest !== state.searchRequestId) {
+          return;
+        }
+
+        state.lastRelatedCategories = payload.relatedCategories || [];
+        state.lastSuggestedSearches = payload.products.length
+          ? []
+          : await searchApi.fetchPopularTerms().catch(() => []);
+        searchApi.rememberRecentSearch(trimmedQuery);
+        renderRecentSearches();
+
+        await showResults(mapSearchProducts(payload.products), {
+          title: 'Matching products',
+          label: `Search: ${trimmedQuery}`,
+          query: trimmedQuery,
+          emptyMessage: `No products found for "${trimmedQuery}".`
+        });
+      } catch (error) {
+        if (error?.name === 'AbortError') {
+          return;
+        }
+        if (currentRequest !== state.searchRequestId) {
+          return;
+        }
+
+        console.error('[Search] Live API search failed:', error);
+        await showResults([], {
+          title: 'Matching products',
+          label: `Search: ${trimmedQuery}`,
+          query: trimmedQuery,
+          emptyMessage: `Unable to search right now. Please try again shortly.`
+        });
+      }
+    }
+
+    function runTextSearch(query, options) {
+      const config = options || {};
+      hideEmptyState();
+
+      if (config.immediate) {
+        window.clearTimeout(state.searchDebounceTimer);
+        return executeTextSearch(query);
+      }
+
+      window.clearTimeout(state.searchDebounceTimer);
+      state.searchDebounceTimer = window.setTimeout(() => {
+        executeTextSearch(query);
+      }, SEARCH_DEBOUNCE_MS);
 
       return Promise.resolve();
     }
@@ -270,9 +763,12 @@
         return;
       }
 
-      const currentRequest = ++state.requestId;
+      const currentRequest = ++state.searchRequestId;
+      hideSuggestions();
+      hideEmptyState();
+      hideDiscovery();
       setVisualPanelVisible(true);
-      setVisualStatus('Preparing image preview...', 'loading');
+      setVisualStatus('Uploading image to BYOSE Market search...', 'loading');
       renderVisualChips(null);
 
       if (elements.imageReset) {
@@ -281,61 +777,118 @@
 
       try {
         const previewUrl = await imageApi.readPreview(file);
-
-        if (currentRequest !== state.requestId) {
+        if (currentRequest !== state.searchRequestId) {
           return;
         }
 
+        state.activeImageFile = file;
         setPreview(previewUrl);
-        setVisualStatus('Analyzing image and matching products...', 'loading');
+        setVisualStatus('Analyzing image and searching the live catalog...', 'loading');
 
-        const analysis = await imageApi.analyzeFile(file);
+        let clientAnalysis = null;
+        try {
+          clientAnalysis = await imageApi.analyzeFile(file);
+        } catch (_analysisError) {
+          clientAnalysis = null;
+        }
 
-        if (currentRequest !== state.requestId) {
+        if (currentRequest !== state.searchRequestId) {
           return;
         }
 
-        state.activeImageAnalysis = analysis;
-
+        state.activeImageAnalysis = clientAnalysis;
         if (elements.imageTitle) {
           elements.imageTitle.textContent = 'Results for your image';
         }
 
-        renderVisualChips(analysis);
-        setVisualStatus(
-          analysis.source === 'ai'
-            ? 'AI analysis complete. Showing the closest matches from the current catalog.'
-            : 'Visual analysis complete. Showing the closest matches from the current catalog.',
-          'ready'
-        );
+        renderVisualChips(clientAnalysis);
+        setVisualStatus('Matching your image against live products on the server...', 'loading');
 
         await runCombinedSearch(elements.input.value);
-      } catch (error) {
-        if (currentRequest !== state.requestId) {
+      } catch (_error) {
+        if (currentRequest !== state.searchRequestId) {
           return;
         }
 
         state.activeImageAnalysis = null;
+        state.activeImageFile = null;
         renderVisualChips(null);
         setVisualStatus('We could not analyze that image. Try another photo.', 'error');
         hideResults();
+        showEmptyState();
       }
     }
 
     elements.form.addEventListener('submit', (event) => {
       event.preventDefault();
-      runTextSearch(elements.input.value);
+      hideSuggestions();
+      runTextSearch(elements.input.value, { immediate: true });
     });
 
     elements.input.addEventListener('input', () => {
+      scheduleSuggestions(elements.input.value);
       runTextSearch(elements.input.value);
     });
 
-    if (elements.imageTrigger && elements.imageInput) {
-      elements.imageTrigger.addEventListener('click', () => {
-        elements.imageInput.click();
-      });
+    elements.input.addEventListener('focus', () => {
+      renderRecentSearches();
+      scheduleSuggestions(elements.input.value);
+    });
 
+    elements.input.addEventListener('blur', () => {
+      window.setTimeout(hideSuggestions, 140);
+    });
+
+    elements.input.addEventListener('keydown', (event) => {
+      if (!state.suggestionsVisible || !elements.suggestions) {
+        return;
+      }
+
+      const suggestionButtons = Array.from(elements.suggestions.querySelectorAll('.search-suggestion'));
+      if (!suggestionButtons.length) {
+        return;
+      }
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        state.activeSuggestionIndex = (state.activeSuggestionIndex + 1) % suggestionButtons.length;
+        fetchAndRenderSuggestions(elements.input.value);
+        return;
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        state.activeSuggestionIndex = state.activeSuggestionIndex <= 0
+          ? suggestionButtons.length - 1
+          : state.activeSuggestionIndex - 1;
+        fetchAndRenderSuggestions(elements.input.value);
+        return;
+      }
+
+      if (event.key === 'Enter' && state.activeSuggestionIndex >= 0) {
+        event.preventDefault();
+        const active = suggestionButtons[state.activeSuggestionIndex];
+        if (active) {
+          elements.input.value = String(active.dataset.label || '').trim();
+          hideSuggestions();
+          runTextSearch(elements.input.value, { immediate: true });
+        }
+      }
+
+      if (event.key === 'Escape') {
+        hideSuggestions();
+      }
+    });
+
+    if (elements.clearRecentSearches) {
+      elements.clearRecentSearches.addEventListener('click', () => {
+        searchApi.clearRecentSearches();
+        renderRecentSearches();
+      });
+    }
+
+    if (elements.imageTrigger && elements.imageInput) {
+      elements.imageTrigger.addEventListener('click', () => elements.imageInput.click());
       elements.imageInput.addEventListener('change', () => {
         const file = elements.imageInput.files && elements.imageInput.files[0];
         runImageSearch(file);
@@ -346,28 +899,28 @@
       elements.imageReset.addEventListener('click', resetVisualSearch);
     }
 
-    const syncEvents = [
+    [
       'byose:products-synchronized',
       'byose:products-changed',
       'byose:storefront-products-updated'
-    ];
-
-    syncEvents.forEach((eventName) => {
+    ].forEach((eventName) => {
       window.addEventListener(eventName, refreshCatalog);
     });
 
+    await loadPopularSearches();
+    renderRecentSearches();
     await refreshCatalog();
 
     const initialQuery = new URLSearchParams(window.location.search).get('q') || '';
-
     if (initialQuery.trim()) {
       elements.input.value = initialQuery;
-      runTextSearch(initialQuery);
+      await runTextSearch(initialQuery, { immediate: true });
       return;
     }
 
     hideResults();
+    showEmptyState();
     setVisualPanelVisible(false);
-    setVisualStatus('Upload an image to search the existing product catalog.', 'idle');
+    setVisualStatus('Upload an image to search the live product catalog.', 'idle');
   });
 })();

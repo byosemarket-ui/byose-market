@@ -10,6 +10,12 @@ const baseUrl = String(process.argv[2] || "http://127.0.0.1:5000").replace(/\/+$
 const ROUTES = [
   { method: "GET", path: "/healthz", expect: [200] },
   { method: "GET", path: "/api/products?limit=1", expect: [200, 503] },
+  { method: "GET", path: "/api/products/search?q=inkweto&limit=5", expect: [200, 503] },
+  { method: "GET", path: "/api/products/search?q=shose&limit=5", expect: [200, 503] },
+  { method: "GET", path: "/api/products/search?q=samsng&limit=5", expect: [200, 503] },
+  { method: "GET", path: "/api/products/search/suggestions?q=sho&limit=5", expect: [200, 503] },
+  { method: "GET", path: "/api/products/search/popular", expect: [200, 503] },
+  { method: "POST", path: "/api/products/search/visual", expect: [400, 503] },
   { method: "GET", path: "/api/admin/dashboard", expect: [401, 403] },
   { method: "GET", path: "/api/admin/orders", expect: [401, 403] },
   { method: "GET", path: "/api/admin/customers", expect: [401, 403] },
