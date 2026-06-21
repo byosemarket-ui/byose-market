@@ -1,15 +1,15 @@
-export const DRAFT_STORAGE_KEY = "byose-admin-product-wizard-v3";
+export const DRAFT_STORAGE_KEY = "byose-admin-product-wizard-v4";
 export const FALLBACK_IMAGE = "../img/logo.png";
 export const DETAIL_PAGE_PATH = "../product-details1.html";
 
 export const CATEGORY_OPTIONS = [
-  "fashion",
-  "electronics",
-  "shoes",
-  "bags",
-  "watches",
-  "phones",
-  "general"
+  { value: "fashion", labelRw: "Imyenda", labelEn: "Fashion & Clothing" },
+  { value: "shoes", labelRw: "Inkweto", labelEn: "Shoes" },
+  { value: "phones", labelRw: "Telefoni", labelEn: "Phones" },
+  { value: "electronics", labelRw: "Ibikoresho bya elegitoroniki", labelEn: "Electronics" },
+  { value: "bags", labelRw: "Agafuka", labelEn: "Bags" },
+  { value: "watches", labelRw: "Amaso y'igihe", labelEn: "Watches" },
+  { value: "general", labelRw: "Ibindi", labelEn: "General" }
 ];
 
 export const SIZE_PRESETS = {
@@ -19,39 +19,46 @@ export const SIZE_PRESETS = {
 };
 
 export const STOCK_STATUS_OPTIONS = [
-  { value: "in_stock", label: "In Stock" },
-  { value: "limited_stock", label: "Limited Stock" },
-  { value: "low_stock", label: "Low Stock" },
-  { value: "out_of_stock", label: "Out of Stock" }
+  { value: "in_stock", labelRw: "Ihari", labelEn: "In Stock" },
+  { value: "limited_stock", labelRw: "Stock Nto", labelEn: "Limited Stock" },
+  { value: "low_stock", labelRw: "Stock Nkeya", labelEn: "Low Stock" },
+  { value: "out_of_stock", labelRw: "Byarangiye", labelEn: "Out of Stock" }
 ];
 
 export const WIZARD_STEPS = [
-  { id: "info", label: "Product Info", short: "Info" },
-  { id: "pricing", label: "Pricing", short: "Price" },
-  { id: "inventory", label: "Inventory", short: "Stock" },
-  { id: "media", label: "Media", short: "Media" },
-  { id: "seo", label: "SEO", short: "SEO" },
-  { id: "review", label: "Review", short: "Review" }
+  { id: "info", labelRw: "Amakuru y'ibanze", labelEn: "Basic Information", shortRw: "Amakuru", shortEn: "Basic" },
+  { id: "pricing", labelRw: "Ibiciro", labelEn: "Pricing", shortRw: "Igiciro", shortEn: "Price" },
+  { id: "inventory", labelRw: "Ububiko", labelEn: "Inventory", shortRw: "Stock", shortEn: "Stock" },
+  { id: "description", labelRw: "Ibisobanuro", labelEn: "Description", shortRw: "Desc", shortEn: "Desc" },
+  { id: "media", labelRw: "Amafoto", labelEn: "Media", shortRw: "Media", shortEn: "Media" },
+  { id: "publish", labelRw: "Gusohora", labelEn: "Publishing", shortRw: "Gusohora", shortEn: "Publish" },
+  { id: "review", labelRw: "Gusuzuma", labelEn: "Review", shortRw: "Review", shortEn: "Review" }
 ];
 
 export const VISIBILITY_OPTIONS = [
-  { value: "both", label: "Homepage & Shop", labelRw: "Homepage na Shop", labelEn: "Homepage & Shop" },
-  { value: "home", label: "Homepage Only", labelRw: "Homepage gusa", labelEn: "Homepage Only" },
-  { value: "shop", label: "Shop Only", labelRw: "Shop gusa", labelEn: "Shop Only" }
+  { value: "both", labelRw: "Homepage na Shop", labelEn: "Homepage & Shop" },
+  { value: "home", labelRw: "Homepage Gusa", labelEn: "Homepage Only" },
+  { value: "shop", labelRw: "Shop Gusa", labelEn: "Shop Only" }
 ];
 
 export const PRODUCT_TYPE_OPTIONS = [
-  { value: "simple", labelRw: "Product yoroshye", labelEn: "Simple Product" },
-  { value: "variable", labelRw: "Product ifite amahitamo", labelEn: "Variable Product" },
-  { value: "digital", labelRw: "Product ya digital", labelEn: "Digital Product" },
+  { value: "simple", labelRw: "Yoroshye", labelEn: "Simple Product" },
+  { value: "variable", labelRw: "Ifite Amahitamo", labelEn: "Variable Product" },
+  { value: "digital", labelRw: "ya Digital", labelEn: "Digital Product" },
   { value: "service", labelRw: "Serivisi", labelEn: "Service" },
-  { value: "bundle", labelRw: "Product zifatanyijwe", labelEn: "Bundle Product" }
+  { value: "bundle", labelRw: "Zifatanyijwe", labelEn: "Bundle Product" }
 ];
 
 export const PRODUCT_CONDITION_OPTIONS = [
   { value: "new", labelRw: "Nshya", labelEn: "New" },
   { value: "used", labelRw: "Yakoreshejwe", labelEn: "Used" },
-  { value: "refurbished", labelRw: "Yongeye gukorwa", labelEn: "Refurbished" }
+  { value: "refurbished", labelRw: "Yongeye Gukorwa", labelEn: "Refurbished" }
+];
+
+export const PRODUCT_STATUS_OPTIONS = [
+  { value: "active", labelRw: "Iracyakoreshwa", labelEn: "Active" },
+  { value: "draft", labelRw: "Igitekerezo", labelEn: "Draft" },
+  { value: "inactive", labelRw: "Iraboneka Gusa", labelEn: "Inactive" }
 ];
 
 export const COUNTRY_OF_ORIGIN_OPTIONS = [
@@ -67,50 +74,16 @@ export const COUNTRY_OF_ORIGIN_OPTIONS = [
 ];
 
 export const WARRANTY_OPTIONS = [
-  { value: "none", labelRw: "Nta garanti", labelEn: "No Warranty" },
+  { value: "none", labelRw: "Nta Garanti", labelEn: "No Warranty" },
   { value: "1_month", labelRw: "Ukwezi 1", labelEn: "1 Month" },
   { value: "3_months", labelRw: "Amezi 3", labelEn: "3 Months" },
   { value: "6_months", labelRw: "Amezi 6", labelEn: "6 Months" },
   { value: "1_year", labelRw: "Umwaka 1", labelEn: "1 Year" },
-  { value: "custom", labelRw: "Indi garanti", labelEn: "Custom" }
-];
-
-export const PLACEMENT_OPTIONS = [
-  { value: "all", labelRw: "Ahantu hose", labelEn: "All Locations" },
-  { value: "homepage", labelRw: "Homepage", labelEn: "Homepage" },
-  { value: "shop", labelRw: "Shop Page", labelEn: "Shop Page" },
-  { value: "featured", labelRw: "Featured Products", labelEn: "Featured Products" },
-  { value: "best_sellers", labelRw: "Best Sellers", labelEn: "Best Sellers" },
-  { value: "fresh_picks", labelRw: "Fresh Picks", labelEn: "Fresh Picks" },
-  { value: "new_arrivals", labelRw: "New Arrivals", labelEn: "New Arrivals" },
-  { value: "recommended", labelRw: "Recommended Products", labelEn: "Recommended Products" },
-  { value: "flash_deals", labelRw: "Flash Deals", labelEn: "Flash Deals" }
-];
-
-export const POSITION_MODE_OPTIONS = [
-  { value: "automatic", labelRw: "Automatic", labelEn: "Automatic" },
-  { value: "top", labelRw: "Hejuru / Top", labelEn: "Top" },
-  { value: "middle", labelRw: "Hagati / Middle", labelEn: "Middle" },
-  { value: "bottom", labelRw: "Hasi / Bottom", labelEn: "Bottom" }
-];
-
-export const FEATURED_FLAG_OPTIONS = [
-  { value: "featuredHomepage", labelRw: "Garagaza kuri Homepage", labelEn: "Show on Homepage" },
-  { value: "featuredProducts", labelRw: "Garagaza mu Featured Products", labelEn: "Show in Featured Products" },
-  { value: "featuredBestSellers", labelRw: "Garagaza mu Best Sellers", labelEn: "Show in Best Sellers" },
-  { value: "featuredFreshPicks", labelRw: "Garagaza mu Fresh Picks", labelEn: "Show in Fresh Picks" }
+  { value: "custom", labelRw: "Indi Garanti", labelEn: "Custom Warranty" }
 ];
 
 export const CURRENCY_OPTIONS = [
   { value: "RWF", labelRw: "RWF", labelEn: "RWF (Rwandan Franc)" },
   { value: "USD", labelRw: "USD", labelEn: "USD (US Dollar)" },
   { value: "EUR", labelRw: "EUR", labelEn: "EUR (Euro)" }
-];
-
-export const SEO_SEARCH_VISIBILITY_OPTIONS = [
-  { value: "homepage_shop", labelRw: "Homepage + Shop", labelEn: "Homepage + Shop" },
-  { value: "shop_only", labelRw: "Shop gusa", labelEn: "Shop Only" },
-  { value: "search_only", labelRw: "Gushakisha gusa", labelEn: "Search Only" },
-  { value: "featured", labelRw: "Featured Products", labelEn: "Featured Products" },
-  { value: "hidden", labelRw: "Bihishe", labelEn: "Hidden" }
 ];

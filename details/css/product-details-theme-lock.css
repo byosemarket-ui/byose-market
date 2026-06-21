@@ -1,0 +1,157 @@
+/**
+ * Product Details — fixed light brand theme.
+ * Ignores device, browser, and OS dark/light mode preferences.
+ */
+
+html.details-theme-lock {
+  color-scheme: light only;
+  forced-color-adjust: none;
+
+  --home-bg: #f4fbf9;
+  --home-surface: #ffffff;
+  --home-surface-strong: #e8faf5;
+  --home-text: #122127;
+  --home-muted: #5f7078;
+  --home-border: rgba(18, 33, 39, 0.08);
+  --home-primary: #00b894;
+  --home-primary-deep: #00997c;
+  --home-accent: #f1fffb;
+  --home-shadow: 0 18px 40px rgba(0, 71, 57, 0.08);
+  --home-shadow-soft: 0 10px 24px rgba(9, 32, 28, 0.06);
+
+  --text-primary: #122127;
+  --text-secondary: #5f7078;
+  --bg-soft: rgba(255, 255, 255, 0.95);
+  --border-light: rgba(18, 33, 39, 0.08);
+  --gradient-soft: linear-gradient(135deg, rgba(0, 184, 148, 0.04), transparent 32%);
+  --primary-light: rgba(0, 184, 148, 0.08);
+  --primary: #00b894;
+  --primary-dark: #00997c;
+
+  --gallery-accent: #00b894;
+  --gallery-accent-soft: rgba(0, 184, 148, 0.14);
+  --gallery-ink: #102221;
+  --gallery-shell: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(240, 249, 246, 0.94));
+}
+
+html.details-theme-lock body.details-page {
+  color-scheme: light only;
+  forced-color-adjust: none;
+  color: #122127 !important;
+  background:
+    radial-gradient(circle at top left, rgba(0, 184, 148, 0.14), transparent 28%),
+    linear-gradient(180deg, #f8fffd 0%, #f4fbf9 48%, #eef7f4 100%) !important;
+}
+
+html.details-theme-lock body.details-page.light-theme,
+html.details-theme-lock body.details-page.dark-theme,
+html.details-theme-lock body.details-page.gradient-theme {
+  color: #122127 !important;
+  background:
+    radial-gradient(circle at top left, rgba(0, 184, 148, 0.14), transparent 28%),
+    linear-gradient(180deg, #f8fffd 0%, #f4fbf9 48%, #eef7f4 100%) !important;
+}
+
+html.details-theme-lock .main-header {
+  background: rgba(248, 255, 253, 0.88) !important;
+  border-bottom-color: rgba(18, 33, 39, 0.06) !important;
+}
+
+html.details-theme-lock .main-header.is-scrolled {
+  background: rgba(248, 255, 253, 0.96) !important;
+  box-shadow: 0 10px 30px rgba(13, 41, 35, 0.08) !important;
+}
+
+html.details-theme-lock .details-panel {
+  border-color: rgba(18, 33, 39, 0.08) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.92)),
+    linear-gradient(135deg, rgba(0, 184, 148, 0.04), transparent 32%) !important;
+  box-shadow: 0 8px 24px rgba(7, 33, 29, 0.06) !important;
+}
+
+html.details-theme-lock .accordion-item {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-color: rgba(18, 33, 39, 0.08) !important;
+}
+
+html.details-theme-lock .accordion-panel {
+  background: linear-gradient(180deg, rgba(0, 184, 148, 0.03), transparent) !important;
+  border-top-color: rgba(18, 33, 39, 0.08) !important;
+}
+
+html.details-theme-lock .spec-item,
+html.details-theme-lock .purchase-card,
+html.details-theme-lock .quantity-stepper,
+html.details-theme-lock .product-price-block {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-color: rgba(18, 33, 39, 0.08) !important;
+}
+
+html.details-theme-lock .purchase-card {
+  background: rgba(0, 184, 148, 0.02) !important;
+}
+
+html.details-theme-lock .product-price-block {
+  background: linear-gradient(135deg, rgba(0, 184, 148, 0.08), rgba(0, 184, 148, 0.02)) !important;
+}
+
+html.details-theme-lock .gallery-stage-shell,
+html.details-theme-lock .gallery-stage {
+  background:
+    radial-gradient(circle at top left, rgba(0, 184, 148, 0.16), transparent 28%),
+    linear-gradient(180deg, rgba(246, 251, 249, 0.9), rgba(233, 244, 240, 0.9)) !important;
+}
+
+html.details-theme-lock .details-bottom-bar__shell {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 251, 250, 0.95)),
+    linear-gradient(120deg, rgba(0, 184, 148, 0.08), rgba(255, 255, 255, 0)) !important;
+  border-top-color: rgba(255, 255, 255, 0.7) !important;
+}
+
+html.details-theme-lock .details-bottom-bar__icon-link {
+  background: linear-gradient(180deg, rgba(246, 249, 248, 0.96), rgba(236, 243, 241, 0.9)) !important;
+  color: #18352f !important;
+}
+
+html.details-theme-lock .card-surface,
+html.details-theme-lock .product-card,
+html.details-theme-lock .storefront-footer {
+  background: #ffffff !important;
+  color: #122127 !important;
+}
+
+html.details-theme-lock input,
+html.details-theme-lock select,
+html.details-theme-lock textarea,
+html.details-theme-lock button {
+  color-scheme: light only;
+}
+
+@media (prefers-color-scheme: dark),
+       (prefers-color-scheme: light) {
+  html.details-theme-lock {
+    color-scheme: light only;
+
+    --home-bg: #f4fbf9;
+    --home-surface: #ffffff;
+    --home-text: #122127;
+    --home-muted: #5f7078;
+    --home-border: rgba(18, 33, 39, 0.08);
+    --text-primary: #122127;
+    --text-secondary: #5f7078;
+    --bg-soft: rgba(255, 255, 255, 0.95);
+    --border-light: rgba(18, 33, 39, 0.08);
+    --gradient-soft: linear-gradient(135deg, rgba(0, 184, 148, 0.04), transparent 32%);
+    --primary-light: rgba(0, 184, 148, 0.08);
+  }
+
+  html.details-theme-lock body.details-page {
+    color-scheme: light only;
+    color: #122127 !important;
+    background:
+      radial-gradient(circle at top left, rgba(0, 184, 148, 0.14), transparent 28%),
+      linear-gradient(180deg, #f8fffd 0%, #f4fbf9 48%, #eef7f4 100%) !important;
+  }
+}

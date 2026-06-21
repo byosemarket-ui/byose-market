@@ -1,26 +1,76 @@
 import { slugify, toNumber, sanitizePersistedGallery, isPersistableAssetUrl, normalizeStoragePath } from "./utils.js";
 import { parseTagsInput } from "./draft.js";
 
-function resolveInfoPriority(info = {}) {
-  const mode = String(info.positionMode || "automatic").toLowerCase();
-  if (mode === "top") return 100;
-  if (mode === "middle") return 50;
-  if (mode === "bottom") return 10;
-  return Math.max(0, Math.min(100, Math.floor(toNumber(info.priorityScore, 50))));
+function toLabel(value) {
+  return String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function buildSeoMetadata(seo = {}) {
+function buildAutoKeywords(info = {}, description = {}) {
+  const tags = parseTagsInput(info.tags);
+  const highlights = parseTagsInput(info.highlights);
+  const parts = [
+    info.name,
+    info.shortName,
+    info.brand,
+    info.manufacturer,
+    info.category,
+    description.shortDescription,
+    ...tags,
+    ...highlights
+  ];
+  return [...new Set(
+    parts
+      .flatMap((entry) => String(entry || "").split(/[\s,;/]+/))
+      .map((entry) => entry.trim().toLowerCase())
+      .filter((entry) => entry.length > 2)
+  )];
+}
+
+function buildAutoSeo(info = {}, description = {}, brand = "") {
+  const name = String(info.name || "").trim();
+  const category = toLabel(info.category || "general");
+  const shortDesc = String(description.shortDescription || description.longDescription || "").trim();
+  const metaTitle = `${brand ? `${brand} | ` : ""}${name}${category ? ` | ${category}` : ""} | BYOSE Market`
+    .replace(/\s+\|\s+\|/g, " | ")
+    .trim()
+    .slice(0, 80);
+  const metaDescription = (shortDesc || `${name}${brand ? ` by ${brand}` : ""}. Shop on BYOSE Market.`).slice(0, 160);
   return {
-    focusKeywordRw: String(seo.focusKeywordRw || "").trim(),
-    focusKeywordEn: String(seo.focusKeywordEn || "").trim(),
-    searchVisibility: String(seo.searchVisibility || "homepage_shop"),
-    slugManual: Boolean(seo.slugManual)
+    metaTitle,
+    metaDescription,
+    slug: slugify(name)
   };
 }
 
-function buildInfoMetadata(info = {}) {
+function resolveAutoPriority(info = {}) {
+  if (Boolean(info.featuredProduct)) {
+    return 75;
+  }
+  return 50;
+}
+
+function resolveAutoPlacement(info = {}) {
+  const visibility = String(info.visibility || "both").toLowerCase();
+  const placement = ["all"];
+  if (Boolean(info.featuredProduct)) {
+    placement.push("featured", "homepage");
+  }
+  if (visibility === "home" || visibility === "both") {
+    placement.push("homepage");
+  }
+  if (visibility === "shop" || visibility === "both") {
+    placement.push("shop");
+  }
+  return [...new Set(placement)];
+}
+
+function buildInfoMetadata(info = {}, description = {}) {
   const highlights = parseTagsInput(info.highlights);
-  const placement = Array.isArray(info.placement) ? info.placement : parseTagsInput(info.placement);
+  const searchKeywords = buildAutoKeywords(info, description);
+  const featured = Boolean(info.featuredProduct);
+  const priorityScore = resolveAutoPriority(info);
 
   return {
     shortName: String(info.shortName || "").trim(),
@@ -28,19 +78,21 @@ function buildInfoMetadata(info = {}) {
     condition: String(info.condition || "new"),
     manufacturer: String(info.manufacturer || "").trim(),
     countryOfOrigin: String(info.countryOfOrigin || "").trim(),
-    searchKeywords: parseTagsInput(info.searchKeywords),
+    searchKeywords,
     highlights,
     warranty: String(info.warranty || "none"),
     warrantyCustom: String(info.warrantyCustom || "").trim(),
-    featuredHomepage: Boolean(info.featuredHomepage),
-    featuredProducts: Boolean(info.featuredProducts),
-    featuredBestSellers: Boolean(info.featuredBestSellers),
-    featuredFreshPicks: Boolean(info.featuredFreshPicks),
-    placement,
-    positionMode: String(info.positionMode || "automatic"),
-    priorityScore: resolveInfoPriority(info),
-    shortDescription: String(info.shortDescription || "").trim(),
-    longDescription: String(info.longDescription || info.description || "").trim()
+    featuredProduct: featured,
+    featuredHomepage: featured,
+    featuredProducts: featured,
+    featuredBestSellers: false,
+    featuredFreshPicks: false,
+    placement: resolveAutoPlacement(info),
+    positionMode: "automatic",
+    priorityScore,
+    publishStatus: String(info.publishStatus || "active"),
+    shortDescription: String(description.shortDescription || "").trim(),
+    longDescription: String(description.longDescription || description.description || "").trim()
   };
 }
 
@@ -137,20 +189,30 @@ function buildVariantFoundation(attributes = []) {
 export function buildProductPayload(draft, assetOverrides = {}) {
   const safeDraft = draft && typeof draft === "object" ? draft : {};
   const info = safeDraft.info || {};
+  const description = safeDraft.description || {};
   const pricing = safeDraft.pricing || {};
   const inventory = safeDraft.inventory || {};
   const media = safeDraft.media || {};
-  const seo = safeDraft.seo || {};
+  const seoInput = safeDraft.seo || {};
 
   const sellingPrice = toNumber(pricing.sellingPrice, 0);
   const discountPrice = toNumber(pricing.discountPrice, 0);
   const oldPrice = discountPrice > sellingPrice ? discountPrice : 0;
   const tags = parseTagsInput(info.tags);
-  const searchKeywords = parseTagsInput(info.searchKeywords);
-  const keywords = [...new Set([...tags, ...searchKeywords])];
-  const infoMetadata = buildInfoMetadata(info);
-  const seoMetadata = buildSeoMetadata(seo);
-  const slug = slugify(seo.slug || info.name);
+  const autoSeo = buildAutoSeo(info, description, info.brand);
+  const infoMetadata = buildInfoMetadata(info, description);
+  const keywords = [...new Set([...tags, ...infoMetadata.searchKeywords])];
+  const slug = slugify(seoInput.slug || autoSeo.slug || info.name);
+  const metaTitle = String(seoInput.metaTitle || autoSeo.metaTitle || info.name || "").trim();
+  const metaDescription = String(
+    seoInput.metaDescription
+    || autoSeo.metaDescription
+    || description.shortDescription
+    || description.longDescription
+    || ""
+  ).trim();
+  const priorityScore = infoMetadata.priorityScore;
+
   const persistedGallery = sanitizePersistedGallery(
     assetOverrides.gallery || media.gallery || [],
     assetOverrides.galleryStoragePaths || media.galleryStoragePaths || []
@@ -188,16 +250,20 @@ export function buildProductPayload(draft, assetOverrides = {}) {
       : totalStock <= 20
         ? "limited_stock"
         : "in_stock";
-  const status = stockStatus === "out_of_stock" ? "inactive" : "active";
+
+  const publishStatus = String(info.publishStatus || "active").toLowerCase();
+  const status = publishStatus === "inactive" || stockStatus === "out_of_stock"
+    ? "inactive"
+    : (publishStatus === "draft" ? "draft" : "active");
 
   return {
     name: String(info.name || "").trim(),
     title: String(info.shortName || info.name || "").trim() || String(info.name || "").trim(),
-    description: String(info.longDescription || info.description || "").trim(),
-    shortDescription: String(info.shortDescription || info.longDescription || info.description || "").trim(),
+    description: String(description.longDescription || description.description || "").trim(),
+    shortDescription: String(description.shortDescription || description.longDescription || description.description || "").trim(),
     category: String(info.category || "general").toLowerCase(),
     brand: String(info.brand || "").trim(),
-    sku: String(info.sku || "").trim(),
+    sku: String(inventory.sku || "").trim(),
     tags,
     keywords,
     highlights: infoMetadata.highlights,
@@ -215,8 +281,8 @@ export function buildProductPayload(draft, assetOverrides = {}) {
     imageStoragePath: mainImageStoragePath,
     gallery,
     galleryStoragePaths,
-    metaTitle: String(seo.metaTitle || info.name || "").trim(),
-    metaDescription: String(seo.metaDescription || info.shortDescription || info.longDescription || info.description || "").trim(),
+    metaTitle,
+    metaDescription,
     slug,
     attributes,
     variants: {
@@ -224,14 +290,14 @@ export function buildProductPayload(draft, assetOverrides = {}) {
       items: variantItems
     },
     badge: String(info.brand || "").trim(),
-    priority: resolveInfoPriority(info),
-    orderIndex: resolveInfoPriority(info) * 2,
+    priority: priorityScore,
+    orderIndex: priorityScore * 2,
     metadata: {
       ...infoMetadata,
-      ...seoMetadata,
       inventoryAttributes: inventory.attributes && typeof inventory.attributes === "object" ? inventory.attributes : {},
       customSizes: Array.isArray(inventory.customSizes) ? inventory.customSizes : [],
-      variantStockTotal: totalStock
+      variantStockTotal: totalStock,
+      seoAutoGenerated: true
     }
   };
 }
@@ -240,70 +306,65 @@ export function validateStep(step, draft, options = {}) {
   const hasPendingMainImage = Boolean(options.hasPendingMainImage);
   const errors = [];
   const info = draft?.info || {};
+  const description = draft?.description || {};
   const pricing = draft?.pricing || {};
   const inventory = draft?.inventory || {};
   const media = draft?.media || {};
-  const seo = draft?.seo || {};
 
   if (step === "info") {
     if (!String(info.name || "").trim()) {
-      errors.push("Product name is required.");
+      errors.push("Izina rya product rirakenewe / Product name is required.");
     }
     if (!String(info.category || "").trim()) {
-      errors.push("Category is required.");
+      errors.push("Icyiciro kirakenewe / Category is required.");
     }
     if (String(info.warranty || "") === "custom" && !String(info.warrantyCustom || "").trim()) {
-      errors.push("Enter custom warranty details.");
+      errors.push("Andika garanti yihariye / Enter custom warranty details.");
     }
   }
 
   if (step === "pricing") {
     if (!String(pricing.sellingPrice || "").trim() || toNumber(pricing.sellingPrice, 0) <= 0) {
-      errors.push("Selling price must be greater than zero.");
+      errors.push("Igiciro cyo kugurisha kirakenewe / Selling price must be greater than zero.");
     }
     const discount = toNumber(pricing.discountPrice, 0);
     const selling = toNumber(pricing.sellingPrice, 0);
     if (discount > 0 && discount <= selling) {
-      errors.push("Discount price must be higher than the selling price to show as a strike-through.");
+      errors.push("Igiciro cyo kugabanywa kigomba kuba kinini kurusha igiciro cyo kugurisha / Discount price must be higher than selling price.");
     }
   }
 
   if (step === "inventory") {
     if (toNumber(inventory.quantity, 0) < 0) {
-      errors.push("Quantity cannot be negative.");
+      errors.push("Umubare wa stock ntushobora kuba uciriritse / Quantity cannot be negative.");
     }
     if (inventory.variantsEnabled && (!Array.isArray(inventory.variants) || !inventory.variants.length)) {
-      errors.push("Add at least one product variant.");
+      errors.push("Ongeramo nibura variant imwe / Add at least one product variant.");
     }
     if (Array.isArray(inventory.variants)) {
       const invalidVariant = inventory.variants.some((entry) => !String(entry?.label || "").trim());
       if (invalidVariant) {
-        errors.push("Each variant must have a label.");
+        errors.push("Buri variant igomba kugira izina / Each variant must have a label.");
       }
+    }
+  }
+
+  if (step === "description") {
+    if (!String(description.shortDescription || "").trim()) {
+      errors.push("Ibisobanuro bigufi birakenewe / Short description is required.");
     }
   }
 
   if (step === "media") {
     const hasPersistedMainImage = Boolean(String(media.mainImage || "").trim());
     if (!hasPendingMainImage && !hasPersistedMainImage) {
-      errors.push("Main product image is required.");
+      errors.push("Ifoto nyamukuru irakenewe / Main product image is required.");
     }
   }
 
-  if (step === "seo") {
-    if (!String(seo.metaTitle || info.name || "").trim()) {
-      errors.push("Meta title is required.");
-    }
-    if (!String(seo.slug || slugify(info.name)).trim()) {
-      errors.push("Product slug is required.");
-    }
-    const titleLength = String(seo.metaTitle || info.name || "").trim().length;
-    if (titleLength > 60) {
-      errors.push("Meta title should be 60 characters or fewer.");
-    }
-    const descLength = String(seo.metaDescription || "").trim().length;
-    if (descLength > 160) {
-      errors.push("Meta description should be 160 characters or fewer.");
+  if (step === "publish") {
+    if (!["active", "draft", "inactive"].includes(String(info.publishStatus || "active").toLowerCase())) {
+      errors.push("Hitamo imiterere ya product / Select a product status.");
     }
   }
 
@@ -311,8 +372,9 @@ export function validateStep(step, draft, options = {}) {
     errors.push(...validateStep("info", draft, options));
     errors.push(...validateStep("pricing", draft, options));
     errors.push(...validateStep("inventory", draft, options));
+    errors.push(...validateStep("description", draft, options));
     errors.push(...validateStep("media", draft, options));
-    errors.push(...validateStep("seo", draft, options));
+    errors.push(...validateStep("publish", draft, options));
   }
 
   return Array.from(new Set(errors));
@@ -321,3 +383,5 @@ export function validateStep(step, draft, options = {}) {
 export function validateAllSteps(draft, options = {}) {
   return validateStep("review", draft, options);
 }
+
+export { buildAutoSeo, buildAutoKeywords };

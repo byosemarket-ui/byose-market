@@ -58,7 +58,7 @@ export function getProductsView() {
 
 export function getWizardStep(fallback = "info") {
   const step = String(parseHashParams().get("step") || fallback).trim().toLowerCase();
-  const valid = ["info", "pricing", "inventory", "media", "seo", "review"];
+  const valid = ["info", "pricing", "inventory", "description", "media", "publish", "review"];
   return valid.includes(step) ? step : fallback;
 }
 

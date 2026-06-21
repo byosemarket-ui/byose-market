@@ -1460,3 +1460,33 @@
     grid-template-columns: 1fr;
   }
 }
+
+.pm-auto-note {
+  margin-top: 20px;
+  padding: 18px 20px;
+  border: 1px solid rgba(0, 184, 148, 0.14);
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(0, 184, 148, 0.06), rgba(255, 255, 255, 0.96));
+}
+
+.pm-auto-note h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.pm-auto-note p {
+  margin: 0 0 12px;
+  color: #5f7078;
+  line-height: 1.5;
+}
+
+.pm-check-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.pm-review-dl--compact {
+  margin-top: 8px;
+}

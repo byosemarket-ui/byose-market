@@ -1,8 +1,15 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="details-theme-lock">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light only">
+  <meta name="supported-color-schemes" content="light">
+  <meta name="theme-color" content="#f4fbf9">
+  <style id="details-theme-lock-critical">
+    html.details-theme-lock { color-scheme: light only; }
+    html.details-theme-lock body.details-page { background: #f4fbf9; color: #122127; }
+  </style>
   <title>Product Details | Byose Market</title>
   <meta name="description" content="Explore product details, gallery, specifications, and related products on Byose Market.">
   <link rel="icon" href="../img/logo.png" type="image/png">
@@ -19,6 +26,7 @@
     <link rel="stylesheet" href="./gallery.css">
     <link rel="stylesheet" href="./css/product-modal.css">
     <link rel="stylesheet" href="./bottom-bar.css">
+    <link rel="stylesheet" href="./css/product-details-theme-lock.css">
   <script src="../config/runtime-api-bootstrap.js"></script>
 </head>
 <body class="home-page details-page">
