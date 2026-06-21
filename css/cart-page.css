@@ -18,6 +18,18 @@ body.cart-page {
   background: linear-gradient(180deg, #f8fffd 0%, var(--cart-bg) 100%);
 }
 
+body.cart-page .header-search,
+body.cart-page .header-search-mobile-redirect,
+body.cart-page .header-search-hover,
+body.cart-page .header-search-preview,
+body.cart-page .header-search-toggle {
+  display: none !important;
+}
+
+body.cart-page .header-shell.search-open .header-search-preview {
+  display: none !important;
+}
+
 .cart-page__main {
   padding: 12px 0 24px;
 }

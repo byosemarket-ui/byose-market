@@ -319,7 +319,7 @@ window.Util = Util;
     return;
   }
 
-  const PRODUCTION_API_ORIGIN = 'https://byosesemarket4.onrender.com';
+  const PRODUCTION_API_ORIGIN = 'https://byosemarket.com/api';
   const STOREFRONT_KEYS = {
     byose_market_cart_v1: 'cartItems',
     byose_direct_checkout: 'directCheckout',

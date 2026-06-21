@@ -230,11 +230,13 @@ function bindLogin() {
             : phoneInput.value.trim();
 
         const password = passwordInputLogin.value;
+        const rememberMe = document.getElementById('rememberMe');
+        const remember = rememberMe ? rememberMe.checked : true;
 
         setLoadingState(true);
 
         try {
-            const res = await authService.loginByIdentifier(identifier, password);
+            const res = await authService.loginByIdentifier(identifier, password, { remember });
 
             if (!res || !res.success) {
                 const err = res && res.error;
@@ -247,6 +249,8 @@ function bindLogin() {
                 } else if (err === 'invalid_password') {
                     setFieldState(passwordInputLogin, 'error', 'Password wanditse si yo.');
                     showError('Password si yo. Ongera ugerageze.');
+                } else if (err === 'account_locked') {
+                    showError('Wagerageje inshuro nyinshi. Gerageza nyuma gato.');
                 } else if (err === 'empty_identifier') {
                     setFieldState(isEmailMode() ? emailInput : phoneInput, 'error', 'Andika email cyangwa telefone mbere yo gukomeza.');
                     showError('Andika email cyangwa telefone mbere yo gukomeza.');

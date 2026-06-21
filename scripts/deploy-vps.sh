@@ -112,9 +112,14 @@ sync_storefront_static() {
     contact.html
     login.html
     signup.html
+    forgot-password.html
+    verify-code.html
+    reset-password.html
     product-details1.html
     shop.css
     mobile-nav.css
+    contact.css
+    contact-desktop.css
     index.js
     script.js
     shop.js
@@ -131,6 +136,12 @@ sync_storefront_static() {
   for file in "${files[@]}"; do
     if [[ -f "${DEPLOY_DIR}/${file}" ]]; then
       cp -f "${DEPLOY_DIR}/${file}" "${WEB_ROOT}/${file}"
+    fi
+  done
+
+  for file in "${DEPLOY_DIR}"/*.css; do
+    if [[ -f "${file}" ]]; then
+      cp -f "${file}" "${WEB_ROOT}/$(basename "${file}")"
     fi
   done
 

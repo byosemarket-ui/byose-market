@@ -8,7 +8,16 @@ const https = require("https");
 const baseUrl = String(process.argv[2] || "http://127.0.0.1:5000").replace(/\/+$/, "");
 
 const ROUTES = [
-  { method: "GET", path: "/healthz", expect: [200] },
+  { method: "GET", path: "/contact.css", expect: [200] },
+  { method: "GET", path: "/contact-desktop.css", expect: [200] },
+  { method: "GET", path: "/contact.html", expect: [200] },
+  { method: "GET", path: "/auth-modern.css", expect: [200] },
+  { method: "GET", path: "/login-desktop.css", expect: [200] },
+  { method: "GET", path: "/auth-mobile.css", expect: [200] },
+  { method: "GET", path: "/signup-desktop.css", expect: [200] },
+  { method: "GET", path: "/signup-mobile.css", expect: [200] },
+  { method: "GET", path: "/login.html", expect: [200] },
+  { method: "GET", path: "/signup.html", expect: [200] },
   { method: "GET", path: "/api/products?limit=1", expect: [200, 503] },
   { method: "GET", path: "/api/products/search?q=inkweto&limit=5", expect: [200, 503] },
   { method: "GET", path: "/api/products/search?q=shose&limit=5", expect: [200, 503] },

@@ -83,9 +83,15 @@ if [[ -f "${DEPLOY_DIR}/deploy/nginx-snippet-static-assets.conf" ]]; then
   install -m 644 "${DEPLOY_DIR}/deploy/nginx-snippet-static-assets.conf" /etc/nginx/snippets/byosemarket-static-assets.conf
 fi
 
-log "Ensuring root storefront JavaScript is published..."
+log "Ensuring root storefront JavaScript and CSS are published..."
 if [[ -d "${WEB_ROOT:-/var/www/byosemarket}" ]]; then
   for file in "${DEPLOY_DIR}"/*.js; do
+    if [[ -f "${file}" ]]; then
+      cp -f "${file}" "${WEB_ROOT:-/var/www/byosemarket}/$(basename "${file}")"
+    fi
+  done
+
+  for file in "${DEPLOY_DIR}"/*.css; do
     if [[ -f "${file}" ]]; then
       cp -f "${file}" "${WEB_ROOT:-/var/www/byosemarket}/$(basename "${file}")"
     fi

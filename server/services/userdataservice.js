@@ -25,8 +25,20 @@ async function findUserByIdentifier(identifier, options) {
     return getRepos().users.findByIdentifier(identifier, options);
 }
 
-async function listCustomers() {
-    return getRepos().users.list({ includeAdmins: false });
+async function listCustomers(options = {}) {
+    return getRepos().users.list({
+        includeAdmins: false,
+        query: options.query || '',
+        status: options.status || ''
+    });
+}
+
+async function recordSuccessfulLogin(id) {
+    return getRepos().users.recordSuccessfulLogin(id);
+}
+
+async function recordFailedLogin(id) {
+    return getRepos().users.recordFailedLogin(id);
 }
 
 async function updateUser(id, updates) {
@@ -58,6 +70,8 @@ module.exports = {
     getNextUserId,
     listCustomers,
     phoneExists,
+    recordFailedLogin,
+    recordSuccessfulLogin,
     updateUser,
     upsertAdminUser
 };

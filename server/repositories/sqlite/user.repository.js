@@ -23,7 +23,10 @@ class SQLiteUserRepository extends SQLiteBaseRepository {
             verified: Boolean(row.verified),
             address: this.parseJson(row.address_json, {}),
             createdAt: row.created_at || null,
-            updatedAt: row.updated_at || null
+            updatedAt: row.updated_at || null,
+            lastLoginAt: row.last_login_at || null,
+            failedLoginAttempts: Number(row.failed_login_attempts || 0) || 0,
+            lockedUntil: row.locked_until || null
         };
     }
 
@@ -56,9 +59,29 @@ class SQLiteUserRepository extends SQLiteBaseRepository {
         `).get(normalized, lower, normalized));
     }
 
-    async list({ includeAdmins = false } = {}) {
-        const roleClause = includeAdmins ? '' : "WHERE role <> 'admin'";
-        return this.db.prepare(`SELECT * FROM users ${roleClause} ORDER BY created_at DESC`).all().map((row) => this.mapRow(row));
+    async list({ includeAdmins = false, query = '', status = '' } = {}) {
+        const params = [];
+        let sql = 'SELECT * FROM users WHERE 1=1';
+
+        if (!includeAdmins) {
+            sql += " AND role <> 'admin'";
+        }
+
+        const normalizedStatus = this.normalizeText(status).toLowerCase();
+        if (normalizedStatus) {
+            sql += ' AND lower(status) = ?';
+            params.push(normalizedStatus);
+        }
+
+        const normalizedQuery = this.normalizeText(query).toLowerCase();
+        if (normalizedQuery) {
+            const like = `%${normalizedQuery.replace(/[%_]/g, '')}%`;
+            sql += ' AND (lower(name) LIKE ? OR lower(COALESCE(email, \'\')) LIKE ? OR lower(COALESCE(phone, \'\')) LIKE ? OR lower(public_id) LIKE ?)';
+            params.push(like, like, like, like);
+        }
+
+        sql += ' ORDER BY created_at DESC';
+        return this.db.prepare(sql).all(...params).map((row) => this.mapRow(row));
     }
 
     async existsByEmail(email, excludePublicId = '') {
@@ -128,6 +151,43 @@ class SQLiteUserRepository extends SQLiteBaseRepository {
         );
 
         return this.findByPublicId(existing.id);
+    }
+
+    async recordSuccessfulLogin(publicId) {
+        const existing = await this.findByPublicId(publicId);
+        if (!existing) {
+            return null;
+        }
+
+        const now = this.now();
+        this.db.prepare(`
+            UPDATE users
+            SET last_login_at = ?, failed_login_attempts = 0, locked_until = NULL, updated_at = ?
+            WHERE public_id = ?
+        `).run(now, now, existing.id);
+
+        return this.findByPublicId(existing.id);
+    }
+
+    async recordFailedLogin(publicId) {
+        const existing = await this.findByPublicId(publicId);
+        if (!existing) {
+            return { attempts: 0, lockedUntil: null };
+        }
+
+        const attempts = Number(existing.failedLoginAttempts || 0) + 1;
+        const lockedUntil = attempts >= 5
+            ? new Date(Date.now() + (15 * 60 * 1000)).toISOString()
+            : null;
+        const now = this.now();
+
+        this.db.prepare(`
+            UPDATE users
+            SET failed_login_attempts = ?, locked_until = ?, updated_at = ?
+            WHERE public_id = ?
+        `).run(attempts, lockedUntil, now, existing.id);
+
+        return { attempts, lockedUntil };
     }
 
     async delete(publicId) {

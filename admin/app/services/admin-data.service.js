@@ -377,6 +377,7 @@ function normalizeCustomer(customer) {
     status: normalizeText(customer?.status || "active").toLowerCase(),
     verified: Boolean(customer?.verified),
     joinedAt: customer?.joinedAt || customer?.createdAt || new Date().toISOString(),
+    lastLoginAt: customer?.lastLoginAt || "",
     totalOrders: toNumber(customer?.totalOrders),
     totalSpent: toNumber(customer?.totalSpent),
     lastOrderDate: customer?.lastOrderDate || "",
@@ -801,7 +802,11 @@ export async function getCustomers(options = {}) {
 
   const promise = (async () => {
     try {
-      const payload = await withRetry("admin/customers", () => api.get("admin/customers"));
+      const query = new URLSearchParams();
+      if (options?.query) query.set("q", options.query);
+      if (options?.status) query.set("status", options.status);
+      const suffix = query.toString() ? `?${query.toString()}` : "";
+      const payload = await withRetry("admin/customers", () => api.get(`admin/customers${suffix}`));
       const customers = capArray(asArray(payload?.customers || payload?.data || payload).map(normalizeCustomer), options?.maxItems || MAX_CUSTOMERS_ITEMS);
       writeMemoryCache(scope, customers);
       writeCache(scope, customers);
@@ -1084,6 +1089,18 @@ export async function updateMessageStatus(messageId, status) {
   const payload = await api.put(`admin/messages/${encodeURIComponent(id)}`, { status: nextStatus });
   await resyncEnterpriseScopes(["messages"]);
   return payload?.message || payload || null;
+}
+
+export async function updateCustomerStatus(customerId, status) {
+  const id = normalizeText(customerId);
+  const nextStatus = String(status || "").trim().toLowerCase() === "blocked" ? "blocked" : "active";
+  if (!id) {
+    throw new Error("Customer id is required.");
+  }
+
+  const payload = await api.put(`admin/customers/${encodeURIComponent(id)}`, { status: nextStatus });
+  await resyncEnterpriseScopes(["customers"]);
+  return payload?.customer || payload || null;
 }
 
 export async function deleteMessage(messageId) {

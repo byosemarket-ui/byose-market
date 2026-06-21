@@ -5,6 +5,7 @@ const authService = (function () {
     const STOREFRONT_USER_KEY = 'byose_market_user';
     const LOGGED_KEY = 'bm_logged_in';
     const SESSION_KEY = 'byose_market_session';
+    const REMEMBER_KEY = 'bm_remember_me';
     const USER_EVENT = 'userUpdated';
     const PRODUCTION_API_ORIGIN = 'https://byosemarket.com';
     const LEGACY_API_PATTERN = /(?:onrender\.com|localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i;
@@ -125,7 +126,18 @@ const authService = (function () {
         };
     }
 
-    function _persistSession(user, token) {
+    function _getActiveStorage() {
+        try {
+            if (sessionStorage.getItem(TOKEN_KEY)) {
+                return sessionStorage;
+            }
+        } catch (e) {}
+
+        return localStorage;
+    }
+
+    function _persistSession(user, token, options) {
+        const remember = options?.remember !== false;
         const normalizedUser = _normalizeUser(user);
         const normalizedToken = String(token || '').trim();
         if (!normalizedUser || !normalizedToken) {
@@ -133,24 +145,37 @@ const authService = (function () {
             return null;
         }
 
-        const serialized = JSON.stringify(user || {});
-        try { localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(normalizedUser)); } catch (e) { console.error(e); }
-        try { localStorage.setItem(LEGACY_USER_KEY, JSON.stringify(normalizedUser)); } catch (e) { console.error(e); }
-        try { localStorage.setItem(STOREFRONT_USER_KEY, JSON.stringify(normalizedUser)); } catch (e) { console.error(e); }
-        try { localStorage.setItem(TOKEN_KEY, normalizedToken); } catch (e) { console.error(e); }
-        try { localStorage.setItem(LOGGED_KEY, 'true'); } catch (e) { console.error(e); }
-        try { localStorage.setItem(SESSION_KEY, JSON.stringify({ loggedIn: true, createdAt: Date.now(), token: normalizedToken })); } catch (e) { console.error(e); }
+        const primary = remember ? localStorage : sessionStorage;
+        const secondary = remember ? sessionStorage : localStorage;
+
+        [TOKEN_KEY, CURRENT_USER_KEY, LEGACY_USER_KEY, STOREFRONT_USER_KEY, LOGGED_KEY, SESSION_KEY].forEach((key) => {
+            try { secondary.removeItem(key); } catch (e) {}
+        });
+
+        try { primary.setItem(CURRENT_USER_KEY, JSON.stringify(normalizedUser)); } catch (e) { console.error(e); }
+        try { primary.setItem(LEGACY_USER_KEY, JSON.stringify(normalizedUser)); } catch (e) { console.error(e); }
+        try { primary.setItem(STOREFRONT_USER_KEY, JSON.stringify(normalizedUser)); } catch (e) { console.error(e); }
+        try { primary.setItem(TOKEN_KEY, normalizedToken); } catch (e) { console.error(e); }
+        try { primary.setItem(LOGGED_KEY, 'true'); } catch (e) { console.error(e); }
+        try {
+            primary.setItem(SESSION_KEY, JSON.stringify({ loggedIn: true, createdAt: Date.now(), token: normalizedToken, remember }));
+        } catch (e) { console.error(e); }
+        try { localStorage.setItem(REMEMBER_KEY, remember ? '1' : '0'); } catch (e) {}
+
         _dispatch(USER_EVENT, normalizedUser);
         return normalizedUser;
     }
 
     function _clearSession() {
-        try { localStorage.removeItem(CURRENT_USER_KEY); } catch (e) {}
-        try { localStorage.removeItem(LEGACY_USER_KEY); } catch (e) {}
-        try { localStorage.removeItem(STOREFRONT_USER_KEY); } catch (e) {}
-        try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
-        try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
-        try { localStorage.removeItem(LOGGED_KEY); } catch (e) {}
+        [localStorage, sessionStorage].forEach((store) => {
+            try { store.removeItem(CURRENT_USER_KEY); } catch (e) {}
+            try { store.removeItem(LEGACY_USER_KEY); } catch (e) {}
+            try { store.removeItem(STOREFRONT_USER_KEY); } catch (e) {}
+            try { store.removeItem(TOKEN_KEY); } catch (e) {}
+            try { store.removeItem(SESSION_KEY); } catch (e) {}
+            try { store.removeItem(LOGGED_KEY); } catch (e) {}
+        });
+        try { localStorage.removeItem(REMEMBER_KEY); } catch (e) {}
         _dispatch(USER_EVENT, null);
     }
 
@@ -186,12 +211,13 @@ const authService = (function () {
 
     function _mapError(error, fallback) {
         const message = String(error?.payload?.message || error?.message || '').trim().toLowerCase();
-        if (message.includes('email exists')) return 'email_exists';
-        if (message.includes('phone exists')) return 'phone_exists';
-        if (message.includes('password too weak')) return 'weak_password';
-        if (message.includes('user not found')) return 'user_not_found';
-        if (message.includes('invalid credentials')) return 'invalid_password';
+        if (message.includes('email is already registered') || message.includes('email exists')) return 'email_exists';
+        if (message.includes('phone number is already registered') || message.includes('phone exists')) return 'phone_exists';
+        if (message.includes('password must be 8') || message.includes('password too weak')) return 'weak_password';
+        if (message.includes('account not found')) return 'user_not_found';
+        if (message.includes('incorrect password')) return 'invalid_password';
         if (message.includes('account blocked')) return 'account_blocked';
+        if (message.includes('too many failed login')) return 'account_locked';
         if (message.includes('email or phone required')) return 'email_or_phone_required';
         if (message.includes('name required')) return 'empty_name';
         return fallback || 'request_failed';
@@ -227,7 +253,7 @@ const authService = (function () {
                 }
             });
 
-            const normalizedUser = _persistSession(payload?.user, payload?.token);
+            const normalizedUser = _persistSession(payload?.user, payload?.token, { remember: true });
             return { success: true, user: normalizedUser, token: String(payload?.token || '') };
         } catch (error) {
             diagnostics.logApiFailure('authservice.register', error, { identifier: user.email || user.phone || '' });
@@ -235,20 +261,22 @@ const authService = (function () {
         }
     }
 
-    async function loginByIdentifier(identifier, password) {
+    async function loginByIdentifier(identifier, password, options) {
         const id = (identifier || '').toString().trim().toLowerCase();
         if (!id) return { success: false, error: 'empty_identifier' };
+        const remember = options?.remember !== false;
 
         try {
             const payload = await _request('/login', {
                 method: 'POST',
                 body: {
                     identifier: id,
-                    password: String(password || '')
+                    password: String(password || ''),
+                    rememberMe: remember
                 }
             });
 
-            const normalizedUser = _persistSession(payload?.user, payload?.token);
+            const normalizedUser = _persistSession(payload?.user, payload?.token, { remember });
             return { success: true, user: normalizedUser, token: String(payload?.token || '') };
         } catch (error) {
             diagnostics.logApiFailure('authservice.login', error, { identifier: id });
@@ -261,24 +289,29 @@ const authService = (function () {
     }
 
     function getCurrentUser() {
+        const store = _getActiveStorage();
         return _normalizeUser(
-            _safeParse(localStorage.getItem(CURRENT_USER_KEY), null)
+            _safeParse(store.getItem(CURRENT_USER_KEY), null)
+            || _safeParse(localStorage.getItem(CURRENT_USER_KEY), null)
             || _safeParse(localStorage.getItem(LEGACY_USER_KEY), null)
             || _safeParse(localStorage.getItem(STOREFRONT_USER_KEY), null)
         );
     }
 
     function getToken() {
-        return String(localStorage.getItem(TOKEN_KEY) || '').trim();
+        const store = _getActiveStorage();
+        return String(store.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY) || '').trim();
     }
 
     function isLoggedIn() {
-        return Boolean(getToken()) && Boolean(getCurrentUser()) && localStorage.getItem(LOGGED_KEY) === 'true';
+        const store = _getActiveStorage();
+        return Boolean(getToken()) && Boolean(getCurrentUser()) && store.getItem(LOGGED_KEY) === 'true';
     }
 
     function setCurrentUser(user) {
         const currentToken = getToken();
-        return _persistSession(user, currentToken || '');
+        const remember = localStorage.getItem(REMEMBER_KEY) !== '0';
+        return _persistSession(user, currentToken || '', { remember });
     }
 
     async function refreshCurrentUser() {
@@ -290,7 +323,8 @@ const authService = (function () {
 
         try {
             const payload = await _request('/me', { method: 'GET', token });
-            return _persistSession(payload?.user, token);
+            const remember = localStorage.getItem(REMEMBER_KEY) !== '0';
+            return _persistSession(payload?.user, token, { remember });
         } catch (error) {
             _clearSession();
             return null;
@@ -309,7 +343,7 @@ const authService = (function () {
             body: data || {}
         });
 
-        const normalizedUser = _persistSession(payload?.user, token);
+        const normalizedUser = _persistSession(payload?.user, token, { remember: localStorage.getItem(REMEMBER_KEY) !== '0' });
         return normalizedUser;
     }
 
@@ -340,6 +374,14 @@ const authService = (function () {
 
     try { window.authService = api; } catch (e) {}
     try { window.createUser = register; window.loginUser = loginByIdentifier; window.logoutUser = logout; window.isLoggedIn = isLoggedIn; window.getCurrentUser = getCurrentUser; window.setCurrentUser = setCurrentUser; } catch (e) {}
+
+    if (typeof document !== 'undefined') {
+        document.addEventListener('DOMContentLoaded', () => {
+            if (isLoggedIn()) {
+                refreshCurrentUser().catch(() => {});
+            }
+        });
+    }
 
     return api;
 })();

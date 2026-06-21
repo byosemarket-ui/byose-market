@@ -383,16 +383,10 @@ function bindSignup() {
                 return;
             }
 
-            try {
-                authService.logout();
-            } catch (error) {
-                console.error(error);
-            }
-
-            showSuccess('Account yawe yakozwe neza. Turakujyana kuri login.');
+            showSuccess('Account yawe yakozwe neza. Turakujyana kuri shop...');
 
             window.setTimeout(() => {
-                window.location.href = 'login.html';
+                window.location.href = 'shop.html';
             }, 900);
         } finally {
             setLoadingState(false);

@@ -13,7 +13,6 @@
   <link rel="stylesheet" href="css/home.css">
   <link rel="stylesheet" href="css/home-mobile.css">
   <link rel="stylesheet" href="css/home-desktop.css">
-  <link rel="stylesheet" href="css/storefront-footer.css">
   <link rel="stylesheet" href="css/cart-page.css">
   <link rel="stylesheet" href="mobile-nav.css">
   <script src="config/runtime-api-bootstrap.js"></script>
@@ -37,19 +36,10 @@
         <a href="shop.html" class="nav-link" data-page="shop"><i class="fa-solid fa-store"></i><span>Shop</span></a>
         <a href="contact.html" class="nav-link" data-page="contact"><i class="fa-regular fa-envelope"></i><span>Contact</span></a>
       </nav>
-      <form class="header-search header-desktop-search" role="search" action="search.html" method="get">
-        <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-        <input type="search" name="q" placeholder="Search products..." aria-label="Search products">
-        <button type="submit">Search</button>
-      </form>
       <div class="header-actions header-desktop-actions">
         <a href="cart.html" class="icon-btn" id="cartBtn" aria-label="Cart"><i class="fa-solid fa-cart-shopping"></i></a>
         <a href="login.html" class="icon-btn" id="accountBtn" aria-label="Account"><i class="fa-regular fa-user"></i></a>
       </div>
-      <a href="search.html" class="header-search-mobile-redirect" aria-label="Search products">
-        <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-        <input type="search" placeholder="Search products..." readonly tabindex="-1" aria-hidden="true">
-      </a>
     </div>
   </header>
 
@@ -103,40 +93,6 @@
       Checkout · <span id="stickyTotal">RWF 0</span>
     </button>
   </div>
-
-  <footer class="site-footer">
-    <div class="container footer-shell">
-      <section class="footer-brand" aria-labelledby="footer-brand-title">
-        <div class="footer-brand__head">
-          <a href="index.html" class="footer-logo-link" aria-label="Byose Market Home">
-            <img class="footer-logo" src="img/logo.png" alt="" width="40" height="40">
-          </a>
-          <h2 id="footer-brand-title" class="footer-brand__name">BYOSE MARKET</h2>
-        </div>
-        <p class="footer-brand__desc">Rwanda's trusted online marketplace for fashion, shoes, electronics and everyday essentials.</p>
-      </section>
-      <nav class="footer-panel footer-panel--links" aria-labelledby="footer-links-title">
-        <h3 id="footer-links-title" class="footer-panel__title">Quick Links</h3>
-        <ul class="footer-links">
-          <li><a href="index.html">Home</a></li>
-          <li><a href="shop.html">Shop</a></li>
-          <li><a href="contact.html">Contact</a></li>
-        </ul>
-      </nav>
-      <section class="footer-panel footer-panel--contact" aria-labelledby="footer-contact-title">
-        <h3 id="footer-contact-title" class="footer-panel__title">Contact</h3>
-        <div class="footer-contact-cards">
-          <a href="tel:+250780430710" class="footer-touch-card"><span class="footer-touch-card__icon footer-touch-card__icon--phone"><i class="fa-solid fa-phone"></i></span><span class="footer-touch-card__copy"><span class="footer-touch-card__label">Phone</span><span class="footer-touch-card__value">0780 430 710</span></span></a>
-          <a href="https://wa.me/250723731250" class="footer-touch-card" target="_blank" rel="noopener"><span class="footer-touch-card__icon footer-touch-card__icon--whatsapp"><i class="fa-brands fa-whatsapp"></i></span><span class="footer-touch-card__copy"><span class="footer-touch-card__label">WhatsApp</span><span class="footer-touch-card__value">0723 731 250</span></span></a>
-        </div>
-      </section>
-      <section class="footer-newsletter" aria-labelledby="footer-newsletter-title">
-        <h3 id="footer-newsletter-title" class="footer-panel__title">Newsletter</h3>
-        <p class="footer-newsletter__copy">Get deals and new arrivals in your inbox.</p>
-      </section>
-      <div class="footer-bottom"><p>&copy; 2026 Byose Market. All rights reserved.</p></div>
-    </div>
-  </footer>
 
   <script src="js/utils.js"></script>
   <script type="module" src="js/byose-cart-bootstrap.js"></script>

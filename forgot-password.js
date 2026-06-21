@@ -6,38 +6,12 @@ const methodSelect = document.getElementById('method');
 const identifierInput = document.getElementById('identifier');
 const inputLabel = document.getElementById('inputLabel');
 const sendBtn = document.getElementById('sendCodeBtn');
-const PRODUCTION_API_ORIGIN = 'https://byosesemarket4.onrender.com';
 
-function normalizeBase(value) {
-    return String(value || '').trim().replace(/\/+$/, '');
-}
-
-function isLocalHost(hostname) {
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
-}
-
-function shouldUseProductionApi(hostname) {
-    return /(^|\.)(github\.io|byosemarket\.com)$/i.test(String(hostname || ''));
-}
-
-function resolveApiOrigin() {
-    const explicit = normalizeBase(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || '');
-    if (explicit) {
-        return explicit;
+function buildAuthUrl(path) {
+    if (window.ByoseAuthApiOrigin && typeof window.ByoseAuthApiOrigin.buildAuthApiUrl === 'function') {
+        return window.ByoseAuthApiOrigin.buildAuthApiUrl(path);
     }
-
-    const protocol = String(window.location?.protocol || '').toLowerCase();
-    const hostname = String(window.location?.hostname || '').trim();
-
-    if (protocol === 'file:' || isLocalHost(hostname)) {
-        return `http://${hostname || 'localhost'}:5000`;
-    }
-
-    if (shouldUseProductionApi(hostname)) {
-        return PRODUCTION_API_ORIGIN;
-    }
-
-    return normalizeBase(window.location?.origin || '');
+    return `${window.location.origin}/api/${String(path || '').replace(/^\/+/, '')}`;
 }
 
 // ===============================
@@ -47,31 +21,27 @@ methodSelect.addEventListener('change', () => {
     const method = methodSelect.value;
 
     if (method === 'email') {
-        inputLabel.innerText = "Email Address";
-        identifierInput.placeholder = "Enter your email";
-        identifierInput.type = "email";
+        inputLabel.innerText = 'Email Address';
+        identifierInput.placeholder = 'Enter your email';
+        identifierInput.type = 'email';
     } else {
-        inputLabel.innerText = "Phone Number";
-        identifierInput.placeholder = "Enter your phone (+250...)";
-        identifierInput.type = "tel";
+        inputLabel.innerText = 'Phone Number';
+        identifierInput.placeholder = 'Enter your phone (+250...)';
+        identifierInput.type = 'tel';
     }
 });
 
-// ===============================
-// VALIDATION FUNCTIONS
-// ===============================
 function validateEmail(email) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
 function validatePhone(phone) {
-    return /^\+2507\d{8}$/.test(phone); // Rwanda format
+    const cleaned = String(phone || '').replace(/[\s-]/g, '');
+    return /^(\+250|250|0)?7\d{8}$/.test(cleaned);
 }
 
 async function requestResetCode(method, identifier) {
-    const endpoint = window.__BYOSE_PASSWORD_RESET_API__ || `${resolveApiOrigin()}/api/auth/forgot-password`;
-
-    const response = await fetch(endpoint, {
+    const response = await fetch(buildAuthUrl('auth/forgot-password'), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -88,53 +58,43 @@ async function requestResetCode(method, identifier) {
     return payload || { success: false, message: 'Invalid API response.' };
 }
 
-// ===============================
-// SEND CODE
-// ===============================
 sendBtn.addEventListener('click', async () => {
     const method = methodSelect.value;
     const identifier = identifierInput.value.trim();
 
-    // validation
     if (!identifier) {
-        alert("Please enter your details");
+        alert('Please enter your details');
         return;
     }
 
-    if (method === "email" && !validateEmail(identifier)) {
-        alert("Invalid email format");
+    if (method === 'email' && !validateEmail(identifier)) {
+        alert('Invalid email format');
         return;
     }
 
-    if (method === "phone" && !validatePhone(identifier)) {
-        alert("Invalid phone format. Use +2507XXXXXXXX");
+    if (method === 'phone' && !validatePhone(identifier)) {
+        alert('Invalid phone format. Use +2507XXXXXXXX or 07XXXXXXXX');
         return;
     }
 
-    sendBtn.innerText = "Sending...";
+    sendBtn.innerText = 'Sending...';
     sendBtn.disabled = true;
 
     try {
         const data = await requestResetCode(method, identifier);
 
         if (data.success) {
-
-            // Save for next step
-            localStorage.setItem("resetMethod", method);
-            localStorage.setItem("resetIdentifier", identifier);
-
-            // Go to verify page
-            window.location.href = "verify-code.html";
-
+            localStorage.setItem('resetMethod', method);
+            localStorage.setItem('resetIdentifier', identifier);
+            window.location.href = 'verify-code.html';
         } else {
-            alert(data.message || "Failed to send code");
+            alert(data.message || 'Failed to send code');
         }
-
     } catch (error) {
         console.error(error);
-        alert("Unable to send reset code right now.");
+        alert('Unable to send reset code right now.');
     }
 
-    sendBtn.innerText = "Send Reset Code";
+    sendBtn.innerText = 'Send Reset Code';
     sendBtn.disabled = false;
 });

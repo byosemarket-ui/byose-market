@@ -36,11 +36,12 @@ function getJwtConfig() {
     };
 }
 
-function generateToken(payload) {
+function generateToken(payload, options = {}) {
     const jwtConfig = getJwtConfig();
+    const expiresIn = options.expiresIn || jwtConfig.expiresIn;
     const token = jwt.sign(payload, jwtConfig.secret, {
         algorithm: JWT_ALGORITHM,
-        expiresIn: jwtConfig.expiresIn,
+        expiresIn,
         issuer: JWT_ISSUER,
         audience: JWT_AUDIENCE,
         subject: String(payload?.id || payload?.email || '')
@@ -50,7 +51,7 @@ function generateToken(payload) {
         subjectId: String(payload?.id || ''),
         email: String(payload?.email || ''),
         role: String(payload?.role || ''),
-        expiresIn: jwtConfig.expiresIn,
+        expiresIn,
         secretSource: jwtConfig.secretSource
     });
 

@@ -4,8 +4,9 @@
 
 const { hashPassword, comparePasswords } = require('../utils/hash');
 const { generateToken } = require('../utils/token');
-const { generateOTP, saveOTP, verifyOTP } = require('../utils/otp');
+const { generateOTP, saveOTP, verifyOTP, issueResetToken, verifyResetToken } = require('../utils/otp');
 const { sendSMS } = require('../utils/sms');
+const { notifyPasswordReset } = require('../utils/notifications');
 const { appLogger } = require('../utils/logger');
 const getRealtimeEventService = require('../services/realtimeeventservice');
 const userDataService = require('../services/userdataservice');
@@ -43,6 +44,29 @@ function isStrongPassword(password) {
     return hasLower && hasUpper && hasNumber;
 }
 
+function isAccountLocked(user) {
+    if (!user || !user.lockedUntil) {
+        return false;
+    }
+
+    const lockedUntilMs = Date.parse(String(user.lockedUntil));
+    if (!Number.isFinite(lockedUntilMs)) {
+        return false;
+    }
+
+    return lockedUntilMs > Date.now();
+}
+
+function lockoutMessage(lockedUntil) {
+    const lockedUntilMs = Date.parse(String(lockedUntil || ''));
+    if (!Number.isFinite(lockedUntilMs)) {
+        return 'Too many failed login attempts. Please try again later.';
+    }
+
+    const minutes = Math.max(1, Math.ceil((lockedUntilMs - Date.now()) / 60000));
+    return `Too many failed login attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`;
+}
+
 async function generateUserId() {
     return userDataService.getNextUserId();
 }
@@ -64,11 +88,11 @@ exports.signup = async (req, res) => {
 
         if (email) {
             const ex = await userDataService.emailExists(String(email).toLowerCase());
-            if (ex) return res.status(409).json({ success: false, message: 'Email exists' });
+            if (ex) return res.status(409).json({ success: false, message: 'This email is already registered.' });
         }
         if (phone) {
             const ex2 = await userDataService.phoneExists(String(phone));
-            if (ex2) return res.status(409).json({ success: false, message: 'Phone exists' });
+            if (ex2) return res.status(409).json({ success: false, message: 'This phone number is already registered.' });
         }
 
         const hashed = await hashPassword(String(password));
@@ -103,23 +127,36 @@ exports.signup = async (req, res) => {
 // ===============================
 exports.login = async (req, res) => {
     try {
-        const { identifier, password } = req.body || {};
+        const { identifier, password, rememberMe } = req.body || {};
         if (!identifier || !password) return res.status(400).json({ success: false, message: 'Identifier and password required' });
 
         const id = String(identifier).trim().toLowerCase();
         const user = await userDataService.findUserByIdentifier(id, { includeAdmins: false });
-        if (!user) return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        if (!user) return res.status(404).json({ success: false, message: 'Account not found.' });
         if (String(user.status || 'active').toLowerCase() === 'blocked') {
             return res.status(403).json({ success: false, message: 'Account blocked' });
         }
-        if (isAdminUser(user)) return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        if (isAdminUser(user)) return res.status(404).json({ success: false, message: 'Account not found.' });
+        if (isAccountLocked(user)) {
+            return res.status(429).json({ success: false, message: lockoutMessage(user.lockedUntil) });
+        }
 
         const ok = await comparePasswords(String(password), user.password);
-        if (!ok) return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        if (!ok) {
+            const failure = await userDataService.recordFailedLogin(user.id);
+            if (failure.lockedUntil) {
+                return res.status(429).json({ success: false, message: lockoutMessage(failure.lockedUntil) });
+            }
+            return res.status(401).json({ success: false, message: 'Incorrect password.' });
+        }
 
-        const token = generateToken({ id: user.id, email: user.email, phone: user.phone, role: user.role });
+        const updatedUser = await userDataService.recordSuccessfulLogin(user.id);
+        const token = generateToken(
+            { id: user.id, email: user.email, phone: user.phone, role: user.role },
+            { expiresIn: rememberMe ? '7d' : '1d' }
+        );
 
-        return res.json({ success: true, token, user: sanitizeUserForClient(user) });
+        return res.json({ success: true, token, user: sanitizeUserForClient(updatedUser || user) });
     } catch (err) {
         authLogger.error('auth.login_failed', { error: err });
         return res.status(500).json({ success: false, message: 'Server error' });
@@ -167,14 +204,14 @@ exports.updateMe = async (req, res) => {
         if (nextEmail && nextEmail !== String(user.email || '').trim().toLowerCase()) {
             const existingEmail = await userDataService.emailExists(nextEmail, user.id);
             if (existingEmail) {
-                return res.status(409).json({ success: false, message: 'Email exists' });
+                return res.status(409).json({ success: false, message: 'This email is already registered.' });
             }
         }
 
         if (nextPhone && nextPhone !== String(user.phone || '').trim()) {
             const existingPhone = await userDataService.phoneExists(nextPhone, user.id);
             if (existingPhone) {
-                return res.status(409).json({ success: false, message: 'Phone exists' });
+                return res.status(409).json({ success: false, message: 'This phone number is already registered.' });
             }
         }
 
@@ -242,6 +279,16 @@ exports.forgotPassword = async (req, res) => {
                 });
                 return res.status(500).json({ success: false, message: 'SMS failed' });
             }
+        } else {
+            try {
+                await notifyPasswordReset(user, otp);
+            } catch (notifyError) {
+                authLogger.error('auth.forgot_password.email_failed', {
+                    identifier: normalizedIdentifier,
+                    error: notifyError
+                });
+                return res.status(500).json({ success: false, message: 'Email delivery failed' });
+            }
         }
 
         authLogger.info('auth.forgot_password_requested', {
@@ -259,13 +306,19 @@ exports.verifyCode = (req, res) => {
     const { identifier, otp } = req.body;
     const result = verifyOTP(identifier, otp);
     if (!result.success) return res.status(400).json({ success: false, message: result.message });
-    return res.json({ success: true });
+    const resetToken = issueResetToken(identifier);
+    return res.json({ success: true, resetToken });
 };
 
 exports.resetPassword = async (req, res) => {
     try {
-        const { identifier, newPassword } = req.body;
-        if (!identifier || !newPassword) return res.status(400).json({ success: false, message: 'Identifier and new password required' });
+        const { identifier, newPassword, resetToken } = req.body;
+        if (!identifier || !newPassword || !resetToken) {
+            return res.status(400).json({ success: false, message: 'Identifier, reset token, and new password required' });
+        }
+        if (!verifyResetToken(identifier, resetToken)) {
+            return res.status(403).json({ success: false, message: 'Invalid or expired reset token' });
+        }
         if (!isStrongPassword(newPassword)) {
             return res.status(400).json({
                 success: false,
@@ -286,6 +339,7 @@ exports.resetPassword = async (req, res) => {
             ...user,
             password: await hashPassword(String(newPassword))
         });
+        await userDataService.recordSuccessfulLogin(user.id);
         authLogger.info('auth.password_reset_completed', { identifier: normalizedIdentifier, userId: user.id });
         return res.json({ success: true });
     } catch (error) {

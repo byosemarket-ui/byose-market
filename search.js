@@ -24,7 +24,13 @@
       resultsTitle: document.getElementById('search-results-title'),
       emptyRelated: document.getElementById('searchEmptyRelated'),
       imageTrigger: document.getElementById('imageSearchTrigger'),
-      imageInput: document.getElementById('imageSearchInput'),
+      imageInputCamera: document.getElementById('imageSearchInputCamera'),
+      imageInputGallery: document.getElementById('imageSearchInputGallery'),
+      imageInputFiles: document.getElementById('imageSearchInputFiles'),
+      visualSearchPicker: document.getElementById('visualSearchPicker'),
+      visualSearchPickerBackdrop: document.getElementById('visualSearchPickerBackdrop'),
+      visualSearchPickerClose: document.getElementById('visualSearchPickerClose'),
+      visualSearchPickerOptions: document.querySelectorAll('.visual-search-picker__option'),
       visualPanel: document.getElementById('visualSearchPanel'),
       imagePreview: document.getElementById('imageSearchPreview'),
       imagePreviewShell: document.getElementById('imageSearchPreviewShell'),
@@ -61,6 +67,8 @@
     const VISUAL_PANEL_TRANSITION_MS = 220;
     const SEARCH_DEBOUNCE_MS = 200;
     const SUGGESTION_DEBOUNCE_MS = 120;
+    const ACCEPTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
+    const ACCEPTED_IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp']);
     const DEFAULT_CATEGORY = 'all';
     const SKELETON_COUNT = 6;
 
@@ -477,6 +485,93 @@
       }, SUGGESTION_DEBOUNCE_MS);
     }
 
+    function isAcceptedImageFile(file) {
+      if (!file) {
+        return false;
+      }
+
+      const mimeType = String(file.type || '').trim().toLowerCase();
+      if (mimeType && ACCEPTED_IMAGE_TYPES.has(mimeType)) {
+        return true;
+      }
+
+      const extension = String(file.name || '').split('.').pop().trim().toLowerCase();
+      return ACCEPTED_IMAGE_EXTENSIONS.has(extension);
+    }
+
+    function clearImageInputs() {
+      [elements.imageInputCamera, elements.imageInputGallery, elements.imageInputFiles].forEach((input) => {
+        if (input) {
+          input.value = '';
+        }
+      });
+    }
+
+    function setVisualSearchPickerVisible(visible) {
+      if (!elements.visualSearchPicker) {
+        return;
+      }
+
+      elements.visualSearchPicker.hidden = !visible;
+      elements.visualSearchPicker.setAttribute('aria-hidden', visible ? 'false' : 'true');
+
+      if (elements.imageTrigger) {
+        elements.imageTrigger.setAttribute('aria-expanded', visible ? 'true' : 'false');
+      }
+
+      if (visible) {
+        document.body.classList.add('search-visual-picker-open');
+        const firstOption = elements.visualSearchPicker.querySelector('.visual-search-picker__option');
+        if (firstOption) {
+          window.requestAnimationFrame(() => firstOption.focus());
+        }
+        return;
+      }
+
+      document.body.classList.remove('search-visual-picker-open');
+    }
+
+    function hideVisualSearchPicker() {
+      setVisualSearchPickerVisible(false);
+    }
+
+    function showVisualSearchPicker() {
+      setVisualSearchPickerVisible(true);
+    }
+
+    function openImageSourceInput(source) {
+      const inputMap = {
+        camera: elements.imageInputCamera,
+        gallery: elements.imageInputGallery,
+        files: elements.imageInputFiles
+      };
+
+      const input = inputMap[source];
+      if (!input) {
+        return;
+      }
+
+      hideVisualSearchPicker();
+      clearImageInputs();
+      window.requestAnimationFrame(() => input.click());
+    }
+
+    function handleImageInputChange(event) {
+      const file = event?.target?.files && event.target.files[0];
+      if (!file) {
+        return;
+      }
+
+      if (!isAcceptedImageFile(file)) {
+        clearImageInputs();
+        setVisualPanelVisible(true);
+        setVisualStatus('Please choose a JPG, JPEG, PNG, or WEBP image.', 'error');
+        return;
+      }
+
+      runImageSearch(file);
+    }
+
     function setVisualPanelVisible(visible) {
       if (!elements.visualPanel) {
         return;
@@ -558,9 +653,8 @@
     function resetVisualSearch() {
       state.activeImageAnalysis = null;
       state.activeImageFile = null;
-      if (elements.imageInput) {
-        elements.imageInput.value = '';
-      }
+      clearImageInputs();
+      hideVisualSearchPicker();
       if (elements.imageReset) {
         elements.imageReset.hidden = true;
       }
@@ -887,13 +981,40 @@
       });
     }
 
-    if (elements.imageTrigger && elements.imageInput) {
-      elements.imageTrigger.addEventListener('click', () => elements.imageInput.click());
-      elements.imageInput.addEventListener('change', () => {
-        const file = elements.imageInput.files && elements.imageInput.files[0];
-        runImageSearch(file);
+    if (elements.imageTrigger) {
+      elements.imageTrigger.addEventListener('click', () => {
+        hideSuggestions();
+        showVisualSearchPicker();
       });
     }
+
+    if (elements.visualSearchPickerBackdrop) {
+      elements.visualSearchPickerBackdrop.addEventListener('click', hideVisualSearchPicker);
+    }
+
+    if (elements.visualSearchPickerClose) {
+      elements.visualSearchPickerClose.addEventListener('click', hideVisualSearchPicker);
+    }
+
+    elements.visualSearchPickerOptions.forEach((button) => {
+      button.addEventListener('click', () => {
+        openImageSourceInput(String(button.dataset.source || '').trim());
+      });
+    });
+
+    [elements.imageInputCamera, elements.imageInputGallery, elements.imageInputFiles].forEach((input) => {
+      if (!input) {
+        return;
+      }
+
+      input.addEventListener('change', handleImageInputChange);
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && elements.visualSearchPicker && !elements.visualSearchPicker.hidden) {
+        hideVisualSearchPicker();
+      }
+    });
 
     if (elements.imageReset) {
       elements.imageReset.addEventListener('click', resetVisualSearch);

@@ -1,78 +1,42 @@
 // ===============================
-// RESET PASSWORD SYSTEM (PRO)
+// RESET PASSWORD SYSTEM
 // ===============================
 
-const newPasswordInput = document.getElementById("newPassword");
-const confirmPasswordInput = document.getElementById("confirmPassword");
+const newPasswordInput = document.getElementById('newPassword');
+const confirmPasswordInput = document.getElementById('confirmPassword');
+const toggleNew = document.getElementById('toggleNew');
+const toggleConfirm = document.getElementById('toggleConfirm');
+const resetBtn = document.getElementById('resetBtn');
 
-const toggleNew = document.getElementById("toggleNew");
-const toggleConfirm = document.getElementById("toggleConfirm");
-
-const resetBtn = document.getElementById("resetBtn");
-const PRODUCTION_API_ORIGIN = 'https://byosesemarket4.onrender.com';
-
-function normalizeBase(value) {
-    return String(value || '').trim().replace(/\/+$/, '');
-}
-
-function isLocalHost(hostname) {
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
-}
-
-function shouldUseProductionApi(hostname) {
-    return /(^|\.)(github\.io|byosemarket\.com)$/i.test(String(hostname || ''));
-}
-
-function resolveApiOrigin() {
-    const explicit = normalizeBase(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || '');
-    if (explicit) {
-        return explicit;
+function buildAuthUrl(path) {
+    if (window.ByoseAuthApiOrigin && typeof window.ByoseAuthApiOrigin.buildAuthApiUrl === 'function') {
+        return window.ByoseAuthApiOrigin.buildAuthApiUrl(path);
     }
-
-    const protocol = String(window.location?.protocol || '').toLowerCase();
-    const hostname = String(window.location?.hostname || '').trim();
-
-    if (protocol === 'file:' || isLocalHost(hostname)) {
-        return `http://${hostname || 'localhost'}:5000`;
-    }
-
-    if (shouldUseProductionApi(hostname)) {
-        return PRODUCTION_API_ORIGIN;
-    }
-
-    return normalizeBase(window.location?.origin || '');
+    return `${window.location.origin}/api/${String(path || '').replace(/^\/+/, '')}`;
 }
 
-// ===============================
-// SHOW / HIDE PASSWORD
-// ===============================
-toggleNew.addEventListener("click", () => {
-    const type = newPasswordInput.type === "password" ? "text" : "password";
-    newPasswordInput.type = type;
+toggleNew.addEventListener('click', () => {
+    newPasswordInput.type = newPasswordInput.type === 'password' ? 'text' : 'password';
 });
 
-toggleConfirm.addEventListener("click", () => {
-    const type = confirmPasswordInput.type === "password" ? "text" : "password";
-    confirmPasswordInput.type = type;
+toggleConfirm.addEventListener('click', () => {
+    confirmPasswordInput.type = confirmPasswordInput.type === 'password' ? 'text' : 'password';
 });
 
-// ===============================
-// VALIDATION
-// ===============================
-function validatePassword(password) {
-    return password.length >= 4;
+function isStrongPassword(password) {
+    const value = String(password || '');
+    if (value.length < 8 || value.length > 128) return false;
+    return /[a-z]/.test(value) && /[A-Z]/.test(value) && /\d/.test(value);
 }
 
-async function updatePassword(method, identifier, newPassword) {
-    const endpoint = window.__BYOSE_RESET_PASSWORD_API__ || `${resolveApiOrigin()}/api/auth/reset-password`;
-
-    const response = await fetch(endpoint, {
+async function updatePassword(identifier, newPassword, resetToken) {
+    const response = await fetch(buildAuthUrl('auth/reset-password'), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json'
         },
-        body: JSON.stringify({ method, identifier, newPassword })
+        body: JSON.stringify({ identifier, newPassword, resetToken })
     });
 
     const payload = await response.json().catch(() => null);
@@ -83,59 +47,54 @@ async function updatePassword(method, identifier, newPassword) {
     return payload || { success: false, message: 'Invalid API response.' };
 }
 
-// ===============================
-// RESET PASSWORD
-// ===============================
-resetBtn.addEventListener("click", async () => {
-
-    const newPassword = newPasswordInput.value.trim();
-    const confirmPassword = confirmPasswordInput.value.trim();
+resetBtn.addEventListener('click', async () => {
+    const newPassword = newPasswordInput.value;
+    const confirmPassword = confirmPasswordInput.value;
 
     if (!newPassword || !confirmPassword) {
-        alert("Fill all fields");
+        alert('Fill all fields');
         return;
     }
 
-    if (!validatePassword(newPassword)) {
-        alert("Password must be at least 4 characters");
+    if (!isStrongPassword(newPassword)) {
+        alert('Password must be 8+ characters with uppercase, lowercase, and a number');
         return;
     }
 
     if (newPassword !== confirmPassword) {
-        alert("Passwords do not match");
+        alert('Passwords do not match');
         return;
     }
 
-    resetBtn.innerText = "Updating...";
-    resetBtn.disabled = true;
+    const identifier = localStorage.getItem('resetIdentifier');
+    const resetToken = localStorage.getItem('resetToken');
 
-    const method = localStorage.getItem("resetMethod");
-    const identifier = localStorage.getItem("resetIdentifier");
-
-    try {
-        const data = await updatePassword(method, identifier, newPassword);
-
-        if (data.success) {
-
-            alert("Password updated successfully!");
-
-            // clear storage
-            localStorage.removeItem("resetMethod");
-            localStorage.removeItem("resetIdentifier");
-
-            // redirect to login
-            window.location.href = "login.html";
-
-        } else {
-            alert("Failed to update password");
-        }
-
-    } catch (err) {
-        console.error(err);
-        alert("Unable to update the password right now.");
+    if (!identifier || !resetToken) {
+        alert('Reset session expired. Start again from forgot password.');
+        window.location.href = 'forgot-password.html';
+        return;
     }
 
-    resetBtn.innerText = "Reset Password";
-    resetBtn.disabled = false;
+    resetBtn.innerText = 'Updating...';
+    resetBtn.disabled = true;
 
+    try {
+        const data = await updatePassword(identifier, newPassword, resetToken);
+
+        if (data.success) {
+            localStorage.removeItem('resetMethod');
+            localStorage.removeItem('resetIdentifier');
+            localStorage.removeItem('resetToken');
+            alert('Password updated successfully!');
+            window.location.href = 'login.html';
+        } else {
+            alert(data.message || 'Failed to update password');
+        }
+    } catch (err) {
+        console.error(err);
+        alert('Unable to update the password right now.');
+    }
+
+    resetBtn.innerText = 'Reset Password';
+    resetBtn.disabled = false;
 });

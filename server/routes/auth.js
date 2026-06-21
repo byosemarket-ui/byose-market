@@ -64,7 +64,7 @@ router.post('/forgot-password', authSensitiveLimiter, requireDatabase, validateP
 router.post('/verify-code', authSensitiveLimiter, validatePayload(['identifier', 'otp']), verifyCode);
 
 // Reset Password
-router.post('/reset-password', authSensitiveLimiter, requireDatabase, validatePayload(['identifier', 'newPassword']), resetPassword);
+router.post('/reset-password', authSensitiveLimiter, requireDatabase, validatePayload(['identifier', 'newPassword', 'resetToken']), resetPassword);
 
 // Protected: current user
 router.get('/me', authMiddleware, requireDatabase, me);

@@ -60,6 +60,7 @@ function sanitizeCustomer(user, orders) {
         status: user.status || 'active',
         verified: Boolean(user.verified),
         joinedAt: user.createdAt,
+        lastLoginAt: user.lastLoginAt || '',
         address: user.address || {},
         totalOrders: serializedOrders.length,
         totalSpent,
@@ -80,9 +81,11 @@ async function findCustomer(identifier) {
 exports.listCustomers = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'admin_customers' });
     try {
-        const users = await userDataService.listCustomers();
+        const query = normalizeText(req.query?.q || req.query?.query || '');
+        const status = normalizeText(req.query?.status || '');
+        const users = await userDataService.listCustomers({ query, status });
         const customers = await Promise.all(users.map(async (user) => sanitizeCustomer(user, await loadCustomerOrders(user))));
-        return res.json({ success: true, customers });
+        return res.json({ success: true, customers, total: customers.length });
     } catch (error) {
         logger.error('admin.customers.list_failed', { error });
         return res.status(500).json({ success: false, message: 'Server error' });
