@@ -4,6 +4,7 @@ export const PRODUCT_CHANGED_EVENT = "byose:products-changed";
 import { buildApiUrl, ensureUploadCapableApiBaseUrl, resolveApiBaseUrl } from "./api-origin.js";
 import { normalizeStorefrontAssetList, normalizeStorefrontAssetUrl, purgeLegacyStorefrontCatalogCache, resolveProductImageUrl } from "./storefront-asset-url.js";
 import { detectStorefrontVisibilityIssues } from "../js/product-visibility.js";
+import { traceStorefrontStage } from "../js/storefront-pipeline-trace.js";
 
 if (typeof window !== "undefined") {
   window.addEventListener("load", () => {
@@ -672,13 +673,20 @@ function buildApiPayload(productData, previousProduct = {}) {
 }
 
 async function fetchCatalogSnapshot(signal) {
+  traceStorefrontStage("api-request", { path: "products?limit=500" });
   const response = await apiRequest("products?limit=500", {
     method: "GET",
     timeoutMs: DEFAULT_TIMEOUT_MS,
     signal
   });
+  const products = asArray(response?.products);
+  traceStorefrontStage("api-response", {
+    path: "products?limit=500",
+    success: Boolean(response?.success),
+    count: products.length
+  });
 
-  return publishProducts(asArray(response?.products), "api-refresh");
+  return publishProducts(products, "api-refresh");
 }
 
 function scheduleLiveSync() {

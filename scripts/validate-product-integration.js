@@ -70,6 +70,12 @@ const SOURCE_CHECKS = [
     message: "Homepage uses placement filtering for merchandising sections"
   },
   {
+    id: "product-card-syntax",
+    file: "js/product-card-system.js",
+    pattern: /function renderDiscountBadge\(product\)/,
+    message: "Product card discount badge renderer is defined"
+  },
+  {
     id: "card-highlight-badge",
     file: "js/product-card-system.js",
     pattern: /renderHighlightBadge/,

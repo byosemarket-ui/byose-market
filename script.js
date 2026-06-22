@@ -21,6 +21,7 @@ import {
   sortProductsByDisplay
 } from './js/storefront-display.js';
 import { buildDiscountedProductView } from './js/storefront-discount.js';
+import { summarizeCatalogPipeline, traceStorefrontStage } from './js/storefront-pipeline-trace.js';
 
 const DEFAULT_FILTER = 'all';
 const DEFAULT_CATEGORY = 'featured';
@@ -96,13 +97,20 @@ function initializeHomePage() {
 
 async function syncCatalog() {
   try {
-    // Fetch products from backend (canonical source)
+    traceStorefrontStage("fetch-start", { surface: "home" });
     const products = await productService.getProductsWithRetry();
-    
-    state.catalog = products
-      .map(normalizeProduct)
-      .filter(product => shouldShowOnSurfaceLocal(product, 'home'))
-      .sort(sortProductsByDisplayLocal);
+    traceStorefrontStage("fetch-complete", { surface: "home", count: products.length });
+
+    const normalized = products.map(normalizeProduct);
+    const visible = normalized.filter(product => shouldShowOnSurfaceLocal(product, 'home'));
+    state.catalog = visible.sort(sortProductsByDisplayLocal);
+
+    traceStorefrontStage("filter-complete", {
+      surface: "home",
+      fetchedCount: products.length,
+      visibleCount: state.catalog.length,
+      filteredOut: products.length - state.catalog.length
+    });
     
     state.filterCache.clear();
     state.markupCache.clear();
@@ -111,6 +119,7 @@ async function syncCatalog() {
     renderSpotlightGrid();
   } catch (error) {
     console.error('[Homepage] Failed to sync products:', error);
+    traceStorefrontStage("fetch-error", { surface: "home", message: String(error?.message || error) });
     // Attempt to use cached data as fallback
     const cached = productService.getCachedProducts();
     if (Array.isArray(cached) && cached.length > 0) {
@@ -315,9 +324,9 @@ function renderGrid(grid, cacheKey, items) {
     return;
   }
 
-  bindGridImageFallback(grid);
   grid.setAttribute('aria-busy', 'true');
   grid.innerHTML = markup;
+  bindGridImageFallback(grid);
   grid.dataset.renderKey = cacheKey;
   grid.dataset.renderMarkup = markup;
   grid.removeAttribute('aria-busy');
@@ -379,6 +388,14 @@ function setActiveFilter(filter) {
 
 function renderProductGrid(filter) {
   const items = getProductsForFilter(filter).slice(0, PRIMARY_GRID_LIMIT);
+  summarizeCatalogPipeline({
+    source: "homepage-grid",
+    fetched: state.catalog,
+    visible: items,
+    rendered: items.length,
+    surface: "home",
+    gridId: elements.productGrid?.id || "homeProductGrid"
+  });
   renderGrid(elements.productGrid, `home:${filter}`, items);
 }
 

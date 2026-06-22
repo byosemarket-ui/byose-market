@@ -90,6 +90,8 @@ export const ProductCardSystem = (() => {
     const metadata = product?.metadata && typeof product.metadata === 'object' ? product.metadata : {};
     return String(metadata.shortName || product?.shortName || product?.name || product?.title || 'Product').trim();
   }
+
+  function renderDiscountBadge(product) {
     if (!product) {
       return '';
     }
