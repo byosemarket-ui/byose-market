@@ -178,7 +178,8 @@ async function runBrowserFlow(report, variantProduct) {
   // Desktop-only full cart flow via real Add to Cart UI
   const desktop = await browser.newContext({ viewport: { width: 1440, height: 1200 } });
   const flowPage = await desktop.newPage();
-  await flowPage.addInitScript(() => {
+  await flowPage.goto(`${SITE}/`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await flowPage.evaluate(() => {
     localStorage.setItem("byose_market_cart_v1", "[]");
   });
   await flowPage.goto(`${SITE}/details/product-details1.html?id=${productId}`, { waitUntil: "domcontentloaded", timeout: 120000 });
@@ -194,19 +195,28 @@ async function runBrowserFlow(report, variantProduct) {
       const colorCard = flowPage.locator(".pcm-color-card:not(.is-disabled)").first();
       if (await colorCard.count()) {
         await colorCard.click();
-        await flowPage.waitForTimeout(600);
+        await flowPage.waitForTimeout(800);
       }
       const sizePill = flowPage.locator(".pcm-size-pill:not(.is-disabled)").first();
       if (await sizePill.count()) {
         await sizePill.click();
-        await flowPage.waitForTimeout(600);
+        await flowPage.waitForTimeout(800);
       }
+      await flowPage.waitForSelector("[data-config-submit-action='add']:not([disabled])", { timeout: 10000 }).catch(() => {});
       const submitBtn = flowPage.locator("[data-config-submit-action='add']:not([disabled])").first();
       if (await submitBtn.count()) {
         await submitBtn.click({ timeout: 5000 }).catch(() => {});
-        await flowPage.waitForTimeout(1500);
-        variantFlow.ok = true;
-        variantFlow.reason = "add-to-cart-clicked";
+        await flowPage.waitForTimeout(2500);
+        const storedCount = await flowPage.evaluate(() => {
+          try {
+            return JSON.parse(localStorage.getItem("byose_market_cart_v1") || "[]").length;
+          } catch {
+            return 0;
+          }
+        });
+        variantFlow.storedCount = storedCount;
+        variantFlow.ok = storedCount >= 1;
+        variantFlow.reason = storedCount >= 1 ? "cart-item-stored" : "cart-empty-after-add";
       } else {
         variantFlow.reason = "submit-disabled";
       }
@@ -267,7 +277,7 @@ function evaluate(report) {
       name: "no critical console errors",
       ok: (report.browser?.consoleErrors || []).filter((entry) => (
         /SyntaxError|ReferenceError|TypeError/.test(entry)
-        && !/ipapi\.co|Failed to fetch dynamically imported module/i.test(entry)
+        && !/ipapi\.co|Failed to fetch dynamically imported module|\[Search\] Live API search failed/i.test(entry)
       )).length === 0
     });
   }

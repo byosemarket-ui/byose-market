@@ -422,6 +422,17 @@ window.Util = Util;
     }
 
     applyField(field, value);
+    if (!getToken()) {
+      try {
+        if (value === null || value === undefined) {
+          global.localStorage.removeItem(key);
+        } else {
+          global.localStorage.setItem(key, JSON.stringify(value));
+        }
+      } catch (_error) {
+        // Ignore storage quota failures for guest cart persistence.
+      }
+    }
     if (!suppressSync) {
       void syncPatch({ [field]: value === undefined ? null : cloneValue(value) });
     }
@@ -441,7 +452,9 @@ window.Util = Util;
 
       bootstrapState[field] = cloneValue(value);
       stateByField[field] = cloneValue(value);
-      purgeLegacyStateKey(key);
+      if (getToken()) {
+        purgeLegacyStateKey(key);
+      }
     });
   }
 
