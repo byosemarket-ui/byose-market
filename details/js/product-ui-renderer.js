@@ -2,6 +2,7 @@ import { buildAttributeSummary, getPrimarySelectionImage, isSelectionComplete } 
 import {
   COLOR_ATTR_NAME,
   SIZE_ATTR_NAME,
+  enrichProductColorVariants,
   extractColorVariantsFromProduct,
   getSizesForColor,
   isColorSizeInventory
@@ -47,6 +48,8 @@ export function renderProductOptionPreview(root, attributes, product = null) {
     return;
   }
 
+  const enrichedProduct = product ? enrichProductColorVariants(product, normalizeStorefrontAssetUrl) : null;
+
   if (!Array.isArray(attributes) || !attributes.length) {
     root.innerHTML = `
       <div class="purchase-option-banner purchase-option-banner--plain">
@@ -60,8 +63,8 @@ export function renderProductOptionPreview(root, attributes, product = null) {
     return;
   }
 
-  const colorCount = isColorSizeInventory(product)
-    ? extractColorVariantsFromProduct(product).length
+  const colorCount = isColorSizeInventory(enrichedProduct)
+    ? extractColorVariantsFromProduct(enrichedProduct).length
     : (attributes.find((entry) => entry.name === COLOR_ATTR_NAME)?.options?.length || 0);
 
   root.innerHTML = `
@@ -89,17 +92,18 @@ function buildColorSizeModalMarkup({
   canSubmit,
   selectionStock
 }) {
-  const colorVariants = extractColorVariantsFromProduct(product);
+  const enrichedProduct = enrichProductColorVariants(product, normalizeStorefrontAssetUrl);
+  const colorVariants = extractColorVariantsFromProduct(enrichedProduct);
   const selectedColorId = selectedAttributes?.[COLOR_ATTR_NAME] || '';
   const selectedSizeValue = selectedAttributes?.[SIZE_ATTR_NAME] || '';
-  const selectedColorLabel = getColorLabel(product, selectedColorId, attributes, selectedAttributes);
-  const sizeOptions = selectedColorId ? getSizesForColor(product, selectedColorId) : [];
+  const selectedColorLabel = getColorLabel(enrichedProduct, selectedColorId, attributes, selectedAttributes);
+  const sizeOptions = selectedColorId ? getSizesForColor(enrichedProduct, selectedColorId) : [];
   const selectedSizeLabel = getSizeLabel(selectedSizeValue, sizeOptions);
-  const unitPrice = Number(product?.price || 0);
+  const unitPrice = Number(enrichedProduct?.price || 0);
   const lineTotal = unitPrice * Math.max(0, Number(currentQuantity) || 0);
   const previewImage = resolveModalImage(
-    getPrimarySelectionImage(product, attributes, selectedAttributes),
-    product?.mainImage || product?.image
+    getPrimarySelectionImage(enrichedProduct, attributes, selectedAttributes),
+    enrichedProduct?.mainImage || enrichedProduct?.image
   );
   const hasCompleteSelection = Boolean(selectedColorId && selectedSizeValue && Number(selectionStock) > 0);
   const stockValue = Number.isFinite(Number(selectionStock)) ? Math.max(0, Number(selectionStock)) : 0;
@@ -107,7 +111,7 @@ function buildColorSizeModalMarkup({
   const colorCards = colorVariants.map((color) => {
     const isActive = String(selectedColorId) === String(color.id);
     const isDisabled = color.totalStock <= 0;
-    const image = resolveModalImage(color.image, product?.mainImage || product?.image);
+    const image = resolveModalImage(color.image, enrichedProduct?.mainImage || enrichedProduct?.image);
 
     return `
       <button
@@ -133,17 +137,19 @@ function buildColorSizeModalMarkup({
     ? sizeOptions.map((option) => {
         const isActive = String(selectedSizeValue) === String(option.value);
         const stock = Number(option.stock) || 0;
+        const isDisabled = stock <= 0;
 
         return `
           <button
             type="button"
-            class="pcm-size-pill${isActive ? ' is-active' : ''}"
+            class="pcm-size-pill${isActive ? ' is-active' : ''}${isDisabled ? ' is-disabled' : ''}"
             data-attribute-name="${escapeHtml(SIZE_ATTR_NAME)}"
             data-attribute-value="${escapeHtml(option.value)}"
             aria-pressed="${isActive ? 'true' : 'false'}"
+            ${isDisabled ? 'disabled' : ''}
           >
             <strong>${escapeHtml(option.label)}</strong>
-            <small>${stock} left</small>
+            <small>${isDisabled ? 'Out of stock' : `${stock} left`}</small>
           </button>
         `;
       }).join('')
@@ -153,11 +159,11 @@ function buildColorSizeModalMarkup({
     <div class="pcm-shell pcm-shell--inventory">
       <header class="pcm-header pcm-header--inventory">
         <div class="pcm-header__preview">
-          <img class="pcm-header__image" src="${escapeHtml(previewImage)}" alt="${escapeHtml(product.name)}" loading="lazy" decoding="async" />
+          <img class="pcm-header__image" src="${escapeHtml(previewImage)}" alt="${escapeHtml(enrichedProduct.name)}" loading="lazy" decoding="async" />
         </div>
         <div class="pcm-header__content">
-          <p class="pcm-header__eyebrow">${escapeHtml(product.categoryLabel || product.badge || 'Configure order')}</p>
-          <h2 class="pcm-header__title">${escapeHtml(product.name)}</h2>
+          <p class="pcm-header__eyebrow">${escapeHtml(enrichedProduct.categoryLabel || enrichedProduct.badge || 'Configure order')}</p>
+          <h2 class="pcm-header__title">${escapeHtml(enrichedProduct.name)}</h2>
           <div class="pcm-header__price-row">
             <strong class="pcm-header__price">${formatPrice(unitPrice)}</strong>
             ${hasCompleteSelection ? `<span class="pcm-header__line-total">${formatPrice(lineTotal)} total</span>` : ''}
@@ -467,10 +473,11 @@ function buildLegacyModalMarkup({
 
 export function buildModalMarkup(options) {
   const { product } = options;
+  const enrichedProduct = enrichProductColorVariants(product, normalizeStorefrontAssetUrl);
 
-  if (isColorSizeInventory(product)) {
-    return buildColorSizeModalMarkup(options);
+  if (isColorSizeInventory(enrichedProduct)) {
+    return buildColorSizeModalMarkup({ ...options, product: enrichedProduct });
   }
 
-  return buildLegacyModalMarkup(options);
+  return buildLegacyModalMarkup({ ...options, product: enrichedProduct });
 }

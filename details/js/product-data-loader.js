@@ -1,6 +1,7 @@
 import { getAllProductContent } from './product-content.js';
 import { normalizeStorefrontAssetList, normalizeStorefrontAssetUrl, resolveProductImageUrl } from '../../services/storefront-asset-url.js';
 import { buildDiscountedProductView } from '../../js/storefront-discount.js';
+import { computeProductTotalStock, extractColorVariantsFromProduct } from '../../js/color-variant-inventory.js';
 
 const CATEGORY_COPY = {
   shoes: {
@@ -149,6 +150,11 @@ function computeReviewCount(product) {
 }
 
 function computeStock(product) {
+  const colorVariants = extractColorVariantsFromProduct(product);
+  if (colorVariants.length) {
+    return computeProductTotalStock(colorVariants, 0);
+  }
+
   const configuredStock = Number(product?.stock);
   if (Number.isFinite(configuredStock) && configuredStock >= 0) {
     return configuredStock;

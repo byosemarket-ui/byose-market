@@ -112,7 +112,10 @@ const Cart = {
             attributes: this.normalizeAttributes({ attributes: item.variantSelection.attributes || {} }),
             attributeSummary: item.variantSelection.attributeSummary || this.formatAttributeSummary({ attributes }),
             color: item.variantSelection.color || legacy.color || '',
-            size: item.variantSelection.size || legacy.size || ''
+            colorId: item.variantSelection.colorId || item.colorId || '',
+            colorImage: item.variantSelection.colorImage || item.colorImage || '',
+            size: item.variantSelection.size || legacy.size || '',
+            sizeValue: item.variantSelection.sizeValue || item.sizeValue || ''
           }
         : {
             key: item.variantKey || this.buildVariantKey(attributes),
@@ -120,11 +123,20 @@ const Cart = {
             attributes,
             attributeSummary: this.formatAttributeSummary({ attributes }),
             color: legacy.color || '',
-            size: legacy.size || ''
+            colorId: item.colorId || '',
+            colorImage: item.colorImage || '',
+            size: legacy.size || '',
+            sizeValue: item.sizeValue || ''
           },
       color: item.color || legacy.color || '',
       size: item.size || legacy.size || '',
-      sku: item.sku || item.inventorySnapshot?.sku || '',
+      colorName: item.colorName || item.color || legacy.color || '',
+      colorId: item.colorId || item.variantSelection?.colorId || '',
+      colorImage: item.colorImage || item.variantSelection?.colorImage || '',
+      sizeLabel: item.sizeLabel || item.size || legacy.size || '',
+      sizeValue: item.sizeValue || item.variantSelection?.sizeValue || '',
+      sku: item.sku || item.variantSku || item.inventorySnapshot?.sku || '',
+      variantSku: item.variantSku || item.sku || item.inventorySnapshot?.sku || '',
       availability,
       availableStock: Number.isFinite(stockLimit) ? Math.max(0, stockLimit) : null,
       lowStockThreshold: Number(item.lowStockThreshold || item.inventorySnapshot?.lowStockThreshold || 5) || 5,
@@ -354,11 +366,11 @@ const Cart = {
 
     cartBody.innerHTML = cart.map(item => `
       <div class="cart-item" data-product-id="${item.id}" data-variant-key="${item.variantKey}">
-        <img src="${item.image}" alt="${item.name}" class="cart-item-image">
+        <img src="${item.colorImage || item.image}" alt="${item.name}" class="cart-item-image">
         <div class="cart-item-info">
           <div class="cart-item-name">${item.name}</div>
           <div class="cart-item-options" style="font-size: 12px; color: #666; margin: 4px 0;">
-            ${item.attributeSummary}
+            ${item.colorName || item.color ? `Color: ${item.colorName || item.color}` : ''}${(item.colorName || item.color) && (item.sizeLabel || item.size) ? ' · ' : ''}${item.sizeLabel || item.size ? `Size: ${item.sizeLabel || item.size}` : (item.attributeSummary || '')}
           </div>
           <div class="cart-item-price">${Util.formatPrice(item.price)}</div>
           <div class="cart-item-controls">

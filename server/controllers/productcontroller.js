@@ -8,6 +8,7 @@ const {
     isProductPublished,
     resolvePublicProductStatus
 } = require('../utils/product-visibility');
+const { enrichSerializedProductColorVariants } = require('../utils/colorVariantSerialization');
 
 const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
 const DEFAULT_SITE_ORIGIN = 'https://byosemarket.com';
@@ -461,7 +462,7 @@ function serializeProduct(product, options = {}) {
     const mainImage = absolutizePublicAssetUrl(rawMainImage);
     const gallery = absolutizePublicAssetList(rawGallery.length ? rawGallery : [rawMainImage]);
 
-    return {
+    return enrichSerializedProductColorVariants({
         ...source,
         id: catalogId,
         priority: normalizePriority(source.priority),
@@ -501,7 +502,7 @@ function serializeProduct(product, options = {}) {
         tags: metadata.tags,
         status: resolvedStatus,
         metadata
-    };
+    }, absolutizePublicAssetUrl);
 }
 
 function sortSerializedProducts(products) {

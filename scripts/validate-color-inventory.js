@@ -21,7 +21,8 @@ const sampleColors = normalizeColorVariants([
     sizes: [
       { size: '40', stock: 5 },
       { size: '41', stock: 4 },
-      { size: '42', stock: 6 }
+      { size: '42', stock: 6 },
+      { size: '43', stock: 0 }
     ]
   },
   {
@@ -67,9 +68,10 @@ const whiteSizes = getSizesForColor(product, whiteId);
 const checks = [
   ['white color total stock', whiteTotal === 15],
   ['product total stock', productTotal === 47],
-  ['flat inventory item count', flatItems.length === 9],
+  ['flat inventory item count', flatItems.length === 10],
   ['color attribute options', attributes[0]?.options?.length === 3],
-  ['white sizes available', whiteSizes.length === 3],
+  ['white sizes listed', whiteSizes.length === 4],
+  ['white includes zero-stock size', whiteSizes.some((entry) => entry.label === '43' && entry.stock === 0)],
   ['black size 41 stock', getStockForColorSize(product, blackId, '41') === 5],
   ['white size 41 stock', getStockForColorSize(product, whiteId, '41') === 4],
   ['matrix stock resolution', resolveMatrixStock(product, { Color: whiteId, Size: '41' }) === 4]

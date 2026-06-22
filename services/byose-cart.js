@@ -131,8 +131,15 @@ function normalizeLine(item) {
   const price = Number(item.price ?? item.discountPrice ?? 0) || 0;
   const comparePrice = Number(item.comparePrice ?? item.oldPrice ?? 0) || 0;
   const discountPrice = Number(item.discountPrice ?? item.price ?? 0) || 0;
-  const image = item.image || item.img || item.mainImage || item.thumbnail || '';
+  const productImage = item.productImage || item.mainImage || item.thumbnail || '';
+  const colorImage = item.colorImage || item.variantSelection?.colorImage || '';
+  const image = item.image || item.img || colorImage || productImage || '';
   const availability = normalizeAvailability(item.availability, stock);
+  const colorName = item.colorName || item.variantSelection?.color || item.color || '';
+  const sizeLabel = item.sizeLabel || item.variantSelection?.size || item.size || '';
+  const attributeSummary = item.attributeSummary
+    || [colorName, sizeLabel ? `Size ${sizeLabel}` : ''].filter(Boolean).join(' · ')
+    || formatAttributes(attributes);
 
   return {
     lineId,
@@ -143,25 +150,63 @@ function normalizeLine(item) {
     price,
     discountPrice,
     comparePrice: comparePrice > price ? comparePrice : 0,
+    oldPrice: comparePrice > price ? comparePrice : 0,
+    discountPercent: Number(item.discountPercent || 0) || 0,
+    discountAmount: Number(item.discountAmount || 0) || 0,
     qty,
     image,
+    img: image,
+    colorImage,
+    productImage: productImage || image,
     images: Array.isArray(item.images) ? item.images : image ? [image] : [],
     stock: Number.isFinite(stock) ? stock : null,
     availableStock: Number.isFinite(stock) ? stock : null,
     category: item.category || '',
-    sku: item.sku || item.inventorySnapshot?.sku || '',
+    sku: item.sku || item.variantSku || item.inventorySnapshot?.sku || '',
+    variantSku: item.variantSku || item.inventorySnapshot?.sku || item.sku || '',
+    color: colorName,
+    colorName,
+    colorId: item.colorId || item.variantSelection?.colorId || attributes.Color || '',
+    size: sizeLabel,
+    sizeLabel,
+    sizeValue: item.sizeValue || item.variantSelection?.sizeValue || attributes.Size || '',
     attributes,
-    attributeSummary: item.attributeSummary || formatAttributes(attributes),
+    attributeSummary,
     variantKey,
     variantType: Object.keys(attributes).length ? 'variant' : 'simple',
-    variantSelection: item.variantSelection || {
-      key: variantKey,
-      type: Object.keys(attributes).length ? 'variant' : 'simple',
-      attributes,
-      attributeSummary: formatAttributes(attributes)
-    },
+    variantSelection: item.variantSelection && typeof item.variantSelection === 'object'
+      ? {
+          key: item.variantSelection.key || variantKey,
+          type: item.variantSelection.type || (Object.keys(attributes).length ? 'variant' : 'simple'),
+          attributes: normalizeAttributes({ attributes: item.variantSelection.attributes || attributes }),
+          attributeSummary: item.variantSelection.attributeSummary || attributeSummary,
+          color: item.variantSelection.color || colorName,
+          colorId: item.variantSelection.colorId || item.colorId || '',
+          colorImage: item.variantSelection.colorImage || colorImage,
+          size: item.variantSelection.size || sizeLabel,
+          sizeValue: item.variantSelection.sizeValue || item.sizeValue || ''
+        }
+      : {
+          key: variantKey,
+          type: Object.keys(attributes).length ? 'variant' : 'simple',
+          attributes,
+          attributeSummary,
+          color: colorName,
+          colorId: item.colorId || '',
+          colorImage,
+          size: sizeLabel,
+          sizeValue: item.sizeValue || ''
+        },
     deliveryInfo: item.deliveryInfo || '',
     availability,
+    inventorySnapshot: item.inventorySnapshot && typeof item.inventorySnapshot === 'object'
+      ? {
+          sku: item.inventorySnapshot.sku || item.variantSku || item.sku || '',
+          status: normalizeAvailability(item.inventorySnapshot.status || availability, item.inventorySnapshot.available ?? stock),
+          available: Number(item.inventorySnapshot.available ?? stock ?? 0) || 0,
+          lowStockThreshold: Number(item.inventorySnapshot.lowStockThreshold || 5) || 5
+        }
+      : null,
     selected: item.selected !== false,
     priceChanged: Boolean(item.priceChanged),
     unavailable: availability === 'out_of_stock' || (Number.isFinite(stock) && stock <= 0),

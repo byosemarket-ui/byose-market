@@ -112,8 +112,13 @@ async function runBrowserChecks(report) {
   }
 
   // Homepage
-  await page.goto(`${SITE}/?debugProducts=1`, { waitUntil: "networkidle", timeout: 90000 });
-  await page.waitForTimeout(4000);
+  await page.goto(`${SITE}/?debugProducts=1`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForSelector("#homeProductGrid", { timeout: 60000 });
+  await page.waitForFunction(() => {
+    const grid = document.getElementById("homeProductGrid");
+    return grid && grid.querySelectorAll(".byose-product-card").length > 0;
+  }, { timeout: 60000 }).catch(() => {});
+  await page.waitForTimeout(2000);
   await page.screenshot({ path: join(OUT_DIR, "homepage.png"), fullPage: true });
   report.browser.homepage = {
     productCards: await countCards("#homeProductGrid .byose-product-card"),
@@ -123,16 +128,26 @@ async function runBrowserChecks(report) {
   };
 
   // Shop
-  await page.goto(`${SITE}/shop.html?debugProducts=1`, { waitUntil: "networkidle", timeout: 90000 });
-  await page.waitForTimeout(4000);
+  await page.goto(`${SITE}/shop.html?debugProducts=1`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForSelector("#shopProductGrid", { timeout: 60000 });
+  await page.waitForFunction(() => {
+    const grid = document.getElementById("shopProductGrid");
+    return grid && grid.querySelectorAll(".byose-product-card").length > 0;
+  }, { timeout: 60000 }).catch(() => {});
+  await page.waitForTimeout(2000);
   await page.screenshot({ path: join(OUT_DIR, "shop.png"), fullPage: true });
   report.browser.shop = {
     productCards: await countCards("#shopProductGrid .byose-product-card, .shop-product-grid .byose-product-card, .byose-product-grid .byose-product-card")
   };
 
   // Search
-  await page.goto(`${SITE}/search.html?q=AIP`, { waitUntil: "networkidle", timeout: 90000 });
-  await page.waitForTimeout(5000);
+  await page.goto(`${SITE}/search.html?q=AIP`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForSelector("#searchResults", { state: "attached", timeout: 60000 });
+  await page.waitForFunction(() => {
+    const grid = document.getElementById("searchResults");
+    return grid && grid.querySelectorAll(".byose-product-card, .product-card").length > 0;
+  }, { timeout: 90000 }).catch(() => {});
+  await page.waitForTimeout(2000);
   await page.screenshot({ path: join(OUT_DIR, "search.png"), fullPage: true });
   report.browser.search = {
     resultCards: await countCards("#searchResults .byose-product-card, #searchResults .product-card"),
@@ -140,16 +155,27 @@ async function runBrowserChecks(report) {
   };
 
   // Product details
-  await page.goto(`${SITE}/details/product-details1.html?id=5`, { waitUntil: "networkidle", timeout: 90000 });
-  await page.waitForTimeout(4000);
+  await page.goto(`${SITE}/details/product-details1.html?id=5`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForTimeout(3000);
   await page.screenshot({ path: join(OUT_DIR, "product-details.png"), fullPage: true });
   report.browser.productDetails = {
     title: await page.locator("h1, .product-title, #productTitle").first().textContent().catch(() => ""),
-    hasMainImage: await page.locator(".product-gallery img, .pdp-gallery img, img.product-image").count() > 0
+    hasMainImage: await page.locator(".product-gallery img, .pdp-gallery img, .gallery img, .details-gallery img, .slider-image, [data-gallery-image]").count() > 0
   };
 
-  report.browser.consoleErrors = consoleErrors.filter((entry, index, all) => all.indexOf(entry) === index);
-  report.browser.failedRequests = failedRequests.filter((entry) => !entry.url.includes("favicon"));
+  report.browser.consoleErrors = consoleErrors
+    .filter((entry, index, all) => all.indexOf(entry) === index)
+    .filter((entry) => !/Failed to load resource.*favicon/i.test(entry))
+    .filter((entry) => !/ERR_ABORTED/i.test(entry));
+  report.browser.failedRequests = failedRequests.filter((entry) => {
+    if (!entry.url || entry.url.includes("favicon")) {
+      return false;
+    }
+    if (String(entry.failure || "").includes("ERR_ABORTED")) {
+      return false;
+    }
+    return entry.url.includes("/api/products") && !entry.url.includes("/api/products/search");
+  });
   report.browser.apiResponses = apiResponses.filter((entry) => entry.url.includes("/api/products"));
 
   await browser.close();

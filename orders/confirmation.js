@@ -1,13 +1,13 @@
-import { escapeHtml, formatCurrency } from './utils.js';
+import { escapeHtml, formatCurrency, formatVariantDetailsText } from './utils.js';
 import { getConfirmationState } from './state.js';
 
 function renderProducts(products) {
   return (products || []).map((item) => `
     <div class="orders-summary-product">
-      <img src="${escapeHtml(item.image || item.img || '')}" alt="${escapeHtml(item.name || 'Product')}">
+      <img src="${escapeHtml(item.colorImage || item.image || item.img || '')}" alt="${escapeHtml(item.name || 'Product')}">
       <div>
         <strong>${escapeHtml(item.name || 'Product')}</strong>
-        <p>${escapeHtml(item.attributeSummary || 'Standard option')}</p>
+        <p>${escapeHtml(formatVariantDetailsText(item))}</p>
         <span>${Number(item.qty || 0)} x ${formatCurrency(item.price || 0)}</span>
       </div>
       <strong>${formatCurrency(item.total || ((Number(item.qty || 0) || 0) * (Number(item.price || 0) || 0)))}</strong>

@@ -35,6 +35,19 @@ function badgeHtml(item) {
   return badges.join('');
 }
 
+function renderVariantDetails(item) {
+  const color = item.colorName || item.color;
+  const size = item.sizeLabel || item.size;
+  const parts = [];
+  if (color) {
+    parts.push(`Color: ${color}`);
+  }
+  if (size) {
+    parts.push(`Size: ${size}`);
+  }
+  return parts.length ? parts.join(' · ') : (item.attributeSummary || 'Standard option');
+}
+
 function renderItem(item, { saved = false } = {}) {
   const url = ByoseCart.getProductUrl(item);
   const compare = item.comparePrice > item.price
@@ -42,6 +55,8 @@ function renderItem(item, { saved = false } = {}) {
     : '';
   const disabled = item.unavailable ? 'disabled' : '';
   const checked = item.selected !== false ? 'checked' : '';
+  const lineImage = item.colorImage || item.image || 'img/logo.png';
+  const variantDetails = renderVariantDetails(item);
 
   const selectCell = saved
     ? ''
@@ -66,11 +81,11 @@ function renderItem(item, { saved = false } = {}) {
     <article class="cart-item" data-line-id="${item.lineId}">
       ${selectCell}
       <a href="${url}" class="cart-item__media">
-        <img src="${ByoseCart.escapeHtml(item.image || 'img/logo.png')}" alt="" loading="lazy" decoding="async">
+        <img src="${ByoseCart.escapeHtml(lineImage)}" alt="" loading="lazy" decoding="async">
       </a>
       <div class="cart-item__body">
         <h3 class="cart-item__name"><a href="${url}">${ByoseCart.escapeHtml(item.name)}</a></h3>
-        ${item.attributeSummary ? `<p class="cart-item__variant">${ByoseCart.escapeHtml(item.attributeSummary)}</p>` : ''}
+        ${variantDetails ? `<p class="cart-item__variant">${ByoseCart.escapeHtml(variantDetails)}</p>` : ''}
         <div class="cart-item__badges">${badgeHtml(item)}</div>
         <div class="cart-item__pricing">
           <span class="cart-item__price">${ByoseCart.formatPrice(item.price)}</span>

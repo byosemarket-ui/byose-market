@@ -21,3 +21,5 @@ server/uploads/temp/*
 !server/uploads/temp/.gitkeep
 logs/*
 !logs/.gitkeep
+verification-artifacts/
+node_modules/

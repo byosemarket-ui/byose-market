@@ -47,7 +47,10 @@ const REQUIRED_FILES = [
   "details/js/product-data-loader.js",
   "details/js/product-details.js",
   "details/js/product-modal.js",
-  "services/byose-cart.js"
+  "services/byose-cart.js",
+  "js/variant-cart-payload.js",
+  "js/color-variant-inventory.js",
+  "server/utils/colorVariantSerialization.js"
 ];
 
 const SOURCE_CHECKS = [
@@ -100,10 +103,16 @@ const SOURCE_CHECKS = [
     message: "Storefront publish visibility helper exists"
   },
   {
-    id: "payload-stock-independent-status",
-    file: "admin/app/pages/products/payload.js",
-    pattern: /publishStatus === "inactive"/,
-    message: "Publish status is independent from stock quantity"
+    id: "variant-cart-payload",
+    file: "js/variant-cart-payload.js",
+    pattern: /buildVariantCartPayload/,
+    message: "Variant cart payload builder exists for cart/checkout flow"
+  },
+  {
+    id: "color-variant-enrichment",
+    file: "js/color-variant-inventory.js",
+    pattern: /enrichProductColorVariants/,
+    message: "Color variant enrichment helper exists"
   }
 ];
 

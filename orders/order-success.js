@@ -1,4 +1,4 @@
-import { escapeHtml, formatCurrency } from './utils.js';
+import { escapeHtml, formatCurrency, formatVariantDetailsText } from './utils.js';
 import { getConfirmationState } from './state.js';
 
 const SUPPORT_PHONE = '+250780430710';
@@ -55,28 +55,16 @@ function buildSupportMessage(confirmation) {
   ].join(' ');
 }
 
-function renderProductAttributes(item) {
-  const attributes = [];
-  if (item?.size) {
-    attributes.push(`Size: ${item.size}`);
-  }
-  if (item?.color) {
-    attributes.push(`Color: ${item.color}`);
-  }
-
-  return attributes.length ? attributes.join(' • ') : (item?.attributeSummary || 'Standard option');
-}
-
 function renderProducts(products) {
   return (products || []).map((item) => `
     <article class="orders-success-product-card">
-      <img src="${escapeHtml(item.image || item.img || '')}" alt="${escapeHtml(item.name || 'Product')}">
+      <img src="${escapeHtml(item.colorImage || item.image || item.img || '')}" alt="${escapeHtml(item.name || 'Product')}">
       <div class="orders-success-product-copy">
         <div class="orders-success-product-head">
           <h3>${escapeHtml(item.name || 'Product')}</h3>
           <strong>${formatCurrency(item.total || ((Number(item.qty || 0) || 0) * (Number(item.price || 0) || 0)))}</strong>
         </div>
-        <p>${escapeHtml(renderProductAttributes(item))}</p>
+        <p>${escapeHtml(formatVariantDetailsText(item))}</p>
         <div class="orders-success-product-meta">
           <span>Qty: ${Number(item.qty || 0)}</span>
           <span>${formatCurrency(item.price || 0)} each</span>

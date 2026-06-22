@@ -398,6 +398,22 @@ export function describeAttributes(item) {
   return entries.map(([key, value]) => `${key}: ${value}`).join(' | ');
 }
 
+export function formatVariantDetailsText(item = {}) {
+  const colorName = String(item?.colorName || item?.color || item?.variantSelection?.color || '').trim();
+  const sizeLabel = String(item?.sizeLabel || item?.size || item?.variantSelection?.size || '').trim();
+  const parts = [];
+  if (colorName) {
+    parts.push(colorName);
+  }
+  if (sizeLabel) {
+    parts.push(`Size ${sizeLabel}`);
+  }
+  if (parts.length) {
+    return parts.join(' · ');
+  }
+  return String(item?.attributeSummary || describeAttributes(item)).trim() || 'Standard option';
+}
+
 export function resolveOrderItemImage(item) {
   const galleryImage = Array.isArray(item?.gallery) ? item.gallery.find((entry) => String(entry || '').trim()) : '';
   return String(
@@ -415,26 +431,79 @@ export function resolveOrderItemImage(item) {
 export function normalizeCartItem(item) {
   const attributes = normalizeAttributes(item);
   const variantKey = item?.variantKey || buildVariantKey(attributes);
-  const image = resolveOrderItemImage(item);
+  const colorName = String(item?.colorName || item?.variantSelection?.color || item?.color || '').trim();
+  const sizeLabel = String(item?.sizeLabel || item?.variantSelection?.size || item?.size || '').trim();
+  const colorImage = String(item?.colorImage || item?.variantSelection?.colorImage || '').trim();
+  const productImage = resolveOrderItemImage(item);
+  const image = String(item?.image || item?.img || colorImage || productImage).trim();
   const qty = Math.max(1, Number(item?.qty || 1) || 1);
   const price = Number(item?.price || 0) || 0;
+  const comparePrice = Number(item?.comparePrice ?? item?.oldPrice ?? 0) || 0;
+  const resolvedComparePrice = comparePrice > price ? comparePrice : 0;
 
   return {
     id: String(item?.id || `${item?.name || 'item'}-${variantKey || 'default'}`),
+    productId: String(item?.productId || item?.id || '').trim(),
     name: String(item?.name || 'Product').trim() || 'Product',
+    slug: String(item?.slug || '').trim(),
     price,
+    comparePrice: resolvedComparePrice,
+    oldPrice: resolvedComparePrice,
+    discountPrice: Number(item?.discountPrice ?? price) || price,
+    discountPercent: Number(item?.discountPercent || 0) || 0,
+    discountAmount: Number(item?.discountAmount || 0) || 0,
     qty,
+    quantity: qty,
     image,
     img: image,
     imageUrl: image,
-    productImage: image,
+    productImage: String(item?.productImage || productImage).trim(),
+    colorImage,
     mainImage: image,
     thumbnail: image,
     attributes,
-    attributeSummary: item?.attributeSummary || describeAttributes({ attributes }),
+    attributeSummary: item?.attributeSummary || formatVariantDetailsText({ ...item, colorName, sizeLabel, attributes }),
     variantKey,
-    color: String(item?.color || attributes.Color || '').trim(),
-    size: String(item?.size || attributes.Size || '').trim(),
+    variantType: String(item?.variantType || (Object.keys(attributes).length ? 'variant' : 'simple')),
+    variantSelection: item?.variantSelection && typeof item.variantSelection === 'object'
+      ? {
+          key: String(item.variantSelection.key || variantKey).trim(),
+          type: String(item.variantSelection.type || (Object.keys(attributes).length ? 'variant' : 'simple')).trim(),
+          attributes: normalizeAttributes({ attributes: item.variantSelection.attributes || attributes }),
+          attributeSummary: String(item.variantSelection.attributeSummary || item?.attributeSummary || '').trim(),
+          color: String(item.variantSelection.color || colorName).trim(),
+          colorId: String(item.variantSelection.colorId || item?.colorId || '').trim(),
+          colorImage: String(item.variantSelection.colorImage || colorImage).trim(),
+          size: String(item.variantSelection.size || sizeLabel).trim(),
+          sizeValue: String(item.variantSelection.sizeValue || item?.sizeValue || '').trim()
+        }
+      : null,
+    color: colorName,
+    colorName,
+    colorId: String(item?.colorId || attributes.Color || '').trim(),
+    size: sizeLabel,
+    sizeLabel,
+    sizeValue: String(item?.sizeValue || attributes.Size || '').trim(),
+    sku: String(item?.sku || item?.variantSku || '').trim(),
+    variantSku: String(item?.variantSku || item?.sku || '').trim(),
+    availableStock: Number.isFinite(Number(item?.availableStock))
+      ? Math.max(0, Number(item.availableStock))
+      : Number.isFinite(Number(item?.stock))
+        ? Math.max(0, Number(item.stock))
+        : null,
+    stock: Number.isFinite(Number(item?.stock))
+      ? Math.max(0, Number(item.stock))
+      : Number.isFinite(Number(item?.availableStock))
+        ? Math.max(0, Number(item.availableStock))
+        : null,
+    inventorySnapshot: item?.inventorySnapshot && typeof item.inventorySnapshot === 'object'
+      ? {
+          sku: String(item.inventorySnapshot.sku || item?.variantSku || item?.sku || '').trim(),
+          status: String(item.inventorySnapshot.status || '').trim(),
+          available: Math.max(0, Number(item.inventorySnapshot.available || item?.availableStock || 0) || 0),
+          lowStockThreshold: Math.max(0, Number(item.inventorySnapshot.lowStockThreshold || 5) || 5)
+        }
+      : null,
     total: price * qty
   };
 }

@@ -886,10 +886,22 @@ export function buildOrderPayload() {
     productId: String(product?.id || '').trim(),
     productName: String(product?.name || 'Product').trim() || 'Product',
     image: resolveOrderItemImage(product),
-    size: String(product?.size || product?.attributes?.Size || '').trim(),
-    color: String(product?.color || product?.attributes?.Color || '').trim(),
+    color: String(product?.colorName || product?.color || product?.attributes?.Color || '').trim(),
+    colorName: String(product?.colorName || product?.color || '').trim(),
+    colorId: String(product?.colorId || product?.variantSelection?.colorId || '').trim(),
+    colorImage: String(product?.colorImage || product?.variantSelection?.colorImage || '').trim(),
+    size: String(product?.sizeLabel || product?.size || product?.attributes?.Size || '').trim(),
+    sizeLabel: String(product?.sizeLabel || product?.size || '').trim(),
+    sizeValue: String(product?.sizeValue || product?.variantSelection?.sizeValue || '').trim(),
     quantity: Math.max(1, Number(product?.qty || 1) || 1),
-    price: Number(product?.price || 0) || 0
+    price: Number(product?.price || 0) || 0,
+    comparePrice: Number(product?.comparePrice || product?.oldPrice || 0) || 0,
+    discountPercent: Number(product?.discountPercent || 0) || 0,
+    sku: String(product?.variantSku || product?.sku || '').trim(),
+    variantKey: String(product?.variantKey || '').trim(),
+    variantSelection: clone(product?.variantSelection || null),
+    attributeSummary: String(product?.attributeSummary || '').trim(),
+    availableStock: Math.max(0, Number(product?.availableStock ?? product?.stock ?? 0) || 0)
   }));
   const fullAddress = {
     province: state.shippingAddress.provinceCity,

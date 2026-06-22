@@ -26,11 +26,127 @@ export function normalizeSizeRow(entry = {}) {
   return { size, stock, value: slugify(size) || size };
 }
 
+export function resolveColorVariantImageUrl(entry = {}, normalizeUrl = null) {
+  const image = String(entry?.image ?? entry?.thumbnail ?? "").trim();
+  const imageStoragePath = String(entry?.imageStoragePath ?? entry?.imagePath ?? "").trim();
+  const candidates = [image, imageStoragePath].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (typeof normalizeUrl === "function") {
+      const resolved = String(normalizeUrl(candidate) || "").trim();
+      if (resolved) {
+        return resolved;
+      }
+      continue;
+    }
+
+    if (/^https?:\/\//i.test(candidate) || candidate.startsWith("/uploads/") || candidate.startsWith("data:")) {
+      return candidate;
+    }
+
+    if (/^(?:products|categories|users|reviews|temp)\//i.test(candidate)) {
+      return `/uploads/${candidate.replace(/^\/+/, "")}`;
+    }
+
+    if (candidate.startsWith("uploads/")) {
+      return `/${candidate.replace(/^\/+/, "")}`;
+    }
+
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return "";
+}
+
+export function enrichColorVariantEntry(entry = {}, index = 0, normalizeUrl = null) {
+  const imageStoragePath = String(entry?.imageStoragePath ?? entry?.imagePath ?? "").trim();
+  const resolvedImage = resolveColorVariantImageUrl(entry, normalizeUrl);
+  const normalized = normalizeColorVariant({
+    ...entry,
+    image: resolvedImage,
+    imageStoragePath
+  }, index);
+
+  return {
+    ...normalized,
+    image: resolvedImage || normalized.image,
+    imageStoragePath: imageStoragePath || normalized.imageStoragePath
+  };
+}
+
+export function enrichColorVariantsList(colorVariants = [], normalizeUrl = null) {
+  return (Array.isArray(colorVariants) ? colorVariants : [])
+    .map((entry, index) => enrichColorVariantEntry(entry, index, normalizeUrl))
+    .filter((entry) => entry.colorName);
+}
+
+export function enrichProductColorVariants(product, normalizeUrl = null) {
+  if (!product || typeof product !== "object") {
+    return product;
+  }
+
+  const metadata = product.metadata && typeof product.metadata === "object" ? product.metadata : {};
+  const variants = product.variants && typeof product.variants === "object" ? product.variants : {};
+  const sourceList = Array.isArray(variants.colorVariants) && variants.colorVariants.length
+    ? variants.colorVariants
+    : (Array.isArray(metadata.colorVariants) ? metadata.colorVariants : []);
+  const colorVariants = enrichColorVariantsList(sourceList, normalizeUrl);
+
+  if (!colorVariants.length) {
+    return product;
+  }
+
+  const enrichedAttributes = buildAttributesFromColorVariants(colorVariants).map((attribute) => {
+    if (attribute.name !== COLOR_ATTR_NAME) {
+      return attribute;
+    }
+
+    return {
+      ...attribute,
+      options: (attribute.options || []).map((option) => {
+        const color = colorVariants.find((entry) => String(entry.id) === String(option.value));
+        return {
+          ...option,
+          image: color?.image || option.image || "",
+          stock: Number.isFinite(Number(color?.totalStock)) ? color.totalStock : option.stock
+        };
+      })
+    };
+  });
+
+  return {
+    ...product,
+    stock: computeProductTotalStock(colorVariants, product.stock),
+    attributes: enrichedAttributes.length ? enrichedAttributes : product.attributes,
+    variants: {
+      ...variants,
+      mode: variants.mode || COLOR_SIZE_MODE,
+      enabled: variants.enabled !== false,
+      inventoryReady: true,
+      imagePerColor: true,
+      colorVariants
+    },
+    metadata: {
+      ...metadata,
+      colorVariants: colorVariants.map((entry) => ({
+        id: entry.id,
+        clientKey: entry.clientKey || entry.id,
+        colorName: entry.colorName,
+        image: entry.image,
+        imageStoragePath: entry.imageStoragePath || "",
+        sizes: entry.sizes.map((row) => ({ size: row.size, stock: row.stock }))
+      }))
+    }
+  };
+}
+
 export function normalizeColorVariant(entry = {}, index = 0) {
   const colorName = String(entry?.colorName ?? entry?.name ?? entry?.label ?? "").trim();
   const id = String(entry?.id || slugify(colorName) || `color-${index + 1}`).trim();
-  const image = String(entry?.image ?? entry?.thumbnail ?? "").trim();
   const imageStoragePath = String(entry?.imageStoragePath ?? entry?.imagePath ?? "").trim();
+  const image = resolveColorVariantImageUrl(entry) || String(entry?.image ?? entry?.thumbnail ?? "").trim();
   const clientKey = String(entry?.clientKey || id || `color-${index + 1}`).trim();
   const sizes = (Array.isArray(entry?.sizes) ? entry.sizes : [])
     .map(normalizeSizeRow)
@@ -117,14 +233,14 @@ export function extractColorVariantsFromProduct(product) {
   const metadataColorVariants = Array.isArray(metadata.colorVariants) ? metadata.colorVariants : [];
 
   if (Array.isArray(variants.colorVariants) && variants.colorVariants.length) {
-    return normalizeColorVariants(variants.colorVariants.map((entry) => ({
+    return enrichColorVariantsList(variants.colorVariants.map((entry) => ({
       ...entry,
       imageStoragePath: entry?.imageStoragePath || entry?.imagePath || ""
     })));
   }
 
   if (metadataColorVariants.length) {
-    return normalizeColorVariants(metadataColorVariants.map((entry) => ({
+    return enrichColorVariantsList(metadataColorVariants.map((entry) => ({
       ...entry,
       imageStoragePath: entry?.imageStoragePath || entry?.imagePath || ""
     })));
@@ -272,14 +388,12 @@ export function getSizesForColor(product, colorId) {
     return [];
   }
 
-  return color.sizes
-    .map((row) => ({
-      label: row.size,
-      value: slugify(row.size) || row.size,
-      stock: row.stock,
-      availability: row.stock > 0 ? "available" : "out_of_stock"
-    }))
-    .filter((row) => row.stock > 0);
+  return color.sizes.map((row) => ({
+    label: row.size,
+    value: slugify(row.size) || row.size,
+    stock: row.stock,
+    availability: row.stock > 0 ? "available" : "out_of_stock"
+  }));
 }
 
 export function getStockForColorSize(product, colorId, sizeValue) {

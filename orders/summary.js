@@ -1,12 +1,12 @@
-import { escapeHtml, formatCurrency } from './utils.js';
+import { escapeHtml, formatCurrency, formatVariantDetailsText } from './utils.js';
 
 function renderProducts(products) {
   return products.map((item) => `
     <div class="orders-summary-product">
-      <img src="${escapeHtml(item.image || item.img || '')}" alt="${escapeHtml(item.name)}">
+      <img src="${escapeHtml(item.colorImage || item.image || item.img || '')}" alt="${escapeHtml(item.name)}">
       <div>
         <strong>${escapeHtml(item.name)}</strong>
-        <p>${escapeHtml(item.attributeSummary)}</p>
+        <p>${escapeHtml(formatVariantDetailsText(item))}</p>
         <span>${item.qty} x ${formatCurrency(item.price)}</span>
       </div>
       <strong>${formatCurrency(item.total || (item.price * item.qty))}</strong>

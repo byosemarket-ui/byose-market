@@ -58,6 +58,10 @@ function sanitizeCartItem(item) {
     const quantity = Math.max(1, Number(item.qty || item.quantity || 1) || 1);
     const price = Number(item.price || 0) || 0;
     const image = normalizeText(item.image || item.img || item.imageUrl || item.productImage || item.mainImage || item.thumbnail);
+    const colorImage = normalizeText(item.colorImage || item.variantSelection?.colorImage || '');
+    const productImage = normalizeText(item.productImage || item.mainImage || image);
+    const colorName = normalizeText(item.colorName || item.variantSelection?.color || item.color);
+    const sizeLabel = normalizeText(item.sizeLabel || item.variantSelection?.size || item.size);
 
     return {
         id: normalizeText(item.id || item.productId || item.name),
@@ -69,23 +73,45 @@ function sanitizeCartItem(item) {
         image,
         img: image,
         imageUrl: image,
-        productImage: image,
+        productImage,
+        colorImage,
         mainImage: image,
         thumbnail: image,
         attributes,
         attributeSummary: normalizeText(item.attributeSummary),
         variantKey: normalizeText(item.variantKey || item.variantSelection?.key),
         variantType: normalizeText(item.variantType || item.variantSelection?.type),
+        variantSku: normalizeText(item.variantSku || item.sku),
+        sku: normalizeText(item.sku || item.variantSku),
+        color: colorName,
+        colorName,
+        colorId: normalizeText(item.colorId || item.variantSelection?.colorId),
+        size: sizeLabel,
+        sizeLabel,
+        sizeValue: normalizeText(item.sizeValue || item.variantSelection?.sizeValue),
+        comparePrice: Number(item.comparePrice || item.oldPrice || 0) || 0,
+        oldPrice: Number(item.oldPrice || item.comparePrice || 0) || 0,
+        discountPercent: Number(item.discountPercent || 0) || 0,
+        discountAmount: Number(item.discountAmount || 0) || 0,
+        availableStock: Number.isFinite(Number(item.availableStock)) ? Math.max(0, Number(item.availableStock)) : null,
+        stock: Number.isFinite(Number(item.stock)) ? Math.max(0, Number(item.stock)) : null,
+        inventorySnapshot: item.inventorySnapshot && typeof item.inventorySnapshot === 'object' ? {
+            sku: normalizeText(item.inventorySnapshot.sku || item.variantSku || item.sku),
+            status: normalizeText(item.inventorySnapshot.status),
+            available: Math.max(0, Number(item.inventorySnapshot.available || 0) || 0),
+            lowStockThreshold: Math.max(0, Number(item.inventorySnapshot.lowStockThreshold || 5) || 5)
+        } : null,
         variantSelection: item.variantSelection && typeof item.variantSelection === 'object' ? {
             key: normalizeText(item.variantSelection.key),
             type: normalizeText(item.variantSelection.type),
             attributes: sanitizeAttributes(item.variantSelection.attributes || {}),
             attributeSummary: normalizeText(item.variantSelection.attributeSummary),
-            color: normalizeText(item.variantSelection.color),
-            size: normalizeText(item.variantSelection.size)
+            color: normalizeText(item.variantSelection.color || colorName),
+            colorId: normalizeText(item.variantSelection.colorId || item.colorId),
+            colorImage: normalizeText(item.variantSelection.colorImage || colorImage),
+            size: normalizeText(item.variantSelection.size || sizeLabel),
+            sizeValue: normalizeText(item.variantSelection.sizeValue || item.sizeValue)
         } : null,
-        color: normalizeText(item.color || item.variantSelection?.color || attributes.Color || attributes.color),
-        size: normalizeText(item.size || item.variantSelection?.size || attributes.Size || attributes.size),
         total: Number(item.total || (price * quantity)) || 0
     };
 }

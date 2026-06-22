@@ -1,4 +1,4 @@
-import { escapeHtml, formatCurrency } from './utils.js';
+import { escapeHtml, formatCurrency, formatVariantDetailsText } from './utils.js';
 import { validateCartStep } from './state.js';
 
 export const cartStep = {
@@ -30,12 +30,12 @@ export const cartStep = {
         <div class="orders-cart-list">
           ${state.products.map((item) => `
             <article class="orders-cart-item" data-product-id="${escapeHtml(item.id)}" data-variant-key="${escapeHtml(item.variantKey || '')}">
-              <img src="${escapeHtml(item.image || item.img || '')}" alt="${escapeHtml(item.name)}">
+              <img src="${escapeHtml(item.colorImage || item.image || item.img || '')}" alt="${escapeHtml(item.name)}">
               <div class="orders-cart-copy">
                 <div class="orders-cart-topline">
                   <div>
                     <h3>${escapeHtml(item.name)}</h3>
-                    <p>${escapeHtml(item.attributeSummary)}</p>
+                    <p>${escapeHtml(formatVariantDetailsText(item))}</p>
                   </div>
                   <strong>${formatCurrency(item.price)}</strong>
                 </div>

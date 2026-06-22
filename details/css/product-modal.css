@@ -808,6 +808,16 @@ body.details-config-open .site-footer {
   box-shadow: 0 8px 18px rgba(0, 184, 148, 0.12);
 }
 
+.pcm-size-pill.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  border-style: dashed;
+}
+
+.pcm-size-pill.is-disabled small {
+  color: #b45309;
+}
+
 .pcm-selection-card {
   display: flex;
   align-items: center;

@@ -1,5 +1,7 @@
-import { buildVariantKey, getPrimarySelectionImage, normalizeProductAttributes } from './product-attributes.js';
-import { resolveMatrixStock } from '../../js/color-variant-inventory.js';
+import { buildVariantKey, normalizeProductAttributes } from './product-attributes.js';
+import { enrichProductColorVariants, resolveMatrixStock } from '../../js/color-variant-inventory.js';
+import { buildVariantCartPayload, validateVariantSelection } from '../../js/variant-cart-payload.js';
+import { normalizeStorefrontAssetUrl } from '../../services/storefront-asset-url.js';
 import { createProductModal } from './product-modal.js';
 import { renderProductOptionPreview } from './product-ui-renderer.js';
 
@@ -7,48 +9,8 @@ const DIRECT_CHECKOUT_KEY = 'byose_direct_checkout';
 const CHECKOUT_DRAFT_KEY = 'byose_checkout_draft_v1';
 const CHECKOUT_CONFIRMATION_KEY = 'byose_checkout_confirmation_v1';
 
-function getLegacyAttribute(attributes, name) {
-  const target = String(name || '').toLowerCase();
-
-  return Object.entries(attributes || {}).find(([key]) => String(key).toLowerCase() === target)?.[1] || '';
-}
-
 function createCartPayload(product, quantity, attributes = {}) {
-  const normalizedAttributes = Object.fromEntries(
-    Object.entries(attributes || {}).filter(([, value]) => value !== undefined && value !== null && value !== '')
-  );
-  const productAttributes = normalizeProductAttributes(product);
-  const image = getPrimarySelectionImage(product, productAttributes, normalizedAttributes)
-    || product.image
-    || product.mainImage
-    || '';
-  const attributeSummary = Object.values(normalizedAttributes).join(' • ');
-  const variantKey = buildVariantKey(normalizedAttributes);
-
-  return {
-    id: String(product.id),
-    productId: Number(product.id),
-    name: product.name,
-    price: Number(product.price || 0),
-    image,
-    img: image,
-    qty: Math.max(1, Number(quantity) || 1),
-    total: Number(product.price || 0) * Math.max(1, Number(quantity) || 1),
-    attributes: normalizedAttributes,
-    attributeSummary,
-    variantKey,
-    variantType: Object.keys(normalizedAttributes).length ? 'variant' : 'simple',
-    variantSelection: {
-      key: variantKey,
-      type: Object.keys(normalizedAttributes).length ? 'variant' : 'simple',
-      attributes: normalizedAttributes,
-      attributeSummary,
-      color: getLegacyAttribute(normalizedAttributes, 'color'),
-      size: getLegacyAttribute(normalizedAttributes, 'size')
-    },
-    color: getLegacyAttribute(normalizedAttributes, 'color'),
-    size: getLegacyAttribute(normalizedAttributes, 'size')
-  };
+  return buildVariantCartPayload(product, quantity, attributes);
 }
 
 function dispatchCartEvents() {
@@ -92,17 +54,18 @@ function addItemsToCart(items) {
 }
 
 function resolveAvailableQuantity(product, attributes = {}) {
-  const matrixStock = resolveMatrixStock(product, attributes);
+  const enrichedProduct = enrichProductColorVariants(product, normalizeStorefrontAssetUrl);
+  const matrixStock = resolveMatrixStock(enrichedProduct, attributes);
   if (Number.isFinite(matrixStock)) {
     return matrixStock;
   }
 
-  const baseAvailable = Number(product?.inventory?.available ?? product?.availableStock ?? product?.stock);
+  const baseAvailable = Number(enrichedProduct?.inventory?.available ?? enrichedProduct?.availableStock ?? enrichedProduct?.stock);
   if (Number.isFinite(baseAvailable) && baseAvailable >= 0) {
     return baseAvailable;
   }
 
-  const variants = Array.isArray(product?.inventory?.variants) ? product.inventory.variants : [];
+  const variants = Array.isArray(enrichedProduct?.inventory?.variants) ? enrichedProduct.inventory.variants : [];
   if (variants.length) {
     const variantKey = buildVariantKey(attributes || {});
     const matched = variants.find((entry) => String(entry?.key || '').trim() === variantKey);
@@ -116,8 +79,19 @@ function resolveAvailableQuantity(product, attributes = {}) {
 }
 
 function validateRequestedQuantity(product, quantity, attributes = {}) {
+  const variantCheck = validateVariantSelection(product, attributes);
+  if (!variantCheck.valid) {
+    return {
+      valid: false,
+      acceptedQuantity: 0,
+      message: variantCheck.message
+    };
+  }
+
   const requested = Math.max(1, Number(quantity) || 1);
-  const available = resolveAvailableQuantity(product, attributes);
+  const available = Number.isFinite(variantCheck.stock)
+    ? variantCheck.stock
+    : resolveAvailableQuantity(product, attributes);
 
   if (!Number.isFinite(available)) {
     return {

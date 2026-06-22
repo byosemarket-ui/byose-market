@@ -1,4 +1,4 @@
-import { escapeHtml, formatCurrency } from './utils.js';
+import { escapeHtml, formatCurrency, formatVariantDetailsText } from './utils.js';
 import { ORDER_STEPS } from './checkout-foundation.js';
 
 export function renderStageProgress(container, activeStage, steps = ORDER_STEPS) {
@@ -21,10 +21,10 @@ export function renderStageProgress(container, activeStage, steps = ORDER_STEPS)
 export function renderSummaryProducts(products = []) {
   return (Array.isArray(products) ? products : []).map((item) => `
     <article class="orders-summary-product">
-      <img src="${escapeHtml(item.image || item.img || '')}" alt="${escapeHtml(item.name || 'Product')}">
+      <img src="${escapeHtml(item.colorImage || item.image || item.img || '')}" alt="${escapeHtml(item.name || 'Product')}">
       <div>
         <strong>${escapeHtml(item.name || 'Product')}</strong>
-        <p>${escapeHtml(item.attributeSummary || 'Standard option')}</p>
+        <p>${escapeHtml(formatVariantDetailsText(item))}</p>
         <span>Qty ${Number(item.qty || 0)} x ${formatCurrency(item.price || 0)}</span>
       </div>
       <strong>${formatCurrency(item.total || ((Number(item.qty || 0) || 0) * (Number(item.price || 0) || 0)))}</strong>

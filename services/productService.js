@@ -3,6 +3,7 @@ export const PRODUCT_CHANGED_EVENT = "byose:products-changed";
 
 import { buildApiUrl, ensureUploadCapableApiBaseUrl, resolveApiBaseUrl } from "./api-origin.js";
 import { normalizeStorefrontAssetList, normalizeStorefrontAssetUrl, purgeLegacyStorefrontCatalogCache, resolveProductImageUrl } from "./storefront-asset-url.js";
+import { enrichProductColorVariants } from "../js/color-variant-inventory.js";
 import { detectStorefrontVisibilityIssues } from "../js/product-visibility.js";
 import { traceStorefrontStage } from "../js/storefront-pipeline-trace.js";
 
@@ -393,7 +394,7 @@ function normalizeProductRecord(record) {
     ? Math.max(0, Math.min(100, Math.floor(storedDiscountPercent)))
     : (oldPrice > price ? Math.round(((oldPrice - price) / oldPrice) * 100) : 0);
 
-  return {
+  const baseRecord = {
     ...source,
     id: catalogId,
     catalogId,
@@ -456,6 +457,19 @@ function normalizeProductRecord(record) {
       available: Math.max(0, Math.floor(toNumber(source.stock, 0))),
       totalAvailable: Math.max(0, Math.floor(toNumber(source.stock, 0))),
       status: Math.max(0, Math.floor(toNumber(source.stock, 0))) > 0 ? "in_stock" : "out_of_stock"
+    }
+  };
+
+  const enriched = enrichProductColorVariants(baseRecord, normalizeStorefrontAssetUrl);
+
+  return {
+    ...enriched,
+    availableStock: Math.max(0, Math.floor(toNumber(enriched.stock, 0))),
+    inventory: {
+      ...(baseRecord.inventory || {}),
+      available: Math.max(0, Math.floor(toNumber(enriched.stock, 0))),
+      totalAvailable: Math.max(0, Math.floor(toNumber(enriched.stock, 0))),
+      status: Math.max(0, Math.floor(toNumber(enriched.stock, 0))) > 0 ? "in_stock" : "out_of_stock"
     }
   };
 }

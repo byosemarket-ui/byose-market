@@ -4,7 +4,8 @@ import {
   getSelectionStock,
   isColorSizeInventory
 } from './product-attributes.js';
-import { COLOR_ATTR_NAME, SIZE_ATTR_NAME } from '../../js/color-variant-inventory.js';
+import { COLOR_ATTR_NAME, SIZE_ATTR_NAME, enrichProductColorVariants } from '../../js/color-variant-inventory.js';
+import { normalizeStorefrontAssetUrl } from '../../services/storefront-asset-url.js';
 import { buildModalMarkup } from './product-ui-renderer.js';
 
 function clampQuantity(value, max, min = 0) {
@@ -131,9 +132,10 @@ function hasValidColorSizeSelection(product, attributes, selectedAttributes, qua
 export function createProductModal({ product, attributes, onSubmit, showToast }) {
   const modalRoot = document.getElementById('productConfigModal');
   const modalBody = document.getElementById('productConfigModalBody');
-  let layout = createLayout(attributes, product, {});
+  const enrichedProduct = enrichProductColorVariants(product, normalizeStorefrontAssetUrl);
+  let layout = createLayout(attributes, enrichedProduct, {});
   let pageScrollY = 0;
-  const usesColorSizeInventory = isColorSizeInventory(product);
+  const usesColorSizeInventory = isColorSizeInventory(enrichedProduct);
 
   if (!modalRoot || !modalBody) {
     return {
@@ -192,7 +194,7 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
   }
 
   function refreshLayout() {
-    layout = createLayout(attributes, product, state.selectedAttributes);
+    layout = createLayout(attributes, enrichedProduct, state.selectedAttributes);
   }
 
   function getQuantityRows() {
@@ -203,7 +205,7 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
 
     return layout.quantityAttribute.options.map(option => {
       const selection = createSelection(state, layout.quantityAttribute, option.value);
-      const maxQty = getSelectionStock(product, attributes, selection);
+      const maxQty = getSelectionStock(enrichedProduct, attributes, selection);
       const qty = clampQuantity(state.quantityByOption[option.value], maxQty);
 
       return {
@@ -217,18 +219,18 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
 
   function getVariants() {
     if (usesColorSizeInventory) {
-      if (!hasValidColorSizeSelection(product, attributes, state.selectedAttributes, state.currentQuantity)) {
+      if (!hasValidColorSizeSelection(enrichedProduct, attributes, state.selectedAttributes, state.currentQuantity)) {
         return [];
       }
 
       return [{
         qty: clampQuantity(
           state.currentQuantity,
-          getSelectionStock(product, attributes, state.selectedAttributes),
+          getSelectionStock(enrichedProduct, attributes, state.selectedAttributes),
           1
         ),
         attributes: { ...state.selectedAttributes },
-        maxQty: getSelectionStock(product, attributes, state.selectedAttributes)
+        maxQty: getSelectionStock(enrichedProduct, attributes, state.selectedAttributes)
       }];
     }
 
@@ -243,13 +245,13 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
     }
 
     return [{
-      qty: clampQuantity(state.currentQuantity, getSelectionStock(product, attributes, state.selectedAttributes), 1),
+      qty: clampQuantity(state.currentQuantity, getSelectionStock(enrichedProduct, attributes, state.selectedAttributes), 1),
       attributes: { ...state.selectedAttributes }
     }];
   }
 
   function syncCurrentQuantity(preferredQuantity = state.currentQuantity) {
-    const maxQty = getSelectionStock(product, attributes, state.selectedAttributes);
+    const maxQty = getSelectionStock(enrichedProduct, attributes, state.selectedAttributes);
     const minQty = usesColorSizeInventory && state.selectedAttributes?.[COLOR_ATTR_NAME] && state.selectedAttributes?.[SIZE_ATTR_NAME]
       ? 1
       : 0;
@@ -263,7 +265,7 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
     }
 
     const selection = createSelection(state, quantityAttribute, optionValue);
-    const maxQty = getSelectionStock(product, attributes, selection);
+    const maxQty = getSelectionStock(enrichedProduct, attributes, selection);
     state.quantityByOption = {
       ...state.quantityByOption,
       [optionValue]: clampQuantity(preferredQuantity, maxQty)
@@ -273,7 +275,7 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
   function canSubmitSelection() {
     if (usesColorSizeInventory) {
       return hasValidColorSizeSelection(
-        product,
+        enrichedProduct,
         attributes,
         state.selectedAttributes,
         state.currentQuantity
@@ -308,7 +310,7 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
         return false;
       }
 
-      const stock = getSelectionStock(product, attributes, state.selectedAttributes);
+      const stock = getSelectionStock(enrichedProduct, attributes, state.selectedAttributes);
       if (!Number.isFinite(stock) || stock <= 0) {
         const message = 'This color and size combination is currently out of stock.';
         state.validationMessage = message;
@@ -488,15 +490,15 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
     const quantityRows = getQuantityRows();
     const variants = getVariants().filter(variant => variant.qty > 0);
     const totalItems = variants.reduce((sum, variant) => sum + Number(variant.qty || 0), 0);
-    const total = variants.reduce((sum, variant) => sum + (Number(product?.price || 0) * Number(variant.qty || 0)), 0);
+    const total = variants.reduce((sum, variant) => sum + (Number(enrichedProduct?.price || 0) * Number(variant.qty || 0)), 0);
     const quantityBlocked = Boolean(layout.quantityAttribute && missingRequired.length);
     const blockerMessage = quantityBlocked
       ? `Select ${formatList(missingRequired)} to enable ${layout.quantityAttribute.name.toLowerCase()} quantities.`
       : '';
-    const selectionStock = getSelectionStock(product, attributes, state.selectedAttributes);
+    const selectionStock = getSelectionStock(enrichedProduct, attributes, state.selectedAttributes);
 
     modalBody.innerHTML = buildModalMarkup({
-      product,
+      product: enrichedProduct,
       attributes: effectiveAttributes,
       layout,
       selectedAttributes: state.selectedAttributes,

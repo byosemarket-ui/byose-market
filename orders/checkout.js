@@ -1,4 +1,4 @@
-import { escapeHtml, formatCurrency } from './utils.js';
+import { escapeHtml, formatCurrency, formatVariantDetailsText } from './utils.js';
 import { renderStageProgress } from './checkout-ui.js';
 import { getPaymentMethodCatalog } from './payment-foundation.js';
 import {
@@ -101,12 +101,12 @@ function renderProductList(state) {
       <div class="orders-product-list">
         ${state.products.map((item) => `
           <article class="orders-review-product" data-product-id="${escapeHtml(item.id)}" data-variant-key="${escapeHtml(item.variantKey || '')}">
-            <img src="${escapeHtml(item.image || item.img || '')}" alt="${escapeHtml(item.name || 'Product')}">
+            <img src="${escapeHtml(item.colorImage || item.image || item.img || '')}" alt="${escapeHtml(item.name || 'Product')}">
             <div class="orders-review-product-copy">
               <div class="orders-review-product-top">
                 <div class="orders-review-product-meta">
                   <h4>${escapeHtml(item.name || 'Product')}</h4>
-                  <p>${escapeHtml(item.color || item.size ? [item.color, item.size].filter(Boolean).join(' • ') : (item.attributeSummary || 'Standard option'))}</p>
+                  <p>${escapeHtml(formatVariantDetailsText(item))}</p>
                   <strong class="orders-review-unit-price">${formatCurrency(item.price || 0)}</strong>
                 </div>
               </div>

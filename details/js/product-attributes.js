@@ -1,6 +1,7 @@
 import {
   applyColorSizeSelection,
   buildAttributesFromColorVariants,
+  enrichProductColorVariants,
   extractColorVariantsFromProduct,
   isColorSizeInventory,
   resolveMatrixStock
@@ -121,16 +122,17 @@ function normalizeVariantFoundationAttributes(variants) {
 }
 
 export function normalizeProductAttributes(product) {
-  const fallbackStock = Number(product?.stock ?? product?.stockCount);
+  const enrichedProduct = enrichProductColorVariants(product, normalizeStorefrontAssetUrl);
+  const fallbackStock = Number(enrichedProduct?.stock ?? enrichedProduct?.stockCount);
 
-  if (isColorSizeInventory(product)) {
-    const colorVariants = extractColorVariantsFromProduct(product);
+  if (isColorSizeInventory(enrichedProduct)) {
+    const colorVariants = extractColorVariantsFromProduct(enrichedProduct);
     return buildAttributesFromColorVariants(colorVariants);
   }
 
-  const rawAttributes = Array.isArray(product?.attributes) && product.attributes.length
-    ? product.attributes
-    : normalizeVariantFoundationAttributes(product?.variants);
+  const rawAttributes = Array.isArray(enrichedProduct?.attributes) && enrichedProduct.attributes.length
+    ? enrichedProduct.attributes
+    : normalizeVariantFoundationAttributes(enrichedProduct?.variants);
 
   return rawAttributes
     .map(attribute => {
@@ -194,12 +196,13 @@ export function buildVariantKey(attributes) {
 }
 
 export function getSelectionStock(product, attributes, selectedAttributes) {
-  const matrixStock = resolveMatrixStock(product, selectedAttributes);
+  const enrichedProduct = enrichProductColorVariants(product, normalizeStorefrontAssetUrl);
+  const matrixStock = resolveMatrixStock(enrichedProduct, selectedAttributes);
   if (Number.isFinite(matrixStock)) {
     return matrixStock;
   }
 
-  const productStock = Number(product?.stock ?? product?.stockCount);
+  const productStock = Number(enrichedProduct?.stock ?? enrichedProduct?.stockCount);
   let maxStock = Number.isFinite(productStock) ? Math.max(0, productStock) : Infinity;
 
   attributes.forEach(attribute => {
@@ -239,11 +242,12 @@ export function createVariantSelection(product, attributes, selectedAttributes, 
 }
 
 export function getEffectiveAttributes(product, attributes, selectedAttributes) {
-  if (!isColorSizeInventory(product)) {
+  const enrichedProduct = enrichProductColorVariants(product, normalizeStorefrontAssetUrl);
+  if (!isColorSizeInventory(enrichedProduct)) {
     return attributes;
   }
 
-  return applyColorSizeSelection(attributes, product, selectedAttributes);
+  return applyColorSizeSelection(attributes, enrichedProduct, selectedAttributes);
 }
 
 export function getPrimarySelectionImage(product, attributes, selectedAttributes) {

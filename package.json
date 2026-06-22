@@ -20,7 +20,10 @@
     "verify:admin-auth": "node scripts/verify-admin-auth-config.js",
     "ensure:production-env": "node scripts/ensure-production-env.js",
     "generate:admin-auth": "node scripts/generate-admin-auth-env.js",
-    "setup:vps-proxy": "bash scripts/setup-vps-proxy.sh"
+    "setup:vps-proxy": "bash scripts/setup-vps-proxy.sh",
+    "verify:integration": "node scripts/validate-product-integration.js && node scripts/validate-color-inventory.js && node scripts/validate-color-variant-images.js && node scripts/validate-variant-cart-payload.js && node scripts/validate-discount-display.js",
+    "verify:variant-flow": "node scripts/verify-variant-data-flow.mjs",
+    "verify:storefront": "node scripts/verify-storefront-full.mjs"
   },
   "author": "Kwizera Evode",
   "license": "ISC",
