@@ -86,6 +86,18 @@ const SOURCE_CHECKS = [
     file: "js/storefront-display.js",
     pattern: /shouldShowOnSurface/,
     message: "Visibility rules shared across storefront surfaces"
+  },
+  {
+    id: "storefront-published-check",
+    file: "js/product-visibility.js",
+    pattern: /isProductPublished/,
+    message: "Storefront publish visibility helper exists"
+  },
+  {
+    id: "payload-stock-independent-status",
+    file: "admin/app/pages/products/payload.js",
+    pattern: /publishStatus === "inactive"/,
+    message: "Publish status is independent from stock quantity"
   }
 ];
 
@@ -151,6 +163,35 @@ function runPayloadChecks() {
   checks.push({
     name: "Payload includes main image",
     ok: Boolean(payload.mainImage)
+  });
+
+  checks.push({
+    name: "Payload keeps published products active when out of stock",
+    ok: (() => {
+      const zeroStockDraft = buildSampleDraft();
+      zeroStockDraft.inventory.quantity = "0";
+      zeroStockDraft.info.publishStatus = "active";
+      const zeroStockPayload = buildProductPayload(zeroStockDraft);
+      return zeroStockPayload.status === "active";
+    })()
+  });
+  checks.push({
+    name: "Payload marks draft products as draft regardless of stock",
+    ok: (() => {
+      const draftProduct = buildSampleDraft();
+      draftProduct.info.publishStatus = "draft";
+      draftProduct.inventory.quantity = "25";
+      return buildProductPayload(draftProduct).status === "draft";
+    })()
+  });
+  checks.push({
+    name: "Payload marks inactive publish status as inactive",
+    ok: (() => {
+      const inactiveProduct = buildSampleDraft();
+      inactiveProduct.info.publishStatus = "inactive";
+      inactiveProduct.inventory.quantity = "25";
+      return buildProductPayload(inactiveProduct).status === "inactive";
+    })()
   });
 
   return checks;

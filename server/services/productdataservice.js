@@ -1,6 +1,7 @@
 const { getRepositoryBundle } = require('../repositories');
 const { collectProductManagedPaths, deleteManagedFiles, normalizeManagedPath } = require('./uploadstorage.service');
 const productSearchService = require('./productsearch.service');
+const { isProductPublished } = require('../utils/product-visibility');
 
 function decorateProduct(product) {
     if (!product || typeof product !== 'object') {
@@ -43,7 +44,11 @@ async function listProducts(options = {}) {
     const page = Math.max(1, Number(options.page || 1) || 1);
     const limit = Math.min(500, Math.max(1, Number(options.limit || 200) || 200));
     const offset = (page - 1) * limit;
-    return (await products.list({ category: options.category || '', limit, offset })).map((product) => decorateProduct(product));
+    let results = await products.list({ category: options.category || '', limit, offset });
+    if (options.publicOnly) {
+        results = results.filter((product) => isProductPublished(product));
+    }
+    return results.map((product) => decorateProduct(product));
 }
 
 async function listAllProducts() {

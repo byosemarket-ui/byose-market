@@ -208,7 +208,18 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
     }
 
     isActiveProductClause() {
-        return `(status IS NULL OR status = '' OR lower(status) IN ('active', 'published', 'live'))`;
+        return `(
+            status IS NULL
+            OR status = ''
+            OR lower(status) IN ('active', 'published', 'live')
+            OR (
+                lower(status) = 'inactive'
+                AND (
+                    json_extract(metadata_json, '$.publishStatus') IS NULL
+                    OR lower(json_extract(metadata_json, '$.publishStatus')) IN ('active', 'published', 'live')
+                )
+            )
+        )`;
     }
 
     sanitizeLikePattern(pattern) {

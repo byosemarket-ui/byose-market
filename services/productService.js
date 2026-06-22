@@ -3,6 +3,7 @@ export const PRODUCT_CHANGED_EVENT = "byose:products-changed";
 
 import { buildApiUrl, ensureUploadCapableApiBaseUrl, resolveApiBaseUrl } from "./api-origin.js";
 import { normalizeStorefrontAssetList, normalizeStorefrontAssetUrl, purgeLegacyStorefrontCatalogCache, resolveProductImageUrl } from "./storefront-asset-url.js";
+import { detectStorefrontVisibilityIssues } from "../js/product-visibility.js";
 
 if (typeof window !== "undefined") {
   window.addEventListener("load", () => {
@@ -478,6 +479,13 @@ function sortProducts(products) {
 
 function publishProducts(products, source = "api") {
   const normalizedProducts = sortProducts(asArray(products).map((product) => normalizeProductRecord(product)));
+  const storefrontWarnings = detectStorefrontVisibilityIssues(normalizedProducts);
+  if (storefrontWarnings.length) {
+    console.warn(
+      `[Product Service] ${storefrontWarnings.length} published product(s) are hidden from the storefront.`,
+      storefrontWarnings
+    );
+  }
   cachedProducts = normalizedProducts;
   lastSnapshotAt = Date.now();
   hasHydratedCatalog = true;

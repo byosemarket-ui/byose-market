@@ -2,6 +2,10 @@
  * Shared storefront product visibility, placement, and display ordering.
  */
 
+import { isProductPublished } from "./product-visibility.js";
+
+export { detectStorefrontVisibilityIssues, isProductPublished, resolvePublishStatus } from "./product-visibility.js";
+
 export const PLACEMENT_SECTIONS = Object.freeze({
   featured_products: "featured_products",
   best_sellers: "best_sellers",
@@ -115,11 +119,10 @@ export function normalizeVisibility(value) {
 }
 
 export function shouldShowOnSurface(product, surface) {
-  const visibility = normalizeVisibility(product?.visibility);
-  const status = normalizeText(product?.status || "active");
-  if (status && status !== "active") {
+  if (!isProductPublished(product)) {
     return false;
   }
+  const visibility = normalizeVisibility(product?.visibility);
   return visibility === "both" || visibility === surface;
 }
 

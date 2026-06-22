@@ -417,7 +417,7 @@ export function hydrateDraftFromProduct(product) {
       priorityScore: String(
         Math.max(0, Math.min(100, Math.floor(toNumber(metadata.priorityScore ?? product.priority, 50))))
       ),
-      publishStatus: product.status === "inactive" ? "inactive" : (metadata.publishStatus || "active")
+      publishStatus: metadata.publishStatus || (product.status === "inactive" ? "inactive" : (product.status === "draft" ? "draft" : "active"))
     },
     description: {
       description: product.description || product.shortDescription || "",

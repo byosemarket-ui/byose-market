@@ -2,6 +2,12 @@ const { appLogger, monitorAsyncOperation } = require('../utils/logger');
 const config = require('../config/env');
 const productDataService = require('../services/productdataservice');
 const getRealtimeEventService = require('../services/realtimeeventservice');
+const {
+    detectStorefrontVisibilityIssues,
+    isAdminProductRequest,
+    isProductPublished,
+    resolvePublicProductStatus
+} = require('../utils/product-visibility');
 
 const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
 const DEFAULT_SITE_ORIGIN = 'https://byosemarket.com';
@@ -422,10 +428,14 @@ function normalizePayload(payload) {
     };
 }
 
-function serializeProduct(product) {
+function serializeProduct(product, options = {}) {
     const source = product && typeof product.toObject === 'function'
         ? product.toObject({ versionKey: false })
         : { ...(product || {}) };
+    const forPublic = Boolean(options.forPublic);
+    const resolvedStatus = forPublic
+        ? resolvePublicProductStatus(source)
+        : toTrimmedString(source.status, 'active').toLowerCase() || 'active';
     const catalogId = Number(source.catalogId || source.id || 0);
     const variants = {
         ...normalizeVariantFoundation(source.variants, source.attributes),
@@ -489,6 +499,7 @@ function serializeProduct(product) {
         metaDescription: metadata.metaDescription || source.shortDescription || source.description,
         slug: metadata.slug,
         tags: metadata.tags,
+        status: resolvedStatus,
         metadata
     };
 }
@@ -639,10 +650,30 @@ exports.getAllProducts = async (req, res) => {
 
         const limit = Math.min(500, Math.max(1, Number(req.query?.limit || 200) || 200));
         const page = Math.max(1, Number(req.query?.page || 1) || 1);
-        const skip = (page - 1) * limit;
+        const forPublic = !isAdminProductRequest(req);
 
-        const products = await monitorAsyncOperation(logger, 'database.product.list', { category: filter.category || '', limit, page }, () => productDataService.listProducts({ category: filter.category || '', limit, page }), { slowThresholdMs: 900 });
-        return res.json({ success: true, products: sortSerializedProducts(products.map(serializeProduct)) });
+        const products = await monitorAsyncOperation(
+            logger,
+            'database.product.list',
+            { category: filter.category || '', limit, page, forPublic },
+            () => productDataService.listProducts({ category: filter.category || '', limit, page, publicOnly: forPublic }),
+            { slowThresholdMs: 900 }
+        );
+        const serialized = sortSerializedProducts(products.map((product) => serializeProduct(product, { forPublic })));
+        const payload = { success: true, products: serialized };
+
+        if (!forPublic) {
+            const storefrontWarnings = detectStorefrontVisibilityIssues(products);
+            if (storefrontWarnings.length) {
+                payload.storefrontWarnings = storefrontWarnings;
+                logger.warn('inventory.storefront_visibility_issues', {
+                    count: storefrontWarnings.length,
+                    types: Array.from(new Set(storefrontWarnings.map((entry) => entry.type)))
+                });
+            }
+        }
+
+        return res.json(payload);
     } catch (error) {
         logger.error('inventory.product_list_failed', { error, category: req.query?.category || '' });
         return res.status(500).json({ success: false, message: 'Server error' });
@@ -777,12 +808,17 @@ exports.searchProductsByImage = async (req, res) => {
 exports.getProductById = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'inventory' });
     try {
+        const forPublic = !isAdminProductRequest(req);
         const product = await monitorAsyncOperation(logger, 'database.product.find', { requestedProductId: req.params.id }, () => findProductByIdentifier(req.params.id, 'catalogId name title description shortDescription longDescription badge category price oldPrice stock image mainImage gallery keywords highlights trust specs attributes variants visibility priority orderIndex highlightTag status url page updatedAt createdAt'), { slowThresholdMs: 700 });
         if (!product) {
             return res.status(404).json({ success: false, message: 'Product not found' });
         }
 
-        return res.json({ success: true, product: serializeProduct(product) });
+        if (forPublic && !isProductPublished(product)) {
+            return res.status(404).json({ success: false, message: 'Product not found' });
+        }
+
+        return res.json({ success: true, product: serializeProduct(product, { forPublic }) });
     } catch (error) {
         logger.error('inventory.product_lookup_failed', { error, requestedProductId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
