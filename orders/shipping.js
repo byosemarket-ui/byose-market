@@ -1,6 +1,7 @@
-import { escapeHtml, formatCurrency, normalizePhone } from './utils.js';
+import { escapeHtml, formatCurrency } from './utils.js';
 import { mountStickyCheckoutBar, renderStageProgress, renderSummaryProducts } from './checkout-ui.js';
 import {
+  commitShippingStage,
   getResolvedCustomerName,
   getStageUrl,
   getState,
@@ -25,10 +26,18 @@ const ui = {
   continueButton: document.getElementById('shippingContinueBtn')
 };
 
+function syncFormFromDom() {
+  if (!ui.form) {
+    return;
+  }
+
+  const formData = new FormData(ui.form);
+  updateShippingDetails(Object.fromEntries(formData.entries()));
+}
+
 function renderSidebar(state) {
   const itemCount = state.products.reduce((sum, item) => sum + Number(item.qty || 0), 0);
-  const validation = validateShippingStage();
-  const isDisabled = !state.products.length || !validation.valid;
+  const hasProducts = state.products.length > 0;
 
   ui.sidebar.innerHTML = `
     <section class="orders-sidebar-card orders-sidebar-card--sticky">
@@ -43,7 +52,7 @@ function renderSidebar(state) {
       <div class="orders-total-row"><span>Subtotal</span><strong>${formatCurrency(state.totals.subtotal)}</strong></div>
       <div class="orders-total-row"><span>Delivery fee</span><strong>${formatCurrency(state.totals.shippingFee)}</strong></div>
       <div class="orders-total-row is-total"><span>Total</span><strong>${formatCurrency(state.totals.total)}</strong></div>
-      <button type="submit" class="orders-next-button" form="shippingForm" ${isDisabled ? 'disabled' : ''}>Continue</button>
+      <button type="submit" class="orders-next-button" form="shippingForm" ${hasProducts ? '' : 'disabled'}>Continue</button>
     </section>
   `;
 
@@ -51,13 +60,9 @@ function renderSidebar(state) {
     total: state.totals.total,
     label: 'Order total',
     buttonText: 'Continue',
-    disabled: isDisabled,
-    onAction: () => ui.form.requestSubmit()
+    disabled: !hasProducts,
+    onAction: () => ui.form?.requestSubmit()
   });
-
-  if (ui.continueButton) {
-    ui.continueButton.disabled = isDisabled;
-  }
 }
 
 function buildMapLink(latitude, longitude) {
@@ -243,19 +248,16 @@ function bindForm() {
   ui.form.addEventListener('submit', (event) => {
     event.preventDefault();
 
-    const formData = new FormData(ui.form);
-    updateShippingDetails(Object.fromEntries(formData.entries()));
+    syncFormFromDom();
 
-    const validation = validateShippingStage();
+    const validation = commitShippingStage();
     applyValidation(validation);
     if (!validation.valid) {
+      renderSidebar(getState());
       return;
     }
 
-    const state = getState();
-    updateShippingDetails({
-      phone: normalizePhone(state.shippingAddress.phone) || state.shippingAddress.phone
-    });
+    setMessage('');
     setStage('checkout');
     window.location.assign(getStageUrl('checkout'));
   });

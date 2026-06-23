@@ -170,11 +170,6 @@ async function verifyViewport(browser, viewport, product) {
   await page.fill('input[name="cell"]', "Bibare");
   await page.fill('input[name="village"]', "Test Village");
 
-  await page.waitForFunction(() => {
-    const button = document.getElementById("shippingContinueBtn");
-    return button && !button.disabled;
-  }, { timeout: 15000 });
-
   await page.evaluate(() => document.getElementById("shippingForm")?.requestSubmit());
   await page.waitForURL(/checkout\.html/, { timeout: 30000 });
   await page.waitForTimeout(1500);
@@ -183,6 +178,8 @@ async function verifyViewport(browser, viewport, product) {
   checks.reviewProducts = await page.locator(".orders-review-product").count();
   checks.reviewDelivery = await page.locator(".orders-review-card--summary").count() > 0;
   checks.reviewTotals = await page.locator(".orders-review-card--totals").count() > 0;
+  checks.paymentOptions = await page.locator("#checkoutPaymentMethods .orders-payment-option").count();
+  checks.paymentIcons = await page.locator("#checkoutPaymentMethods .orders-payment-icon").count();
   checks.checkoutStickyBar = compactChrome
     ? await page.locator(".orders-sticky-checkout-bar__action").count() > 0
     : await page.locator(".orders-sidebar-card--sticky").count() > 0;
@@ -190,24 +187,21 @@ async function verifyViewport(browser, viewport, product) {
   const reviewBodyWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   checks.noHorizontalScrollReview = reviewBodyWidth <= viewport.width + 2;
 
+  await page.locator('input[name="checkoutPaymentMethod"][value="mtn"]').click({ force: true });
+  await page.fill('input[name="checkoutPaymentPhone"]', "0781234567");
+
   const continueToPayment = page.locator("#continuePaymentButton");
   if (await continueToPayment.count()) {
-    await continueToPayment.waitFor({ state: "visible", timeout: 10000 });
-    await page.waitForFunction(() => {
-      const button = document.getElementById("continuePaymentButton");
-      return button && !button.disabled;
-    }, { timeout: 15000 });
     await continueToPayment.click();
   } else {
     await page.locator(".orders-sticky-checkout-bar__action").first().click({ force: true });
   }
   await page.waitForURL(/payment\.html/, { timeout: 30000 });
-  await page.waitForSelector(".orders-payment-option", { timeout: 15000 });
+  await page.waitForSelector("#paymentMethodSummary .orders-payment-option", { timeout: 15000 });
   await page.waitForTimeout(500);
 
   checks.paymentProgress = await page.locator(".orders-progress-step.is-active strong").textContent();
-  checks.paymentOptions = await page.locator(".orders-payment-option").count();
-  checks.paymentIcons = await page.locator(".orders-payment-icon").count();
+  checks.paymentSummary = await page.locator("#paymentMethodSummary .orders-payment-option").count() > 0;
   checks.paymentStickyBar = compactChrome
     ? await page.locator(".orders-sticky-checkout-bar__action").count() > 0
     : await page.locator("#checkoutSidebar .orders-sidebar-card, .orders-payment-list").count() > 0;
@@ -234,6 +228,9 @@ async function verifyViewport(browser, viewport, product) {
     }
     if (key === "paymentOptions") {
       return Number(value) >= 4;
+    }
+    if (key === "paymentSummary") {
+      return Boolean(value);
     }
     if (key === "reviewProducts") {
       return Number(value) >= 1;

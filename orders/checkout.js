@@ -1,14 +1,23 @@
 import { escapeHtml, formatCurrency, formatVariantDetailsText } from './utils.js';
-import { mountStickyCheckoutBar, renderStageProgress, renderSummaryProducts } from './checkout-ui.js';
 import {
+  mountStickyCheckoutBar,
+  renderPaymentMethodList,
+  renderStageProgress,
+  renderSummaryProducts
+} from './checkout-ui.js';
+import {
+  getPaymentMethodLabel,
   getResolvedCustomerName,
   getStageUrl,
   getState,
   initializeOrderFlow,
+  isCodAvailable,
   resolveStageAccess,
   setStage,
   subscribe,
+  updatePaymentDetails,
   updateProductQuantity,
+  validatePaymentStage,
   validateShippingStage
 } from './state.js';
 
@@ -69,13 +78,19 @@ function renderProductList(state) {
         </div>
       </div>
       <div class="orders-product-list">
-        ${state.products.map((item) => `
+        ${state.products.map((item) => {
+          const colorName = String(item.colorName || item.color || item.variantSelection?.color || '').trim();
+          const sizeLabel = String(item.sizeLabel || item.size || item.variantSelection?.size || '').trim();
+          const image = item.colorImage || item.image || item.img || '';
+          return `
           <article class="orders-review-product" data-product-id="${escapeHtml(item.id)}" data-variant-key="${escapeHtml(item.variantKey || '')}">
-            <img src="${escapeHtml(item.colorImage || item.image || item.img || '')}" alt="${escapeHtml(item.name || 'Product')}">
+            <img src="${escapeHtml(image)}" alt="${escapeHtml(item.name || 'Product')}">
             <div class="orders-review-product-copy">
               <div class="orders-review-product-top">
                 <div class="orders-review-product-meta">
                   <h4>${escapeHtml(item.name || 'Product')}</h4>
+                  ${colorName ? `<p>Color: ${escapeHtml(colorName)}</p>` : ''}
+                  ${sizeLabel ? `<p>Size: ${escapeHtml(sizeLabel)}</p>` : ''}
                   <p>${escapeHtml(formatVariantDetailsText(item))}</p>
                   <strong class="orders-review-unit-price">${formatCurrency(item.price || 0)} each</strong>
                 </div>
@@ -93,7 +108,8 @@ function renderProductList(state) {
               </div>
             </div>
           </article>
-        `).join('')}
+        `;
+        }).join('')}
       </div>
     </section>
   `;
@@ -109,11 +125,48 @@ function renderPriceBreakdown(state) {
   `;
 }
 
+function renderPaymentMethods(state) {
+  return `
+    <section class="orders-review-card" id="checkoutPaymentMethods">
+      <div class="orders-section-head">
+        <div>
+          <span class="orders-sidebar-label">Payment</span>
+          <h3>Select payment method</h3>
+        </div>
+      </div>
+      <div class="orders-payment-list" role="radiogroup" aria-label="Payment methods">
+        ${renderPaymentMethodList(state, {
+          inputName: 'checkoutPaymentMethod',
+          isCodAvailable
+        })}
+      </div>
+      <label class="orders-field orders-field--full">
+        <span class="orders-field-label">Payment phone number <strong>*</strong></span>
+        <input type="tel" name="checkoutPaymentPhone" value="${escapeHtml(state.payment.phone || state.shippingAddress.phone || '')}" autocomplete="tel" inputmode="tel" placeholder="07XXXXXXXX">
+      </label>
+    </section>
+  `;
+}
+
 function handleContinueToPayment() {
   const shippingValidation = validateShippingStage();
   if (!shippingValidation.valid) {
     setMessage(shippingValidation.message || 'Shipping data is incomplete.');
     window.location.assign('shipping.html');
+    return;
+  }
+
+  const phoneInput = ui.content.querySelector('input[name="checkoutPaymentPhone"]');
+  const methodInput = ui.content.querySelector('input[name="checkoutPaymentMethod"]:checked');
+  const method = methodInput?.value || '';
+  const phone = phoneInput?.value || '';
+
+  updatePaymentDetails({ method: method || 'mtn', phone });
+
+  const paymentValidation = validatePaymentStage();
+  if (!paymentValidation.valid) {
+    setMessage(paymentValidation.message || 'Choose a payment method before continuing.');
+    render(getState());
     return;
   }
 
@@ -123,8 +176,7 @@ function handleContinueToPayment() {
 }
 
 function renderSidebar(state) {
-  const shippingValid = validateShippingStage().valid;
-  const isDisabled = !state.products.length || !shippingValid;
+  const hasProducts = state.products.length > 0;
   const itemCount = state.products.reduce((sum, item) => sum + Number(item.qty || 0), 0);
 
   ui.sidebar.innerHTML = `
@@ -132,7 +184,7 @@ function renderSidebar(state) {
       <span class="orders-sidebar-label">Order summary</span>
       <div class="orders-sidebar-heading">
         <h3>${itemCount} item${itemCount === 1 ? '' : 's'}</h3>
-        <span>${escapeHtml(getResolvedCustomerName())}</span>
+        <span>${escapeHtml(getPaymentMethodLabel(state.payment.method) || 'Select payment')}</span>
       </div>
       <div class="orders-summary-product-list orders-summary-product-list--compact">
         ${renderSummaryProducts(state.products)}
@@ -140,7 +192,7 @@ function renderSidebar(state) {
       <div class="orders-total-row"><span>Subtotal</span><strong>${formatCurrency(state.totals.subtotal)}</strong></div>
       <div class="orders-total-row"><span>Delivery fee</span><strong>${formatCurrency(state.totals.shippingFee)}</strong></div>
       <div class="orders-total-row is-total"><span>Total</span><strong>${formatCurrency(state.totals.total)}</strong></div>
-      <button type="button" class="orders-next-button" id="continuePaymentButton" ${isDisabled ? 'disabled' : ''}>Continue to Payment</button>
+      <button type="button" class="orders-next-button" id="continuePaymentButton" ${hasProducts ? '' : 'disabled'}>Continue to Payment</button>
     </section>
   `;
 
@@ -150,8 +202,24 @@ function renderSidebar(state) {
     total: state.totals.total,
     label: 'Order total',
     buttonText: 'Continue',
-    disabled: isDisabled,
+    disabled: !hasProducts,
     onAction: handleContinueToPayment
+  });
+}
+
+function bindPaymentControls(state) {
+  ui.content.querySelectorAll('input[name="checkoutPaymentMethod"]').forEach((input) => {
+    input.addEventListener('change', (event) => {
+      updatePaymentDetails({ method: event.currentTarget.value });
+      setMessage('');
+      renderSidebar(getState());
+    });
+  });
+
+  const phoneInput = ui.content.querySelector('input[name="checkoutPaymentPhone"]');
+  phoneInput?.addEventListener('input', (event) => {
+    updatePaymentDetails({ phone: event.currentTarget.value });
+    setMessage('');
   });
 }
 
@@ -161,6 +229,7 @@ function renderContent(state) {
       ${renderShippingSummary(state)}
       ${renderProductList(state)}
       ${renderPriceBreakdown(state)}
+      ${renderPaymentMethods(state)}
     </div>
   `;
 
@@ -182,6 +251,8 @@ function renderContent(state) {
       updateProductQuantity(productId, variantKey, readQuantity());
     });
   });
+
+  bindPaymentControls(state);
 }
 
 function render(state) {
@@ -212,5 +283,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   setMessage('');
+
+  const initialState = getState();
+  if (!initialState.payment.method) {
+    updatePaymentDetails({
+      method: 'mtn',
+      phone: initialState.payment.phone || initialState.shippingAddress.phone || ''
+    });
+  }
+
   render(getState());
 });

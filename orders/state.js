@@ -99,6 +99,8 @@ const DEFAULT_PAYMENT = {
 };
 
 const COD_FEE = 2000;
+const SUPPORTED_PAY_NOW_METHODS = ['mtn', 'airtel', 'bank', 'card'];
+const INACTIVE_PAYMENT_MESSAGE = 'This payment method is not active yet.';
 const SUBMISSION_DELAY_MS = 900;
 const ORDER_REQUEST_TIMEOUT_MS = 12000;
 const ORDER_REQUEST_MAX_ATTEMPTS = 2;
@@ -542,7 +544,8 @@ function getMissingShippingField() {
   return REQUIRED_SHIPPING_FIELDS.find((field) => !String(state.shippingAddress[field] || '').trim()) || '';
 }
 
-function buildShippingValidation() {
+function buildShippingValidation(options = {}) {
+  const persist = options.persist === true;
   const errors = {};
 
   REQUIRED_SHIPPING_FIELDS.forEach((field) => {
@@ -572,12 +575,36 @@ function buildShippingValidation() {
     };
   }
 
-  persistUserAddress({
-    ...state.shippingAddress,
-    phone: normalizePhone(state.shippingAddress.phone)
-  });
+  if (persist) {
+    persistUserAddress({
+      ...state.shippingAddress,
+      phone: normalizePhone(state.shippingAddress.phone)
+    });
+  }
 
   return { valid: true, errors: {} };
+}
+
+export function commitShippingStage() {
+  const validation = buildShippingValidation({ persist: true });
+  if (!validation.valid) {
+    return validation;
+  }
+
+  const normalizedPhone = normalizePhone(state.shippingAddress.phone);
+  if (normalizedPhone) {
+    state.shippingAddress.phone = normalizedPhone;
+    if (!state.payment.phone) {
+      state.payment = normalizePayment({
+        ...state.payment,
+        phone: normalizedPhone,
+        payerPhone: normalizedPhone
+      });
+    }
+    persistDraft();
+  }
+
+  return validation;
 }
 
 function buildPaymentValidation() {
@@ -655,9 +682,16 @@ export function resolveStageAccess(stage) {
     return { valid: true };
   }
 
-  const shippingValidation = buildShippingValidation();
+  const shippingValidation = buildShippingValidation({ persist: false });
   if (!shippingValidation.valid) {
     return { valid: false, redirectUrl: getStageUrl('shipping') };
+  }
+
+  if (stage === 'payment') {
+    const paymentValidation = buildPaymentValidation();
+    if (!paymentValidation.valid) {
+      return { valid: false, redirectUrl: getStageUrl('checkout') };
+    }
   }
 
   return { valid: true };
@@ -790,11 +824,11 @@ export function validateCartStep() {
 }
 
 export function validateShippingStage() {
-  return buildShippingValidation();
+  return buildShippingValidation({ persist: false });
 }
 
 export function validateShippingStep() {
-  return buildShippingValidation();
+  return buildShippingValidation({ persist: false });
 }
 
 export function validateDeliveryStep() {
@@ -831,7 +865,7 @@ export function buildOrderPayload() {
     return cartValidation;
   }
 
-  const shippingValidation = buildShippingValidation();
+  const shippingValidation = buildShippingValidation({ persist: false });
   if (!shippingValidation.valid) {
     return shippingValidation;
   }

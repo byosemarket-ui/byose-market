@@ -382,6 +382,11 @@
   align-items: start;
 }
 
+.orders-payment-option--summary {
+  pointer-events: none;
+  cursor: default;
+}
+
 @media (min-width: 768px) {
   .orders-layout {
     grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.75fr);

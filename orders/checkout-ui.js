@@ -1,6 +1,6 @@
 import { escapeHtml, formatCurrency, formatVariantDetailsText } from './utils.js';
 import { ORDER_STEPS } from './checkout-foundation.js';
-import { getPaymentMethodCatalog } from './payment-foundation.js';
+import { getPaymentMethodCatalog, resolvePaymentMethodLabel } from './payment-foundation.js';
 
 export const PAYMENT_OPTION_VISUALS = {
   mtn: {
@@ -102,6 +102,27 @@ export function renderPaymentMethodList(state, options = {}) {
       </label>
     `;
   }).join('');
+}
+
+export function renderSelectedPaymentMethod(state, options = {}) {
+  const method = String(state?.payment?.method || '').trim();
+  const methodMeta = PAYMENT_OPTION_VISUALS[method] || {};
+  const title = resolvePaymentMethodLabel(method);
+
+  if (!method) {
+    return '<p class="orders-payment-empty">No payment method selected.</p>';
+  }
+
+  return `
+    <article class="orders-payment-option is-selected orders-payment-option--summary">
+      <img class="orders-payment-icon" src="${escapeHtml(methodMeta.icon || '../img/BANK TRANSFER.jpeg')}" alt="${escapeHtml(title)} icon">
+      <div class="orders-payment-option-copy">
+        <strong>${escapeHtml(title)}</strong>
+        <p>${escapeHtml(methodMeta.detail || 'Selected payment method')}</p>
+        ${options.showPhone && state?.payment?.phone ? `<p>Phone: ${escapeHtml(state.payment.phone)}</p>` : ''}
+      </div>
+    </article>
+  `;
 }
 
 export function mountStickyCheckoutBar(container, {

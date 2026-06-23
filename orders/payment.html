@@ -26,7 +26,17 @@
           <div class="orders-step-message" id="paymentMessage" hidden></div>
 
           <form id="paymentForm" class="orders-step-stack" novalidate>
-            <div id="paymentMethodList" class="orders-payment-list" role="radiogroup" aria-label="Payment methods"></div>
+            <section class="orders-review-card">
+              <div class="orders-section-head">
+                <div>
+                  <span class="orders-sidebar-label">Selected method</span>
+                  <h3>Confirm payment</h3>
+                </div>
+                <a class="orders-text-link" href="checkout.html">Change</a>
+              </div>
+              <div id="paymentMethodSummary"></div>
+              <div class="orders-payment-state-card" id="paymentStatusCard"></div>
+            </section>
 
             <label class="orders-field orders-field--full">
               <span class="orders-field-label">Payment Phone Number <strong>*</strong></span>

@@ -179,8 +179,6 @@ function applyRemoteStorefrontState(state) {
     if (Object.prototype.hasOwnProperty.call(state || {}, 'checkoutDraft')) {
       if (state.checkoutDraft) {
         writeStorage(STORAGE_KEYS.draft, clone(state.checkoutDraft));
-      } else {
-        removeStorage(STORAGE_KEYS.draft);
       }
     }
 
