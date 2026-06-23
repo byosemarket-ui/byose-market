@@ -1,5 +1,5 @@
 import { escapeHtml, formatCurrency, normalizePhone } from './utils.js';
-import { renderStageProgress, renderSummaryProducts } from './checkout-ui.js';
+import { mountStickyCheckoutBar, renderStageProgress, renderSummaryProducts } from './checkout-ui.js';
 import {
   getResolvedCustomerName,
   getStageUrl,
@@ -20,11 +20,16 @@ const ui = {
   message: document.getElementById('shippingMessage'),
   locationStatus: document.getElementById('locationStatus'),
   locationMeta: document.getElementById('locationMeta'),
-  locationMapLink: document.getElementById('locationMapLink')
+  locationMapLink: document.getElementById('locationMapLink'),
+  stickyBar: document.getElementById('shippingStickyBar'),
+  continueButton: document.getElementById('shippingContinueBtn')
 };
 
 function renderSidebar(state) {
   const itemCount = state.products.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+  const validation = validateShippingStage();
+  const isDisabled = !state.products.length || !validation.valid;
+
   ui.sidebar.innerHTML = `
     <section class="orders-sidebar-card orders-sidebar-card--sticky">
       <span class="orders-sidebar-label">Order summary</span>
@@ -36,10 +41,23 @@ function renderSidebar(state) {
         ${renderSummaryProducts(state.products)}
       </div>
       <div class="orders-total-row"><span>Subtotal</span><strong>${formatCurrency(state.totals.subtotal)}</strong></div>
-      <div class="orders-total-row"><span>Shipping</span><strong>${formatCurrency(state.totals.shippingFee)}</strong></div>
+      <div class="orders-total-row"><span>Delivery fee</span><strong>${formatCurrency(state.totals.shippingFee)}</strong></div>
       <div class="orders-total-row is-total"><span>Total</span><strong>${formatCurrency(state.totals.total)}</strong></div>
+      <button type="submit" class="orders-next-button" form="shippingForm" ${isDisabled ? 'disabled' : ''}>Continue</button>
     </section>
   `;
+
+  mountStickyCheckoutBar(ui.stickyBar, {
+    total: state.totals.total,
+    label: 'Order total',
+    buttonText: 'Continue',
+    disabled: isDisabled,
+    onAction: () => ui.form.requestSubmit()
+  });
+
+  if (ui.continueButton) {
+    ui.continueButton.disabled = isDisabled;
+  }
 }
 
 function buildMapLink(latitude, longitude) {
@@ -59,16 +77,16 @@ function renderLocationState(state, statusText) {
   const mapLink = shippingAddress.mapLink || buildMapLink(shippingAddress.latitude, shippingAddress.longitude);
 
   if (coordinateText) {
-    badges.push(`<span class="orders-location-badge">Coordinates: ${escapeHtml(coordinateText)}</span>`);
+    badges.push(`<span class="orders-location-badge" title="Coordinates">${escapeHtml(coordinateText)}</span>`);
   }
 
   if (shippingAddress.locationAccuracy) {
-    badges.push(`<span class="orders-location-badge">Accuracy ${escapeHtml(shippingAddress.locationAccuracy)}m</span>`);
+    badges.push(`<span class="orders-location-badge">±${escapeHtml(shippingAddress.locationAccuracy)}m</span>`);
   }
 
   ui.locationStatus.textContent = statusText || (coordinateText
     ? 'Location captured'
-    : 'Requesting device location permission...');
+    : 'Waiting for GPS...');
   ui.locationMeta.innerHTML = badges.join('');
 
   if (mapLink) {

@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="checkout.css">
+  <link rel="stylesheet" href="checkout-compact.css">
 </head>
 <body>
   <div class="orders-shell orders-shell--compact orders-shell--shipping">
@@ -17,77 +18,83 @@
 
         <article class="orders-panel">
           <header class="orders-panel-head orders-panel-head--stage">
-            <p>Step 1</p>
-            <h2>Shipping details</h2>
-            <p>Fill the Rwanda delivery address, let the device capture GPS automatically, then continue to checkout review.</p>
+            <p>Step 1 of 3</p>
+            <h2>Shipping</h2>
+            <p>Delivery address for Rwanda. GPS is captured automatically.</p>
           </header>
 
           <div class="orders-step-message" id="shippingMessage" hidden></div>
 
           <form id="shippingForm" class="orders-step-stack" novalidate>
-            <div class="orders-form-grid orders-form-grid--shipping">
+            <div class="orders-form-grid orders-form-grid--compact">
               <label class="orders-field orders-field--full">
-                <span class="orders-field-label">Amazina / Full Name <strong>*</strong></span>
+                <span class="orders-field-label">Full Name <strong>*</strong></span>
                 <input type="text" name="fullName" autocomplete="name" placeholder="Enter full name">
                 <small class="orders-field-error" data-error-for="fullName"></small>
               </label>
 
-              <label class="orders-field">
-                <span class="orders-field-label">Telefoni / Phone Number <strong>*</strong></span>
+              <label class="orders-field orders-field--full">
+                <span class="orders-field-label">Phone Number <strong>*</strong></span>
                 <input type="tel" name="phone" autocomplete="tel" inputmode="tel" placeholder="07XXXXXXXX">
                 <small class="orders-field-error" data-error-for="phone"></small>
               </label>
 
-              <label class="orders-field">
-                <span class="orders-field-label">Intara cyangwa Umujyi / Province or City <strong>*</strong></span>
-                <input type="text" name="provinceCity" autocomplete="address-level1" placeholder="Kigali City">
-                <small class="orders-field-error" data-error-for="provinceCity"></small>
-              </label>
+              <div class="orders-form-pair">
+                <label class="orders-field">
+                  <span class="orders-field-label">Province / City <strong>*</strong></span>
+                  <input type="text" name="provinceCity" autocomplete="address-level1" placeholder="Kigali City">
+                  <small class="orders-field-error" data-error-for="provinceCity"></small>
+                </label>
 
-              <label class="orders-field">
-                <span class="orders-field-label">Akarere / District <strong>*</strong></span>
-                <input type="text" name="district" autocomplete="address-level2" placeholder="Gasabo">
-                <small class="orders-field-error" data-error-for="district"></small>
-              </label>
+                <label class="orders-field">
+                  <span class="orders-field-label">District <strong>*</strong></span>
+                  <input type="text" name="district" autocomplete="address-level2" placeholder="Gasabo">
+                  <small class="orders-field-error" data-error-for="district"></small>
+                </label>
+              </div>
 
-              <label class="orders-field">
-                <span class="orders-field-label">Umurenge / Sector <strong>*</strong></span>
-                <input type="text" name="sector" autocomplete="address-level3" placeholder="Kimironko">
-                <small class="orders-field-error" data-error-for="sector"></small>
-              </label>
+              <div class="orders-form-pair">
+                <label class="orders-field">
+                  <span class="orders-field-label">Sector <strong>*</strong></span>
+                  <input type="text" name="sector" autocomplete="address-level3" placeholder="Kimironko">
+                  <small class="orders-field-error" data-error-for="sector"></small>
+                </label>
 
-              <label class="orders-field">
-                <span class="orders-field-label">Akagari / Cell <strong>*</strong></span>
-                <input type="text" name="cell" autocomplete="off" placeholder="Bibare">
-                <small class="orders-field-error" data-error-for="cell"></small>
-              </label>
+                <label class="orders-field">
+                  <span class="orders-field-label">Cell <strong>*</strong></span>
+                  <input type="text" name="cell" autocomplete="off" placeholder="Bibare">
+                  <small class="orders-field-error" data-error-for="cell"></small>
+                </label>
+              </div>
 
-              <label class="orders-field">
-                <span class="orders-field-label">Umudugudu / Village <strong>*</strong></span>
-                <input type="text" name="village" autocomplete="off" placeholder="Village name">
-                <small class="orders-field-error" data-error-for="village"></small>
-              </label>
+              <div class="orders-form-pair">
+                <label class="orders-field">
+                  <span class="orders-field-label">Village <strong>*</strong></span>
+                  <input type="text" name="village" autocomplete="off" placeholder="Village name">
+                  <small class="orders-field-error" data-error-for="village"></small>
+                </label>
 
-              <label class="orders-field orders-field--full">
-                <span class="orders-field-label">Ibisobanuro by’inyongera / Optional Note</span>
-                <textarea name="note" rows="4" placeholder="Nearby landmark or delivery instruction"></textarea>
-                <small class="orders-field-error" data-error-for="note"></small>
-              </label>
+                <label class="orders-field">
+                  <span class="orders-field-label">Landmark / Note</span>
+                  <input type="text" name="note" autocomplete="off" placeholder="Nearby landmark">
+                  <small class="orders-field-error" data-error-for="note"></small>
+                </label>
+              </div>
             </div>
 
-            <section class="orders-location-card" aria-live="polite">
+            <section class="orders-location-card orders-location-card--compact" aria-live="polite">
               <div class="orders-location-copy">
-                <span class="orders-sidebar-label">GPS location</span>
-                <h3>Automatic device location</h3>
-                <p id="locationStatus">Requesting device location permission...</p>
+                <span class="orders-sidebar-label">GPS</span>
+                <h3>Device location</h3>
+                <p id="locationStatus">Requesting permission...</p>
                 <div class="orders-location-meta" id="locationMeta"></div>
               </div>
-              <a class="orders-map-link" id="locationMapLink" href="#" target="_blank" rel="noreferrer noopener" hidden>Open Google Maps</a>
+              <a class="orders-map-link" id="locationMapLink" href="#" target="_blank" rel="noreferrer noopener" hidden>Google Maps</a>
             </section>
 
             <div class="orders-step-actions">
               <a class="orders-back-button" href="../cart.html">Back</a>
-              <button type="submit" class="orders-next-button">Continue to Checkout</button>
+              <button type="submit" class="orders-next-button" id="shippingContinueBtn">Continue</button>
             </div>
           </form>
         </article>
@@ -96,6 +103,8 @@
       <aside class="orders-sidebar" id="checkoutSidebar"></aside>
     </main>
   </div>
+
+  <div class="orders-sticky-checkout-bar" id="shippingStickyBar" hidden></div>
 
   <script src="../services/authservice.js"></script>
   <script type="module" src="shipping.js"></script>

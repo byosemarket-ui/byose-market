@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="checkout.css">
+  <link rel="stylesheet" href="checkout-compact.css">
 </head>
 <body>
   <div class="orders-shell orders-shell--compact orders-shell--review">
@@ -17,8 +18,9 @@
 
         <article class="orders-panel orders-panel--review">
           <header class="orders-panel-head orders-panel-head--stage">
-            <p>Step 2</p>
-            <h2>Checkout review</h2>
+            <p>Step 2 of 3</p>
+            <h2>Review &amp; Pay</h2>
+            <p>Confirm items, delivery, and payment method.</p>
           </header>
 
           <div class="orders-step-message" id="checkoutMessage" hidden></div>
@@ -30,11 +32,13 @@
     </main>
   </div>
 
+  <div class="orders-sticky-checkout-bar" id="checkoutStickyBar" hidden></div>
+
   <div class="orders-loading" id="checkoutLoading" hidden>
     <div class="orders-loading-card">
       <div class="orders-spinner"></div>
       <strong>Placing order...</strong>
-      <p>The order is being saved to the admin order queue.</p>
+      <p>Saving your order...</p>
     </div>
   </div>
 

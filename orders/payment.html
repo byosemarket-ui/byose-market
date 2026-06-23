@@ -8,83 +8,30 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="checkout.css">
+  <link rel="stylesheet" href="checkout-compact.css">
 </head>
 <body>
-  <div class="orders-shell">
-    <header class="orders-header">
-      <div class="orders-header-copy">
-        <span>Admin System / Orders / Payment</span>
-        <h1>Payment</h1>
-        <p>Choose the payment method and payer phone number before the order is processed.</p>
-      </div>
-      <a class="orders-back-link" href="checkout.html">Back to checkout</a>
-    </header>
-
+  <div class="orders-shell orders-shell--compact orders-shell--payment">
     <main class="orders-layout">
       <section class="orders-main">
         <div class="orders-progress" id="checkoutProgress"></div>
 
         <article class="orders-panel">
-          <header class="orders-panel-head">
-            <p>Step 3</p>
-            <h2>Payment details</h2>
-            <p>Loading starts only after the customer clicks Place Order on this page.</p>
+          <header class="orders-panel-head orders-panel-head--stage">
+            <p>Step 3 of 3</p>
+            <h2>Payment</h2>
+            <p>Choose how you want to pay, then place your order.</p>
           </header>
 
           <div class="orders-step-message" id="paymentMessage" hidden></div>
 
           <form id="paymentForm" class="orders-step-stack" novalidate>
-            <div class="orders-choice-grid orders-choice-grid--compact" id="paymentMethodGrid">
-              <label class="orders-choice-card">
-                <input type="radio" name="method" value="mtn">
-                <div>
-                  <strong>MTN Mobile Money</strong>
-                  <p>Pay with MTN MoMo and record the sender phone number below.</p>
-                </div>
-              </label>
-              <label class="orders-choice-card">
-                <input type="radio" name="method" value="airtel">
-                <div>
-                  <strong>Airtel Money</strong>
-                  <p>Use Airtel Money and record the phone number that will be charged.</p>
-                </div>
-              </label>
-              <label class="orders-choice-card">
-                <input type="radio" name="method" value="bank">
-                <div>
-                  <strong>Bank Transfer</strong>
-                  <p>Choose bank transfer and keep the delivery phone active for order updates.</p>
-                </div>
-              </label>
-              <label class="orders-choice-card">
-                <input type="radio" name="method" value="card">
-                <div>
-                  <strong>Visa / Mastercard</strong>
-                  <p>Choose card payment and keep the delivery phone active for order updates.</p>
-                </div>
-              </label>
-              <label class="orders-choice-card">
-                <input type="radio" name="method" value="cod">
-                <div>
-                  <strong>Pay on Delivery</strong>
-                  <p>Available for Kigali addresses. You pay when the order arrives.</p>
-                </div>
-              </label>
-              <label class="orders-choice-card is-disabled">
-                <input type="radio" name="method" value="wallet" disabled>
-                <div>
-                  <strong>Wallet (Coming Soon)</strong>
-                  <p>Wallet infrastructure is prepared in STEP 3Q and will activate in a future phase.</p>
-                </div>
-              </label>
-            </div>
+            <div id="paymentMethodList" class="orders-payment-list" role="radiogroup" aria-label="Payment methods"></div>
 
-            <div class="orders-form-grid orders-form-grid--two">
-              <label class="orders-field">
-                <span>Phone Number *</span>
-                <input type="text" name="phone" autocomplete="tel" placeholder="07XXXXXXXX">
-              </label>
-            </div>
+            <label class="orders-field orders-field--full">
+              <span class="orders-field-label">Payment Phone Number <strong>*</strong></span>
+              <input type="tel" name="phone" autocomplete="tel" inputmode="tel" placeholder="07XXXXXXXX">
+            </label>
 
             <div class="orders-step-actions">
               <a class="orders-back-button" href="checkout.html">Back</a>
@@ -98,11 +45,13 @@
     </main>
   </div>
 
+  <div class="orders-sticky-checkout-bar" id="paymentStickyBar" hidden></div>
+
   <div class="orders-loading" id="checkoutLoading" hidden>
     <div class="orders-loading-card">
       <div class="orders-spinner"></div>
       <strong>Placing order...</strong>
-      <p>The order is being saved to the admin order queue.</p>
+      <p>Saving your order...</p>
     </div>
   </div>
 
