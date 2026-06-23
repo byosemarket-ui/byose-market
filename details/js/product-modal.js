@@ -4,7 +4,7 @@ import {
   getSelectionStock,
   isColorSizeInventory
 } from './product-attributes.js';
-import { COLOR_ATTR_NAME, SIZE_ATTR_NAME, enrichProductColorVariants } from '../../js/color-variant-inventory.js';
+import { COLOR_ATTR_NAME, SIZE_ATTR_NAME, enrichProductColorVariants, resolveSmartColorSizeSelection } from '../../js/color-variant-inventory.js';
 import { normalizeStorefrontAssetUrl } from '../../services/storefront-asset-url.js';
 import { buildModalMarkup } from './product-ui-renderer.js';
 
@@ -362,6 +362,15 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
     return true;
   }
 
+  function applySmartSelection() {
+    if (!usesColorSizeInventory) {
+      return;
+    }
+
+    state.selectedAttributes = resolveSmartColorSizeSelection(enrichedProduct, state.selectedAttributes);
+    syncCurrentQuantity(state.currentQuantity);
+  }
+
   function close() {
     modalRoot.hidden = true;
     modalRoot.classList.remove('is-open');
@@ -416,11 +425,7 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
       }
 
       state.selectedAttributes = nextSelection;
-
-      if (!layout.quantityAttribute || usesColorSizeInventory) {
-        syncCurrentQuantity(state.currentQuantity);
-      }
-
+      applySmartSelection();
       state.validationMessage = '';
       render();
       return;
@@ -524,6 +529,7 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
     state.quantityByOption = {};
     state.validationMessage = '';
     state.scrollTop = 0;
+    applySmartSelection();
     render();
     modalRoot.hidden = false;
     modalRoot.classList.add('is-open');

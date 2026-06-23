@@ -79,6 +79,7 @@ async function verifyViewport(browser, viewport, productId) {
   await page.waitForTimeout(1200);
 
   result.checks.modalOpen = await page.locator("#productConfigModal.is-open").count() > 0;
+  result.checks.autoReadyOnOpen = await page.locator(".pcm-dock.is-ready").count() > 0;
   result.checks.compactHeader = await page.locator(".pcm-header--compact").count() > 0;
   result.checks.colorTiles = await page.locator(".pcm-color-tile").count();
   result.checks.sizeChips = await page.locator(".pcm-size-chip").count();
@@ -220,6 +221,7 @@ function evaluate(report) {
   const checks = [];
   for (const vp of report.viewports) {
     checks.push({ name: `${vp.id}: modal opens`, ok: vp.checks.modalOpen });
+    checks.push({ name: `${vp.id}: auto-ready on open`, ok: vp.checks.autoReadyOnOpen === true });
     checks.push({ name: `${vp.id}: compact header`, ok: vp.checks.compactHeader });
     checks.push({ name: `${vp.id}: color tiles`, ok: (vp.checks.colorTiles || 0) >= 1 });
     checks.push({ name: `${vp.id}: sticky dock`, ok: vp.checks.stickyDock });

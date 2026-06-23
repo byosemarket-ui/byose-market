@@ -396,6 +396,71 @@ export function getSizesForColor(product, colorId) {
   }));
 }
 
+/**
+ * Smart auto-selection for color/size inventory modals.
+ * Case 1: one in-stock color + one in-stock size globally → both
+ * Case 2: one in-stock color + multiple sizes → color only
+ * Case 3: multiple colors + one in-stock size globally → size after color
+ * Case 4: multiple colors + multiple sizes → manual
+ */
+export function resolveSmartColorSizeSelection(product, selectedAttributes = {}) {
+  if (!isColorSizeInventory(product)) {
+    return { ...selectedAttributes };
+  }
+
+  const colorVariants = extractColorVariantsFromProduct(product);
+  const colorsInStock = colorVariants.filter((entry) => Number(entry.totalStock) > 0);
+  const next = { ...selectedAttributes };
+
+  const globalInStockSizes = new Set();
+  getColorVariantMatrix(product).forEach((entry) => {
+    if (Number(entry.stock) > 0) {
+      globalInStockSizes.add(String(entry.sizeValue));
+    }
+  });
+  const globalSizeCount = globalInStockSizes.size;
+
+  if (colorsInStock.length === 1) {
+    const soleColor = colorsInStock[0];
+    const currentColor = String(next[COLOR_ATTR_NAME] || "").trim();
+    if (!currentColor || !colorsInStock.some((entry) => entry.id === currentColor)) {
+      next[COLOR_ATTR_NAME] = soleColor.id;
+    }
+  }
+
+  const colorId = String(next[COLOR_ATTR_NAME] || "").trim();
+  if (!colorId) {
+    if (next[SIZE_ATTR_NAME]) {
+      delete next[SIZE_ATTR_NAME];
+    }
+    return next;
+  }
+
+  const sizesForColor = getSizesForColor(product, colorId);
+  const inStockForColor = sizesForColor.filter((row) => Number(row.stock) > 0);
+  const currentSize = String(next[SIZE_ATTR_NAME] || "").trim();
+
+  if (currentSize && inStockForColor.some((row) => row.value === currentSize)) {
+    return next;
+  }
+
+  if (!inStockForColor.length) {
+    delete next[SIZE_ATTR_NAME];
+    return next;
+  }
+
+  const shouldAutoSize = globalSizeCount === 1
+    || (colorsInStock.length === 1 && inStockForColor.length === 1);
+
+  if (shouldAutoSize) {
+    next[SIZE_ATTR_NAME] = inStockForColor[0].value;
+  } else if (!currentSize || !inStockForColor.some((row) => row.value === currentSize)) {
+    delete next[SIZE_ATTR_NAME];
+  }
+
+  return next;
+}
+
 export function getStockForColorSize(product, colorId, sizeValue) {
   const matrix = getColorVariantMatrix(product);
   const colorKey = String(colorId || "").trim();

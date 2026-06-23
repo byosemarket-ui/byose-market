@@ -11,7 +11,8 @@ const {
   getSizesForColor,
   getStockForColorSize,
   normalizeColorVariants,
-  resolveMatrixStock
+  resolveMatrixStock,
+  resolveSmartColorSizeSelection
 } = await import('../js/color-variant-inventory.js');
 
 const sampleColors = normalizeColorVariants([
@@ -76,6 +77,84 @@ const checks = [
   ['white size 41 stock', getStockForColorSize(product, whiteId, '41') === 4],
   ['matrix stock resolution', resolveMatrixStock(product, { Color: whiteId, Size: '41' }) === 4]
 ];
+
+const singleColorProduct = {
+  stock: 5,
+  variants: {
+    mode: 'color_size',
+    enabled: true,
+    colorVariants: normalizeColorVariants([{
+      colorName: 'Red',
+      sizes: [{ size: '40', stock: 5 }]
+    }])
+  }
+};
+
+const singleColorMultiSizeProduct = {
+  stock: 10,
+  variants: {
+    mode: 'color_size',
+    enabled: true,
+    colorVariants: normalizeColorVariants([{
+      colorName: 'Red',
+      sizes: [{ size: '40', stock: 5 }, { size: '41', stock: 5 }]
+    }])
+  }
+};
+
+const multiColorSingleSizeProduct = {
+  stock: 10,
+  variants: {
+    mode: 'color_size',
+    enabled: true,
+    colorVariants: normalizeColorVariants([
+      { colorName: 'Red', sizes: [{ size: '40', stock: 5 }] },
+      { colorName: 'Blue', sizes: [{ size: '40', stock: 5 }] }
+    ])
+  }
+};
+
+const multiColorMultiSizeProduct = {
+  stock: 20,
+  variants: {
+    mode: 'color_size',
+    enabled: true,
+    colorVariants: normalizeColorVariants([
+      { colorName: 'Red', sizes: [{ size: '40', stock: 5 }, { size: '41', stock: 5 }] },
+      { colorName: 'Blue', sizes: [{ size: '40', stock: 5 }, { size: '42', stock: 5 }] }
+    ])
+  }
+};
+
+const redId = multiColorSingleSizeProduct.variants.colorVariants[0].id;
+const blueId = multiColorSingleSizeProduct.variants.colorVariants[1].id;
+
+checks.push(
+  ['case1 auto color+size', (() => {
+    const sel = resolveSmartColorSizeSelection(singleColorProduct, {});
+    return Boolean(sel.Color && sel.Size === '40');
+  })()],
+  ['case2 auto color only', (() => {
+    const sel = resolveSmartColorSizeSelection(singleColorMultiSizeProduct, {});
+    return Boolean(sel.Color) && !sel.Size;
+  })()],
+  ['case3 auto size after color', (() => {
+    const sel = resolveSmartColorSizeSelection(multiColorSingleSizeProduct, { Color: blueId });
+    return sel.Color === blueId && sel.Size === '40';
+  })()],
+  ['case4 manual both', (() => {
+    const sel = resolveSmartColorSizeSelection(multiColorMultiSizeProduct, {});
+    return !sel.Color && !sel.Size;
+  })()],
+  ['case4 no auto size without color', (() => {
+    const sel = resolveSmartColorSizeSelection(multiColorSingleSizeProduct, {});
+    return !sel.Size;
+  })()],
+  ['preserves valid manual size', (() => {
+    const sel = resolveSmartColorSizeSelection(product, { Color: whiteId, Size: '41' });
+    return sel.Color === whiteId && sel.Size === '41';
+  })()]
+);
 
 const failed = checks.filter(([, ok]) => !ok);
 
