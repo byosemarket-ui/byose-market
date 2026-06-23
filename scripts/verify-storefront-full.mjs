@@ -145,21 +145,21 @@ async function runBrowserFlow(report, variantProduct) {
       await page.waitForTimeout(1200);
       surface.modalOpen = await page.locator("#productConfigModal.is-open, .pcm-shell").count() > 0;
       if (surface.modalOpen) {
-        const colorCard = page.locator(".pcm-color-card:not(.is-disabled)").first();
+        const colorCard = page.locator(".pcm-color-tile:not(.is-disabled), .pcm-color-card:not(.is-disabled)").first();
         if (await colorCard.count()) {
           await colorCard.click();
           await page.waitForTimeout(500);
           surface.colorSelected = true;
-          const sizePill = page.locator(".pcm-size-pill:not(.is-disabled)").first();
+          const sizePill = page.locator(".pcm-size-chip:not(.is-disabled), .pcm-size-pill:not(.is-disabled)").first();
           if (await sizePill.count()) {
             await sizePill.click();
             await page.waitForTimeout(500);
             surface.sizeSelected = true;
           }
         }
-        const colorImageSrc = await page.locator(".pcm-color-card img").first().getAttribute("src").catch(() => "");
+        const colorImageSrc = await page.locator(".pcm-color-tile img, .pcm-color-card img").first().getAttribute("src").catch(() => "");
         surface.colorImageLoaded = Boolean(colorImageSrc && !colorImageSrc.includes("undefined"));
-        const stockText = await page.locator(".pcm-color-card__stock, .pcm-size-pill small").first().textContent().catch(() => "");
+        const stockText = await page.locator(".pcm-color-tile__info small, .pcm-color-card__stock, .pcm-size-chip__stock, .pcm-size-pill small").first().textContent().catch(() => "");
         surface.stockVisible = /available|left|stock|out of stock/i.test(stockText || "");
         await page.screenshot({ path: join(OUT_DIR, `modal-${viewport.id}.png`), fullPage: true });
         await page.locator("[data-config-close], .pcm-close").first().click({ timeout: 3000 }).catch(() => {});
@@ -192,12 +192,12 @@ async function runBrowserFlow(report, variantProduct) {
     await flowPage.waitForTimeout(1500);
     const modalOpen = await flowPage.locator("#productConfigModal.is-open, .pcm-shell").count() > 0;
     if (modalOpen) {
-      const colorCard = flowPage.locator(".pcm-color-card:not(.is-disabled)").first();
+      const colorCard = flowPage.locator(".pcm-color-tile:not(.is-disabled), .pcm-color-card:not(.is-disabled)").first();
       if (await colorCard.count()) {
         await colorCard.click();
         await flowPage.waitForTimeout(800);
       }
-      const sizePill = flowPage.locator(".pcm-size-pill:not(.is-disabled)").first();
+      const sizePill = flowPage.locator(".pcm-size-chip:not(.is-disabled), .pcm-size-pill:not(.is-disabled)").first();
       if (await sizePill.count()) {
         await sizePill.click();
         await flowPage.waitForTimeout(800);
