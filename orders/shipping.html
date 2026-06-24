@@ -3,110 +3,89 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Shipping Details | Byose Market Orders</title>
+  <title>Shipping | Byose Market</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="checkout.css">
-  <link rel="stylesheet" href="checkout-compact.css">
 </head>
 <body>
-  <div class="orders-shell orders-shell--compact orders-shell--shipping">
-    <main class="orders-layout">
-      <section class="orders-main">
-        <div class="orders-progress" id="checkoutProgress"></div>
-
-        <article class="orders-panel">
-          <header class="orders-panel-head orders-panel-head--stage">
-            <p>Step 1 of 3</p>
-            <h2>Shipping</h2>
-            <p>Delivery address for Rwanda. GPS is captured automatically.</p>
+  <div class="ck-shell">
+    <div class="ck-layout">
+      <main>
+        <div class="ck-progress" id="progress"></div>
+        <article class="ck-panel">
+          <header class="ck-panel-head">
+            <p>Step 1 of 4</p>
+            <h1>Shipping</h1>
+            <p>Enter your delivery address in Rwanda.</p>
           </header>
-
-          <div class="orders-step-message" id="shippingMessage" hidden></div>
-
-          <form id="shippingForm" class="orders-step-stack" novalidate>
-            <div class="orders-form-grid orders-form-grid--compact">
-              <label class="orders-field orders-field--full">
-                <span class="orders-field-label">Full Name <strong>*</strong></span>
-                <input type="text" name="fullName" autocomplete="name" placeholder="Enter full name">
-                <small class="orders-field-error" data-error-for="fullName"></small>
+          <div id="message" hidden></div>
+          <form id="shippingForm" class="ck-form-grid" novalidate>
+            <label class="ck-field ck-field--full">
+              <span>Full Name *</span>
+              <input type="text" name="fullName" autocomplete="name" placeholder="Enter full name">
+              <small class="ck-field-error" data-error="fullName"></small>
+            </label>
+            <label class="ck-field ck-field--full">
+              <span>Phone Number *</span>
+              <input type="tel" name="phone" autocomplete="tel" inputmode="tel" placeholder="07XXXXXXXX">
+              <small class="ck-field-error" data-error="phone"></small>
+            </label>
+            <div class="ck-form-row">
+              <label class="ck-field">
+                <span>Province / City *</span>
+                <input type="text" name="provinceCity" autocomplete="address-level1" placeholder="Kigali City">
+                <small class="ck-field-error" data-error="provinceCity"></small>
               </label>
-
-              <label class="orders-field orders-field--full">
-                <span class="orders-field-label">Phone Number <strong>*</strong></span>
-                <input type="tel" name="phone" autocomplete="tel" inputmode="tel" placeholder="07XXXXXXXX">
-                <small class="orders-field-error" data-error-for="phone"></small>
+              <label class="ck-field">
+                <span>District *</span>
+                <input type="text" name="district" autocomplete="address-level2" placeholder="Gasabo">
+                <small class="ck-field-error" data-error="district"></small>
               </label>
-
-              <div class="orders-form-pair">
-                <label class="orders-field">
-                  <span class="orders-field-label">Province / City <strong>*</strong></span>
-                  <input type="text" name="provinceCity" autocomplete="address-level1" placeholder="Kigali City">
-                  <small class="orders-field-error" data-error-for="provinceCity"></small>
-                </label>
-
-                <label class="orders-field">
-                  <span class="orders-field-label">District <strong>*</strong></span>
-                  <input type="text" name="district" autocomplete="address-level2" placeholder="Gasabo">
-                  <small class="orders-field-error" data-error-for="district"></small>
-                </label>
-              </div>
-
-              <div class="orders-form-pair">
-                <label class="orders-field">
-                  <span class="orders-field-label">Sector <strong>*</strong></span>
-                  <input type="text" name="sector" autocomplete="address-level3" placeholder="Kimironko">
-                  <small class="orders-field-error" data-error-for="sector"></small>
-                </label>
-
-                <label class="orders-field">
-                  <span class="orders-field-label">Cell <strong>*</strong></span>
-                  <input type="text" name="cell" autocomplete="off" placeholder="Bibare">
-                  <small class="orders-field-error" data-error-for="cell"></small>
-                </label>
-              </div>
-
-              <div class="orders-form-pair">
-                <label class="orders-field">
-                  <span class="orders-field-label">Village <strong>*</strong></span>
-                  <input type="text" name="village" autocomplete="off" placeholder="Village name">
-                  <small class="orders-field-error" data-error-for="village"></small>
-                </label>
-
-                <label class="orders-field">
-                  <span class="orders-field-label">Landmark / Note</span>
-                  <input type="text" name="note" autocomplete="off" placeholder="Nearby landmark">
-                  <small class="orders-field-error" data-error-for="note"></small>
-                </label>
-              </div>
             </div>
-
-            <section class="orders-location-card orders-location-card--compact" aria-live="polite">
-              <div class="orders-location-copy">
-                <span class="orders-sidebar-label">GPS</span>
-                <h3>Device location</h3>
-                <p id="locationStatus">Requesting permission...</p>
-                <div class="orders-location-meta" id="locationMeta"></div>
+            <div class="ck-form-row">
+              <label class="ck-field">
+                <span>Sector *</span>
+                <input type="text" name="sector" placeholder="Kimironko">
+                <small class="ck-field-error" data-error="sector"></small>
+              </label>
+              <label class="ck-field">
+                <span>Cell *</span>
+                <input type="text" name="cell" placeholder="Bibare">
+                <small class="ck-field-error" data-error="cell"></small>
+              </label>
+            </div>
+            <div class="ck-form-row">
+              <label class="ck-field">
+                <span>Village *</span>
+                <input type="text" name="village" placeholder="Village name">
+                <small class="ck-field-error" data-error="village"></small>
+              </label>
+              <label class="ck-field">
+                <span>Landmark / Note</span>
+                <input type="text" name="note" placeholder="Nearby landmark">
+              </label>
+            </div>
+            <section class="ck-gps-card" aria-live="polite">
+              <div>
+                <h3>Device Location</h3>
+                <p id="gpsStatus">Requesting permission...</p>
+                <div class="ck-gps-meta" id="gpsMeta"></div>
               </div>
-              <a class="orders-map-link" id="locationMapLink" href="#" target="_blank" rel="noreferrer noopener" hidden>Google Maps</a>
+              <a class="ck-map-link" id="gpsMapLink" href="#" target="_blank" rel="noopener" hidden>Maps</a>
             </section>
-
-            <div class="orders-step-actions">
-              <a class="orders-back-button" href="../cart.html">Back</a>
-              <button type="submit" class="orders-next-button" id="shippingContinueBtn">Continue</button>
+            <div class="ck-actions">
+              <a class="ck-btn ck-btn--ghost" href="../cart.html">Back</a>
+              <button type="button" class="ck-btn ck-btn--primary" id="shippingContinueBtn">Continue to Review</button>
             </div>
           </form>
         </article>
-      </section>
-
-      <aside class="orders-sidebar" id="checkoutSidebar"></aside>
-    </main>
+      </main>
+      <aside class="ck-sidebar" id="sidebar"></aside>
+    </div>
   </div>
-
-  <div class="orders-sticky-checkout-bar" id="shippingStickyBar" hidden></div>
-
-  <script src="../services/authservice.js"></script>
+  <div id="stickyBar"></div>
   <script type="module" src="shipping.js"></script>
 </body>
 </html>

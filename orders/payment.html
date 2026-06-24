@@ -3,69 +3,43 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Payment | Byose Market Orders</title>
+  <title>Payment | Byose Market</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="checkout.css">
-  <link rel="stylesheet" href="checkout-compact.css">
 </head>
 <body>
-  <div class="orders-shell orders-shell--compact orders-shell--payment">
-    <main class="orders-layout">
-      <section class="orders-main">
-        <div class="orders-progress" id="checkoutProgress"></div>
-
-        <article class="orders-panel">
-          <header class="orders-panel-head orders-panel-head--stage">
-            <p>Step 3 of 3</p>
-            <h2>Payment</h2>
-            <p>Choose how you want to pay, then place your order.</p>
+  <div class="ck-shell">
+    <div class="ck-layout">
+      <main>
+        <div class="ck-progress" id="progress"></div>
+        <article class="ck-panel">
+          <header class="ck-panel-head">
+            <p>Step 3 of 4</p>
+            <h1>Payment</h1>
+            <p>Choose how you want to pay.</p>
           </header>
-
-          <div class="orders-step-message" id="paymentMessage" hidden></div>
-
-          <form id="paymentForm" class="orders-step-stack" novalidate>
-            <section class="orders-review-card">
-              <div class="orders-section-head">
-                <div>
-                  <span class="orders-sidebar-label">Selected method</span>
-                  <h3>Confirm payment</h3>
-                </div>
-                <a class="orders-text-link" href="checkout.html">Change</a>
-              </div>
-              <div id="paymentMethodSummary"></div>
-              <div class="orders-payment-state-card" id="paymentStatusCard"></div>
-            </section>
-
-            <label class="orders-field orders-field--full">
-              <span class="orders-field-label">Payment Phone Number <strong>*</strong></span>
-              <input type="tel" name="phone" autocomplete="tel" inputmode="tel" placeholder="07XXXXXXXX">
+          <div id="message" hidden></div>
+          <form id="paymentForm" class="ck-form-grid">
+            <fieldset class="ck-pay-methods" id="paymentMethods"></fieldset>
+            <label class="ck-field ck-field--full" id="paymentPhoneField">
+              <span>Payment Phone Number *</span>
+              <input type="tel" name="paymentPhone" inputmode="tel" placeholder="07XXXXXXXX">
+              <small class="ck-field-error" data-error="phone"></small>
             </label>
-
-            <div class="orders-step-actions">
-              <a class="orders-back-button" href="checkout.html">Back</a>
-              <button type="submit" class="orders-next-button" id="placeOrderButton">Place Order</button>
+            <div id="totalsBlock"></div>
+            <div class="ck-actions">
+              <a class="ck-btn ck-btn--ghost" href="checkout.html">Back</a>
+              <button type="submit" class="ck-btn ck-btn--primary" id="placeOrderBtn">Place Order</button>
             </div>
           </form>
         </article>
-      </section>
-
-      <aside class="orders-sidebar" id="checkoutSidebar"></aside>
-    </main>
-  </div>
-
-  <div class="orders-sticky-checkout-bar" id="paymentStickyBar" hidden></div>
-
-  <div class="orders-loading" id="checkoutLoading" hidden>
-    <div class="orders-loading-card">
-      <div class="orders-spinner"></div>
-      <strong>Placing order...</strong>
-      <p>Saving your order...</p>
+      </main>
+      <aside class="ck-sidebar" id="sidebar"></aside>
     </div>
   </div>
-
-  <script src="../services/authservice.js"></script>
+  <div id="stickyBar"></div>
   <script type="module" src="payment.js"></script>
 </body>
 </html>

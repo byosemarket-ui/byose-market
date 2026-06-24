@@ -298,6 +298,26 @@ export function readStorage(key, fallback) {
   }
 }
 
+/** Read persisted checkout draft directly from localStorage (cross-page navigation). */
+export function readPersistedDraft() {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEYS.draft);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Read direct-checkout item directly from localStorage. */
+export function readPersistedDirectCheckout() {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEYS.directCheckout);
+    return raw ? normalizeCartItem(JSON.parse(raw)) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function writeStorage(key, value) {
   if (window.ByoseStorefrontSync?.isManagedKey?.(key)) {
     window.ByoseStorefrontSync.writeStateByKey(key, value);
@@ -305,6 +325,11 @@ export function writeStorage(key, value) {
   }
 
   transientStore.set(key, clone(value));
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn('Unable to persist storage key', key, error);
+  }
   syncStorefrontStorageKey(key, value);
 }
 
@@ -315,6 +340,11 @@ export function removeStorage(key) {
   }
 
   transientStore.delete(key);
+  try {
+    window.localStorage.removeItem(key);
+  } catch (error) {
+    console.warn('Unable to remove storage key', key, error);
+  }
   syncStorefrontStorageKey(key, null);
 }
 

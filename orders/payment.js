@@ -1,195 +1,116 @@
-import { escapeHtml, formatCurrency } from './utils.js';
+import { submitOrder } from './core/order.js';
 import {
-  mountStickyCheckoutBar,
-  renderSelectedPaymentMethod,
-  renderStageProgress,
-  renderSummaryProducts
-} from './checkout-ui.js';
+  getPaymentMethods, getState, guardStep, initCheckout,
+  setPaymentMethod, setPaymentPhone, subscribe
+} from './core/state.js';
+import { validatePayment } from './core/validation.js';
 import {
-  getPaymentMethodLabel,
-  getPaymentStateView,
-  getState,
-  initializeOrderFlow,
-  resolveStageAccess,
-  setStage,
-  submitOrder,
-  subscribe,
-  updatePaymentDetails,
-  validatePaymentStage
-} from './state.js';
+  renderProgress, renderSidebar, renderStickyBar, renderTotals, showMessage
+} from './ui/layout.js';
+import { escapeHtml } from './utils.js';
 
-function getUi() {
-  return {
-    progress: document.getElementById('checkoutProgress'),
-    sidebar: document.getElementById('checkoutSidebar'),
-    form: document.getElementById('paymentForm'),
-    message: document.getElementById('paymentMessage'),
-    loading: document.getElementById('checkoutLoading'),
-    methodSummary: document.getElementById('paymentMethodSummary'),
-    statusCard: document.getElementById('paymentStatusCard'),
-    stickyBar: document.getElementById('paymentStickyBar'),
-    placeOrderButton: document.getElementById('placeOrderButton')
-  };
-}
+const progressEl = document.getElementById('progress');
+const sidebarEl = document.getElementById('sidebar');
+const stickyEl = document.getElementById('stickyBar');
+const methodsEl = document.getElementById('paymentMethods');
+const totalsBlockEl = document.getElementById('totalsBlock');
+const phoneField = document.getElementById('paymentPhoneField');
+const phoneInput = document.querySelector('input[name="paymentPhone"]');
+const messageEl = document.getElementById('message');
+const form = document.getElementById('paymentForm');
+const placeBtn = document.getElementById('placeOrderBtn');
 
-function renderSidebar(state) {
-  const ui = getUi();
-  if (!ui.sidebar) {
-    return;
-  }
+function renderMethods() {
+  const state = getState();
+  const methods = getPaymentMethods();
+  methodsEl.innerHTML = methods.map((m) => `
+    <label class="ck-pay-option">
+      <input type="radio" name="paymentMethod" value="${escapeHtml(m.id)}" ${state.payment.method === m.id ? 'checked' : ''}>
+      <span class="ck-pay-icon">${m.icon}</span>
+      <span class="ck-pay-label">${escapeHtml(m.label)}</span>
+    </label>
+  `).join('');
 
-  const products = Array.isArray(state?.products) ? state.products : [];
-  const totals = state?.totals || { subtotal: 0, shippingFee: 0, total: 0 };
-  const payment = state?.payment || {};
-  const itemCount = products.reduce((sum, item) => sum + Number(item.qty || 0), 0);
-  const isSubmitting = Boolean(state?.isSubmitting);
-  const hasProducts = products.length > 0;
-
-  ui.sidebar.innerHTML = `
-    <section class="orders-sidebar-card orders-sidebar-card--sticky orders-order-summary-card">
-      <span class="orders-sidebar-label">Order summary</span>
-      <div class="orders-sidebar-heading">
-        <h3>${itemCount} item${itemCount === 1 ? '' : 's'}</h3>
-        <span>${escapeHtml(getPaymentMethodLabel(payment.method) || 'Select payment')}</span>
-      </div>
-      <div class="orders-summary-product-list orders-summary-product-list--compact">
-        ${renderSummaryProducts(products)}
-      </div>
-      <div class="orders-total-row"><span>Subtotal</span><strong>${formatCurrency(totals.subtotal)}</strong></div>
-      <div class="orders-total-row"><span>Delivery fee</span><strong>${formatCurrency(totals.shippingFee)}</strong></div>
-      <div class="orders-total-row is-total"><span>Total</span><strong>${formatCurrency(totals.total)}</strong></div>
-      <button type="submit" class="orders-next-button orders-place-order-button" form="paymentForm" ${isSubmitting || !hasProducts ? 'disabled' : ''}>
-        ${isSubmitting ? 'Placing Order...' : 'Place Order'}
-      </button>
-    </section>
-  `;
-
-  if (ui.placeOrderButton) {
-    ui.placeOrderButton.disabled = isSubmitting || !hasProducts;
-    ui.placeOrderButton.textContent = isSubmitting ? 'Placing Order...' : 'Place Order';
+  const isCod = state.payment.method === 'cod';
+  phoneField.hidden = isCod;
+  if (!isCod && !phoneInput.value) {
+    phoneInput.value = state.payment.phone || state.shipping.phone || '';
   }
 }
 
-function renderStickyActions(state) {
-  const totals = state.totals || { total: 0 };
-  const products = Array.isArray(state.products) ? state.products : [];
-  const isSubmitting = Boolean(state?.isSubmitting);
-  const stickyBar = document.getElementById('paymentStickyBar');
-
-  mountStickyCheckoutBar(stickyBar, {
-    total: totals.total,
-    label: 'Total due',
-    buttonText: isSubmitting ? 'Placing...' : 'Place Order',
-    disabled: isSubmitting || !products.length,
-    onAction: () => document.getElementById('paymentForm')?.requestSubmit()
+function render() {
+  const state = getState();
+  progressEl.innerHTML = renderProgress('payment');
+  renderMethods();
+  totalsBlockEl.innerHTML = renderTotals(state.totals);
+  sidebarEl.innerHTML = renderSidebar(state.products, state.totals);
+  stickyEl.innerHTML = renderStickyBar('Place Order', 'placeOrderBtn');
+  document.getElementById('stickyContinueBtn')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    handlePlaceOrder(e);
   });
 }
 
-function setMessage(message) {
-  const ui = getUi();
-  if (!ui.message) {
-    return;
+methodsEl?.addEventListener('change', (e) => {
+  if (e.target.name === 'paymentMethod') {
+    setPaymentMethod(e.target.value);
+    renderMethods();
   }
-  ui.message.hidden = !message;
-  ui.message.textContent = message || '';
-}
+});
 
-function renderPaymentSummary(state) {
-  const ui = getUi();
-  const paymentState = getPaymentStateView();
+phoneInput?.addEventListener('input', () => {
+  setPaymentPhone(phoneInput.value);
+});
 
-  if (ui.methodSummary) {
-    ui.methodSummary.innerHTML = renderSelectedPaymentMethod(state, { showPhone: true });
-  }
+form?.addEventListener('submit', handlePlaceOrder);
+placeBtn?.addEventListener('click', (e) => { e.preventDefault(); handlePlaceOrder(e); });
 
-  if (ui.statusCard) {
-    ui.statusCard.innerHTML = `
-      <span class="orders-payment-state-pill is-${escapeHtml(paymentState.tone)}">${escapeHtml(paymentState.label)}</span>
-      <p>Your order will be created and sent to Admin Orders after you place it.</p>
-    `;
-  }
-}
+async function handlePlaceOrder(e) {
+  e?.preventDefault?.();
+  showMessage(messageEl, '');
 
-function syncForm(state) {
-  const ui = getUi();
-  const phoneInput = ui.form?.querySelector('input[name="phone"]');
-  if (phoneInput) {
-    phoneInput.value = state.payment.phone || state.shippingAddress.phone || '';
+  const state = getState();
+  if (state.payment.method !== 'cod') {
+    setPaymentPhone(phoneInput.value);
   }
 
-  renderPaymentSummary(state);
-}
-
-async function handleSubmit(event) {
-  event.preventDefault();
-  const ui = getUi();
-
-  const phone = ui.form.querySelector('input[name="phone"]')?.value || '';
-  updatePaymentDetails({ phone, method: getState().payment.method });
-
-  const validation = validatePaymentStage();
-  if (!validation.valid) {
-    setMessage(validation.message || 'Complete payment details before placing the order.');
-    render(getState());
+  const check = validatePayment(getState().payment, getState().shipping);
+  if (!check.valid) {
+    const msg = check.errors.method || check.errors.phone || 'Please complete payment details.';
+    showMessage(messageEl, msg);
+    if (check.errors.phone) {
+      document.querySelector('[data-error="phone"]').textContent = check.errors.phone;
+    }
     return;
   }
 
-  setMessage('');
-  setStage('payment');
-  const result = await submitOrder();
-  if (!result.valid) {
-    setMessage(result.message || 'Unable to place the order right now.');
-    render(getState());
-    return;
-  }
-
-  window.location.assign(result.redirectUrl);
-}
-
-function render(state) {
-  const ui = getUi();
-  const snapshot = state || getState();
-
-  renderStageProgress(ui.progress, 'payment');
-  syncForm(snapshot);
+  placeBtn.disabled = true;
+  placeBtn.textContent = 'Placing order...';
 
   try {
-    renderSidebar(snapshot);
-  } catch (error) {
-    console.error('Payment sidebar render failed:', error);
-  }
-
-  renderStickyActions(snapshot);
-
-  if (ui.loading) {
-    ui.loading.hidden = !snapshot.isSubmitting;
+    const result = await submitOrder();
+    if (!result.valid) {
+      showMessage(messageEl, result.message || result.errors?.method || 'Unable to place order.');
+      placeBtn.disabled = false;
+      placeBtn.textContent = 'Place Order';
+      return;
+    }
+    window.location.href = `order-success.html?orderId=${encodeURIComponent(result.orderId)}`;
+  } catch (err) {
+    console.error(err);
+    showMessage(messageEl, 'Something went wrong. Please try again.');
+    placeBtn.disabled = false;
+    placeBtn.textContent = 'Place Order';
   }
 }
 
-function bindForm() {
-  const ui = getUi();
+subscribe(() => render());
 
-  ui.form?.querySelector('input[name="phone"]')?.addEventListener('input', (event) => {
-    updatePaymentDetails({ phone: event.currentTarget.value });
-    setMessage('');
-  });
-
-  ui.form?.addEventListener('submit', handleSubmit);
+await initCheckout('payment');
+const access = guardStep('payment');
+if (!access.ok) {
+  window.location.href = access.redirect;
+} else {
+  render();
+  window.__ckStep = 'payment';
 }
-
-document.addEventListener('DOMContentLoaded', async () => {
-  await initializeOrderFlow('payment');
-  const access = resolveStageAccess('payment');
-  if (!access.valid) {
-    window.location.assign(access.redirectUrl);
-    return;
-  }
-
-  subscribe((state) => {
-    render(state);
-  });
-
-  bindForm();
-  setMessage('');
-  render(getState());
-});

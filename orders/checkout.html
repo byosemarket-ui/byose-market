@@ -3,46 +3,43 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Checkout Review | Byose Market Orders</title>
+  <title>Review Order | Byose Market</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="checkout.css">
-  <link rel="stylesheet" href="checkout-compact.css">
 </head>
 <body>
-  <div class="orders-shell orders-shell--compact orders-shell--review">
-    <main class="orders-layout orders-layout--review">
-      <section class="orders-main">
-        <div class="orders-progress" id="checkoutProgress"></div>
-
-        <article class="orders-panel orders-panel--review">
-          <header class="orders-panel-head orders-panel-head--stage">
-            <p>Step 2 of 3</p>
-            <h2>Review &amp; Pay</h2>
-            <p>Confirm items, delivery, and payment method.</p>
+  <div class="ck-shell">
+    <div class="ck-layout">
+      <main>
+        <div class="ck-progress" id="progress"></div>
+        <article class="ck-panel">
+          <header class="ck-panel-head">
+            <p>Step 2 of 4</p>
+            <h1>Review Order</h1>
+            <p>Confirm your items and delivery details.</p>
           </header>
-
-          <div class="orders-step-message" id="checkoutMessage" hidden></div>
-          <div id="checkoutContent"></div>
+          <div id="message" hidden></div>
+          <div id="shippingSummary"></div>
+          <div class="ck-delivery-toggle" id="deliveryToggle">
+            <button type="button" class="ck-delivery-btn is-active" data-delivery="delivery">Delivery (5,000 RWF)</button>
+            <button type="button" class="ck-delivery-btn" data-delivery="pickup">Store Pickup (Free)</button>
+          </div>
+          <div id="productList"></div>
+          <div id="totalsBlock"></div>
+          <form id="reviewForm">
+            <div class="ck-actions">
+              <a class="ck-btn ck-btn--ghost" href="shipping.html">Back</a>
+              <button type="button" class="ck-btn ck-btn--primary" id="reviewContinueBtn">Continue to Payment</button>
+            </div>
+          </form>
         </article>
-      </section>
-
-      <aside class="orders-sidebar orders-sidebar--review" id="checkoutSidebar"></aside>
-    </main>
-  </div>
-
-  <div class="orders-sticky-checkout-bar" id="checkoutStickyBar" hidden></div>
-
-  <div class="orders-loading" id="checkoutLoading" hidden>
-    <div class="orders-loading-card">
-      <div class="orders-spinner"></div>
-      <strong>Placing order...</strong>
-      <p>Saving your order...</p>
+      </main>
+      <aside class="ck-sidebar" id="sidebar"></aside>
     </div>
   </div>
-
-  <script src="../services/authservice.js"></script>
+  <div id="stickyBar"></div>
   <script type="module" src="checkout.js"></script>
 </body>
 </html>
