@@ -21,14 +21,17 @@
             <p>Choose how you want to pay.</p>
           </header>
           <div id="message" hidden></div>
-          <form id="paymentForm" class="ck-form-grid">
-            <fieldset class="ck-pay-methods" id="paymentMethods"></fieldset>
-            <label class="ck-field ck-field--full" id="paymentPhoneField">
-              <span>Payment Phone Number *</span>
-              <input type="tel" name="paymentPhone" inputmode="tel" placeholder="07XXXXXXXX">
+          <form id="paymentForm" class="ck-payment-form">
+            <section class="ck-pay-section" aria-labelledby="payMethodsTitle">
+              <h2 class="ck-pay-section__title" id="payMethodsTitle">Payment method</h2>
+              <div class="ck-pay-grid" id="paymentMethods" role="radiogroup" aria-labelledby="payMethodsTitle"></div>
+            </section>
+            <label class="ck-field ck-field--full ck-payment-phone" id="paymentPhoneField">
+              <span>Payment phone number</span>
+              <input type="tel" name="paymentPhone" inputmode="tel" placeholder="07XXXXXXXX" autocomplete="tel">
               <small class="ck-field-error" data-error="phone"></small>
             </label>
-            <div id="totalsBlock"></div>
+            <div id="totalsBlock" class="ck-payment-totals"></div>
             <div class="ck-actions">
               <a class="ck-btn ck-btn--ghost" href="checkout.html">Back</a>
               <button type="submit" class="ck-btn ck-btn--primary" id="placeOrderBtn">Place Order</button>

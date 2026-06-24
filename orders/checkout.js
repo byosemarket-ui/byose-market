@@ -1,8 +1,8 @@
 import {
-  getState, guardStep, initCheckout, setDelivery, setStep, subscribe, updateProductQty
+  getState, guardStep, initCheckout, setStep, subscribe, updateProductQty
 } from './core/state.js';
 import {
-  renderProgress, renderProductList, renderShippingSummary, renderSidebar,
+  renderDeliveryInfo, renderProgress, renderProductList, renderShippingSummary, renderSidebar,
   renderStickyBar, renderTotals, showMessage
 } from './ui/layout.js';
 import { validateProducts } from './core/validation.js';
@@ -11,9 +11,9 @@ const progressEl = document.getElementById('progress');
 const sidebarEl = document.getElementById('sidebar');
 const stickyEl = document.getElementById('stickyBar');
 const shippingSummaryEl = document.getElementById('shippingSummary');
+const deliveryInfoEl = document.getElementById('deliveryInfo');
 const productListEl = document.getElementById('productList');
 const totalsBlockEl = document.getElementById('totalsBlock');
-const deliveryToggle = document.getElementById('deliveryToggle');
 const messageEl = document.getElementById('message');
 const continueBtn = document.getElementById('reviewContinueBtn');
 
@@ -21,22 +21,13 @@ function render() {
   const state = getState();
   progressEl.innerHTML = renderProgress('review');
   shippingSummaryEl.innerHTML = renderShippingSummary(state.shipping);
+  deliveryInfoEl.innerHTML = renderDeliveryInfo();
   productListEl.innerHTML = renderProductList(state.products, { editable: true });
   totalsBlockEl.innerHTML = renderTotals(state.totals);
   sidebarEl.innerHTML = renderSidebar(state.products, state.totals);
   stickyEl.innerHTML = renderStickyBar('Continue to Payment', 'reviewContinueBtn');
   document.getElementById('stickyContinueBtn')?.addEventListener('click', handleContinue);
-
-  deliveryToggle.querySelectorAll('.ck-delivery-btn').forEach((btn) => {
-    btn.classList.toggle('is-active', btn.dataset.delivery === state.delivery);
-  });
 }
-
-deliveryToggle.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-delivery]');
-  if (!btn) return;
-  setDelivery(btn.dataset.delivery);
-});
 
 productListEl.addEventListener('click', (e) => {
   const btn = e.target.closest('[data-qty-action]');

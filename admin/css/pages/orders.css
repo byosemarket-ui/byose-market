@@ -365,6 +365,20 @@
 	background: rgba(22, 50, 45, 0.08);
 }
 
+.order-product-ph {
+	width: 104px;
+	height: 104px;
+	border-radius: 20px;
+	display: grid;
+	place-items: center;
+	background: rgba(22, 50, 45, 0.08);
+	font-size: 2rem;
+}
+
+.orders-inline-link-wrap {
+	margin: 0;
+}
+
 .order-product-heading,
 .order-mobile-head {
 	display: flex;

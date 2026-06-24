@@ -367,6 +367,28 @@ export function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+/** Resolve a site-root asset path for pages under /orders/. */
+export function resolveCheckoutAsset(path) {
+  const raw = String(path || '').trim().replace(/^\/+/, '');
+  if (!raw) return '';
+  return `../${raw.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+export function resolveProductUrl(product = {}) {
+  const slug = String(product?.slug || '').trim();
+  const id = String(product?.id || product?.productId || '').trim();
+  const base = typeof window !== 'undefined' && window.location?.origin
+    ? window.location.origin
+    : '';
+  if (slug) {
+    return `${base}/details/product-details1.html?slug=${encodeURIComponent(slug)}`;
+  }
+  if (id) {
+    return `${base}/details/product-details1.html?id=${encodeURIComponent(id)}`;
+  }
+  return '';
+}
+
 export function normalizePhone(value) {
   const digits = String(value || '').replace(/\D/g, '');
   if (!digits) {

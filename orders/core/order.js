@@ -7,9 +7,15 @@ import {
   removeStorage,
   resolveApiOrigin,
   resolveOrderItemImage,
+  resolveProductUrl,
   saveCheckoutConfirmation,
   writeStorage
 } from '../utils.js';
+import {
+  COD_PAYMENT_METHOD_LABEL,
+  COD_PAYMENT_STATUS,
+  COD_PAYMENT_STATUS_LABEL
+} from './constants.js';
 import { clearCheckoutHandoff, getState } from './state.js';
 import { validatePayment, validateProducts, validateShipping } from './validation.js';
 
@@ -17,6 +23,49 @@ function getOrdersApiUrl() {
   const base = resolveApiOrigin();
   if (!base) return '';
   return base.endsWith('/api') ? `${base}/orders` : `${base}/api/orders`;
+}
+
+function buildOrderLineItem(product) {
+  const image = resolveOrderItemImage(product);
+  const colorImage = String(product.colorImage || '').trim();
+  const qty = Math.max(1, Number(product.qty || product.quantity) || 1);
+  const price = Number(product.price) || 0;
+  const productUrl = resolveProductUrl(product);
+  const sku = String(product.variantSku || product.sku || '').trim();
+  const category = String(product.category || '').trim();
+  const colorName = String(product.colorName || product.color || '');
+  const sizeLabel = String(product.sizeLabel || product.size || '');
+
+  return {
+    productId: String(product.id || product.productId || ''),
+    productName: String(product.name || 'Product'),
+    quantity: qty,
+    qty,
+    price,
+    image,
+    colorImage,
+    color: colorName,
+    colorName,
+    size: sizeLabel,
+    sizeLabel,
+    variantKey: String(product.variantKey || ''),
+    sku,
+    variantSku: sku,
+    category,
+    productUrl,
+    productLink: productUrl,
+    slug: String(product.slug || ''),
+    attributeSummary: [colorName, sizeLabel].filter(Boolean).join(' · '),
+    attributes: {
+      Color: colorName,
+      Size: sizeLabel,
+      SKU: sku,
+      Category: category,
+      productUrl,
+      productLink: productUrl,
+      colorImage
+    }
+  };
 }
 
 export function buildOrderPayload() {
@@ -38,25 +87,10 @@ export function buildOrderPayload() {
   const payerPhone = normalizePhone(state.payment.phone || customerPhone);
   const hasAccount = Boolean(state.customer.id);
   const usesCod = state.payment.method === 'cod';
-
-  const items = state.products.map((product) => {
-    const image = resolveOrderItemImage(product);
-    const qty = Math.max(1, Number(product.qty) || 1);
-    return {
-      productId: String(product.id || product.productId || ''),
-      productName: String(product.name || 'Product'),
-      quantity: qty,
-      price: Number(product.price) || 0,
-      image,
-      color: String(product.colorName || product.color || ''),
-      colorName: String(product.colorName || product.color || ''),
-      colorImage: String(product.colorImage || ''),
-      size: String(product.sizeLabel || product.size || ''),
-      sizeLabel: String(product.sizeLabel || product.size || ''),
-      variantKey: String(product.variantKey || ''),
-      attributeSummary: [product.colorName || product.color, product.sizeLabel || product.size].filter(Boolean).join(' · ')
-    };
-  });
+  const paymentStatus = usesCod ? COD_PAYMENT_STATUS : 'pending';
+  const paymentStatusLabel = usesCod ? COD_PAYMENT_STATUS_LABEL : 'Pending';
+  const paymentMethodLabel = usesCod ? COD_PAYMENT_METHOD_LABEL : String(state.payment.method || '').toUpperCase();
+  const items = state.products.map(buildOrderLineItem);
 
   const order = {
     id: orderId,
@@ -73,9 +107,10 @@ export function buildOrderPayload() {
     createdAt,
     status: 'Pending',
     orderStatus: 'pending',
-    paymentStatus: 'pending',
-    paymentStatusLabel: 'Pending',
+    paymentStatus,
+    paymentStatusLabel,
     paymentMethod: usesCod ? 'cod' : state.payment.method,
+    paymentMethodLabel,
     paymentType: usesCod ? 'cod' : 'pay_now',
     subtotal: state.totals.subtotal,
     deliveryFee: state.totals.deliveryFee,
@@ -83,14 +118,23 @@ export function buildOrderPayload() {
     codFee: state.totals.codFee,
     total: state.totals.total,
     totalAmount: state.totals.total,
-    deliveryMethod: state.delivery,
-    deliveryLabel: state.delivery === 'pickup' ? 'Store pickup' : 'Delivery to address',
+    deliveryMethod: 'delivery',
+    deliveryLabel: 'Delivery to address',
     items,
     products: items,
     shippingAddress: {
       ...clone(state.shipping),
       phone: customerPhone,
-      city: state.shipping.provinceCity
+      city: state.shipping.provinceCity,
+      provinceCity: state.shipping.provinceCity,
+      district: state.shipping.district,
+      sector: state.shipping.sector,
+      cell: state.shipping.cell,
+      village: state.shipping.village,
+      note: state.shipping.note,
+      latitude: state.shipping.latitude,
+      longitude: state.shipping.longitude,
+      mapLink: state.shipping.mapLink
     },
     fullAddress: {
       province: state.shipping.provinceCity,
@@ -103,7 +147,10 @@ export function buildOrderPayload() {
     gpsLocation: {
       latitude: state.shipping.latitude,
       longitude: state.shipping.longitude,
-      googleMapsLink: state.shipping.mapLink
+      googleMapsLink: state.shipping.mapLink,
+      mapLink: state.shipping.mapLink,
+      accuracy: state.shipping.locationAccuracy,
+      capturedAt: state.shipping.locationCapturedAt
     },
     customer: {
       id: hasAccount ? state.customer.id : '',
@@ -116,12 +163,17 @@ export function buildOrderPayload() {
     payment: {
       type: usesCod ? 'cod' : 'pay_now',
       method: usesCod ? 'cod' : state.payment.method,
-      status: 'pending',
-      statusLabel: 'Pending',
-      payerPhone,
+      methodLabel: paymentMethodLabel,
+      status: paymentStatus,
+      statusLabel: paymentStatusLabel,
+      payerPhone: usesCod ? customerPhone : payerPhone,
       note: usesCod ? 'Pay on delivery' : ''
     },
-    statusHistory: [{ status: 'pending', label: 'Order received', timestamp: createdAt }]
+    statusHistory: [{
+      status: 'pending',
+      label: usesCod ? 'COD order received' : 'Order received',
+      timestamp: createdAt
+    }]
   };
 
   return { valid: true, order };
@@ -181,11 +233,20 @@ export async function submitOrder() {
     orderId: persisted.orderId || persisted.id,
     customerName: order.customerName,
     customerPhone: order.customerPhone,
+    subtotal: order.subtotal,
+    deliveryFee: order.deliveryFee,
+    codFee: order.codFee,
     total: order.totalAmount,
     items: order.items,
     shippingAddress: order.shippingAddress,
     gpsLocation: order.gpsLocation,
     payment: order.payment,
+    paymentMethod: order.paymentMethod,
+    paymentMethodLabel: order.paymentMethodLabel,
+    paymentStatus: order.paymentStatus,
+    paymentStatusLabel: order.paymentStatusLabel,
+    deliveryMethod: order.deliveryMethod,
+    deliveryLabel: order.deliveryLabel,
     createdAt: order.createdAt
   };
   saveCheckoutConfirmation(confirmation);

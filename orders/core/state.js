@@ -51,7 +51,6 @@ const state = {
   products: [],
   customer: { id: '', name: '', email: '', phone: '', avatar: '' },
   shipping: clone(DEFAULT_ADDRESS),
-  delivery: 'delivery',
   payment: { method: 'mtn', phone: '' },
   totals: { subtotal: 0, deliveryFee: DELIVERY_FEE, codFee: 0, total: DELIVERY_FEE }
 };
@@ -69,7 +68,6 @@ function writeHandoff() {
       source: state.source,
       products: state.products,
       shipping: state.shipping,
-      delivery: state.delivery,
       payment: state.payment,
       at: Date.now()
     }));
@@ -114,10 +112,6 @@ function applyHandoff() {
     };
   }
 
-  if (handoff.delivery) {
-    state.delivery = handoff.delivery;
-  }
-
   if (handoff.payment) {
     state.payment = { method: 'mtn', phone: '', ...handoff.payment };
   }
@@ -139,7 +133,6 @@ function persistDraft() {
     source: state.source,
     products: state.products,
     shipping: state.shipping,
-    delivery: state.delivery,
     payment: state.payment
   });
   writeHandoff();
@@ -150,7 +143,7 @@ function recalcTotals() {
     (sum, p) => sum + (Number(p.price) || 0) * Math.max(1, Number(p.qty || p.quantity) || 1),
     0
   );
-  const deliveryFee = state.delivery === 'pickup' ? 0 : DELIVERY_FEE;
+  const deliveryFee = DELIVERY_FEE;
   const codFee = state.payment.method === 'cod' ? COD_FEE : 0;
   state.totals = { subtotal, deliveryFee, codFee, total: subtotal + deliveryFee + codFee };
 }
@@ -175,6 +168,10 @@ function normalizeProduct(item) {
     size: item.size || item.sizeLabel || '',
     sizeLabel: item.sizeLabel || item.size || '',
     variantKey: String(item.variantKey || ''),
+    slug: String(item.slug || ''),
+    category: String(item.category || ''),
+    sku: String(item.variantSku || item.sku || ''),
+    variantSku: String(item.variantSku || item.sku || ''),
     total: price * qty
   };
 }
@@ -252,9 +249,6 @@ function loadPayment() {
   }
   if (!state.payment.phone) {
     state.payment.phone = state.shipping.phone || state.customer.phone;
-  }
-  if (draft?.delivery) {
-    state.delivery = draft.delivery;
   }
 }
 
@@ -390,13 +384,6 @@ export function updateProductQty(productId, variantKey, qty) {
   recalcTotals();
   persistDraft();
   emit('products-changed');
-}
-
-export function setDelivery(method) {
-  state.delivery = method === 'pickup' ? 'pickup' : 'delivery';
-  recalcTotals();
-  persistDraft();
-  emit('delivery-changed');
 }
 
 export function setPaymentMethod(method) {

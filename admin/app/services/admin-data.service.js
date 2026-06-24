@@ -352,19 +352,46 @@ function normalizeDate(value) {
 function normalizeOrder(order) {
   const status = normalizeStatus(order?.status || order?.orderStatus || order?.paymentStatus);
   const total = toNumber(order?.totalAmount ?? order?.totalPrice ?? order?.total ?? order?.amount);
+  const items = asArray(order?.items || order?.products).map((item) => {
+    const attrs = item?.attributes && typeof item.attributes === "object" ? item.attributes : {};
+    return {
+      productId: normalizeText(item?.productId || item?.id),
+      productName: normalizeText(item?.productName || item?.name || "Product"),
+      quantity: toNumber(item?.quantity || item?.qty || 1),
+      price: toNumber(item?.price),
+      image: normalizeText(item?.image || item?.colorImage || attrs.colorImage),
+      color: normalizeText(item?.color || item?.colorName || attrs.Color),
+      size: normalizeText(item?.size || item?.sizeLabel || attrs.Size),
+      sku: normalizeText(item?.sku || item?.variantSku || attrs.SKU),
+      category: normalizeText(item?.category || attrs.Category),
+      productUrl: normalizeText(item?.productUrl || item?.productLink || attrs.productUrl || attrs.productLink)
+    };
+  });
 
   return {
     id: normalizeText(order?.id || order?.orderId || order?._id),
     orderId: normalizeText(order?.orderId || order?.id || order?._id),
     status,
     total,
+    subtotal: toNumber(order?.subtotal),
+    deliveryFee: toNumber(order?.deliveryFee ?? order?.shippingFee),
+    codFee: toNumber(order?.codFee),
     date: order?.date || order?.createdAt || new Date().toISOString(),
-    customerName: normalizeText(order?.customerName || order?.customer || "Guest"),
-    customerEmail: normalizeText(order?.customerEmail || order?.userEmail),
-    customerPhone: normalizeText(order?.customerPhone || order?.phoneNumber),
-    paymentStatus: normalizeText(order?.paymentStatus || status),
-    itemsCount: asArray(order?.items || order?.products).length,
-    products: asArray(order?.items || order?.products)
+    customerName: normalizeText(order?.customerName || order?.customer?.name || order?.customer || "Guest"),
+    customerEmail: normalizeText(order?.customerEmail || order?.userEmail || order?.customer?.email),
+    customerPhone: normalizeText(order?.customerPhone || order?.phoneNumber || order?.customer?.phone),
+    paymentMethod: normalizeText(order?.paymentMethod || order?.payment?.method),
+    paymentMethodLabel: normalizeText(order?.paymentMethodLabel || order?.payment?.methodLabel || (order?.paymentMethod === "cod" ? "Cash on Delivery" : order?.paymentMethod)),
+    paymentStatus: normalizeText(order?.paymentStatus || order?.payment?.status || status),
+    paymentStatusLabel: normalizeText(order?.paymentStatusLabel || order?.payment?.statusLabel),
+    deliveryMethod: normalizeText(order?.deliveryMethod),
+    deliveryLabel: normalizeText(order?.deliveryLabel),
+    shippingAddress: order?.shippingAddress && typeof order.shippingAddress === "object" ? order.shippingAddress : {},
+    fullAddress: order?.fullAddress && typeof order.fullAddress === "object" ? order.fullAddress : {},
+    gpsLocation: order?.gpsLocation && typeof order.gpsLocation === "object" ? order.gpsLocation : {},
+    itemsCount: items.length,
+    items,
+    products: items
   };
 }
 

@@ -20,7 +20,7 @@ function normalizePhone(value) {
     return normalizeText(value).replace(/\s+/g, '');
 }
 
-const PAYMENT_STATES = new Set(['pending', 'authorized', 'paid', 'failed', 'refunded', 'cancelled']);
+const PAYMENT_STATES = new Set(['pending', 'authorized', 'paid', 'failed', 'refunded', 'cancelled', 'awaiting_delivery_payment']);
 
 function normalizePaymentMethod(value) {
     return normalizeText(value).toLowerCase();
@@ -33,6 +33,7 @@ function normalizePaymentState(value) {
 
 function resolvePaymentStatusLabel(paymentState) {
     const state = normalizePaymentState(paymentState);
+    if (state === 'awaiting_delivery_payment') return 'Awaiting Delivery Payment';
     if (state === 'authorized') return 'Authorized';
     if (state === 'paid') return 'Paid';
     if (state === 'failed') return 'Failed';
@@ -45,16 +46,45 @@ function normalizeItems(items) {
     const source = Array.isArray(items) ? items : [];
 
     return source
-        .map((item) => ({
-            productId: normalizeText(item?.productId || item?.id),
-            productName: normalizeText(item?.productName || item?.name) || 'Product',
-            quantity: Math.max(1, Number(item?.quantity || item?.qty || 1) || 1),
-            price: Number(item?.price || 0) || 0,
-            image: normalizeText(item?.image || item?.img || item?.imageUrl || item?.productImage || item?.mainImage || item?.thumbnail),
-            attributes: item?.attributes && typeof item.attributes === 'object' ? item.attributes : {},
-            color: normalizeText(item?.color),
-            size: normalizeText(item?.size)
-        }))
+        .map((item) => {
+            const attributes = item?.attributes && typeof item.attributes === 'object' ? item.attributes : {};
+            const image = normalizeText(item?.image || item?.img || item?.imageUrl || item?.productImage || item?.mainImage || item?.thumbnail || item?.colorImage || attributes.colorImage);
+            const productUrl = normalizeText(item?.productUrl || item?.productLink || attributes.productUrl || attributes.productLink);
+            const sku = normalizeText(item?.sku || item?.variantSku || attributes.SKU || attributes.sku);
+            const category = normalizeText(item?.category || attributes.Category || attributes.category);
+            const colorName = normalizeText(item?.colorName || item?.color || attributes.Color);
+            const sizeLabel = normalizeText(item?.sizeLabel || item?.size || attributes.Size);
+
+            return {
+                productId: normalizeText(item?.productId || item?.id),
+                productName: normalizeText(item?.productName || item?.name) || 'Product',
+                quantity: Math.max(1, Number(item?.quantity || item?.qty || 1) || 1),
+                price: Number(item?.price || 0) || 0,
+                image,
+                colorImage: normalizeText(item?.colorImage || attributes.colorImage),
+                color: colorName,
+                colorName,
+                size: sizeLabel,
+                sizeLabel,
+                sku,
+                variantSku: sku,
+                category,
+                productUrl,
+                productLink: productUrl,
+                slug: normalizeText(item?.slug),
+                attributeSummary: normalizeText(item?.attributeSummary),
+                attributes: {
+                    ...attributes,
+                    Color: colorName || attributes.Color,
+                    Size: sizeLabel || attributes.Size,
+                    SKU: sku || attributes.SKU,
+                    Category: category || attributes.Category,
+                    productUrl,
+                    productLink: productUrl,
+                    colorImage: normalizeText(item?.colorImage || attributes.colorImage)
+                }
+            };
+        })
         .filter((item) => item.productId || item.productName);
 }
 
@@ -74,8 +104,12 @@ function normalizeStorefrontOrder(payload, user) {
     const codFee = Number(source.codFee || 0) || 0;
     const total = Number(source.total ?? source.totalAmount ?? (subtotal + shippingFee + codFee)) || 0;
     const paymentMethod = normalizePaymentMethod(source.paymentMethod || source.payment?.method);
-    const paymentStatus = normalizePaymentState(source.paymentStatus || source.payment?.status || source.payment?.transaction?.state);
-    const paymentStatusLabel = normalizeText(source.paymentStatusLabel || source.payment?.statusLabel) || resolvePaymentStatusLabel(paymentStatus);
+    let paymentStatus = normalizePaymentState(source.paymentStatus || source.payment?.status || source.payment?.transaction?.state);
+    let paymentStatusLabel = normalizeText(source.paymentStatusLabel || source.payment?.statusLabel) || resolvePaymentStatusLabel(paymentStatus);
+    if (paymentMethod === 'cod' && paymentStatus === 'pending' && !source.paymentStatus) {
+        paymentStatus = 'awaiting_delivery_payment';
+        paymentStatusLabel = 'Awaiting Delivery Payment';
+    }
     const paymentTransaction = source.payment?.transaction && typeof source.payment.transaction === 'object'
         ? source.payment.transaction
         : {};
@@ -108,8 +142,8 @@ function normalizeStorefrontOrder(payload, user) {
         total,
         totalAmount: total,
         totalPrice: total,
-        deliveryMethod: normalizeText(source.deliveryMethod),
-        deliveryLabel: normalizeText(source.deliveryLabel),
+        deliveryMethod: normalizeText(source.deliveryMethod) === 'pickup' ? 'delivery' : (normalizeText(source.deliveryMethod) || 'delivery'),
+        deliveryLabel: normalizeText(source.deliveryLabel) || 'Delivery to address',
         items,
         products: items,
         shippingAddress,

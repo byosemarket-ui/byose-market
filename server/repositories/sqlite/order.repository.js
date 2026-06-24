@@ -10,16 +10,27 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
             return null;
         }
 
-        const normalizedItems = items.map((item) => ({
-            productId: this.normalizeText(item.product_catalog_id),
-            productName: this.normalizeText(item.product_name),
-            quantity: this.toNumber(item.quantity, 1),
-            price: this.toNumber(item.price, 0),
-            image: this.normalizeText(item.image),
-            attributes: this.parseJson(item.attributes_json, {}),
-            color: this.normalizeText(item.color),
-            size: this.normalizeText(item.size)
-        }));
+        const normalizedItems = items.map((item) => {
+            const attrs = this.parseJson(item.attributes_json, {});
+            return {
+                productId: this.normalizeText(item.product_catalog_id),
+                productName: this.normalizeText(item.product_name),
+                quantity: this.toNumber(item.quantity, 1),
+                price: this.toNumber(item.price, 0),
+                image: this.normalizeText(item.image),
+                attributes: attrs,
+                color: this.normalizeText(item.color),
+                size: this.normalizeText(item.size),
+                colorImage: this.normalizeText(attrs.colorImage),
+                colorName: this.normalizeText(item.color),
+                sizeLabel: this.normalizeText(item.size),
+                sku: this.normalizeText(attrs.SKU || attrs.sku),
+                category: this.normalizeText(attrs.Category || attrs.category),
+                productUrl: this.normalizeText(attrs.productUrl || attrs.productLink),
+                productLink: this.normalizeText(attrs.productUrl || attrs.productLink),
+                attributeSummary: this.normalizeText(attrs.attributeSummary)
+            };
+        });
 
         return {
             id: this.normalizeText(row.legacy_id || row.order_id),

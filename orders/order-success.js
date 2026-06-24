@@ -1,6 +1,6 @@
 import { getConfirmation, initCheckout } from './core/state.js';
 import { renderProductList, renderTotals } from './ui/layout.js';
-import { escapeHtml, formatCurrency } from './utils.js';
+import { escapeHtml } from './utils.js';
 
 const container = document.getElementById('successContent');
 const params = new URLSearchParams(window.location.search);
@@ -23,26 +23,30 @@ if (!confirmation && !resolvedId) {
 } else {
   const items = confirmation?.items || [];
   const totals = {
-    subtotal: items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 1), 0),
-    deliveryFee: 0,
-    codFee: 0,
+    subtotal: Number(confirmation?.subtotal) || items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 1), 0),
+    deliveryFee: Number(confirmation?.deliveryFee) || 0,
+    codFee: Number(confirmation?.codFee) || 0,
     total: confirmation?.total || 0
   };
 
-  const paymentLabel = confirmation?.payment?.method === 'cod'
-    ? 'Cash on Delivery'
-    : (confirmation?.payment?.method || 'Mobile Money').toUpperCase();
+  const isCod = confirmation?.payment?.method === 'cod' || confirmation?.paymentMethod === 'cod';
+  const paymentLabel = isCod
+    ? (confirmation?.paymentMethodLabel || confirmation?.payment?.methodLabel || 'Cash on Delivery')
+    : (confirmation?.payment?.methodLabel || confirmation?.payment?.method || 'Mobile Money').toUpperCase();
+  const paymentStatus = confirmation?.paymentStatusLabel || confirmation?.payment?.statusLabel || '';
 
   container.innerHTML = `
     <div class="ck-success-icon">✓</div>
     <h1>Order Placed!</h1>
     <p>Thank you, ${escapeHtml(confirmation?.customerName || 'customer')}. Your order has been received.</p>
+    ${isCod ? '<p class="ck-cod-success-note">Kwishyura ibyo watumye bikugezeho — pay when your order arrives.</p>' : ''}
     <p><strong>Order ID:</strong> ${escapeHtml(resolvedId)}</p>
     <div class="ck-success-details">
       <h3>Order Summary</h3>
       ${renderProductList(items)}
-      <p style="margin-top:12px"><strong>Total:</strong> ${formatCurrency(confirmation?.total || totals.total)}</p>
-      <p><strong>Payment:</strong> ${escapeHtml(paymentLabel)}</p>
+      ${renderTotals(totals)}
+      <p style="margin-top:12px"><strong>Payment:</strong> ${escapeHtml(paymentLabel)}</p>
+      ${paymentStatus ? `<p><strong>Payment status:</strong> ${escapeHtml(paymentStatus)}</p>` : ''}
       ${confirmation?.shippingAddress ? `
         <h3 style="margin-top:16px">Delivery To</h3>
         <p>${escapeHtml(confirmation.shippingAddress.fullName || '')}<br>

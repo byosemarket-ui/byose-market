@@ -166,7 +166,7 @@ async function verifyViewport(browser, viewport, product, { useRealOrderApi = fa
   checks.reviewProducts = await page.locator(".ck-product").count();
   checks.reviewShipping = await page.locator(".ck-card").count() > 0;
   checks.reviewTotals = await page.locator(".ck-totals").count() > 0;
-  checks.reviewDelivery = await page.locator(".ck-delivery-toggle").count() > 0;
+  checks.reviewDelivery = await page.locator(".ck-delivery-info").count() > 0;
 
   const reviewBodyWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   checks.noHorizontalScrollReview = reviewBodyWidth <= viewport.width + 2;
@@ -176,11 +176,18 @@ async function verifyViewport(browser, viewport, product, { useRealOrderApi = fa
   await page.waitForFunction(() => window.__ckStep === 'payment', { timeout: 120000 });
 
   checks.paymentProgress = await page.locator(".ck-step.is-active strong").textContent();
-  checks.paymentMethods = await page.locator(".ck-pay-option").count();
-  checks.paymentPhone = await page.locator('input[name="paymentPhone"]').count() > 0;
+  checks.paymentMethods = await page.locator(".ck-pay-card").count();
 
-  await page.locator('input[name="paymentMethod"][value="mtn"]').click({ force: true });
-  await page.fill('input[name="paymentPhone"]', "0781234567");
+  const useCod = viewport.id === 'iphone-14';
+
+  await page.locator(`input[name="paymentMethod"][value="${useCod ? 'cod' : 'mtn'}"]`).click({ force: true });
+  if (!useCod) {
+    await page.fill('input[name="paymentPhone"]', "0781234567");
+    checks.paymentPhone = await page.locator('input[name="paymentPhone"]').count() > 0;
+  } else {
+    checks.paymentPhone = await page.locator('#paymentPhoneField').isHidden();
+    checks.codSubtitle = (await page.locator('.ck-pay-card--cod .ck-pay-card__hint--rw').textContent())?.includes('Kwishyura');
+  }
 
   const paymentBodyWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   checks.noHorizontalScrollPayment = paymentBodyWidth <= viewport.width + 2;
@@ -224,6 +231,11 @@ async function verifyViewport(browser, viewport, product, { useRealOrderApi = fa
     && orderPayload.paymentMethod
   );
   checks.orderHasProductMeta = orderPayload?.items?.some((i) => i.productName && i.price >= 0);
+  if (useCod) {
+    checks.codOrderValid = orderPayload?.paymentMethod === 'cod'
+      && Number(orderPayload?.codFee) === 1000
+      && orderPayload?.paymentStatus === 'awaiting_delivery_payment';
+  }
 
   await page.screenshot({ path: join(OUT_DIR, `success-${viewport.id}.png`), fullPage: false });
   await context.close();
@@ -233,6 +245,8 @@ async function verifyViewport(browser, viewport, product, { useRealOrderApi = fa
     if (key.endsWith("Progress")) return typeof value === "string" && value.length > 0;
     if (key === "reviewProducts") return Number(value) >= 1;
     if (key === "paymentMethods") return Number(value) >= 4;
+    if (key === "codSubtitle") return value === true;
+    if (key === "codOrderValid") return value === true;
     return Boolean(value);
   });
 

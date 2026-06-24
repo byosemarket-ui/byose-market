@@ -1,5 +1,5 @@
-import { escapeHtml, formatCurrency } from '../utils.js';
-import { STEPS } from '../core/constants.js';
+import { escapeHtml, formatCurrency, resolveCheckoutAsset } from '../utils.js';
+import { DELIVERY_FEE, STEPS } from '../core/constants.js';
 import { getState, getStepIndex } from '../core/state.js';
 
 export function renderProgress(currentStepId) {
@@ -56,6 +56,50 @@ export function renderProductList(products, { editable = false } = {}) {
         </div>
         <div class="ck-product-price">${formatCurrency((Number(product.price) || 0) * qty)}</div>
       </article>
+    `;
+  }).join('');
+}
+
+export function renderDeliveryInfo() {
+  return `
+    <section class="ck-delivery-info" aria-label="Delivery method">
+      <span class="ck-delivery-info__icon" aria-hidden="true">🚚</span>
+      <div class="ck-delivery-info__body">
+        <strong>Delivery</strong>
+        <p>Delivered to your address · ${formatCurrency(DELIVERY_FEE)}</p>
+      </div>
+    </section>
+  `;
+}
+
+export function renderPaymentMethods(methods, selectedId) {
+  if (!Array.isArray(methods) || !methods.length) {
+    return '<p class="ck-empty">No payment methods available.</p>';
+  }
+
+  return methods.map((method) => {
+    const checked = method.id === selectedId;
+    const logo = resolveCheckoutAsset(method.logo);
+    const codClass = method.id === 'cod' ? ' ck-pay-card--cod' : '';
+
+    return `
+      <label class="ck-pay-card${codClass}${checked ? ' is-selected' : ''}">
+        <input
+          type="radio"
+          class="ck-pay-card__input"
+          name="paymentMethod"
+          value="${escapeHtml(method.id)}"
+          ${checked ? 'checked' : ''}
+        >
+        <span class="ck-pay-card__logo">
+          <img src="${escapeHtml(logo)}" alt="${escapeHtml(method.label)} logo" width="40" height="40" loading="lazy" decoding="async">
+        </span>
+        <span class="ck-pay-card__body">
+          <span class="ck-pay-card__name">${escapeHtml(method.label)}</span>
+          ${method.hint ? `<span class="ck-pay-card__hint${method.id === 'cod' ? ' ck-pay-card__hint--rw' : ''}">${escapeHtml(method.hint)}</span>` : ''}
+        </span>
+        <span class="ck-pay-card__radio" aria-hidden="true"></span>
+      </label>
     `;
   }).join('');
 }

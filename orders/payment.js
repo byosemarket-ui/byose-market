@@ -5,9 +5,8 @@ import {
 } from './core/state.js';
 import { validatePayment } from './core/validation.js';
 import {
-  renderProgress, renderSidebar, renderStickyBar, renderTotals, showMessage
+  renderPaymentMethods, renderProgress, renderSidebar, renderStickyBar, renderTotals, showMessage
 } from './ui/layout.js';
-import { escapeHtml } from './utils.js';
 
 const progressEl = document.getElementById('progress');
 const sidebarEl = document.getElementById('sidebar');
@@ -23,13 +22,7 @@ const placeBtn = document.getElementById('placeOrderBtn');
 function renderMethods() {
   const state = getState();
   const methods = getPaymentMethods();
-  methodsEl.innerHTML = methods.map((m) => `
-    <label class="ck-pay-option">
-      <input type="radio" name="paymentMethod" value="${escapeHtml(m.id)}" ${state.payment.method === m.id ? 'checked' : ''}>
-      <span class="ck-pay-icon">${m.icon}</span>
-      <span class="ck-pay-label">${escapeHtml(m.label)}</span>
-    </label>
-  `).join('');
+  methodsEl.innerHTML = renderPaymentMethods(methods, state.payment.method);
 
   const isCod = state.payment.method === 'cod';
   phoneField.hidden = isCod;
@@ -54,7 +47,7 @@ function render() {
 methodsEl?.addEventListener('change', (e) => {
   if (e.target.name === 'paymentMethod') {
     setPaymentMethod(e.target.value);
-    renderMethods();
+    render();
   }
 });
 
