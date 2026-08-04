@@ -8,7 +8,6 @@
 
 import productService from './services/centralized-products.service.js';
 import ProductCardSystem from './js/product-card-system.js';
-import { initHomeCategoryNav, scrollHomeCategoryPillIntoView } from './js/home-category-nav.js';
 import { normalizeStorefrontAssetUrl, resolveProductImageUrl } from './services/storefront-asset-url.js';
 import {
   filterProductsForSection,
@@ -27,33 +26,16 @@ const DEFAULT_FILTER = 'all';
 const DEFAULT_CATEGORY = 'featured';
 const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
 const FALLBACK_IMAGE = 'img/logo.png';
-const PRIMARY_GRID_LIMIT = 10;
 const SPOTLIGHT_LIMIT = 6;
 const SPOTLIGHT_START_OFFSET = 5;
 const HERO_INTERVAL_MS = 3500;
 const NEWSLETTER_STORAGE_KEY = 'byose_market_newsletter_subscribers';
 
 const CATEGORY_ALIASES = {
-  apparel: 'fashion',
-  bag: 'fashion',
-  bags: 'fashion',
-  clothes: 'fashion',
-  clothing: 'fashion',
   footwear: 'shoes',
-  phone: 'electronics',
-  phones: 'electronics',
   shoe: 'shoes',
-  sneakers: 'shoes',
-  smartwatch: 'electronics',
-  smartwatches: 'electronics',
-  watch: 'electronics',
-  watches: 'electronics'
-};
-
-const FILTER_KEYWORDS = {
-  bags: ['bag', 'bags', 'ibikapu', 'sac'],
-  watches: ['watch', 'smart watch', 'smartwatch', 'amasaha', 'montre'],
-  phones: ['phone', 'phones', 'smartphone', 'mobile', 'iphone']
+  sneaker: 'shoes',
+  sneakers: 'shoes'
 };
 
 const state = {
@@ -88,7 +70,6 @@ function initializeHomePage() {
   syncCatalog();
   setupFilterControls();
   setupHeroSlider();
-  initHomeCategoryNav();
 
   // Listen for backend product synchronization events
   window.addEventListener(productService.GLOBAL_SYNC_EVENT, syncCatalog);
@@ -347,13 +328,6 @@ function getProductsForFilter(filter) {
     items = state.catalog.slice();
   } else {
     items = state.catalog.filter(product => matchesFilter(product, normalizedFilter));
-
-    if (!items.length) {
-      const aliasedCategory = CATEGORY_ALIASES[normalizedFilter];
-      if (aliasedCategory) {
-        items = state.catalog.filter(product => product.category === aliasedCategory);
-      }
-    }
   }
 
   state.filterCache.set(cacheKey, items);
@@ -365,14 +339,7 @@ function matchesFilter(product, normalizedFilter) {
     return false;
   }
 
-  if (product.category === normalizedFilter) {
-    return true;
-  }
-
-  const filterKeywords = FILTER_KEYWORDS[normalizedFilter];
-  return Array.isArray(filterKeywords)
-    ? filterKeywords.some(keyword => product.searchText.includes(normalizeText(keyword)))
-    : false;
+  return product.category === normalizeCategory(normalizedFilter);
 }
 
 function setActiveFilter(filter) {
@@ -383,11 +350,10 @@ function setActiveFilter(filter) {
     pill.setAttribute('aria-selected', isActive ? 'true' : 'false');
   });
   renderProductGrid(state.currentFilter);
-  scrollHomeCategoryPillIntoView(state.currentFilter);
 }
 
 function renderProductGrid(filter) {
-  const items = getProductsForFilter(filter).slice(0, PRIMARY_GRID_LIMIT);
+  const items = getProductsForFilter(filter);
   summarizeCatalogPipeline({
     source: "homepage-grid",
     fetched: state.catalog,
@@ -437,7 +403,7 @@ function getSpotlightProducts() {
     return combined.slice(0, SPOTLIGHT_LIMIT);
   }
 
-  const spotlightSource = state.catalog.filter(product => ['electronics', 'fashion', 'shoes'].includes(product.category));
+  const spotlightSource = state.catalog;
   const startIndex = Math.min(SPOTLIGHT_START_OFFSET, Math.max(0, spotlightSource.length - SPOTLIGHT_LIMIT));
   return spotlightSource.slice(startIndex, startIndex + SPOTLIGHT_LIMIT);
 }

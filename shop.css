@@ -19,26 +19,15 @@ body.shop-page {
 
 .shop-filters {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  justify-content: center;
+  gap: 10px;
   padding: 2px 2px 4px;
-  scroll-snap-type: x proximity;
-  scroll-behavior: smooth;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.shop-filters::-webkit-scrollbar {
-  display: none;
 }
 
 .shop-filter-pill {
   flex: 0 0 auto;
-  scroll-snap-align: start;
   min-height: 38px;
   padding: 0 14px;
   border: 1px solid rgba(18, 33, 39, 0.1);
@@ -77,6 +66,7 @@ body.shop-page {
 .shop-results {
   margin: 4px 0 0;
   padding: 0;
+  text-align: center;
   color: var(--home-muted, #66767b);
   font-size: 0.72rem;
   font-weight: 600;
@@ -103,7 +93,7 @@ body.shop-page {
   font-weight: 700;
 }
 
-/* Tablet: horizontal scroll, slightly larger pills */
+/* Tablet */
 @media (min-width: 600px) and (max-width: 1024px) {
   .shop-filters-bar {
     padding: 10px 0 8px;
@@ -127,7 +117,7 @@ body.shop-page {
   }
 
   .shop-filters {
-    gap: 6px;
+    gap: 8px;
   }
 
   .shop-filter-pill {
@@ -137,16 +127,10 @@ body.shop-page {
   }
 }
 
-/* Desktop: single row, wrap if needed */
+/* Desktop */
 @media (min-width: 1025px) {
   .shop-filters-bar {
     padding: 10px 0 8px;
-  }
-
-  .shop-filters {
-    flex-wrap: wrap;
-    overflow-x: visible;
-    scroll-snap-type: none;
   }
 
   .shop-filter-pill {
@@ -160,10 +144,6 @@ body.shop-page {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .shop-filters {
-    scroll-behavior: auto;
-  }
-
   .shop-filter-pill {
     transition: none;
   }

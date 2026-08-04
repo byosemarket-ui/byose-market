@@ -54,20 +54,10 @@
   const DEFAULT_DETAIL_PAGE = "details/product-details1.html";
   const FALLBACK_IMAGE = "img/logo.png";
   const CATEGORY_ALIASES = {
-    apparel: "fashion",
-    bag: "fashion",
-    bags: "fashion",
-    clothes: "fashion",
-    clothing: "fashion",
     footwear: "shoes",
-    phone: "electronics",
-    phones: "electronics",
     shoe: "shoes",
-    sneakers: "shoes",
-    smartwatch: "electronics",
-    smartwatches: "electronics",
-    watch: "electronics",
-    watches: "electronics"
+    sneaker: "shoes",
+    sneakers: "shoes"
   };
 
   const elements = {
@@ -119,6 +109,10 @@
     }
 
     return CATEGORY_ALIASES[normalized] || normalized.replace(/\s+/g, "-");
+  }
+
+  function normalizeShopFilter(filter) {
+    return normalizeCategory(filter) === "shoes" ? "shoes" : DEFAULT_FILTER;
   }
 
   function normalizeVisibility(value) {
@@ -393,14 +387,6 @@
       button.classList.toggle("active", isActive);
       button.setAttribute("aria-pressed", String(isActive));
       button.textContent = isActive ? `${label} ✓` : label;
-
-      if (isActive) {
-        button.scrollIntoView({
-          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-          inline: "center",
-          block: "nearest"
-        });
-      }
     });
   }
 
@@ -410,9 +396,9 @@
     }
 
     const url = new URL(window.location.href);
-    if (state.currentFilter === DEFAULT_FILTER) {
-      url.searchParams.delete("category");
-    } else {
+    url.searchParams.delete("category");
+    url.searchParams.delete("filter");
+    if (state.currentFilter !== DEFAULT_FILTER) {
       url.searchParams.set("category", state.currentFilter);
     }
 
@@ -441,24 +427,17 @@
     updateResultsSummary(elements.resultsSummary, filtered.length, label);
   }
 
-  async function setFilter(nextFilter, options) {
-    const config = options || {};
-    const rawFilter = String(nextFilter || DEFAULT_FILTER).trim().toLowerCase();
-    state.currentFilter = rawFilter === "all" ? DEFAULT_FILTER : normalizeCategory(nextFilter);
+  async function setFilter(nextFilter) {
+    state.currentFilter = normalizeShopFilter(nextFilter);
     syncFilterButtons();
-
-    if (!config.skipUrlUpdate) {
-      syncUrlFilter();
-    }
-
+    syncUrlFilter();
     await renderShopPage();
   }
 
   function getInitialFilter() {
     const params = new URLSearchParams(window.location.search);
     const rawFilter = params.get("category") || params.get("filter") || DEFAULT_FILTER;
-    const normalized = String(rawFilter).trim().toLowerCase();
-    return normalized === "all" ? DEFAULT_FILTER : normalizeCategory(rawFilter);
+    return normalizeShopFilter(rawFilter);
   }
 
   function initializeShopPage() {
@@ -480,7 +459,7 @@
       setFilter(button.dataset.filter || DEFAULT_FILTER).catch(err => console.error('[Shop] Filter error:', err));
     });
 
-    setFilter(state.currentFilter, { skipUrlUpdate: true }).catch(err => console.error('[Shop] Filter error:', err));
+    setFilter(state.currentFilter).catch(err => console.error('[Shop] Filter error:', err));
 
     // Listen for backend product synchronization events
     productService().then(service => {
