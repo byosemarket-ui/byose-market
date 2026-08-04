@@ -1,0 +1,12 @@
+{
+  "@context": "https://schema.org",
+  "@type": "Store",
+  "name": "Byose Market",
+  "url": "https://byosemarket.com",
+  "logo": "https://byosemarket.com/img/logo.png",
+  "description": "Gura online inkweto, imyenda, ibikapu, electronics n'ibindi byose mu Rwanda kuri Byose Market.",
+  "address": {
+    "@type": "PostalAddress",
+    "addressCountry": "RW"
+  }
+}

@@ -10,9 +10,9 @@ let migrations = [];
 async function connect() {
     if (!config.sqlite.enabled) {
         initialized = false;
-        lastError = null;
+        lastError = new Error('SQLite is disabled (SQLITE_ENABLED=false) while DB_CLIENT=sqlite');
         migrations = [];
-        return false;
+        throw lastError;
     }
 
     try {

@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="css/home-desktop.css">
   <link rel="stylesheet" href="mobile-nav.css">
   <link rel="stylesheet" href="shop.css">
+  <script src="config/runtime-api-bootstrap.js"></script>
 </head>
 <body class="home-page shop-page">
   <header class="main-header" id="mainHeader" data-sticky-header>
@@ -106,11 +107,14 @@
     </section>
   </main>
 
-  <script src="js/products.js"></script>
+  <script src="services/authservice.js"></script>
+  <script src="js/products.js" defer></script>
+  <script src="js/utils.js" defer></script>
+  <script type="module" src="js/byose-cart-bootstrap.js"></script>
   <script type="module" src="products.js"></script>
-  <script src="js/mobile-nav.js"></script>
-  <script src="js/search.js"></script>
-  <script src="shared/storage.js"></script>
-  <script src="js/header.js"></script>
+  <script src="js/mobile-nav.js" defer></script>
+  <script src="js/search.js" defer></script>
+  <script src="shared/storage.js" defer></script>
+  <script src="js/header.js" defer></script>
 </body>
 </html>

@@ -1,5 +1,6 @@
 const { verifyToken } = require('../utils/token');
 const { appLogger } = require('../utils/logger');
+const config = require('../config/env');
 
 function extractBearerToken(req) {
     const authHeader = String(req.headers.authorization || req.headers.Authorization || '').trim();
@@ -44,7 +45,14 @@ function requireAdminAuth(req, res, next) {
     }
 
     const payload = result.payload || {};
-    if (payload.role !== 'admin' || !payload.id || !payload.email || typeof payload.email !== 'string') {
+    const configuredAdminEmail = String(process.env.ADMIN_EMAIL || config.adminEmail || '').trim().toLowerCase();
+    const tokenEmail = String(payload.email || '').trim().toLowerCase();
+    if (
+        payload.role !== 'admin'
+        || !payload.id
+        || !tokenEmail
+        || (configuredAdminEmail && tokenEmail !== configuredAdminEmail)
+    ) {
         logger.warn('auth.admin.role_denied', {
             adminId: payload.id || '',
             adminEmail: payload.email || ''

@@ -1,6 +1,8 @@
 const config = require('../config/env');
 const { appLogger } = require('../utils/logger');
+const activityDataService = require('../services/activitydataservice');
 const cartDataService = require('../services/cartdataservice');
+const messageDataService = require('../services/messagedataservice');
 const orderDataService = require('../services/orderdataservice');
 const productDataService = require('../services/productdataservice');
 const userDataService = require('../services/userdataservice');
@@ -227,10 +229,12 @@ exports.getDashboardSnapshot = async (_req, res) => {
 
         if (config.databaseClient === 'sqlite') {
             const customers = sortAndSliceRecent(await userDataService.listCustomers(), recentLimit, 'createdAt');
-            const [orders, products, cartsRaw] = await Promise.all([
+            const [orders, products, cartsRaw, messagesRaw, activityRaw] = await Promise.all([
                 orderDataService.listAdminOrders({ limit: recentLimit, page: 1 }),
                 productDataService.listProducts({ limit: recentLimit, page: 1 }),
-                cartDataService.listAllCarts(customers)
+                cartDataService.listAllCarts(customers),
+                messageDataService.listMessages({ limit: recentLimit, page: 1 }),
+                activityDataService.listActivity({ limit: activityLimit, offset: 0 })
             ]);
 
             const customerLookup = new Map(customers.map((customer) => [String(customer.id), customer]));
@@ -262,8 +266,15 @@ exports.getDashboardSnapshot = async (_req, res) => {
                 };
             }), recentLimit, 'updatedAt');
 
-            const messages = [];
-            const recentVisits = [];
+            const messages = sortAndSliceRecent(messagesRaw, recentLimit, 'createdAt');
+            const recentVisits = sortAndSliceRecent(
+                (Array.isArray(activityRaw) ? activityRaw : []).filter((entry) => {
+                    const eventType = normalizeText(entry?.eventType || entry?.event_type).toLowerCase();
+                    return !eventType || eventType.includes('visit') || eventType.includes('page');
+                }),
+                recentLimit,
+                'createdAt'
+            );
             const totalSales = orders.reduce((sum, order) => sum + Number(order.totalAmount ?? order.totalPrice ?? order.total ?? 0), 0);
             const pendingOrders = orders.filter((order) => normalizeText(order.status || order.orderStatus).toLowerCase() === 'pending').length;
             const recentUsers = customers.filter((customer) => normalizeTimestamp(customer.createdAt) >= startOfDay(-7).getTime()).length;
@@ -273,9 +284,9 @@ exports.getDashboardSnapshot = async (_req, res) => {
             const ordersCount = orders.length;
             const customersCount = customers.length;
             const productsCount = products.length;
-            const messagesCount = 0;
-            const newMessages = 0;
-            const visitsCount = 0;
+            const messagesCount = messages.length;
+            const newMessages = messages.filter((message) => normalizeText(message.status).toLowerCase() === 'new').length;
+            const visitsCount = recentVisits.length;
             const cartsCount = carts.length;
             const cartsWithItems = carts.filter((cart) => Number(cart.itemCount || 0) > 0).length;
             const totalCartItems = carts.reduce((sum, cart) => sum + Number(cart.itemCount || 0), 0);
@@ -294,9 +305,9 @@ exports.getDashboardSnapshot = async (_req, res) => {
                         productsNote: productsCount ? `${lowStockProducts} low-stock products across the live catalog` : 'No live products found',
                         salesNote: ordersCount ? `${formatCurrency(totalSales)} across ${ordersCount} centralized orders` : 'No recorded order totals yet',
                         messagesCount,
-                        messagesNote: 'Support inbox migration is not implemented yet',
+                        messagesNote: messagesCount ? `${newMessages} new support messages in the shared inbox` : 'No support messages yet',
                         visitsCount,
-                        visitsNote: 'Visit tracking migration is not implemented yet',
+                        visitsNote: visitsCount ? `${visitsCount} recent visit signals tracked` : 'No visit activity recorded yet',
                         cartsCount,
                         cartsWithItems,
                         totalCartItems,
@@ -318,11 +329,11 @@ exports.getDashboardSnapshot = async (_req, res) => {
                         },
                         {
                             label: 'Support inbox',
-                            value: 'Support inbox migration is not implemented yet'
+                            value: messagesCount ? `${newMessages} new from ${messagesCount} shared contact submissions` : 'No shared contact submissions yet'
                         },
                         {
                             label: 'Site activity',
-                            value: ordersToday ? `${ordersToday} orders created today` : 'Visit tracking migration is not implemented yet'
+                            value: visitsCount ? `${visitsCount} tracked visits • ${ordersToday} orders created today` : (ordersToday ? `${ordersToday} orders created today` : 'No tracked visits recorded yet')
                         },
                         {
                             label: 'Global cart load',

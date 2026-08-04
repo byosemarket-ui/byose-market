@@ -24,6 +24,10 @@
       document.head.appendChild(script);
     }
 
+    if (!window.authService) {
+      appendScript('services/authservice.js');
+    }
+
     if (!(window.handleAccountClick && window.isLoggedIn)) {
       appendScript('account/shared/storage.js');
     }

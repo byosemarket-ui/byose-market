@@ -4,7 +4,8 @@
 
 const Cart = {
   STORAGE_KEY: 'byose_market_cart_v1',
-  SHIPPING_COST: 5000,
+  // Flat delivery fee for every non-empty order.
+  SHIPPING_COST: 2000,
   MAX_QTY_PER_LINE: 99,
 
   init() {

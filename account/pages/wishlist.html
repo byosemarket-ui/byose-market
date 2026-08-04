@@ -9,15 +9,75 @@
     main { max-width: 720px; margin: 0 auto; padding: 32px 20px; }
     .card { background: #fff; border-radius: 16px; padding: 24px; box-shadow: 0 12px 32px rgba(19, 32, 51, 0.08); }
     a { color: #1f5eff; text-decoration: none; }
+    .wishlist-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; margin-top:18px; }
+    .wishlist-item { border:1px solid #edf0f5; border-radius:12px; padding:14px; }
+    .wishlist-item img { width:100%; aspect-ratio:1; object-fit:cover; border-radius:9px; background:#f5f7fa; }
+    .wishlist-item h2 { margin:10px 0 6px; font-size:15px; }
+    .wishlist-item p { margin:0 0 12px; font-weight:700; }
+    .wishlist-item button { border:0; color:#b42318; background:#fff1f0; border-radius:8px; padding:8px 10px; cursor:pointer; }
+    .wishlist-empty { color:#627078; margin:18px 0; }
   </style>
 </head>
 <body>
   <main>
     <div class="card">
       <h1>Wishlist</h1>
-      <p>Your wishlist route now resolves correctly on static hosting. Connect wishlist data when you are ready.</p>
+      <p>Items you save while browsing appear here.</p>
+      <div id="wishlistItems" class="wishlist-grid" aria-live="polite"></div>
       <p><a href="../account.html">Back to account</a></p>
     </div>
   </main>
+<script src="../../services/authservice.js"></script>
+<script src="../js/auth-guard.js"></script>
+<script>
+  (function () {
+    const keys = ['byose_market_wishlist_v1', 'byose_market_wishlist'];
+    const root = document.getElementById('wishlistItems');
+    const listForKey = (key) => {
+      try {
+        const value = JSON.parse(localStorage.getItem(key) || '[]');
+        return Array.isArray(value) ? value : [];
+      } catch (error) {
+        return [];
+      }
+    };
+    const safeList = () => keys.map(listForKey).find((items) => items.length) || [];
+    const render = () => {
+      const items = safeList();
+      root.replaceChildren();
+      if (!items.length) {
+        const empty = document.createElement('p');
+        empty.className = 'wishlist-empty';
+        empty.textContent = 'Your wishlist is empty. Save products from the shop to find them here.';
+        root.append(empty);
+        return;
+      }
+      items.forEach((item) => {
+        const article = document.createElement('article');
+        article.className = 'wishlist-item';
+        const image = document.createElement('img');
+        image.src = item.image || item.mainImage || '../../img/logo.png';
+        image.alt = item.name || 'Saved product';
+        const title = document.createElement('h2');
+        title.textContent = item.name || 'Product';
+        const price = document.createElement('p');
+        price.textContent = `RWF ${Number(item.price || item.salePrice || 0).toLocaleString('en-US')}`;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.textContent = 'Remove';
+        remove.addEventListener('click', () => {
+          keys.forEach((key) => {
+            const next = listForKey(key).filter((entry) => String(entry.id) !== String(item.id));
+            localStorage.setItem(key, JSON.stringify(next));
+          });
+          render();
+        });
+        article.append(image, title, price, remove);
+        root.append(article);
+      });
+    };
+    render();
+  })();
+</script>
 </body>
 </html>

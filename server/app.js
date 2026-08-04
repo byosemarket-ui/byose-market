@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const config = require('./config/env');
@@ -6,10 +7,11 @@ const paths = require('./config/paths');
 const createApiRouter = require('./api');
 const requestLogger = require('./middleware/requestlogger');
 const securityHeaders = require('./middleware/securityheaders');
+const compressionMiddleware = require('./middleware/compression');
 const { getDatabaseStatus } = require('./database');
 const { appLogger } = require('./utils/logger');
 const { metricsMiddleware, getSnapshot } = require('./utils/metrics');
-const { prepareStorageFoundation, getUploadFoundationSnapshot } = require('./services/storage-foundation.service');
+const { prepareStorageFoundation } = require('./services/storage-foundation.service');
 
 const { PRODUCTION_CORS_ORIGINS } = require('../config/production-targets');
 
@@ -24,6 +26,10 @@ function getCorsOptions() {
         const incoming = String(requestOrigin || '').trim();
 
         if (!expected || !incoming) {
+            return false;
+        }
+
+        if (config.isProduction && (expected === '*' || expected.includes('*'))) {
             return false;
         }
 
@@ -96,7 +102,9 @@ function createApp() {
     app.locals.uploads = uploadFoundation;
     app.disable('x-powered-by');
     app.set('trust proxy', config.trustProxy);
+    app.set('etag', 'weak');
 
+    app.use(compressionMiddleware);
     app.use(bodyParser.json({ limit: '200kb' }));
     app.use(securityHeaders);
     app.use(requestLogger);
@@ -110,13 +118,17 @@ function createApp() {
         next();
     });
 
-    app.get('/', (_req, res) => {
+    app.get('/', (req, res) => {
+        const accept = String(req.headers.accept || '');
+        const wantsHtml = accept.includes('text/html');
+        if (wantsHtml && (!config.isProduction || String(process.env.SERVE_STATIC || '').toLowerCase() === 'true')) {
+            return res.sendFile(path.join(paths.projectRoot, 'index.html'));
+        }
+
         return res.json({
             status: 'ok',
             message: 'Byose Market API is running',
-            dbConnected: Boolean(app.locals.dbConnected),
-            database: app.locals.database,
-            uploads: getUploadFoundationSnapshot()
+            dbConnected: Boolean(app.locals.dbConnected)
         });
     });
 
@@ -124,29 +136,29 @@ function createApp() {
         const databaseStatus = getDatabaseStatus();
         return res.status(200).json({
             status: databaseStatus.ready ? 'ok' : 'degraded',
-            dbConnected: databaseStatus.ready,
-            database: databaseStatus,
-            uploads: getUploadFoundationSnapshot()
+            dbConnected: Boolean(databaseStatus.ready)
         });
     });
 
     app.get('/readyz', (_req, res) => {
         const databaseStatus = getDatabaseStatus();
-        const isReady = databaseStatus.ready;
+        const isReady = Boolean(databaseStatus.ready);
         if (!isReady) {
             res.setHeader('Retry-After', '10');
         }
 
         return res.status(isReady ? 200 : 503).json({
             status: isReady ? 'ready' : 'not-ready',
-            dbConnected: isReady,
-            database: databaseStatus,
-            uploads: getUploadFoundationSnapshot()
+            dbConnected: isReady
         });
     });
 
     app.get('/metrics', (req, res) => {
         const expectedToken = String(process.env.METRICS_TOKEN || '').trim();
+        if (config.isProduction && !expectedToken) {
+            return res.status(404).json({ success: false, message: 'Not found' });
+        }
+
         if (expectedToken) {
             const authHeader = String(req.headers.authorization || '').trim();
             const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
@@ -162,9 +174,60 @@ function createApp() {
     app.use(config.uploads.publicMountPath, express.static(config.uploads.rootDir, {
         fallthrough: false,
         index: false,
-        maxAge: config.isProduction ? '1d' : 0
+        etag: true,
+        maxAge: config.isProduction ? '7d' : '1h',
+        setHeaders(res) {
+            res.setHeader('Cache-Control', config.isProduction
+                ? 'public, max-age=604800, stale-while-revalidate=86400'
+                : 'public, max-age=3600');
+        }
     }));
-    app.use(express.static(paths.projectRoot));
+
+    // Never expose secrets, source, or database files via static hosting.
+    app.use((req, res, next) => {
+        const requestPath = String(req.path || '').toLowerCase();
+        if (
+            requestPath === '/.env'
+            || requestPath.startsWith('/.env.')
+            || requestPath.startsWith('/.git')
+            || requestPath.startsWith('/node_modules')
+            || requestPath.startsWith('/server/')
+            || requestPath.startsWith('/.cursor')
+            || requestPath.endsWith('.sqlite')
+            || requestPath.endsWith('.sqlite-wal')
+            || requestPath.endsWith('.sqlite-shm')
+        ) {
+            return res.status(404).end();
+        }
+        return next();
+    });
+
+    const serveProjectStatic = !config.isProduction || String(process.env.SERVE_STATIC || '').toLowerCase() === 'true';
+    if (serveProjectStatic) {
+        app.use(express.static(paths.projectRoot, {
+            etag: true,
+            maxAge: config.isProduction ? '1d' : '5m',
+            setHeaders(res, filePath) {
+                if (/\.html$/i.test(filePath)) {
+                    res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+                    return;
+                }
+
+                if (/\.(?:js|mjs|css|woff2?|ttf|otf)$/i.test(filePath)) {
+                    res.setHeader('Cache-Control', config.isProduction
+                        ? 'public, max-age=604800, stale-while-revalidate=86400'
+                        : 'public, max-age=300');
+                    return;
+                }
+
+                if (/\.(?:png|jpe?g|gif|webp|avif|svg|ico)$/i.test(filePath)) {
+                    res.setHeader('Cache-Control', config.isProduction
+                        ? 'public, max-age=604800, stale-while-revalidate=86400'
+                        : 'public, max-age=3600');
+                }
+            }
+        }));
+    }
 
     app.use((error, req, res, next) => {
         if (!error) {

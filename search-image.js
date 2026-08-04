@@ -299,16 +299,52 @@
     return Array.from(tokenSet);
   }
 
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const existing = document.querySelector(`script[data-byose-src="${src}"]`);
+      if (existing) {
+        if (existing.dataset.loaded === 'true') {
+          resolve();
+          return;
+        }
+        existing.addEventListener('load', () => resolve(), { once: true });
+        existing.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), { once: true });
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = src;
+      script.async = true;
+      script.dataset.byoseSrc = src;
+      script.addEventListener('load', () => {
+        script.dataset.loaded = 'true';
+        resolve();
+      }, { once: true });
+      script.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), { once: true });
+      document.head.appendChild(script);
+    });
+  }
+
+  async function ensureVisionRuntime() {
+    if (window.mobilenet && window.tf) {
+      return;
+    }
+
+    await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js');
+    await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js');
+  }
+
   function loadModel() {
     if (modelPromise) {
       return modelPromise;
     }
 
-    if (!window.mobilenet || !window.tf) {
-      return Promise.reject(new Error('TensorFlow MobileNet is not available.'));
-    }
-
-    modelPromise = window.mobilenet.load(MODEL_OPTIONS);
+    modelPromise = ensureVisionRuntime().then(() => {
+      if (!window.mobilenet || !window.tf) {
+        throw new Error('TensorFlow MobileNet is not available.');
+      }
+      return window.mobilenet.load(MODEL_OPTIONS);
+    });
     return modelPromise;
   }
 

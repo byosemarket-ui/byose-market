@@ -82,35 +82,67 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Verify public production health endpoint
         env:
-          PUBLIC_HEALTH_URL: http://153.75.227.160:5000/healthz
+          PUBLIC_HEALTH_URL: https://byosemarket.com/healthz
+          PUBLIC_PRODUCTS_URL: https://byosemarket.com/api/products?limit=5&fields=card
+          DIRECT_API_HEALTH_URL: http://153.75.227.160:5000/healthz
         run: |
           set -euo pipefail
-          echo "Checking ${PUBLIC_HEALTH_URL} ..."
-          for attempt in $(seq 1 6); do
+          verify_json_health() {
+            local url="$1"
+            local body_file http_code
             body_file="$(mktemp)"
-            http_code="$(curl -sS -o "${body_file}" -w "%{http_code}" --max-time 15 "${PUBLIC_HEALTH_URL}" || printf '000')"
-            if [[ "${http_code}" == "200" ]]; then
-              if node -e "
-                const fs = require('fs');
-                const raw = fs.readFileSync(process.argv[1], 'utf8').trim();
-                if (!raw) process.exit(1);
-                const payload = JSON.parse(raw);
-                if (!payload || typeof payload !== 'object' || typeof payload.status !== 'string') {
-                  process.exit(1);
-                }
-                console.log('API health status:', payload.status);
-              " "${body_file}"; then
-                rm -f "${body_file}"
-                echo "Public health check passed."
-                exit 0
-              fi
-              echo "Response was HTTP 200 but not valid API health JSON."
-            else
-              echo "Health probe returned HTTP ${http_code}."
+            http_code="$(curl -sS -o "${body_file}" -w "%{http_code}" --max-time 15 "${url}" || printf '000')"
+            if [[ "${http_code}" != "200" ]]; then
+              rm -f "${body_file}"
+              echo "Health probe returned HTTP ${http_code} for ${url}"
+              return 1
+            fi
+            if ! node -e "
+              const fs = require('fs');
+              const raw = fs.readFileSync(process.argv[1], 'utf8').trim();
+              const payload = JSON.parse(raw);
+              if (!payload || typeof payload.status !== 'string') process.exit(1);
+              console.log('API health status:', payload.status, 'dbConnected=', payload.dbConnected);
+            " "${body_file}"; then
+              rm -f "${body_file}"
+              echo "Response was HTTP 200 but not valid API health JSON for ${url}"
+              return 1
             fi
             rm -f "${body_file}"
+            return 0
+          }
+
+          echo "Checking ${PUBLIC_HEALTH_URL} ..."
+          for attempt in $(seq 1 6); do
+            if verify_json_health "${PUBLIC_HEALTH_URL}"; then
+              echo "Public HTTPS health check passed."
+              break
+            fi
+            if [[ "${attempt}" -eq 6 ]]; then
+              echo "Falling back to direct API health ${DIRECT_API_HEALTH_URL} ..."
+              verify_json_health "${DIRECT_API_HEALTH_URL}"
+            fi
             echo "Public health check not ready (attempt ${attempt}/6)..."
             sleep 10
           done
-          echo "Public health check failed."
-          exit 1
+
+          echo "Checking product API ${PUBLIC_PRODUCTS_URL} ..."
+          headers_file="$(mktemp)"
+          body_file="$(mktemp)"
+          http_code="$(curl -sS -o "${body_file}" -D "${headers_file}" -w "%{http_code}" \
+            -H 'Accept-Encoding: gzip' --max-time 20 "${PUBLIC_PRODUCTS_URL}" || printf '000')"
+          [[ "${http_code}" == "200" ]] || { cat "${headers_file}"; exit 1; }
+          node -e "
+            const fs = require('fs');
+            const zlib = require('zlib');
+            const headers = fs.readFileSync(process.argv[1], 'utf8').toLowerCase();
+            let body = fs.readFileSync(process.argv[2]);
+            if (headers.includes('content-encoding: gzip')) {
+              body = zlib.gunzipSync(body);
+            }
+            const payload = JSON.parse(body.toString('utf8'));
+            if (!payload || payload.success !== true || !Array.isArray(payload.products)) process.exit(1);
+            console.log('Products OK count=', payload.products.length, 'view=', payload.view || 'full');
+          " "${headers_file}" "${body_file}"
+          rm -f "${headers_file}" "${body_file}"
+          echo "Production verification passed."

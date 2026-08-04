@@ -12,6 +12,7 @@
     "pm2:start": "pm2 start ecosystem.config.js --env production",
     "pm2:reload": "pm2 reload ecosystem.config.js --env production",
     "pm2:stop": "pm2 delete byosemarket-api",
+    "verify:e2e": "node scripts/verify-e2e-step5.mjs",
     "verify:api-routes": "node server/scripts/verify-api-routes.js",
     "verify:upload-flow": "node server/scripts/verify-upload-flow.js",
     "verify:product-images": "node scripts/verify-product-image-flow.mjs",
@@ -49,6 +50,7 @@
     "pdfkit": "^0.16.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "nodemon": "^3.0.2",
+    "playwright": "^1.62.1"
   }
 }

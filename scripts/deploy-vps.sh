@@ -102,6 +102,7 @@ sync_storefront_static() {
     orders
     account
     admin
+    logout
   )
 
   local files=(
@@ -116,6 +117,9 @@ sync_storefront_static() {
     verify-code.html
     reset-password.html
     product-details1.html
+    product-details.html
+    product-details2.html
+    checkout.html
     shop.css
     mobile-nav.css
     contact.css
@@ -155,6 +159,14 @@ sync_storefront_static() {
 }
 
 install_nginx_uploads_config() {
+  if [[ -f "${DEPLOY_DIR}/scripts/optimize-vps.sh" ]]; then
+    log "Applying VPS nginx/PM2 performance optimizations..."
+    chmod +x "${DEPLOY_DIR}/scripts/optimize-vps.sh" 2>/dev/null || true
+    export UPLOADS_DIR="${UPLOADS_DIR:-/var/lib/byosemarket/uploads}"
+    bash "${DEPLOY_DIR}/scripts/optimize-vps.sh"
+    return 0
+  fi
+
   if [[ ! -f "${DEPLOY_DIR}/scripts/fix-vps-uploads-serving.sh" ]]; then
     log "Upload nginx fix script not found; skipping nginx upload route install."
     return 0

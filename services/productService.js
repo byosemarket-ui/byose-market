@@ -17,10 +17,11 @@ const DEFAULT_DETAIL_PAGE = "details/product-details1.html";
 const STOREFRONT_CATALOG_STORAGE_KEY = "byose_market_products_catalog_v4";
 
 purgeLegacyStorefrontCatalogCache(STOREFRONT_CATALOG_STORAGE_KEY);
-const STALE_THRESHOLD_MS = 45000;
-const DEFAULT_RETRY_COUNT = 2;
-const DEFAULT_TIMEOUT_MS = 90000;
-const LIVE_SYNC_INTERVAL_MS = 30000;
+const STALE_THRESHOLD_MS = 120000;
+const DEFAULT_RETRY_COUNT = 1;
+const DEFAULT_TIMEOUT_MS = 15000;
+const LIVE_SYNC_INTERVAL_MS = 90000;
+const STOREFRONT_CATALOG_QUERY = "products?limit=120&fields=card";
 
 let cachedProducts = [];
 let lastSnapshotAt = 0;
@@ -29,6 +30,8 @@ let liveSyncTimerId = null;
 let liveSyncStarted = false;
 let liveSyncAbortController = null;
 let detachLiveSyncListeners = null;
+let catalogFetchInFlight = null;
+let lastStoredFingerprint = "";
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -197,7 +200,13 @@ function writeStoredProducts(products) {
   }
 
   try {
+    const fingerprint = `${products.length}:${products.map((entry) => `${entry.id}:${entry.updatedAt || entry.price || 0}`).join("|")}`;
+    if (fingerprint === lastStoredFingerprint) {
+      return;
+    }
+
     window.localStorage.setItem(STOREFRONT_CATALOG_STORAGE_KEY, JSON.stringify(products));
+    lastStoredFingerprint = fingerprint;
   } catch (_error) {
     // Ignore storage failures.
   }
@@ -515,13 +524,17 @@ function publishProducts(products, source = "api") {
       }
     }));
 
-    window.dispatchEvent(new CustomEvent(PRODUCT_CHANGED_EVENT, {
-      detail: {
-        products: normalizedProducts.slice(),
-        syncedAt: new Date().toISOString(),
-        source
-      }
-    }));
+    // Only notify "changed" for real mutations so pages do not refetch the same catalog.
+    const mutationSources = new Set(["api-create", "api-update", "api-delete", "admin", "admin-update"]);
+    if (mutationSources.has(String(source || ""))) {
+      window.dispatchEvent(new CustomEvent(PRODUCT_CHANGED_EVENT, {
+        detail: {
+          products: normalizedProducts.slice(),
+          syncedAt: new Date().toISOString(),
+          source
+        }
+      }));
+    }
   }
 
   return normalizedProducts;
@@ -687,20 +700,36 @@ function buildApiPayload(productData, previousProduct = {}) {
 }
 
 async function fetchCatalogSnapshot(signal) {
-  traceStorefrontStage("api-request", { path: "products?limit=500" });
-  const response = await apiRequest("products?limit=500", {
+  traceStorefrontStage("api-request", { path: STOREFRONT_CATALOG_QUERY });
+  const response = await apiRequest(STOREFRONT_CATALOG_QUERY, {
     method: "GET",
     timeoutMs: DEFAULT_TIMEOUT_MS,
     signal
   });
   const products = asArray(response?.products);
   traceStorefrontStage("api-response", {
-    path: "products?limit=500",
+    path: STOREFRONT_CATALOG_QUERY,
     success: Boolean(response?.success),
     count: products.length
   });
 
   return publishProducts(products, "api-refresh");
+}
+
+function hydrateFromStorage() {
+  if (hasHydratedCatalog) {
+    return cachedProducts.slice();
+  }
+
+  const stored = readStoredProducts();
+  if (!stored.length) {
+    return [];
+  }
+
+  cachedProducts = stored;
+  hasHydratedCatalog = true;
+  lastSnapshotAt = Date.now() - Math.floor(STALE_THRESHOLD_MS / 2);
+  return cachedProducts.slice();
 }
 
 function scheduleLiveSync() {
@@ -782,27 +811,38 @@ export async function fetchProductsFromBackend() {
 }
 
 export async function forceRefreshProducts(options = {}) {
+  if (catalogFetchInFlight) {
+    return catalogFetchInFlight;
+  }
+
   if (liveSyncAbortController) {
     liveSyncAbortController.abort();
   }
 
   liveSyncAbortController = typeof AbortController !== "undefined" ? new AbortController() : null;
 
-  try {
-    return await fetchCatalogSnapshot(liveSyncAbortController?.signal);
-  } catch (error) {
-    if (!options?.silent) {
-      throw mapApiError(error, "Unable to refresh the product catalog from the backend.");
-    }
+  catalogFetchInFlight = (async () => {
+    try {
+      return await fetchCatalogSnapshot(liveSyncAbortController?.signal);
+    } catch (error) {
+      if (!options?.silent) {
+        throw mapApiError(error, "Unable to refresh the product catalog from the backend.");
+      }
 
-    throw error;
-  } finally {
-    liveSyncAbortController = null;
-  }
+      throw error;
+    } finally {
+      liveSyncAbortController = null;
+      catalogFetchInFlight = null;
+    }
+  })();
+
+  return catalogFetchInFlight;
 }
 
 export async function getProducts() {
-  if (hasHydratedCatalog) {
+  hydrateFromStorage();
+
+  if (hasHydratedCatalog && !isCacheStale()) {
     return cachedProducts.slice();
   }
 
@@ -810,15 +850,60 @@ export async function getProducts() {
 }
 
 export async function getProductsWithRetry() {
+  hydrateFromStorage();
+
+  if (hasHydratedCatalog && !isCacheStale()) {
+    // Soft background refresh without blocking first paint.
+    if (!catalogFetchInFlight) {
+      void forceRefreshProducts({ silent: true }).catch(() => {});
+    }
+    return cachedProducts.slice();
+  }
+
   try {
     return await withRetry("Backend product fetch", () => forceRefreshProducts());
   } catch (error) {
-    const cached = readStoredProducts();
+    const cached = hydrateFromStorage();
     if (cached.length) {
       return publishProducts(cached, "cache-fallback");
     }
 
     throw error;
+  }
+}
+
+export async function getProductById(productId) {
+  const id = normalizeText(productId);
+  if (!id) {
+    return null;
+  }
+
+  hydrateFromStorage();
+  const cachedHit = cachedProducts.find((product) => String(product.id || product.catalogId) === id);
+  try {
+    const response = await apiRequest(`products/${encodeURIComponent(id)}`, {
+      method: "GET",
+      timeoutMs: DEFAULT_TIMEOUT_MS
+    });
+    const product = response?.product;
+    if (!product) {
+      return cachedHit || null;
+    }
+
+    const normalized = normalizeProductRecord(product);
+    const next = [
+      ...cachedProducts.filter((entry) => String(entry.id || entry.catalogId) !== String(normalized.id || normalized.catalogId)),
+      normalized
+    ];
+    cachedProducts = sortProducts(next);
+    hasHydratedCatalog = true;
+    lastSnapshotAt = Date.now();
+    return normalized;
+  } catch (error) {
+    if (cachedHit) {
+      return cachedHit;
+    }
+    throw mapApiError(error, "Unable to load the selected product.");
   }
 }
 
@@ -981,6 +1066,7 @@ export default {
   fetchProductsFromBackend,
   getProducts,
   getProductsWithRetry,
+  getProductById,
   getCachedProducts,
   getLastSnapshotAt,
   isCacheStale,

@@ -8,7 +8,13 @@ const providers = {
 };
 
 function getProviderName() {
-    return providers[config.databaseClient] ? config.databaseClient : 'mongo';
+    if (providers[config.databaseClient]) {
+        return config.databaseClient;
+    }
+
+    throw new Error(
+        `Unsupported DB_CLIENT "${config.databaseClient}". Supported values: ${Object.keys(providers).join(', ')}.`
+    );
 }
 
 function getProvider() {

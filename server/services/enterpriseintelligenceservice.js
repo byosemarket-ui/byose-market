@@ -10,6 +10,7 @@ const orderDataService = require('./orderdataservice');
 const userDataService = require('./userdataservice');
 const cartDataService = require('./cartdataservice');
 const activityDataService = require('./activitydataservice');
+const messageDataService = require('./messagedataservice');
 const getRealtimeEventService = require('./realtimeeventservice');
 
 
@@ -293,11 +294,13 @@ async function loadAnalyticsDatasetSQLite(_sinceDate) {
 
     const customerLimit = 4000;
     const activityLimit = 4000;
+    const messageLimit = 2000;
 
-    const [customersRaw, products, activity] = await Promise.all([
+    const [customersRaw, products, activity, messages] = await Promise.all([
         userDataService.listCustomers(),
         productDataService.listAllProducts(),
-        activityDataService.listActivity({ limit: activityLimit, offset: 0 })
+        activityDataService.listActivity({ limit: activityLimit, offset: 0 }),
+        messageDataService.listMessages({ limit: messageLimit, page: 1 })
     ]);
 
     const orders = await fetchAllAdminOrdersFromSQLite();
@@ -308,7 +311,7 @@ async function loadAnalyticsDatasetSQLite(_sinceDate) {
         orders,
         customers,
         products,
-        messages: [],
+        messages,
         activity,
         carts
     };

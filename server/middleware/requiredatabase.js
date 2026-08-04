@@ -17,8 +17,7 @@ function requireDatabase(req, res, next) {
         success: false,
         code: 'DATABASE_UNAVAILABLE',
         message: 'Service temporarily unavailable. Database connection is not ready.',
-        retryAfterSeconds: 30,
-        database: status
+        retryAfterSeconds: 30
     });
 }
 

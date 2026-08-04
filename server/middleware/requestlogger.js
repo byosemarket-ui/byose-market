@@ -4,13 +4,23 @@ function buildRequestId() {
     return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function isStaticAsset(requestPath) {
+    return /\.(?:css|js|mjs|map|png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|otf)(?:\?|$)/i.test(requestPath)
+        || requestPath.startsWith('/uploads/');
+}
+
 function requestLogger(req, res, next) {
+    const requestPath = String(req.originalUrl || req.url || '');
+    if (isStaticAsset(requestPath)) {
+        return next();
+    }
+
     const requestId = buildRequestId();
     const startedAt = Date.now();
     const logger = appLogger.child({
         requestId,
         method: req.method,
-        path: req.originalUrl || req.url,
+        path: requestPath,
         ip: req.ip,
         userAgent: req.get('user-agent') || '',
         query: redactValue(req.query || {}),
@@ -44,7 +54,7 @@ function requestLogger(req, res, next) {
         logger.info('request.finish', payload);
     });
 
-    next();
+    return next();
 }
 
 module.exports = requestLogger;

@@ -145,14 +145,33 @@ function isSessionValid() {
 // 👥 AUTH HELPERS (public API)
 // ===============================
 function isLoggedIn() {
-  const user = getUser();
-  const session = getSession();
-  // prefer explicit session flag, else fall back to presence of user
-  if (session && typeof session.loggedIn !== 'undefined') {
-    if (!isSessionValid()) { clearSession(); removeUser(); return false; }
-    return !!session.loggedIn;
+  if (window.authService && typeof window.authService.isLoggedIn === 'function') {
+    try {
+      return window.authService.isLoggedIn();
+    } catch (e) {}
   }
-  return !!user;
+
+  const user = getUser();
+  const token = (() => {
+    try {
+      return sessionStorage.getItem('bm_auth_token') || localStorage.getItem('bm_auth_token') || '';
+    } catch (e) {
+      return '';
+    }
+  })();
+
+  if (!token || !user) {
+    return false;
+  }
+
+  const session = getSession();
+  if (session && typeof session.loggedIn !== 'undefined' && !isSessionValid()) {
+    clearSession();
+    removeUser();
+    return false;
+  }
+
+  return true;
 }
 
 function loginUser(userData) {

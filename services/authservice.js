@@ -108,6 +108,21 @@ const authService = (function () {
         }
     }
 
+    function _isTokenExpired(token) {
+        try {
+            const payloadSegment = String(token || '').split('.')[1];
+            if (!payloadSegment) {
+                return true;
+            }
+
+            const base64 = `${payloadSegment.replace(/-/g, '+').replace(/_/g, '/')}${'='.repeat((4 - (payloadSegment.length % 4)) % 4)}`;
+            const payload = JSON.parse(atob(base64));
+            return !Number.isFinite(payload.exp) || (payload.exp * 1000) <= Date.now();
+        } catch (e) {
+            return true;
+        }
+    }
+
     function _normalizeUser(user) {
         if (!user || typeof user !== 'object') {
             return null;
@@ -223,6 +238,15 @@ const authService = (function () {
         return fallback || 'request_failed';
     }
 
+    function isStrongPassword(password) {
+        const value = String(password || '');
+        return value.length >= 8
+            && value.length <= 128
+            && /[a-z]/.test(value)
+            && /[A-Z]/.test(value)
+            && /\d/.test(value);
+    }
+
     async function register(user) {
         user = user || {};
         user.name = (user.name || '').trim();
@@ -239,7 +263,7 @@ const authService = (function () {
             const cleaned = (user.phone || '').replace(/[^0-9+]/g, '');
             if (cleaned.length < 9 || cleaned.length > 15) return { success: false, error: 'invalid_phone' };
         }
-        if (!user.password || String(user.password).length < 4) return { success: false, error: 'weak_password' };
+        if (!isStrongPassword(user.password)) return { success: false, error: 'weak_password' };
 
         try {
             const payload = await _request('/signup', {
@@ -305,7 +329,15 @@ const authService = (function () {
 
     function isLoggedIn() {
         const store = _getActiveStorage();
-        return Boolean(getToken()) && Boolean(getCurrentUser()) && store.getItem(LOGGED_KEY) === 'true';
+        const token = getToken();
+        if (!token || _isTokenExpired(token)) {
+            if (token) {
+                _clearSession();
+            }
+            return false;
+        }
+
+        return Boolean(getCurrentUser()) && store.getItem(LOGGED_KEY) === 'true';
     }
 
     function setCurrentUser(user) {
@@ -347,6 +379,19 @@ const authService = (function () {
         return normalizedUser;
     }
 
+    async function changePassword(currentPassword, newPassword) {
+        const token = getToken();
+        if (!token) {
+            throw new Error('not_authenticated');
+        }
+
+        return _request('/change-password', {
+            method: 'POST',
+            token,
+            body: { currentPassword, newPassword }
+        });
+    }
+
     function authFetch(url, options) {
         const token = getToken();
         return fetch(url, {
@@ -356,6 +401,17 @@ const authService = (function () {
                 ...(token ? { Authorization: `Bearer ${token}` } : {})
             }
         });
+    }
+
+    function resolveSitePath(target) {
+        const pathname = String(window.location?.pathname || '');
+        if (pathname.includes('/account/settings/')) return `../../${target}`;
+        if (pathname.includes('/account/') || pathname.includes('/logout/') || pathname.includes('/components/') || pathname.includes('/details/') || pathname.includes('/shop/') || pathname.includes('/auth/')) return `../${target}`;
+        return target;
+    }
+
+    function openAccount() {
+        window.location.assign(resolveSitePath(isLoggedIn() ? 'account/account.html' : 'login.html'));
     }
 
     const api = {
@@ -369,11 +425,13 @@ const authService = (function () {
         setCurrentUser,
         refreshCurrentUser,
         updateProfile,
-        authFetch
+        changePassword,
+        authFetch,
+        openAccount
     };
 
     try { window.authService = api; } catch (e) {}
-    try { window.createUser = register; window.loginUser = loginByIdentifier; window.logoutUser = logout; window.isLoggedIn = isLoggedIn; window.getCurrentUser = getCurrentUser; window.setCurrentUser = setCurrentUser; } catch (e) {}
+    try { window.createUser = register; window.loginUser = loginByIdentifier; window.logoutUser = logout; window.isLoggedIn = isLoggedIn; window.getCurrentUser = getCurrentUser; window.setCurrentUser = setCurrentUser; window.handleAccountClick = openAccount; } catch (e) {}
 
     if (typeof document !== 'undefined') {
         document.addEventListener('DOMContentLoaded', () => {

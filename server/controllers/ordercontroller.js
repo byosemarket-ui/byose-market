@@ -3,6 +3,9 @@ const orderDataService = require('../services/orderdataservice');
 const userDataService = require('../services/userdataservice');
 const getRealtimeEventService = require('../services/realtimeeventservice');
 
+const DELIVERY_FEE = 2000;
+const COD_FEE = 0;
+
 async function resolveUser(req) {
     if (!req.user || !req.user.id) return null;
     return userDataService.findUserById(req.user.id);
@@ -99,10 +102,15 @@ function normalizeStorefrontOrder(payload, user) {
     const customerEmail = normalizeEmail(source.customerEmail || source.userEmail || customer.email || user?.email);
     const customerPhone = normalizePhone(source.customerPhone || source.phoneNumber || customer.phone || shippingAddress.phone || user?.phone);
     const createdAt = source.createdAt || source.date || source.timestamp || new Date().toISOString();
-    const subtotal = Number(source.subtotal || 0) || 0;
-    const shippingFee = Number(source.shippingFee ?? source.deliveryFee ?? 0) || 0;
-    const codFee = Number(source.codFee || 0) || 0;
-    const total = Number(source.total ?? source.totalAmount ?? (subtotal + shippingFee + codFee)) || 0;
+    const subtotal = items.reduce(
+        (sum, item) => sum + item.price * item.quantity,
+        0
+    );
+    // Never accept delivery or total amounts from the client. Delivery is a
+    // fixed RWF 2,000 for every submitted order, regardless of cart contents.
+    const shippingFee = DELIVERY_FEE;
+    const codFee = COD_FEE;
+    const total = subtotal + shippingFee + codFee;
     const paymentMethod = normalizePaymentMethod(source.paymentMethod || source.payment?.method);
     let paymentStatus = normalizePaymentState(source.paymentStatus || source.payment?.status || source.payment?.transaction?.state);
     let paymentStatusLabel = normalizeText(source.paymentStatusLabel || source.payment?.statusLabel) || resolvePaymentStatusLabel(paymentStatus);
@@ -300,7 +308,17 @@ exports.updateOrderStatus = async (req, res) => {
             return res.status(403).json({ success: false, message: 'Unauthorized to update this order' });
         }
 
-        appendStatusHistory(order, status);
+        const requestedStatus = normalizeText(status).toLowerCase();
+        const currentStatus = normalizeText(order.orderStatus || order.status).toLowerCase();
+        const cancellableStatuses = new Set(['pending', 'confirmed', 'processing']);
+        if (requestedStatus !== 'cancelled' || !cancellableStatuses.has(currentStatus)) {
+            return res.status(409).json({
+                success: false,
+                message: 'Only pending or confirmed orders can be cancelled by the customer'
+            });
+        }
+
+        appendStatusHistory(order, 'Cancelled');
         await monitorAsyncOperation(logger, 'database.order.save_status_user', { orderId: order.orderId || order.id, status }, () => orderDataService.saveOrder(order), { slowThresholdMs: 700 });
         logger.info('order.status_updated_by_customer', { orderId: order.orderId || order.id, userId: user.id, status });
         return res.json({ success: true, order });

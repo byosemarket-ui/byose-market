@@ -1,7 +1,7 @@
 (function (global) {
   'use strict';
 
-  const PRODUCTION_API_ORIGIN = 'https://byosesemarket4.onrender.com';
+  const PRODUCTION_API_ORIGIN = 'https://byosemarket.com';
   const USER_KEYS = ['bm_current_user', 'bm_user', 'byose_market_user', 'user'];
   const CHANGE_EVENTS = ['byose:orders-changed', 'byose:admin-orders-changed'];
 

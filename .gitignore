@@ -3,6 +3,9 @@ backend/.env
 admin/admin-login/.env
 data/*
 !data/.gitkeep
+server/database/*.sqlite
+server/database/*.sqlite-shm
+server/database/*.sqlite-wal
 server/uploads/*
 !server/uploads/products/
 !server/uploads/categories/

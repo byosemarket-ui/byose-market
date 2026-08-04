@@ -10,8 +10,7 @@ const CartSchema = new mongoose.Schema({
     ]
 }, { timestamps: true });
 
-// Scalability: fast cart lookup by user, and cleanup stale carts by last update
-CartSchema.index({ user: 1 });
+// Cleanup stale carts by last update (user uniqueness already comes from unique: true)
 CartSchema.index({ updatedAt: -1 });
 
 module.exports = mongoose.model('Cart', CartSchema);

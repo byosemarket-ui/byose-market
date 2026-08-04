@@ -64,9 +64,13 @@ cat > "${NGINX_SNIPPET}" <<NGINX
 location ^~ /uploads/ {
     alias ${UPLOADS_DIR}/;
     access_log off;
-    expires 7d;
-    add_header Cache-Control "public, max-age=604800" always;
+    expires 30d;
+    add_header Cache-Control "public, max-age=2592000, stale-while-revalidate=86400" always;
     add_header X-Content-Type-Options "nosniff" always;
+    open_file_cache max=2000 inactive=60s;
+    open_file_cache_valid 30s;
+    open_file_cache_min_uses 2;
+    open_file_cache_errors on;
     types {
         image/jpeg  jpg jpeg;
         image/png   png;

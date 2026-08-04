@@ -175,7 +175,8 @@
     const payload = await requestJson('products/search', {
       q: normalizedQuery,
       category: options?.category || '',
-      limit: String(options?.limit || DEFAULT_SEARCH_LIMIT)
+      limit: String(options?.limit || DEFAULT_SEARCH_LIMIT),
+      fields: 'card'
     }, options);
 
     return {

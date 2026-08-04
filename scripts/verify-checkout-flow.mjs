@@ -231,9 +231,12 @@ async function verifyViewport(browser, viewport, product, { useRealOrderApi = fa
     && orderPayload.paymentMethod
   );
   checks.orderHasProductMeta = orderPayload?.items?.some((i) => i.productName && i.price >= 0);
+  checks.fixedDeliveryFee = Number(orderPayload?.deliveryFee) === 2000
+    && Number(orderPayload?.shippingFee) === 2000;
+  checks.totalMatchesFixedDelivery = Number(orderPayload?.total) === Number(orderPayload?.subtotal) + 2000;
   if (useCod) {
     checks.codOrderValid = orderPayload?.paymentMethod === 'cod'
-      && Number(orderPayload?.codFee) === 1000
+      && Number(orderPayload?.codFee) === 0
       && orderPayload?.paymentStatus === 'awaiting_delivery_payment';
   }
 

@@ -70,23 +70,27 @@
     acc.addEventListener('click', function (e) {
       e.preventDefault();
 
-      // Use global handler from app.js
+      // Use the canonical authentication service whenever it is available.
+      if (window.authService && typeof window.authService.openAccount === 'function') {
+        window.authService.openAccount();
+        return;
+      }
+
+      // Compatibility handler for pages that load the legacy bridge.
       if (typeof window.handleAccountClick === 'function') {
         window.handleAccountClick();
         return;
       }
 
-      // fallback (if app.js missing) — prefer centralized helper
+      // Do not trust the old bm_logged_in flag: it can survive an expired
+      // session. Without the central service, fail closed to login.
       if (typeof window.isLoggedIn === 'function') {
         try {
           if (window.isLoggedIn()) { window.location.href = sitePath('account/account.html'); return; }
-          else { window.location.href = sitePath('login.html'); return; }
         } catch (e) { /* fallback below */ }
       }
 
-      const logged = localStorage.getItem("bm_logged_in") === "true";
-      if (logged) window.location.href = sitePath('account/account.html');
-      else window.location.href = sitePath('login.html');
+      window.location.href = sitePath('login.html');
     });
   }
 

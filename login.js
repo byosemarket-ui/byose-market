@@ -32,6 +32,22 @@ function isLoggedIn() {
     return false;
 }
 
+function getPostLoginDestination() {
+    try {
+        const next = new URLSearchParams(window.location.search).get('next');
+        if (!next || !next.startsWith('/') || next.startsWith('//')) {
+            return 'shop.html';
+        }
+
+        const target = new URL(next, window.location.origin);
+        return target.origin === window.location.origin
+            ? `${target.pathname}${target.search}${target.hash}`
+            : 'shop.html';
+    } catch (e) {
+        return 'shop.html';
+    }
+}
+
 // ===============================
 // 🧠 MODE
 // ===============================
@@ -272,7 +288,7 @@ function bindLogin() {
             showSuccess('Kwinjira byakunze. Turakujyana kuri shop...');
 
             window.setTimeout(() => {
-                window.location.href = 'shop.html';
+                window.location.href = getPostLoginDestination();
             }, 700);
         } finally {
             window.setTimeout(() => {
@@ -339,7 +355,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // ✅ niba user asanzwe yinjiye
     if (isLoggedIn()) {
-        window.location.href = "shop.html";
+        window.location.href = getPostLoginDestination();
         return;
     }
 

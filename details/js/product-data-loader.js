@@ -1,4 +1,4 @@
-import { getAllProductContent } from './product-content.js';
+import { getAllProductContent, getProductContentById } from './product-content.js';
 import { normalizeStorefrontAssetList, normalizeStorefrontAssetUrl, resolveProductImageUrl } from '../../services/storefront-asset-url.js';
 import { buildDiscountedProductView } from '../../js/storefront-discount.js';
 import { computeProductTotalStock, extractColorVariantsFromProduct } from '../../js/color-variant-inventory.js';
@@ -284,9 +284,8 @@ export function createProductUrl(product, mode = 'relative') {
 }
 
 export async function loadProductData() {
-  const catalog = await getCatalog();
   const productId = getNumericId();
-  const product = catalog.find(item => Number(item.id) === productId) || null;
+  const product = await getProductContentById(productId);
 
   if (!product) {
     return null;
@@ -351,15 +350,16 @@ export async function loadProductData() {
 
 export async function getRelatedProducts(currentProduct, limit = 5) {
   const catalog = await getCatalog();
+  const category = String(currentProduct?.category || '').toLowerCase();
   return catalog
     .filter(item => Number(item.id) !== Number(currentProduct.id))
     .sort((left, right) => {
-      const leftScore = String(left.category || '').toLowerCase() === String(currentProduct.category || '').toLowerCase() ? 0 : 1;
-      const rightScore = String(right.category || '').toLowerCase() === String(currentProduct.category || '').toLowerCase() ? 0 : 1;
+      const leftScore = String(left.category || '').toLowerCase() === category ? 0 : 1;
+      const rightScore = String(right.category || '').toLowerCase() === category ? 0 : 1;
       if (leftScore !== rightScore) {
         return leftScore - rightScore;
       }
-      return Number(left.id || 0) - Number(right.id || 0);
+      return Number(right.priority || 0) - Number(left.priority || 0);
     })
     .slice(0, limit)
     .map(item => {

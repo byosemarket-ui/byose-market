@@ -63,13 +63,13 @@
 
     <div class="account-quick-stats" aria-label="Account highlights">
       <div class="quick-stat">
-        <strong>24/7</strong>
-        <span>Support</span>
+        <strong id="accountOrderCount">0</strong>
+        <span>Orders</span>
       </div>
 
       <div class="quick-stat">
-        <strong>Fast</strong>
-        <span>Delivery</span>
+        <strong id="accountWishlistCount">0</strong>
+        <span>Saved items</span>
       </div>
     </div>
   </div>
@@ -103,7 +103,7 @@
         <p class="section-kicker">Tracking</p>
         <h3>My Orders</h3>
       </div>
-      <span class="section-chip">4 status views</span>
+      <span id="ordersSummary" class="section-chip">Loading orders</span>
     </div>
 
     <div class="orders-grid">
@@ -152,7 +152,7 @@
       <a href="pages/wishlist.html" class="feature-item">
         <i class="fa-regular fa-heart"></i>
         <strong>Wishlist</strong>
-        <span>Saved products</span>
+        <span id="wishlistSummary">Saved products</span>
       </a>
 
       <a href="pages/recent.html" class="feature-item">
@@ -192,7 +192,7 @@
 
       <a href="settings/address.html" class="service-row">
         <div><i class="fa-solid fa-location-dot"></i> Address</div>
-        <small>Delivery locations</small>
+        <small id="addressSummary">Loading address</small>
         <i class="fa-solid fa-chevron-right"></i>
       </a>
 
@@ -243,8 +243,10 @@
 
 <!-- JS -->
 <script src="../services/authservice.js"></script>
+<script src="js/auth-guard.js"></script>
+<script src="services/orderservice.js"></script>
 <script src="js/account.js"></script>
+<script src="js/dashboard-data.js"></script>
 <script src="../js/mobile-nav.js"></script>
-
 </body>
 </html>

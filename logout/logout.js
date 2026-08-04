@@ -8,14 +8,27 @@
   }
 
   function performLogout() {
-    try { localStorage.removeItem('bm_token'); } catch (e) {}
-    try { localStorage.removeItem('bm_logged_in'); } catch (e) {}
-    try { localStorage.removeItem('bm_current_user'); } catch (e) {}
-    try { localStorage.removeItem('bm_user'); } catch (e) {}
-    try { localStorage.removeItem('bm_session'); } catch (e) {}
-    try { sessionStorage.clear(); } catch (e) {}
-    // best-effort: call central authService logout if available (clears session records)
-    try { if (typeof authService !== 'undefined' && typeof authService.logout === 'function') authService.logout(); } catch (e) {}
+    try {
+      if (window.authService && typeof window.authService.logout === 'function') {
+        window.authService.logout();
+      }
+    } catch (e) {}
+
+    const authKeys = [
+      'bm_auth_token',
+      'bm_current_user',
+      'bm_user',
+      'byose_market_user',
+      'bm_logged_in',
+      'byose_market_session',
+      'bm_session',
+      'bm_remember_me'
+    ];
+    [localStorage, sessionStorage].forEach((storage) => {
+      authKeys.forEach((key) => {
+        try { storage.removeItem(key); } catch (e) {}
+      });
+    });
     // final redirect to homepage
     try { window.location.replace(sitePath('index.html')); } catch (e) { window.location.href = sitePath('index.html'); }
   }

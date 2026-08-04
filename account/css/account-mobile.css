@@ -730,6 +730,22 @@ a {
   min-height: 132px;
   border-radius: 18px;
   background: linear-gradient(135deg, rgba(0, 184, 148, 0.22), rgba(0, 184, 148, 0.06));
+  overflow: hidden;
+}
+
+.product-card__media img {
+  width: 100%;
+  height: 132px;
+  object-fit: cover;
+}
+
+.dashboard-empty {
+  margin: 0;
+  padding: 20px;
+  border: 1px dashed rgba(0, 184, 148, 0.28);
+  border-radius: var(--account-radius-md);
+  color: var(--account-muted);
+  text-align: center;
 }
 
 .product-card__eyebrow {

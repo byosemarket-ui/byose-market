@@ -60,11 +60,11 @@ function prepareStorageFoundation() {
     return getUploadFoundationSnapshot();
 }
 
-function getUploadFoundationSnapshot() {
-    return {
+function getUploadFoundationSnapshot({ includeSensitive = false } = {}) {
+    const snapshot = {
         strategy: 'local-filesystem',
-        rootDir: config.uploads.rootDir,
         publicMountPath: config.uploads.publicMountPath,
+        status: 'ok',
         limits: {
             maxFileSizeBytes: config.uploads.maxFileSizeBytes,
             maxFilesPerRequest: config.uploads.maxFilesPerRequest,
@@ -72,10 +72,20 @@ function getUploadFoundationSnapshot() {
         },
         buckets: Object.values(getUploadBuckets()).map((bucket) => ({
             key: bucket.key,
-            directory: bucket.directory,
             publicPath: bucket.publicPath
         }))
     };
+
+    if (includeSensitive) {
+        snapshot.rootDir = config.uploads.rootDir;
+        snapshot.buckets = Object.values(getUploadBuckets()).map((bucket) => ({
+            key: bucket.key,
+            directory: bucket.directory,
+            publicPath: bucket.publicPath
+        }));
+    }
+
+    return snapshot;
 }
 
 module.exports = {

@@ -77,7 +77,7 @@ function initBottomNavEvents() {
           // delegate to global account handler to ensure consistent auth logic
           if (typeof handleAccountClick === 'function') handleAccountClick();
           else if (typeof window.handleAccountClick === 'function') window.handleAccountClick();
-            else window.location.href = sitePath('account/account.html');
+          else window.location.href = sitePath('login.html');
           break;
       }
 

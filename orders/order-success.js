@@ -1,4 +1,5 @@
 import { getConfirmation, initCheckout } from './core/state.js';
+import { DELIVERY_FEE } from './core/constants.js';
 import { renderProductList, renderTotals } from './ui/layout.js';
 import { escapeHtml } from './utils.js';
 
@@ -22,11 +23,13 @@ if (!confirmation && !resolvedId) {
   `;
 } else {
   const items = confirmation?.items || [];
+  const subtotal = Number(confirmation?.subtotal)
+    || items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 1), 0);
   const totals = {
-    subtotal: Number(confirmation?.subtotal) || items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 1), 0),
-    deliveryFee: Number(confirmation?.deliveryFee) || 0,
-    codFee: Number(confirmation?.codFee) || 0,
-    total: confirmation?.total || 0
+    subtotal,
+    deliveryFee: DELIVERY_FEE,
+    codFee: 0,
+    total: subtotal + DELIVERY_FEE
   };
 
   const isCod = confirmation?.payment?.method === 'cod' || confirmation?.paymentMethod === 'cod';

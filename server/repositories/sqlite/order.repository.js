@@ -1,5 +1,8 @@
 const SQLiteBaseRepository = require('./base.repository');
 
+const DELIVERY_FEE = 2000;
+const COD_FEE = 0;
+
 class SQLiteOrderRepository extends SQLiteBaseRepository {
     constructor() {
         super({ tableName: 'orders' });
@@ -32,6 +35,9 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
             };
         });
 
+        const subtotal = this.toNumber(row.subtotal, 0);
+        const total = subtotal + DELIVERY_FEE + COD_FEE;
+
         return {
             id: this.normalizeText(row.legacy_id || row.order_id),
             orderId: this.normalizeText(row.order_id),
@@ -45,13 +51,13 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
             phoneNumber: this.normalizeText(row.phone_number),
             customerName: this.normalizeText(row.customer_name),
             customerImage: this.normalizeText(row.customer_image),
-            subtotal: this.toNumber(row.subtotal, 0),
-            shippingFee: this.toNumber(row.shipping_fee, 0),
-            deliveryFee: this.toNumber(row.delivery_fee, 0),
-            codFee: this.toNumber(row.cod_fee, 0),
-            totalAmount: this.toNumber(row.total_amount, 0),
-            totalPrice: this.toNumber(row.total_price, this.toNumber(row.total_amount, 0)),
-            total: this.toNumber(row.total_amount, 0),
+            subtotal,
+            shippingFee: DELIVERY_FEE,
+            deliveryFee: DELIVERY_FEE,
+            codFee: COD_FEE,
+            totalAmount: total,
+            totalPrice: total,
+            total,
             status: this.normalizeText(row.status, 'Pending'),
             orderStatus: this.normalizeText(row.order_status, 'pending'),
             paymentStatus: this.normalizeText(row.payment_status, 'pending'),
@@ -119,11 +125,11 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
             customerName: this.normalizeText(order.customerName),
             customerImage: this.normalizeText(order.customerImage),
             subtotal: this.toNumber(order.subtotal, 0),
-            shippingFee: this.toNumber(order.shippingFee, 0),
-            deliveryFee: this.toNumber(order.deliveryFee, 0),
-            codFee: this.toNumber(order.codFee, 0),
-            totalAmount: this.toNumber(order.totalAmount, 0),
-            totalPrice: this.toNumber(order.totalPrice, this.toNumber(order.totalAmount, 0)),
+            shippingFee: DELIVERY_FEE,
+            deliveryFee: DELIVERY_FEE,
+            codFee: COD_FEE,
+            totalAmount: this.toNumber(order.subtotal, 0) + DELIVERY_FEE + COD_FEE,
+            totalPrice: this.toNumber(order.subtotal, 0) + DELIVERY_FEE + COD_FEE,
             status: this.normalizeText(order.status, 'Pending'),
             orderStatus: this.normalizeText(order.orderStatus, 'pending'),
             paymentStatus: this.normalizeText(order.paymentStatus, 'pending'),

@@ -18,6 +18,22 @@ let pwStrengthBar;
 let pwStrengthText;
 let pwMatchEl;
 
+function getPostSignupDestination() {
+    try {
+        const next = new URLSearchParams(window.location.search).get('next');
+        if (!next || !next.startsWith('/') || next.startsWith('//')) {
+            return 'shop.html';
+        }
+
+        const target = new URL(next, window.location.origin);
+        return target.origin === window.location.origin
+            ? `${target.pathname}${target.search}${target.hash}`
+            : 'shop.html';
+    } catch (e) {
+        return 'shop.html';
+    }
+}
+
 function isEmailMode() {
     const emailField = document.getElementById('emailField');
     return emailField && !emailField.hidden && emailField.style.display !== 'none';
@@ -386,7 +402,7 @@ function bindSignup() {
             showSuccess('Account yawe yakozwe neza. Turakujyana kuri shop...');
 
             window.setTimeout(() => {
-                window.location.href = 'shop.html';
+                window.location.href = getPostSignupDestination();
             }, 900);
         } finally {
             setLoadingState(false);

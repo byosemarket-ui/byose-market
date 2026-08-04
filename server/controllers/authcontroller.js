@@ -132,11 +132,13 @@ exports.login = async (req, res) => {
 
         const id = String(identifier).trim().toLowerCase();
         const user = await userDataService.findUserByIdentifier(id, { includeAdmins: false });
-        if (!user) return res.status(404).json({ success: false, message: 'Account not found.' });
+        const invalidCredentials = { success: false, message: 'Invalid credentials.' };
+        if (!user || isAdminUser(user)) {
+            return res.status(401).json(invalidCredentials);
+        }
         if (String(user.status || 'active').toLowerCase() === 'blocked') {
             return res.status(403).json({ success: false, message: 'Account blocked' });
         }
-        if (isAdminUser(user)) return res.status(404).json({ success: false, message: 'Account not found.' });
         if (isAccountLocked(user)) {
             return res.status(429).json({ success: false, message: lockoutMessage(user.lockedUntil) });
         }
@@ -147,7 +149,7 @@ exports.login = async (req, res) => {
             if (failure.lockedUntil) {
                 return res.status(429).json({ success: false, message: lockoutMessage(failure.lockedUntil) });
             }
-            return res.status(401).json({ success: false, message: 'Incorrect password.' });
+            return res.status(401).json(invalidCredentials);
         }
 
         const updatedUser = await userDataService.recordSuccessfulLogin(user.id);
@@ -215,27 +217,31 @@ exports.updateMe = async (req, res) => {
             }
         }
 
-        const address = req.body?.address && typeof req.body.address === 'object' ? req.body.address : {};
+        const hasAddressUpdate = Boolean(req.body?.address && typeof req.body.address === 'object');
+        const address = hasAddressUpdate ? req.body.address : {};
+        const nextAddress = hasAddressUpdate
+            ? {
+                ...(user.address || {}),
+                ...address,
+                line1: String(address.line1 ?? address.street ?? '').trim(),
+                street: String(address.street ?? address.line1 ?? '').trim(),
+                city: String(address.city ?? '').trim(),
+                district: String(address.district ?? '').trim(),
+                sector: String(address.sector ?? '').trim(),
+                cell: String(address.cell ?? '').trim(),
+                village: String(address.village ?? '').trim(),
+                firstName: String(address.firstName ?? '').trim(),
+                lastName: String(address.lastName ?? '').trim(),
+                phone: String(address.phone ?? nextPhone).trim()
+            }
+            : (user.address || {});
         const updatedUser = await userDataService.updateUser(user.id, {
             ...user,
             name: nextName,
             avatar: nextAvatar,
             email: nextEmail,
             phone: nextPhone,
-            address: {
-            ...(user.address || {}),
-            ...address,
-            line1: String(address.line1 || address.street || user.address?.line1 || '').trim(),
-            street: String(address.street || address.line1 || user.address?.street || '').trim(),
-            city: String(address.city || '').trim(),
-            district: String(address.district || '').trim(),
-            sector: String(address.sector || '').trim(),
-            cell: String(address.cell || '').trim(),
-            village: String(address.village || '').trim(),
-            firstName: String(address.firstName || '').trim(),
-            lastName: String(address.lastName || '').trim(),
-            phone: String(address.phone || nextPhone || user.phone || '').trim()
-        }
+            address: nextAddress
         });
 
         const sanitizedUser = sanitizeUserForClient(updatedUser);
@@ -246,6 +252,47 @@ exports.updateMe = async (req, res) => {
         return res.json({ success: true, user: sanitizedUser });
     } catch (err) {
         authLogger.error('auth.update_me_failed', { error: err });
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.changePassword = async (req, res) => {
+    try {
+        const uid = req.user?.id;
+        const { currentPassword, newPassword } = req.body || {};
+        if (!uid) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ success: false, message: 'Current and new passwords are required' });
+        }
+        if (!isStrongPassword(newPassword)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must be 8+ chars with uppercase, lowercase, and number'
+            });
+        }
+
+        const user = await userDataService.findUserById(uid);
+        if (!user || isAdminUser(user)) {
+            return res.status(403).json({ success: false, message: 'Unauthorized' });
+        }
+        if (String(user.status || 'active').toLowerCase() === 'blocked') {
+            return res.status(403).json({ success: false, message: 'Account blocked' });
+        }
+        if (!await comparePasswords(String(currentPassword), user.password)) {
+            return res.status(401).json({ success: false, message: 'Current password is incorrect' });
+        }
+
+        await userDataService.updateUser(user.id, {
+            ...user,
+            password: await hashPassword(String(newPassword))
+        });
+        await userDataService.recordSuccessfulLogin(user.id);
+        authLogger.info('auth.password_changed', { userId: user.id });
+        return res.json({ success: true });
+    } catch (error) {
+        authLogger.error('auth.change_password_failed', { error });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
@@ -281,13 +328,16 @@ exports.forgotPassword = async (req, res) => {
             }
         } else {
             try {
-                await notifyPasswordReset(user, otp);
+                const [emailResult] = await notifyPasswordReset(user, otp);
+                if (!emailResult?.success) {
+                    throw emailResult?.error || new Error('Email delivery is unavailable');
+                }
             } catch (notifyError) {
                 authLogger.error('auth.forgot_password.email_failed', {
                     identifier: normalizedIdentifier,
                     error: notifyError
                 });
-                return res.status(500).json({ success: false, message: 'Email delivery failed' });
+                return res.status(503).json({ success: false, message: 'Email delivery is temporarily unavailable. Please use phone reset or try again later.' });
             }
         }
 

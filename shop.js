@@ -441,6 +441,10 @@
   }
 
   function initializeShopPage() {
+    if (!elements.grid) {
+      return;
+    }
+
     // Start syncing products asynchronously
     syncProducts().catch(err => console.error('[Shop] Sync error:', err));
     state.filteredCache.clear();
@@ -461,10 +465,21 @@
 
     setFilter(state.currentFilter).catch(err => console.error('[Shop] Filter error:', err));
 
-    // Listen for backend product synchronization events
+    // Re-render from sync payload — do not refetch the catalog.
     productService().then(service => {
-      window.addEventListener(service.GLOBAL_SYNC_EVENT, () => {
-        syncProducts().catch(err => console.error('[Shop] Sync error:', err));
+      window.addEventListener(service.GLOBAL_SYNC_EVENT, (event) => {
+        const products = event?.detail?.products;
+        if (!Array.isArray(products)) {
+          syncProducts().catch(err => console.error('[Shop] Sync error:', err));
+          return;
+        }
+
+        getCatalog(products).then((catalog) => {
+          state.products = catalog;
+          state.filteredCache.clear();
+          state.markupCache.clear();
+          return renderShopPage();
+        }).catch(err => console.error('[Shop] Sync error:', err));
       });
     });
   }
@@ -472,7 +487,15 @@
   async function syncProducts() {
     try {
       const service = await productService();
-      const products = await service.getProductsWithRetry();
+      const cached = service.getCachedProducts();
+      if (Array.isArray(cached) && cached.length) {
+        state.products = await getCatalog(cached);
+        state.filteredCache.clear();
+        state.markupCache.clear();
+        await renderShopPage();
+      }
+
+      const products = await service.getProducts();
       state.products = await getCatalog(products);
       state.filteredCache.clear();
       state.markupCache.clear();
@@ -504,5 +527,7 @@
     updateResultsSummary
   };
 
-  initializeShopPage();
+  if (elements.grid) {
+    initializeShopPage();
+  }
 })();

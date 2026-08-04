@@ -48,25 +48,27 @@ function isSmsEnabled() {
 
 async function dispatchEmail(to, emailPayload) {
     if (!isEmailEnabled() || !to) {
-        return;
+        return { success: false, error: new Error('Email notifications are disabled or no recipient was provided') };
     }
 
     try {
-        await sendEmail({ to, ...emailPayload });
+        return await sendEmail({ to, ...emailPayload });
     } catch (error) {
         appLogger.warn('notification.email_dispatch_failed', { to, error });
+        return { success: false, error };
     }
 }
 
 async function dispatchSms(to, message) {
     if (!isSmsEnabled() || !to) {
-        return;
+        return { success: false, error: new Error('SMS notifications are disabled or no recipient was provided') };
     }
 
     try {
-        await sendSMS(to, message);
+        return await sendSMS(to, message);
     } catch (error) {
         appLogger.warn('notification.sms_dispatch_failed', { to, error });
+        return { success: false, error };
     }
 }
 
@@ -122,7 +124,7 @@ async function notifyPasswordReset(user, otp) {
     const phone = String(user?.phone || '').trim();
     const name = String(user?.name || 'Customer');
 
-    await Promise.all([
+    return Promise.all([
         dispatchEmail(email, buildPasswordResetEmail(name, otp)),
         dispatchSms(phone, `Byose Market: Your password reset code is ${otp}. Expires in 10 minutes.`)
     ]);

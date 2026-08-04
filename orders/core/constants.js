@@ -6,7 +6,8 @@ export const STEPS = [
 ];
 
 export const DELIVERY_FEE = 2000;
-export const COD_FEE = 1000;
+// The checkout total is always subtotal + the flat delivery fee.
+export const COD_FEE = 0;
 
 export const COD_PAYMENT_STATUS = 'awaiting_delivery_payment';
 export const COD_PAYMENT_STATUS_LABEL = 'Awaiting Delivery Payment';

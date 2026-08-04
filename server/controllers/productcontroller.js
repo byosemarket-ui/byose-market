@@ -505,6 +505,70 @@ function serializeProduct(product, options = {}) {
     }, absolutizePublicAssetUrl);
 }
 
+function serializeProductCard(product, options = {}) {
+    const source = product && typeof product.toObject === 'function'
+        ? product.toObject({ versionKey: false })
+        : { ...(product || {}) };
+    const forPublic = Boolean(options.forPublic);
+    const resolvedStatus = forPublic
+        ? resolvePublicProductStatus(source)
+        : toTrimmedString(source.status, 'active').toLowerCase() || 'active';
+    const catalogId = Number(source.catalogId || source.id || 0);
+    const price = toNonNegativeNumber(source.price ?? source.salePrice, 0);
+    const oldPrice = resolveComparePrice(source, price);
+    const resolvedOldPrice = oldPrice > price ? oldPrice : 0;
+    const metadataObject = source.metadata && typeof source.metadata === 'object' ? source.metadata : {};
+    const storedDiscountPercent = toNonNegativeNumber(metadataObject.discountPercent, NaN);
+    const discountPercent = Number.isFinite(storedDiscountPercent) && storedDiscountPercent > 0 && resolvedOldPrice > price
+        ? Math.max(0, Math.min(100, Math.floor(storedDiscountPercent)))
+        : (resolvedOldPrice > price
+            ? Math.round(((resolvedOldPrice - price) / resolvedOldPrice) * 100)
+            : 0);
+    const rawMainImage = source.mainImage || source.image || '';
+    const mainImage = absolutizePublicAssetUrl(rawMainImage);
+    const gallery = absolutizePublicAssetList(
+        uniqueStrings(source.gallery || []).slice(0, 1).concat(rawMainImage ? [rawMainImage] : [])
+    ).slice(0, 1);
+
+    return {
+        id: catalogId,
+        catalogId,
+        name: toTrimmedString(source.name || source.title),
+        title: toTrimmedString(source.title || source.name),
+        category: toTrimmedString(source.category || source.categorySlug || source.category_slug),
+        badge: toTrimmedString(source.badge),
+        price,
+        salePrice: price,
+        oldPrice: resolvedOldPrice,
+        originalPrice: resolvedOldPrice,
+        compareAtPrice: resolvedOldPrice,
+        discountPercent,
+        stock: toNonNegativeNumber(source.stock, 0),
+        mainImage,
+        image: mainImage,
+        thumbnail: mainImage,
+        gallery,
+        visibility: normalizeVisibility(source.visibility),
+        priority: normalizePriority(source.priority),
+        orderIndex: toNonNegativeNumber(source.orderIndex, 0),
+        highlightTag: normalizeHighlightTag(source.highlightTag),
+        status: resolvedStatus,
+        url: source.url || buildProductUrl(catalogId),
+        page: DEFAULT_DETAIL_PAGE,
+        updatedAt: source.updatedAt || null,
+        createdAt: source.createdAt || null,
+        metadata: {
+            placements: Array.isArray(metadataObject.placements) ? metadataObject.placements : [],
+            discountPercent: discountPercent || undefined
+        }
+    };
+}
+
+function resolveSerializeMode(query = {}) {
+    const raw = toTrimmedString(query.fields || query.view || query.mode).toLowerCase();
+    return raw === 'card' || raw === 'list' || raw === 'summary' ? 'card' : 'full';
+}
+
 function sortSerializedProducts(products) {
     return products.slice().sort((left, right) => {
         const leftPriority = normalizePriority(left?.priority);
@@ -649,19 +713,36 @@ exports.getAllProducts = async (req, res) => {
             filter.category = String(req.query.category).trim().toLowerCase();
         }
 
-        const limit = Math.min(500, Math.max(1, Number(req.query?.limit || 200) || 200));
+        const limit = Math.min(500, Math.max(1, Number(req.query?.limit || 120) || 120));
         const page = Math.max(1, Number(req.query?.page || 1) || 1);
         const forPublic = !isAdminProductRequest(req);
+        const serializeMode = resolveSerializeMode(req.query || {});
+        const serialize = serializeMode === 'card'
+            ? (product) => serializeProductCard(product, { forPublic })
+            : (product) => serializeProduct(product, { forPublic });
 
         const products = await monitorAsyncOperation(
             logger,
             'database.product.list',
-            { category: filter.category || '', limit, page, forPublic },
-            () => productDataService.listProducts({ category: filter.category || '', limit, page, publicOnly: forPublic }),
+            { category: filter.category || '', limit, page, forPublic, serializeMode },
+            () => productDataService.listProducts({
+                category: filter.category || '',
+                limit,
+                page,
+                publicOnly: forPublic,
+                columns: serializeMode === 'card' ? 'card' : 'full'
+            }),
             { slowThresholdMs: 900 }
         );
-        const serialized = sortSerializedProducts(products.map((product) => serializeProduct(product, { forPublic })));
-        const payload = { success: true, products: serialized };
+        const serialized = sortSerializedProducts(products.map(serialize));
+        const payload = { success: true, products: serialized, view: serializeMode };
+
+        if (forPublic) {
+            res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+            res.setHeader('Vary', 'Accept-Encoding, Authorization');
+        } else {
+            res.setHeader('Cache-Control', 'no-store');
+        }
 
         if (!forPublic) {
             const storefrontWarnings = detectStorefrontVisibilityIssues(products);
@@ -698,21 +779,30 @@ exports.searchProducts = async (req, res) => {
             });
         }
 
+        const serializeMode = resolveSerializeMode(req.query || {});
+        const serialize = serializeMode === 'card'
+            ? (product) => serializeProductCard(product, { forPublic: true })
+            : serializeProduct;
+
         const products = await monitorAsyncOperation(
             logger,
             'database.product.search',
-            { query, category, limit },
+            { query, category, limit, serializeMode },
             () => productDataService.searchProducts({ query, category, limit }),
             { slowThresholdMs: 900 }
         );
 
-        const serialized = sortSerializedProducts(products.map(serializeProduct));
+        const serialized = sortSerializedProducts(products.map(serialize));
+
+        res.setHeader('Cache-Control', 'public, max-age=20, stale-while-revalidate=40');
+        res.setHeader('Vary', 'Accept-Encoding');
 
         return res.json({
             success: true,
             query,
             count: serialized.length,
             products: serialized,
+            view: serializeMode,
             relatedCategories: productDataService.getRelatedSearchCategories(query, serialized)
         });
     } catch (error) {
@@ -817,6 +907,13 @@ exports.getProductById = async (req, res) => {
 
         if (forPublic && !isProductPublished(product)) {
             return res.status(404).json({ success: false, message: 'Product not found' });
+        }
+
+        if (forPublic) {
+            res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+            res.setHeader('Vary', 'Accept-Encoding, Authorization');
+        } else {
+            res.setHeader('Cache-Control', 'no-store');
         }
 
         return res.json({ success: true, product: serializeProduct(product, { forPublic }) });

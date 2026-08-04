@@ -133,7 +133,7 @@ export const ProductCardSystem = (() => {
     `;
   }
 
-  function renderCard(product) {
+  function renderCard(product, options = {}) {
     if (!product || !product.name) {
       console.warn('[ProductCardSystem] Invalid product data:', product);
       return '';
@@ -155,6 +155,9 @@ export const ProductCardSystem = (() => {
     const highlightBadge = renderHighlightBadge(product);
     const pricing = renderPricing(normalizedProduct);
     const wishlistButton = renderWishlistButton(productId);
+    const eager = Boolean(options && options.eager);
+    const loadingAttr = eager ? 'eager' : 'lazy';
+    const fetchPriorityAttr = eager ? ' fetchpriority="high"' : '';
 
     return `
       <article class="byose-product-card" data-product-id="${escapeHtml(productId)}">
@@ -165,8 +168,8 @@ export const ProductCardSystem = (() => {
                  data-product-image-src="${escapeHtml(productImage || '')}"
                  data-has-product-image="${productImage ? 'true' : 'false'}"
                  alt="${productName}"
-                 loading="lazy"
-                 decoding="async">
+                 loading="${loadingAttr}"
+                 decoding="async"${fetchPriorityAttr}>
           </a>
           ${discountBadge}
           ${highlightBadge}
@@ -182,11 +185,12 @@ export const ProductCardSystem = (() => {
     `;
   }
 
-  function renderCards(products) {
+  function renderCards(products, options = {}) {
     if (!Array.isArray(products) || products.length === 0) {
       return '';
     }
-    return products.map(product => renderCard(product)).join('');
+    const eagerCount = Math.max(0, Number(options.eagerCount || 4) || 0);
+    return products.map((product, index) => renderCard(product, { eager: index < eagerCount })).join('');
   }
 
   function renderGrid(products, options = {}) {

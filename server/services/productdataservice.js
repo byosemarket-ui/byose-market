@@ -2,13 +2,17 @@ const { getRepositoryBundle } = require('../repositories');
 const { collectProductManagedPaths, deleteManagedFiles, normalizeManagedPath } = require('./uploadstorage.service');
 const productSearchService = require('./productsearch.service');
 const { isProductPublished } = require('../utils/product-visibility');
+const { queryCache } = require('./querycache.service');
+
+const PRODUCT_LIST_TTL_MS = 20000;
+const CATEGORY_LIST_TTL_MS = 60000;
 
 function decorateProduct(product) {
     if (!product || typeof product !== 'object') {
         return product;
     }
 
-        const mainImageStoragePath = normalizeManagedPath(product.mainImageStoragePath || product.mainImage || product.image);
+    const mainImageStoragePath = normalizeManagedPath(product.mainImageStoragePath || product.mainImage || product.image);
     const galleryStoragePaths = Array.isArray(product.galleryStoragePaths) && product.galleryStoragePaths.length
         ? Array.from(new Set(product.galleryStoragePaths.map((entry) => normalizeManagedPath(entry)).filter(Boolean)))
         : Array.isArray(product.gallery)
@@ -22,7 +26,6 @@ function decorateProduct(product) {
         galleryStoragePaths
     };
 }
-
 
 function collectRemovedPaths(previousProduct, nextProduct) {
     const previousPaths = new Set(collectProductManagedPaths(previousProduct));
@@ -40,15 +43,28 @@ function getRepos() {
 }
 
 async function listProducts(options = {}) {
-    const { products } = getRepos();
     const page = Math.max(1, Number(options.page || 1) || 1);
-    const limit = Math.min(500, Math.max(1, Number(options.limit || 200) || 200));
+    const limit = Math.min(500, Math.max(1, Number(options.limit || 120) || 120));
     const offset = (page - 1) * limit;
-    let results = await products.list({ category: options.category || '', limit, offset });
-    if (options.publicOnly) {
-        results = results.filter((product) => isProductPublished(product));
-    }
-    return results.map((product) => decorateProduct(product));
+    const category = String(options.category || '').trim().toLowerCase();
+    const publicOnly = Boolean(options.publicOnly);
+    const columns = options.columns === 'card' ? 'card' : 'full';
+    const cacheKey = `products:list:${category}:${page}:${limit}:${publicOnly ? 1 : 0}:${columns}`;
+
+    return queryCache.remember(cacheKey, PRODUCT_LIST_TTL_MS, async () => {
+        const { products } = getRepos();
+        let results = await products.list({
+            category,
+            limit,
+            offset,
+            publishedOnly: publicOnly,
+            columns
+        });
+        if (publicOnly) {
+            results = results.filter((product) => isProductPublished(product));
+        }
+        return results.map((product) => decorateProduct(product));
+    });
 }
 
 async function listAllProducts() {
@@ -56,7 +72,10 @@ async function listAllProducts() {
 }
 
 async function findProductByIdentifier(identifier) {
-    return decorateProduct(await getRepos().products.findByIdentifier(identifier));
+    const key = `products:one:${String(identifier || '').trim()}`;
+    return queryCache.remember(key, PRODUCT_LIST_TTL_MS, async () => (
+        decorateProduct(await getRepos().products.findByIdentifier(identifier))
+    ));
 }
 
 async function getNextCatalogId() {
@@ -64,28 +83,38 @@ async function getNextCatalogId() {
 }
 
 async function createProduct(product) {
-    return decorateProduct(await getRepos().products.save(product));
+    const saved = decorateProduct(await getRepos().products.save(product));
+    queryCache.bump('products');
+    queryCache.bump('search');
+    return saved;
 }
 
 async function updateProduct(identifier, product) {
     const previousProduct = await getRepos().products.findByIdentifier(identifier);
     const savedProduct = await getRepos().products.save(product, { identifier });
     deleteManagedFiles(collectRemovedPaths(previousProduct, savedProduct));
+    queryCache.bump('products');
+    queryCache.bump('search');
     return decorateProduct(savedProduct);
 }
 
 async function deleteProduct(identifier) {
     const deletedProduct = await getRepos().products.remove(identifier);
     deleteManagedFiles(collectProductManagedPaths(deletedProduct));
+    queryCache.bump('products');
+    queryCache.bump('search');
     return decorateProduct(deletedProduct);
 }
 
 async function bootstrapProducts(items) {
-    return (await getRepos().products.upsertMany(items)).map((product) => decorateProduct(product));
+    const saved = (await getRepos().products.upsertMany(items)).map((product) => decorateProduct(product));
+    queryCache.bump('products');
+    queryCache.bump('search');
+    return saved;
 }
 
 async function listCategories() {
-    return getRepos().categories.list();
+    return queryCache.remember('products:categories', CATEGORY_LIST_TTL_MS, () => getRepos().categories.list());
 }
 
 async function listProductReviews(productId) {
@@ -93,16 +122,30 @@ async function listProductReviews(productId) {
 }
 
 async function searchProducts(options = {}) {
-    const results = await productSearchService.searchProducts(options);
-    return results.map((product) => decorateProduct(product));
+    const query = String(options.query || options.q || '').trim().toLowerCase();
+    const category = String(options.category || '').trim().toLowerCase();
+    const limit = Math.min(120, Math.max(1, Number(options.limit || 60) || 60));
+    const cacheKey = `search:products:${query}:${category}:${limit}`;
+
+    return queryCache.remember(cacheKey, PRODUCT_LIST_TTL_MS, async () => {
+        const results = await productSearchService.searchProducts(options);
+        return results.map((product) => decorateProduct(product));
+    });
 }
 
 async function getSearchSuggestions(options = {}) {
-    return productSearchService.getSearchSuggestions(options);
+    const query = String(options.query || options.q || '').trim().toLowerCase();
+    const limit = Math.min(12, Math.max(1, Number(options.limit || 8) || 8));
+    return queryCache.remember(`search:suggestions:${query}:${limit}`, PRODUCT_LIST_TTL_MS, () => (
+        productSearchService.getSearchSuggestions(options)
+    ));
 }
 
 async function getPopularSearchTerms(options = {}) {
-    return productSearchService.getPopularSearchTerms(options);
+    const limit = Math.min(12, Math.max(1, Number(options.limit || 8) || 8));
+    return queryCache.remember(`search:popular:${limit}`, CATEGORY_LIST_TTL_MS, () => (
+        productSearchService.getPopularSearchTerms(options)
+    ));
 }
 
 function getRelatedSearchCategories(query, products = []) {

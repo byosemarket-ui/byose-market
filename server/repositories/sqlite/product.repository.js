@@ -1,11 +1,85 @@
 const SQLiteBaseRepository = require('./base.repository');
 const categoryRepository = require('./category.repository');
 const { buildPublicUrlFromPath, normalizeManagedPath } = require('../../services/uploadstorage.service');
+const { queryCache } = require('../../services/querycache.service');
 
+const PRODUCT_SELECT_COLUMNS = `
+    id, catalog_id, category_id, category_slug, name, title, description, short_description,
+    long_description_json, badge, price, old_price, stock, image, main_image, keywords_json,
+    highlights_json, trust_json, specs_json, attributes_json, variants_json, visibility,
+    priority, order_index, highlight_tag, status, page, url, metadata_json, created_at, updated_at
+`.replace(/\s+/g, ' ').trim();
+
+const PRODUCT_CARD_SELECT_COLUMNS = `
+    id, catalog_id, category_slug, name, title, badge, price, old_price, stock, image, main_image,
+    visibility, priority, order_index, highlight_tag, status, page, url, metadata_json, created_at, updated_at,
+    '' AS description, '' AS short_description, '[]' AS long_description_json, '[]' AS keywords_json,
+    '[]' AS highlights_json, '[]' AS trust_json, '[]' AS specs_json, '[]' AS attributes_json,
+    '{}' AS variants_json
+`.replace(/\s+/g, ' ').trim();
 
 class SQLiteProductRepository extends SQLiteBaseRepository {
     constructor() {
         super({ tableName: 'products' });
+        this._hasPublishedColumn = null;
+        this._hasFts = null;
+    }
+
+    hasPublishedColumn() {
+        if (this._hasPublishedColumn === null) {
+            try {
+                const row = this.db.prepare("PRAGMA table_info(products)").all()
+                    .find((entry) => String(entry.name || '') === 'is_published');
+                this._hasPublishedColumn = Boolean(row);
+            } catch (_error) {
+                this._hasPublishedColumn = false;
+            }
+        }
+        return this._hasPublishedColumn;
+    }
+
+    hasFtsIndex() {
+        if (this._hasFts === null) {
+            try {
+                const row = this.db.prepare(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'products_fts' LIMIT 1"
+                ).get();
+                this._hasFts = Boolean(row);
+            } catch (_error) {
+                this._hasFts = false;
+            }
+        }
+        return this._hasFts;
+    }
+
+    computeIsPublished(status, metadata = {}) {
+        const normalizedStatus = this.normalizeText(status, 'active').toLowerCase();
+        const publishStatus = this.normalizeText(metadata?.publishStatus || normalizedStatus, normalizedStatus).toLowerCase();
+
+        if (['draft', 'archived', 'disabled'].includes(publishStatus) || normalizedStatus === 'draft') {
+            return 0;
+        }
+
+        if (normalizedStatus === 'inactive') {
+            return publishStatus === 'active' ? 1 : 0;
+        }
+
+        if (['active', 'published', 'live', ''].includes(normalizedStatus) || publishStatus === 'active') {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    publishedClause() {
+        if (this.hasPublishedColumn()) {
+            return 'is_published = 1';
+        }
+        return this.isActiveProductClause();
+    }
+
+    selectColumns(mode = 'full') {
+        return mode === 'card' ? PRODUCT_CARD_SELECT_COLUMNS : PRODUCT_SELECT_COLUMNS;
     }
 
     resolveStoragePath(value) {
@@ -127,7 +201,12 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         }
 
         const placeholders = productIds.map(() => '?').join(', ');
-        const rows = this.db.prepare(`SELECT * FROM product_images WHERE product_id IN (${placeholders}) ORDER BY sort_order ASC, id ASC`).all(...productIds);
+        const rows = this.db.prepare(`
+            SELECT product_id, image_url, sort_order, id
+            FROM product_images
+            WHERE product_id IN (${placeholders})
+            ORDER BY sort_order ASC, id ASC
+        `).all(...productIds);
         return rows.reduce((lookup, row) => {
             const key = Number(row.product_id);
             const current = lookup.get(key) || [];
@@ -135,6 +214,38 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             lookup.set(key, current);
             return lookup;
         }, new Map());
+    }
+
+    invalidateProductCache() {
+        queryCache.bump('products');
+        queryCache.bump('search');
+    }
+
+    buildFtsMatchQuery(query = '', patterns = []) {
+        const terms = new Set();
+        const pushTerm = (value) => {
+            const cleaned = String(value || '')
+                .toLowerCase()
+                .replace(/["']/g, ' ')
+                .replace(/[^a-z0-9\s-]/g, ' ')
+                .trim();
+            if (!cleaned) {
+                return;
+            }
+
+            cleaned.split(/\s+/).forEach((token) => {
+                if (token.length >= 2) {
+                    terms.add(`"${token}"`);
+                }
+            });
+        };
+
+        pushTerm(query);
+        (Array.isArray(patterns) ? patterns : []).slice(0, 8).forEach((pattern) => {
+            pushTerm(String(pattern || '').replace(/%/g, ' '));
+        });
+
+        return Array.from(terms).slice(0, 12).join(' OR ');
     }
 
     async getNextCatalogId() {
@@ -175,20 +286,42 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         }
     }
 
-    async list({ category = '', limit = 200, offset = 0 } = {}) {
+    async list({ category = '', limit = 200, offset = 0, publishedOnly = false, columns = 'full' } = {}) {
         const normalizedCategory = this.normalizeText(category).toLowerCase();
-        const rows = normalizedCategory
-            ? this.db.prepare(`
-                SELECT * FROM products
+        const safeLimit = Math.max(1, Number(limit) || 200);
+        const safeOffset = Math.max(0, Number(offset) || 0);
+        const select = this.selectColumns(columns);
+        const publishedClause = publishedOnly ? this.publishedClause() : '';
+
+        let rows;
+        if (normalizedCategory && publishedClause) {
+            rows = this.db.prepare(`
+                SELECT ${select} FROM products
+                WHERE category_slug = ? AND ${publishedClause}
+                ORDER BY priority DESC, order_index DESC, updated_at DESC, catalog_id ASC
+                LIMIT ? OFFSET ?
+            `).all(normalizedCategory, safeLimit, safeOffset);
+        } else if (normalizedCategory) {
+            rows = this.db.prepare(`
+                SELECT ${select} FROM products
                 WHERE category_slug = ?
                 ORDER BY priority DESC, order_index DESC, updated_at DESC, catalog_id ASC
                 LIMIT ? OFFSET ?
-            `).all(normalizedCategory, Math.max(1, Number(limit) || 200), Math.max(0, Number(offset) || 0))
-            : this.db.prepare(`
-                SELECT * FROM products
+            `).all(normalizedCategory, safeLimit, safeOffset);
+        } else if (publishedClause) {
+            rows = this.db.prepare(`
+                SELECT ${select} FROM products
+                WHERE ${publishedClause}
                 ORDER BY priority DESC, order_index DESC, updated_at DESC, catalog_id ASC
                 LIMIT ? OFFSET ?
-            `).all(Math.max(1, Number(limit) || 200), Math.max(0, Number(offset) || 0));
+            `).all(safeLimit, safeOffset);
+        } else {
+            rows = this.db.prepare(`
+                SELECT ${select} FROM products
+                ORDER BY priority DESC, order_index DESC, updated_at DESC, catalog_id ASC
+                LIMIT ? OFFSET ?
+            `).all(safeLimit, safeOffset);
+        }
 
         const imageLookup = this.loadImagesForProductIds(rows.map((row) => Number(row.id)));
         return rows.map((row) => this.mapRow(row, imageLookup.get(Number(row.id)) || []));
@@ -257,13 +390,13 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
                 .map((entry) => this.sanitizeLikePattern(entry))
                 .concat(this.buildSearchLikePattern(query) ? [this.buildSearchLikePattern(query)] : [])
                 .filter(Boolean)
-        ));
+        )).slice(0, 6);
 
         const resolvedCategorySlugs = Array.from(new Set(
             (Array.isArray(categorySlugs) ? categorySlugs : [])
                 .map((entry) => this.normalizeText(entry).toLowerCase())
                 .filter(Boolean)
-        ));
+        )).slice(0, 8);
 
         if (!likePatterns.length && !resolvedCategorySlugs.length) {
             return [];
@@ -272,6 +405,57 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         const normalizedCategory = this.normalizeText(category).toLowerCase();
         const safeLimit = Math.max(1, Math.min(500, Number(limit) || 200));
         const safeOffset = Math.max(0, Number(offset) || 0);
+        const select = PRODUCT_SELECT_COLUMNS.split(',').map((col) => `p.${col.trim()}`).join(', ');
+        const publishedFilter = this.hasPublishedColumn()
+            ? 'p.is_published = 1'
+            : this.isActiveProductClause().replace(/\b(status|metadata_json)\b/g, 'p.$1');
+        const ftsMatch = this.buildFtsMatchQuery(query, likePatterns);
+
+        if (this.hasFtsIndex() && ftsMatch) {
+            try {
+                const params = [ftsMatch];
+                let sql = `
+                    SELECT ${select}
+                    FROM products_fts
+                    INNER JOIN products p ON p.id = products_fts.rowid
+                    WHERE products_fts MATCH ?
+                      AND ${publishedFilter}
+                `;
+
+                if (resolvedCategorySlugs.length) {
+                    // Also include synonym category hits that may not contain the query text.
+                    const placeholders = resolvedCategorySlugs.map(() => '?').join(', ');
+                    sql = `
+                        SELECT ${select}
+                        FROM products p
+                        WHERE ${publishedFilter}
+                          AND (
+                              p.id IN (
+                                  SELECT rowid FROM products_fts WHERE products_fts MATCH ?
+                              )
+                              OR p.category_slug IN (${placeholders})
+                          )
+                    `;
+                    params.length = 0;
+                    params.push(ftsMatch, ...resolvedCategorySlugs);
+                }
+
+                if (normalizedCategory) {
+                    sql += ' AND lower(p.category_slug) = ?';
+                    params.push(normalizedCategory);
+                }
+
+                sql += ' ORDER BY p.priority DESC, p.order_index DESC, p.updated_at DESC, p.catalog_id ASC LIMIT ? OFFSET ?';
+                params.push(safeLimit, safeOffset);
+
+                const rows = this.db.prepare(sql).all(...params);
+                const imageLookup = this.loadImagesForProductIds(rows.map((row) => Number(row.id)));
+                return rows.map((row) => this.mapRow(row, imageLookup.get(Number(row.id)) || []));
+            } catch (_ftsError) {
+                // Fall through to LIKE search if FTS query is rejected.
+            }
+        }
+
         const params = [];
         const conditions = [];
 
@@ -297,9 +481,13 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             params.push(slug);
         });
 
+        if (!conditions.length) {
+            return [];
+        }
+
         let sql = `
-            SELECT * FROM products
-            WHERE ${this.isActiveProductClause()}
+            SELECT ${PRODUCT_SELECT_COLUMNS} FROM products
+            WHERE ${this.publishedClause()}
             AND (${conditions.join(' OR ')})
         `;
 
@@ -323,7 +511,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         const categoryRows = this.db.prepare(`
             SELECT category_slug, COUNT(*) AS product_count
             FROM products
-            WHERE ${this.isActiveProductClause()}
+            WHERE ${this.publishedClause()}
               AND category_slug IS NOT NULL
               AND category_slug != ''
             GROUP BY category_slug
@@ -341,7 +529,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         const productRows = this.db.prepare(`
             SELECT name, badge, metadata_json
             FROM products
-            WHERE ${this.isActiveProductClause()}
+            WHERE ${this.publishedClause()}
             ORDER BY priority DESC, order_index DESC, updated_at DESC, catalog_id ASC
             LIMIT ?
         `).all(8);
@@ -370,24 +558,30 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
     async findByIdentifier(identifier) {
         const numericIdentifier = Number(identifier);
         let row = null;
+        const select = PRODUCT_SELECT_COLUMNS;
 
         if (Number.isFinite(numericIdentifier) && numericIdentifier > 0) {
-            row = this.db.prepare('SELECT * FROM products WHERE catalog_id = ? LIMIT 1').get(numericIdentifier);
+            row = this.db.prepare(`SELECT ${select} FROM products WHERE catalog_id = ? LIMIT 1`).get(numericIdentifier);
         }
 
         if (!row) {
-            row = this.db.prepare('SELECT * FROM products WHERE id = ? LIMIT 1').get(Number(identifier) || 0);
+            row = this.db.prepare(`SELECT ${select} FROM products WHERE id = ? LIMIT 1`).get(Number(identifier) || 0);
         }
 
         if (!row) {
             return null;
         }
 
-        const images = this.db.prepare('SELECT * FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, id ASC').all(Number(row.id));
+        const images = this.db.prepare(`
+            SELECT product_id, image_url, sort_order, id
+            FROM product_images
+            WHERE product_id = ?
+            ORDER BY sort_order ASC, id ASC
+        `).all(Number(row.id));
         return this.mapRow(row, images);
     }
 
-        persistImages(productId, gallery, mainImage) {
+    persistImages(productId, gallery, mainImage) {
 
         this.db.prepare('DELETE FROM product_images WHERE product_id = ?').run(Number(productId));
         const insert = this.db.prepare('INSERT INTO product_images (product_id, image_url, kind, sort_order) VALUES (?, ?, ?, ?)');
@@ -452,77 +646,21 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             url: this.normalizeText(product.url),
             metadataJson: this.stringifyJson(metadata, {}),
             updatedAt: now,
-            createdAt: existing?.createdAt || this.now(product.createdAt)
+            createdAt: existing?.createdAt || this.now(product.createdAt),
+            isPublished: this.computeIsPublished(product.status, metadata)
         };
 
         try {
             // If updating an existing record, do a normal update inside a transaction.
             if (existing) {
                 const updateTxn = this.db.transaction(() => {
-                    this.db.prepare(`
-                        UPDATE products
-                        SET catalog_id = ?, category_id = ?, category_slug = ?, name = ?, title = ?, description = ?, short_description = ?, long_description_json = ?,
-                            badge = ?, price = ?, old_price = ?, stock = ?, image = ?, main_image = ?, keywords_json = ?, highlights_json = ?, trust_json = ?,
-                            specs_json = ?, attributes_json = ?, variants_json = ?, visibility = ?, priority = ?, order_index = ?, highlight_tag = ?, status = ?, page = ?, url = ?, metadata_json = ?, updated_at = ?
-                        WHERE id = ?
-                    `).run(
-                        payload.catalogId,
-                        payload.categoryId,
-                        payload.categorySlug,
-                        payload.name,
-                        payload.title,
-                        payload.description,
-                        payload.shortDescription,
-                        payload.longDescriptionJson,
-                        payload.badge,
-                        payload.price,
-                        payload.oldPrice,
-                        payload.stock,
-                        payload.image,
-                        payload.mainImage,
-                        payload.keywordsJson,
-                        payload.highlightsJson,
-                        payload.trustJson,
-                        payload.specsJson,
-                        payload.attributesJson,
-                        payload.variantsJson,
-                        payload.visibility,
-                        payload.priority,
-                        payload.orderIndex,
-                        payload.highlightTag,
-                        payload.status,
-                        payload.page,
-                        payload.url,
-                        payload.metadataJson,
-                        payload.updatedAt,
-                        Number(existing.recordId)
-                    );
-                    this.persistImages(existing.recordId, product.gallery || [], payload.mainImage);
-                    return Number(existing.recordId);
-                });
-
-                const recordId = updateTxn();
-                return this.findByIdentifier(recordId);
-            }
-
-            // Insert new record with retry logic to avoid rare catalog_id UNIQUE races.
-            let lastError = null;
-            let lastInsertId = null;
-            const maxAttempts = 3;
-            for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-                try {
-                    // Ensure we have a catalog id at insertion time.
-                    if (!payload.catalogId || Number(payload.catalogId) <= 0) {
-                        payload.catalogId = await this.getNextCatalogId();
-                    }
-
-                    const insertTxn = this.db.transaction(() => {
-                        const result = this.db.prepare(`
-                            INSERT INTO products (
-                                catalog_id, category_id, category_slug, name, title, description, short_description, long_description_json, badge,
-                                price, old_price, stock, image, main_image, keywords_json, highlights_json, trust_json, specs_json, attributes_json,
-                                variants_json, visibility, priority, order_index, highlight_tag, status, page, url, metadata_json, created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    if (this.hasPublishedColumn()) {
+                        this.db.prepare(`
+                            UPDATE products
+                            SET catalog_id = ?, category_id = ?, category_slug = ?, name = ?, title = ?, description = ?, short_description = ?, long_description_json = ?,
+                                badge = ?, price = ?, old_price = ?, stock = ?, image = ?, main_image = ?, keywords_json = ?, highlights_json = ?, trust_json = ?,
+                                specs_json = ?, attributes_json = ?, variants_json = ?, visibility = ?, priority = ?, order_index = ?, highlight_tag = ?, status = ?, page = ?, url = ?, metadata_json = ?, is_published = ?, updated_at = ?
+                            WHERE id = ?
                         `).run(
                             payload.catalogId,
                             payload.categoryId,
@@ -552,9 +690,149 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
                             payload.page,
                             payload.url,
                             payload.metadataJson,
-                            payload.createdAt,
-                            payload.updatedAt
+                            payload.isPublished,
+                            payload.updatedAt,
+                            Number(existing.recordId)
                         );
+                    } else {
+                        this.db.prepare(`
+                            UPDATE products
+                            SET catalog_id = ?, category_id = ?, category_slug = ?, name = ?, title = ?, description = ?, short_description = ?, long_description_json = ?,
+                                badge = ?, price = ?, old_price = ?, stock = ?, image = ?, main_image = ?, keywords_json = ?, highlights_json = ?, trust_json = ?,
+                                specs_json = ?, attributes_json = ?, variants_json = ?, visibility = ?, priority = ?, order_index = ?, highlight_tag = ?, status = ?, page = ?, url = ?, metadata_json = ?, updated_at = ?
+                            WHERE id = ?
+                        `).run(
+                            payload.catalogId,
+                            payload.categoryId,
+                            payload.categorySlug,
+                            payload.name,
+                            payload.title,
+                            payload.description,
+                            payload.shortDescription,
+                            payload.longDescriptionJson,
+                            payload.badge,
+                            payload.price,
+                            payload.oldPrice,
+                            payload.stock,
+                            payload.image,
+                            payload.mainImage,
+                            payload.keywordsJson,
+                            payload.highlightsJson,
+                            payload.trustJson,
+                            payload.specsJson,
+                            payload.attributesJson,
+                            payload.variantsJson,
+                            payload.visibility,
+                            payload.priority,
+                            payload.orderIndex,
+                            payload.highlightTag,
+                            payload.status,
+                            payload.page,
+                            payload.url,
+                            payload.metadataJson,
+                            payload.updatedAt,
+                            Number(existing.recordId)
+                        );
+                    }
+                    this.persistImages(existing.recordId, product.gallery || [], payload.mainImage);
+                    return Number(existing.recordId);
+                });
+
+                const recordId = updateTxn();
+                this.invalidateProductCache();
+                return this.findByIdentifier(recordId);
+            }
+
+            // Insert new record with retry logic to avoid rare catalog_id UNIQUE races.
+            let lastError = null;
+            let lastInsertId = null;
+            const maxAttempts = 3;
+            for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+                try {
+                    // Ensure we have a catalog id at insertion time.
+                    if (!payload.catalogId || Number(payload.catalogId) <= 0) {
+                        payload.catalogId = await this.getNextCatalogId();
+                    }
+
+                    const insertTxn = this.db.transaction(() => {
+                        const result = this.hasPublishedColumn()
+                            ? this.db.prepare(`
+                                INSERT INTO products (
+                                    catalog_id, category_id, category_slug, name, title, description, short_description, long_description_json, badge,
+                                    price, old_price, stock, image, main_image, keywords_json, highlights_json, trust_json, specs_json, attributes_json,
+                                    variants_json, visibility, priority, order_index, highlight_tag, status, page, url, metadata_json, is_published, created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            `).run(
+                                payload.catalogId,
+                                payload.categoryId,
+                                payload.categorySlug,
+                                payload.name,
+                                payload.title,
+                                payload.description,
+                                payload.shortDescription,
+                                payload.longDescriptionJson,
+                                payload.badge,
+                                payload.price,
+                                payload.oldPrice,
+                                payload.stock,
+                                payload.image,
+                                payload.mainImage,
+                                payload.keywordsJson,
+                                payload.highlightsJson,
+                                payload.trustJson,
+                                payload.specsJson,
+                                payload.attributesJson,
+                                payload.variantsJson,
+                                payload.visibility,
+                                payload.priority,
+                                payload.orderIndex,
+                                payload.highlightTag,
+                                payload.status,
+                                payload.page,
+                                payload.url,
+                                payload.metadataJson,
+                                payload.isPublished,
+                                payload.createdAt,
+                                payload.updatedAt
+                            )
+                            : this.db.prepare(`
+                                INSERT INTO products (
+                                    catalog_id, category_id, category_slug, name, title, description, short_description, long_description_json, badge,
+                                    price, old_price, stock, image, main_image, keywords_json, highlights_json, trust_json, specs_json, attributes_json,
+                                    variants_json, visibility, priority, order_index, highlight_tag, status, page, url, metadata_json, created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            `).run(
+                                payload.catalogId,
+                                payload.categoryId,
+                                payload.categorySlug,
+                                payload.name,
+                                payload.title,
+                                payload.description,
+                                payload.shortDescription,
+                                payload.longDescriptionJson,
+                                payload.badge,
+                                payload.price,
+                                payload.oldPrice,
+                                payload.stock,
+                                payload.image,
+                                payload.mainImage,
+                                payload.keywordsJson,
+                                payload.highlightsJson,
+                                payload.trustJson,
+                                payload.specsJson,
+                                payload.attributesJson,
+                                payload.variantsJson,
+                                payload.visibility,
+                                payload.priority,
+                                payload.orderIndex,
+                                payload.highlightTag,
+                                payload.status,
+                                payload.page,
+                                payload.url,
+                                payload.metadataJson,
+                                payload.createdAt,
+                                payload.updatedAt
+                            );
                         this.persistImages(result.lastInsertRowid, product.gallery || [], payload.mainImage);
                         return Number(result.lastInsertRowid);
                     });
@@ -588,6 +866,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
                 throw lastError;
             }
 
+            this.invalidateProductCache();
             return this.findByIdentifier(payload.catalogId || lastInsertId);
         } catch (outerError) {
             // Bubble up for controller to handle, but log for diagnostics
@@ -616,6 +895,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         }
 
         this.db.prepare('DELETE FROM products WHERE id = ?').run(Number(existing.recordId));
+        this.invalidateProductCache();
         return existing;
     }
 }

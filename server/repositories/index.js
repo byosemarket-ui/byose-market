@@ -8,6 +8,7 @@ const sqliteReviewRepository = require('./sqlite/review.repository');
 const sqliteSettingsRepository = require('./sqlite/settings.repository');
 const sqliteStorefrontStateRepository = require('./sqlite/storefront-state.repository');
 const sqliteUserRepository = require('./sqlite/user.repository');
+const sqliteMessageRepository = require('./sqlite/message.repository');
 
 const sqliteRepositories = {
     activity: sqliteActivityRepository,
@@ -18,7 +19,8 @@ const sqliteRepositories = {
     reviews: sqliteReviewRepository,
     settings: sqliteSettingsRepository,
     storefrontStates: sqliteStorefrontStateRepository,
-    users: sqliteUserRepository
+    users: sqliteUserRepository,
+    messages: sqliteMessageRepository
 };
 
 function getRepositoryBundle() {
@@ -26,7 +28,10 @@ function getRepositoryBundle() {
         return sqliteRepositories;
     }
 
-    return {};
+    throw new Error(
+        `Repository bundle is only available for DB_CLIENT=sqlite (received "${config.databaseClient}"). ` +
+        'Mongo repositories are not implemented; set DB_CLIENT=sqlite or implement a mongo repository bundle.'
+    );
 }
 
 module.exports = {

@@ -115,7 +115,7 @@
         div.innerHTML = `
           <div class="review-header">
             <div class="reviewer-info">
-              <img src="${item.imageAvatar || 'img/avatar-blank.png'}" alt="${item.name || 'Anonymous'}" class="reviewer-avatar">
+              <img src="${item.imageAvatar || 'img/logo.png'}" alt="${item.name || 'Anonymous'}" class="reviewer-avatar">
               <div>
                 <strong>${item.name || 'Anonymous'}</strong>
                 <div class="review-stars">${renderStars(item.rating)}</div>

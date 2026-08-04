@@ -71,15 +71,37 @@ function initializeHomePage() {
   setupFilterControls();
   setupHeroSlider();
 
-  // Listen for backend product synchronization events
-  window.addEventListener(productService.GLOBAL_SYNC_EVENT, syncCatalog);
+  // Re-render from the already-synced catalog payload — do not refetch.
+  window.addEventListener(productService.GLOBAL_SYNC_EVENT, (event) => {
+    const products = event?.detail?.products;
+    if (Array.isArray(products)) {
+      applyCatalog(products);
+      return;
+    }
+    syncCatalog();
+  });
   window.addEventListener('byose:hero-slides-updated', setupHeroSlider);
+}
+
+function applyCatalog(products) {
+  try {
+    const normalized = products.map(normalizeProduct);
+    const visible = normalized.filter(product => shouldShowOnSurfaceLocal(product, 'home'));
+    state.catalog = visible.sort(sortProductsByDisplayLocal);
+    state.filterCache.clear();
+    state.markupCache.clear();
+    renderProductGrid(state.currentFilter);
+    renderPlacementSections();
+    renderSpotlightGrid();
+  } catch (error) {
+    console.error('[Homepage] Failed to apply catalog:', error);
+  }
 }
 
 async function syncCatalog() {
   try {
     traceStorefrontStage("fetch-start", { surface: "home" });
-    const products = await productService.getProductsWithRetry();
+    const products = await productService.getProducts();
     traceStorefrontStage("fetch-complete", { surface: "home", count: products.length });
 
     const normalized = products.map(normalizeProduct);

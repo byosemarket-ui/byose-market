@@ -10,6 +10,7 @@ const {
     login,
     me,
     updateMe,
+    changePassword,
     forgotPassword,
     verifyCode,
     resetPassword
@@ -69,6 +70,7 @@ router.post('/reset-password', authSensitiveLimiter, requireDatabase, validatePa
 // Protected: current user
 router.get('/me', authMiddleware, requireDatabase, me);
 router.put('/me', authMiddleware, requireDatabase, updateMe);
+router.post('/change-password', authSensitiveLimiter, authMiddleware, requireDatabase, validatePayload(['currentPassword', 'newPassword']), changePassword);
 
 // ===============================
 // EXPORT

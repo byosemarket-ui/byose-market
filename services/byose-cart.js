@@ -6,7 +6,9 @@
 const CART_KEY = 'byose_market_cart_v1';
 const SAVED_KEY = 'byose_market_saved_v1';
 const CHECKOUT_KEY = 'byose_checkout_active_v1';
-const SHIPPING_FEE = 5000;
+// Delivery is a flat fee per non-empty order. It is intentionally independent
+// of item count, quantity, category, weight, and subtotal.
+const SHIPPING_FEE = 2000;
 const TAX_RATE = 0;
 const MAX_QTY = 99;
 

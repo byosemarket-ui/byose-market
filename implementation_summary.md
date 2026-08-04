@@ -271,7 +271,7 @@ const phoneNumber = '250723731250'; // Change to your number
 ### Shipping Cost:
 Edit in checkout.html:
 ```javascript
-const shipping = 5000; // RWF 5000
+const shipping = 2000; // Flat RWF 2,000 delivery fee per order
 ```
 
 ---

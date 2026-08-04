@@ -4,7 +4,6 @@
 	const STOREFRONT_PRODUCTS_UPDATED_EVENT = 'byose:storefront-products-updated';
 	const STOREFRONT_PRODUCTS_ERROR_EVENT = 'byose:storefront-products-error';
 	const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
-	const FALLBACK_IMAGE = window.location.pathname.includes('/details/') ? '../img/logo.png' : 'img/logo.png';
 	let syncInFlight = null;
 	let servicePromise = null;
 
@@ -138,9 +137,14 @@
 		syncInFlight = (async () => {
 			try {
 				const service = await loadService();
+				const cached = typeof service.getCachedProducts === 'function' ? service.getCachedProducts() : [];
+				if (cached.length) {
+					publishProducts(cached);
+				}
+
 				const source = options.force && typeof service.forceRefreshProducts === 'function'
 					? await service.forceRefreshProducts()
-					: await service.getProductsWithRetry();
+					: await service.getProducts();
 
 				publishProducts(source);
 			} catch (error) {
@@ -153,11 +157,19 @@
 		return syncInFlight;
 	}
 
-	void syncProducts({ force: true });
+	void syncProducts({ force: false });
 	window.addEventListener('byose:products-synchronized', (event) => {
 		publishProducts(event?.detail?.products || []);
 	});
-	window.addEventListener('byose:products-changed', () => {
-		void syncProducts({ force: true });
+	window.addEventListener('byose:products-changed', (event) => {
+		const source = String(event?.detail?.source || '');
+		if (source === 'api-create' || source === 'api-update' || source === 'api-delete' || source === 'admin' || source === 'admin-update') {
+			void syncProducts({ force: true });
+			return;
+		}
+
+		if (Array.isArray(event?.detail?.products)) {
+			publishProducts(event.detail.products);
+		}
 	});
 })();

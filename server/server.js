@@ -59,10 +59,16 @@ async function startServer() {
     }
 
     try {
-        await connectDatabase();
-        syncAppState();
+        const connected = await connectDatabase();
+        const databaseStatus = syncAppState();
+        if (!connected || !databaseStatus.ready) {
+            throw new Error(databaseStatus.lastError || 'Database connect returned not ready');
+        }
         increment(METRIC.DB_CONNECTS);
-        appLogger.info('database.connected');
+        appLogger.info('database.connected', {
+            provider: databaseStatus.provider,
+            databasePath: databaseStatus.databasePath || null
+        });
     } catch (error) {
         app.locals.dbConnected = false;
         app.locals.database = getDatabaseStatus();

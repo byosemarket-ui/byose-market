@@ -206,10 +206,10 @@ async function searchProducts(options = {}) {
     const { products } = getRepositoryBundle();
     const candidates = await products.searchCandidates({
         query,
-        patterns: expanded.likePatterns,
-        categorySlugs: expanded.categorySlugs,
+        patterns: (expanded.likePatterns || []).slice(0, 6),
+        categorySlugs: (expanded.categorySlugs || []).slice(0, 8),
         category,
-        limit: Math.min(500, limit * 5)
+        limit: Math.min(240, limit * 4)
     });
 
     return rankProducts(candidates, query).slice(0, limit);
@@ -224,11 +224,11 @@ async function getSearchSuggestions(options = {}) {
     const candidates = query
         ? await products.searchCandidates({
             query,
-            patterns: expanded.likePatterns,
-            categorySlugs: expanded.categorySlugs,
-            limit: 140
+            patterns: (expanded.likePatterns || []).slice(0, 6),
+            categorySlugs: (expanded.categorySlugs || []).slice(0, 8),
+            limit: 80
         })
-        : await products.list({ limit: 120, offset: 0 });
+        : await products.list({ limit: 80, offset: 0, publishedOnly: true, columns: 'card' });
 
     const pool = buildSuggestionPool(candidates).concat(buildSynonymSuggestions(query));
 

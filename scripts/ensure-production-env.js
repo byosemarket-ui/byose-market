@@ -13,8 +13,6 @@ const envPath = path.join(projectRoot, ".env");
 const examplePath = path.join(projectRoot, ".env.example");
 const productionExamplePath = path.join(projectRoot, "deploy", "env.production.example");
 
-const ADMIN_EMAIL = "byosemarket@gmail.com";
-const ADMIN_PASSWORD_HASH = "$2a$12$Dc49UND0Ir17UQ4VdU1Xc.N1ZG32g8GceMpGYYOhhgjtlBUhGAeea";
 const PLACEHOLDER_PATTERN = /(replace_with|changeme|your[-_]|example|todo|set-on-server)/i;
 const BCRYPT_PATTERN = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/;
 
@@ -101,16 +99,22 @@ function chooseTemplatePath() {
 
 function ensureAuthValues(entries) {
   let changed = false;
+  const missingAuth = [];
 
   if (isPlaceholder(entries.get("ADMIN_EMAIL"))) {
-    entries.set("ADMIN_EMAIL", ADMIN_EMAIL);
-    changed = true;
+    missingAuth.push("ADMIN_EMAIL");
   }
 
   const currentHash = String(entries.get("ADMIN_PASSWORD_HASH") || "").trim();
   if (!BCRYPT_PATTERN.test(currentHash)) {
-    entries.set("ADMIN_PASSWORD_HASH", ADMIN_PASSWORD_HASH);
-    changed = true;
+    missingAuth.push("ADMIN_PASSWORD_HASH");
+  }
+
+  if (missingAuth.length) {
+    throw new Error(
+      `Missing production admin credentials (${missingAuth.join(", ")}). ` +
+      "Set them manually or run: npm run generate:admin-auth"
+    );
   }
 
   const currentJwt = String(entries.get("JWT_SECRET") || "").trim();
@@ -121,6 +125,11 @@ function ensureAuthValues(entries) {
 
   if (!entries.get("JWT_EXPIRES_IN")) {
     entries.set("JWT_EXPIRES_IN", "7d");
+    changed = true;
+  }
+
+  if (isPlaceholder(entries.get("METRICS_TOKEN"))) {
+    entries.set("METRICS_TOKEN", crypto.randomBytes(24).toString("hex"));
     changed = true;
   }
 

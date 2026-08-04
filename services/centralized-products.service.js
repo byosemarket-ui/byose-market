@@ -9,6 +9,7 @@ export {
   forceRefreshProducts,
   getCachedProducts,
   getLastSnapshotAt,
+  getProductById,
   getProducts,
   getProductsWithRetry,
   handleAdminProductUpdate,

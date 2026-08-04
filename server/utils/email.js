@@ -60,7 +60,7 @@ function getTransporter() {
     try {
         const nodemailer = require('nodemailer');
         const config = getEmailConfig();
-        return nodemailer.createTransporter({
+        return nodemailer.createTransport({
             host: config.host,
             port: config.port,
             secure: config.secure,

@@ -23,14 +23,14 @@ function serializeUploadedFile(file, bucket) {
 function getUploadHealth(_req, res) {
     return res.status(200).json({
         success: true,
-        uploads: getUploadFoundationSnapshot()
+        uploads: getUploadFoundationSnapshot({ includeSensitive: false })
     });
 }
 
 function getUploadConfig(_req, res) {
     return res.status(200).json({
         success: true,
-        uploads: getUploadFoundationSnapshot()
+        uploads: getUploadFoundationSnapshot({ includeSensitive: true })
     });
 }
 
@@ -63,7 +63,6 @@ function uploadFiles(req, res) {
         success: true,
         bucket: {
             key: bucket.key,
-            directory: bucket.directory,
             publicPath: bucket.publicPath
         },
         file: files[0],

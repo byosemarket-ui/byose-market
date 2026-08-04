@@ -222,8 +222,8 @@ Colors (Edit in cart.css):
 WhatsApp Phone (Edit in cart.JS line 17):
   const phoneNumber = '250723731250';
 
-Shipping Cost (Edit in checkout.html):
-  const shipping = 5000;
+Shipping Cost:
+  const shipping = 2000; // fixed per order
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

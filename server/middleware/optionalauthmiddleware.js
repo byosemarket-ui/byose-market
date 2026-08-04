@@ -1,4 +1,5 @@
 const { verifyToken } = require('../utils/token');
+const userDataService = require('../services/userdataservice');
 
 function extractBearerToken(req) {
     const authHeader = String(req.headers.authorization || req.headers.Authorization || '').trim();
@@ -9,25 +10,40 @@ function extractBearerToken(req) {
     return authHeader.replace(/^Bearer\s+/i, '').trim();
 }
 
-function optionalAuthMiddleware(req, res, next) {
-    const token = extractBearerToken(req);
-    if (!token) {
-        next();
-        return;
-    }
+async function optionalAuthMiddleware(req, res, next) {
+    try {
+        const token = extractBearerToken(req);
+        if (!token) {
+            return next();
+        }
 
-    const result = verifyToken(token);
-    if (!result.valid) {
-        return res.status(401).json({ success: false, message: 'Invalid token' });
-    }
+        const result = verifyToken(token);
+        // Guest checkout remains available if a browser sends an expired token.
+        if (!result.valid) {
+            return next();
+        }
 
-    const payload = result.payload || {};
-    if (!payload.id || payload.role === 'admin') {
-        return res.status(403).json({ success: false, message: 'Unauthorized' });
-    }
+        const payload = result.payload || {};
+        if (!payload.id || payload.role !== 'user') {
+            return next();
+        }
 
-    req.user = payload;
-    next();
+        const user = await userDataService.findUserById(payload.id);
+        if (!user) {
+            return next();
+        }
+        if (String(user.status || 'active').toLowerCase() === 'blocked') {
+            return res.status(403).json({ success: false, message: 'Account blocked' });
+        }
+
+        req.user = {
+            ...payload,
+            status: user.status || 'active'
+        };
+        return next();
+    } catch (error) {
+        return next(error);
+    }
 }
 
 module.exports = optionalAuthMiddleware;

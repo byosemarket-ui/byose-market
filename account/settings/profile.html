@@ -7,7 +7,7 @@
   <!-- Google Font: Poppins -->
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
   <!-- FontAwesome for icons -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha512-" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
 
   <meta name="description" content="User profile settings for ByoseMarket">
 
@@ -242,11 +242,10 @@
   </div>
 
   <script src="../../services/authservice.js"></script>
+  <script src="../js/auth-guard.js"></script>
+  <script src="../js/profile.js"></script>
   <!-- Minimal JS hooks. Keep light; profile.js should replace/enhance interactions. -->
   <script>
-    document.addEventListener('DOMContentLoaded', function(){
-      try { if (typeof authService !== 'undefined' && !authService.isLoggedIn()) window.location.href = '../../login.html'; } catch(e){}
-    });
     // Hook: open file picker when edit avatar clicked
     document.getElementById('editAvatarBtn').addEventListener('click', function(){
       document.getElementById('avatarInput').click();

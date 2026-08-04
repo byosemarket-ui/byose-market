@@ -6,14 +6,7 @@
     'user'
   ];
 
-  const FALLBACK_USER = {
-    firstName: 'Evode',
-    lastName: 'Kwizera',
-    email: 'example@gmail.com',
-    phone: '0780000000',
-    userId: 'USER12345',
-    profileImage: null
-  };
+  const FALLBACK_USER = {};
 
   const DEFAULT_PRODUCTS = [
     {
@@ -124,13 +117,13 @@
     const sourceUser = rawUser && typeof rawUser === 'object' ? rawUser : FALLBACK_USER;
     const baseName = sourceUser.name || sourceUser.fullName || sourceUser.username || '';
     const split = splitName(baseName);
-    const firstName = sourceUser.firstName || split.firstName || FALLBACK_USER.firstName;
+    const firstName = sourceUser.firstName || split.firstName || '';
     const lastName = sourceUser.lastName || split.lastName || '';
     const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || baseName || 'Guest User';
     const email = sourceUser.email || sourceUser.mail || '';
     const phone = sourceUser.phone || sourceUser.phoneNumber || sourceUser.tel || '';
-    const contact = email || phone || FALLBACK_USER.email;
-    const userId = sourceUser.userId || sourceUser.id || sourceUser.uid || FALLBACK_USER.userId;
+    const contact = email || phone || 'No contact information';
+    const userId = sourceUser.userId || sourceUser.id || sourceUser.uid || '—';
     const profileImage = sourceUser.profileImage || sourceUser.avatar || sourceUser.image || sourceUser.photoURL || '';
 
     return {
@@ -390,8 +383,6 @@
   function initAccountPage() {
     syncTheme();
     renderUser(normalizeUser(readStoredUser()));
-    renderProducts();
-    initNotifications();
     initLogout();
     initRevealAnimations();
   }
