@@ -25,6 +25,19 @@ log() { printf '[optimize-vps] %s\n' "$*"; }
 warn() { printf '[optimize-vps] WARNING: %s\n' "$*" >&2; }
 fail() { printf '[optimize-vps] ERROR: %s\n' "$*" >&2; exit 1; }
 
+remove_conflicting_byosemarket_sites() {
+  local candidate
+  shopt -s nullglob
+  for candidate in /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf; do
+    [[ "${candidate}" == "${NGINX_ENABLED}" ]] && continue
+    if [[ -f "${candidate}" ]] && grep -Eq 'server_name[^;]*(byosemarket\.com|www\.byosemarket\.com)' "${candidate}"; then
+      log "Removing stale Byose Market nginx config: ${candidate}"
+      rm -f "${candidate}"
+    fi
+  done
+  shopt -u nullglob
+}
+
 if [[ "${EUID}" -ne 0 ]]; then
   fail "Run as root: sudo bash scripts/optimize-vps.sh"
 fi
@@ -71,6 +84,7 @@ location ^~ /uploads/ {
 NGINX
 
 ln -sfn "${NGINX_SITE}" "${NGINX_ENABLED}"
+remove_conflicting_byosemarket_sites
 rm -f /etc/nginx/sites-enabled/default
 
 # Hide nginx version in responses when possible.
