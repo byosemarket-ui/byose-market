@@ -77,6 +77,7 @@ module.exports = {
         categoriesDir: path.resolve(uploadsRoot, 'categories'),
         usersDir: path.resolve(uploadsRoot, 'users'),
         reviewsDir: path.resolve(uploadsRoot, 'reviews'),
+        heroDir: path.resolve(uploadsRoot, 'hero'),
         tempDir: path.resolve(uploadsRoot, 'temp'),
         maxFileSizeBytes: readNumber(process.env.UPLOAD_MAX_FILE_SIZE_BYTES, 5 * 1024 * 1024),
         maxFilesPerRequest: readNumber(process.env.UPLOAD_MAX_FILES_PER_REQUEST, 10),

@@ -16,6 +16,7 @@ const MAX_PRODUCTS_ITEMS = 500;
 const MAX_ACTIVITY_ITEMS = 200;
 const MAX_MESSAGES_ITEMS = 200;
 const MAX_CARTS_ITEMS = 300;
+const MAX_HERO_SLIDES_ITEMS = 200;
 const STOREFRONT_CATALOG_STORAGE_KEY = "byose_market_products_catalog_v1";
 
 export const ADMIN_SYNC_EVENT = "byose:admin-sync-updated";
@@ -409,6 +410,25 @@ function normalizeCustomer(customer) {
     totalSpent: toNumber(customer?.totalSpent),
     lastOrderDate: customer?.lastOrderDate || "",
     orders: asArray(customer?.orders)
+  };
+}
+
+function normalizeHeroSlide(slide) {
+  const status = normalizeText(slide?.status || "active").toLowerCase() === "inactive" ? "inactive" : "active";
+  return {
+    id: normalizeText(slide?.id || slide?.slideId || slide?._id),
+    slideId: normalizeText(slide?.slideId || slide?.id || slide?._id),
+    title: normalizeText(slide?.title),
+    subtitle: normalizeText(slide?.subtitle),
+    buttonText: normalizeText(slide?.buttonText),
+    buttonLink: normalizeText(slide?.buttonLink),
+    imageUrl: normalizeText(slide?.imageUrl),
+    imagePath: normalizeText(slide?.imagePath),
+    displayOrder: toNumber(slide?.displayOrder),
+    status,
+    createdAt: slide?.createdAt || new Date().toISOString(),
+    updatedAt: slide?.updatedAt || slide?.createdAt || new Date().toISOString(),
+    meta: asObject(slide?.meta)
   };
 }
 
@@ -1050,6 +1070,85 @@ export async function updateSettings(nextSettings) {
   writeCache("settings", safeSettings);
   emitSync("settings", safeSettings);
   return safeSettings;
+}
+
+export async function getHeroSlides(options = {}) {
+  const scope = "heroslider";
+  const force = options?.force === true;
+  const emit = options?.emit !== false;
+  const allowCacheFallback = options?.allowCacheFallback === true;
+  const cachedPayload = getCachedScopePayload(scope);
+
+  if (!force && Array.isArray(cachedPayload)) {
+    return capArray(cachedPayload, options?.maxItems || MAX_HERO_SLIDES_ITEMS).map(normalizeHeroSlide);
+  }
+
+  try {
+    const query = new URLSearchParams();
+    query.set("limit", String(Math.min(300, Math.max(1, Number(options?.limit || MAX_HERO_SLIDES_ITEMS) || MAX_HERO_SLIDES_ITEMS))));
+    if (options?.status) {
+      query.set("status", String(options.status));
+    }
+    if (options?.search) {
+      query.set("search", String(options.search));
+    }
+    if (options?.sort) {
+      query.set("sort", String(options.sort));
+    }
+    if (options?.page) {
+      query.set("page", String(Math.max(1, Number(options.page) || 1)));
+    }
+
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const payload = await withRetry(`admin/hero-slides${suffix}`, () => api.get(`admin/hero-slides${suffix}`));
+    const slides = capArray(
+      asArray(payload?.slides || payload?.data || payload).map(normalizeHeroSlide),
+      options?.maxItems || MAX_HERO_SLIDES_ITEMS
+    );
+
+    writeMemoryCache(scope, slides);
+    writeCache(scope, slides);
+    if (emit) {
+      emitSync(scope, slides);
+    }
+
+    return slides;
+  } catch (error) {
+    if (allowCacheFallback && Array.isArray(cachedPayload)) {
+      return capArray(cachedPayload, options?.maxItems || MAX_HERO_SLIDES_ITEMS).map(normalizeHeroSlide);
+    }
+    throw error;
+  }
+}
+
+export async function createHeroSlide(slideData = {}) {
+  const payload = await api.post("admin/hero-slides", asObject(slideData));
+  const slide = normalizeHeroSlide(payload?.slide || payload);
+  await getHeroSlides({ force: true, emit: true });
+  return slide;
+}
+
+export async function updateHeroSlide(slideId, updates = {}) {
+  const id = normalizeText(slideId);
+  if (!id) {
+    throw new Error("Slide id is required.");
+  }
+
+  const payload = await api.put(`admin/hero-slides/${encodeURIComponent(id)}`, asObject(updates));
+  const slide = normalizeHeroSlide(payload?.slide || payload);
+  await getHeroSlides({ force: true, emit: true });
+  return slide;
+}
+
+export async function deleteHeroSlide(slideId) {
+  const id = normalizeText(slideId);
+  if (!id) {
+    throw new Error("Slide id is required.");
+  }
+
+  const payload = await api.remove(`admin/hero-slides/${encodeURIComponent(id)}`);
+  await getHeroSlides({ force: true, emit: true });
+  return payload || { slideId: id };
 }
 
 async function resyncEnterpriseScopes(scopes = []) {

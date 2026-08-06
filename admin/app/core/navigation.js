@@ -131,11 +131,12 @@ export const ADMIN_NAVIGATION = [
         id: "website-management",
         label: "Website Management",
         icon: "website",
+        routeKey: ROUTES.heroslider.key,
         description: "Homepage content, promotions, banners, and storefront settings.",
         children: [
           externalLink("website-homepage", "Homepage Control", "homepage/index.html", { description: "Detected homepage control surface." }),
           externalLink("website-banners", "Banners", "homepage/banners.html", { description: "Homepage banner management." }),
-          externalLink("website-sliders", "Sliders", "homepage/hero.html", { description: "Hero slider and storefront highlights." }),
+          routeLink("website-hero-slider", "Hero Slider", "heroslider", { description: "Manage homepage hero slider slides and storefront highlights." }),
           externalLink("website-promotions", "Promotions", "homepage/featured.html", { description: "Featured blocks and promotional content." }),
           externalLink("website-store-settings", "Store Settings", "settings/index.html", { description: "Detected storefront settings entry." }),
           externalLink("website-media", "Media Assets", "media/upload.html", { description: "Detected upload workflow for site assets." })

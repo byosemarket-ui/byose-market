@@ -7,7 +7,8 @@ export const ROUTES = {
   analytics: { key: "analytics", label: "Analytics", icon: "chart", path: "#/analytics" },
   inventory: { key: "inventory", label: "Inventory", icon: "layers", path: "#/inventory" },
   activity: { key: "activity", label: "Activity Logs", icon: "activity", path: "#/activity" },
-  settings: { key: "settings", label: "Settings", icon: "settings", path: "#/settings" }
+  settings: { key: "settings", label: "Settings", icon: "settings", path: "#/settings" },
+  heroslider: { key: "heroslider", label: "Hero Slider", icon: "website", path: "#/heroslider" }
 };
 
 export const ROUTE_ORDER = [
@@ -19,7 +20,8 @@ export const ROUTE_ORDER = [
   ROUTES.analytics,
   ROUTES.inventory,
   ROUTES.activity,
-  ROUTES.settings
+  ROUTES.settings,
+  ROUTES.heroslider
 ];
 
 export const DEFAULT_ROUTE_KEY = ROUTES.dashboard.key;

@@ -33,6 +33,11 @@ function getUploadBuckets() {
             directory: config.uploads.reviewsDir,
             publicPath: toPublicPath('reviews')
         },
+        hero: {
+            key: 'hero',
+            directory: config.uploads.heroDir,
+            publicPath: toPublicPath('hero')
+        },
         temp: {
             key: 'temp',
             directory: config.uploads.tempDir,

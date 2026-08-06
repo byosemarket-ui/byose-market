@@ -10,6 +10,7 @@ const adminOrderRoutes = require('../routes/adminorders');
 const adminActivityRoutes = require('../routes/adminactivity');
 const adminIntelligenceRoutes = require('../routes/adminintelligence');
 const adminProductRoutes = require('../routes/adminproducts');
+const adminHeroSlideRoutes = require('../routes/adminheroslides');
 const adminAuthRoutes = require('../../admin/admin-login/admin.routes');
 const activityRoutes = require('../routes/activity');
 const realtimeRoutes = require('../routes/realtime');
@@ -55,6 +56,7 @@ function createApiRouter() {
     router.use('/admin/activity', requireDatabase, adminActivityRoutes);
     router.use('/admin/intelligence', requireDatabase, adminIntelligenceRoutes);
     router.use('/admin/products', requireDatabase, adminProductRoutes);
+    router.use('/admin/hero-slides', requireDatabase, adminHeroSlideRoutes);
     router.use('/activity', requireDatabase, activityRoutes);
     router.use('/auth', authRateLimiter, authRoutes);
     router.use('/messages', requireDatabase, messageRoutes);

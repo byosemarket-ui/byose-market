@@ -9,6 +9,7 @@ const sqliteSettingsRepository = require('./sqlite/settings.repository');
 const sqliteStorefrontStateRepository = require('./sqlite/storefront-state.repository');
 const sqliteUserRepository = require('./sqlite/user.repository');
 const sqliteMessageRepository = require('./sqlite/message.repository');
+const sqliteHeroSlideRepository = require('./sqlite/hero-slide.repository');
 
 const sqliteRepositories = {
     activity: sqliteActivityRepository,
@@ -20,7 +21,8 @@ const sqliteRepositories = {
     settings: sqliteSettingsRepository,
     storefrontStates: sqliteStorefrontStateRepository,
     users: sqliteUserRepository,
-    messages: sqliteMessageRepository
+    messages: sqliteMessageRepository,
+    heroSlides: sqliteHeroSlideRepository
 };
 
 function getRepositoryBundle() {

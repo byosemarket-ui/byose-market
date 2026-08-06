@@ -13,6 +13,7 @@ import { renderAnalytics } from "./pages/analytics.js";
 import { renderInventory } from "./pages/inventory.js";
 import { renderActivity } from "./pages/activity.js";
 import { renderSettings } from "./pages/settings.js";
+import { renderHeroSlider } from "./pages/hero-slider/index.js";
 import { ADMIN_SYNC_EVENT, startRealtimeAnalyticsSync, stopRealtimeAnalyticsSync } from "./services/admin-data.service.js";
 
 const pageMap = {
@@ -24,7 +25,8 @@ const pageMap = {
   analytics: renderAnalytics,
   inventory: renderInventory,
   activity: renderActivity,
-  settings: renderSettings
+  settings: renderSettings,
+  heroslider: renderHeroSlider
 };
 
 let activeRenderToken = 0;
@@ -35,7 +37,7 @@ let inAppSyncRefreshTimer = null;
 let stopRealtimeSync = null;
 let bootstrapFailureHandled = false;
 
-const REFRESHABLE_ROUTES = new Set(["dashboard", "enterprise", "orders", "customers", "products", "analytics", "inventory", "activity"]);
+const REFRESHABLE_ROUTES = new Set(["dashboard", "enterprise", "orders", "customers", "products", "analytics", "inventory", "activity", "heroslider"]);
 const ROUTE_SCOPE_MAP = {
   dashboard: new Set(["dashboard", "orders", "customers", "products", "activity", "messages", "analytics", "inventory", "carts", "intelligence"]),
   enterprise: new Set(["dashboard", "orders", "customers", "products", "activity", "messages", "analytics", "inventory", "carts", "intelligence"]),
@@ -44,7 +46,8 @@ const ROUTE_SCOPE_MAP = {
   products: new Set(["products", "intelligence"]),
   analytics: new Set(["analytics", "orders", "customers", "activity", "messages", "dashboard", "intelligence"]),
   inventory: new Set(["inventory", "products", "intelligence"]),
-  activity: new Set(["activity", "messages", "intelligence"])
+  activity: new Set(["activity", "messages", "intelligence"]),
+  heroslider: new Set(["heroslider"])
 };
 
 function routeShouldRefreshForScope(routeKey, scope) {

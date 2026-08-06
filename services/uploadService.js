@@ -5,6 +5,7 @@ import {
 } from "./api-origin.js";
 
 export const PRODUCTS_BUCKET = "products";
+export const HERO_BUCKET = "hero";
 
 const DEFAULT_UPLOAD_RETRY_COUNT = 2;
 
@@ -151,7 +152,7 @@ async function uploadSingleAsset(source, options = {}) {
     throw new Error("Local preview images must be uploaded as files before saving.");
   }
 
-  if (/^(?:https?:|\/|\.)/i.test(normalized) || /^(?:products|categories|users|reviews|temp)\//i.test(normalized)) {
+  if (/^(?:https?:|\/|\.)/i.test(normalized) || /^(?:products|categories|users|reviews|hero|temp)\//i.test(normalized)) {
     reportProgress(options.onProgress, options.progressLabel || "Using existing asset reference", { phase: "reference" });
     const publicUrl = normalized.startsWith("/") ? normalized : `/uploads/${normalized.replace(/^\/+/, "")}`;
     return {
@@ -230,6 +231,7 @@ export async function removeStoredAssets(paths = []) {
 
 export default {
   PRODUCTS_BUCKET,
+  HERO_BUCKET,
   uploadWithRetry,
   uploadProductGallery,
   removeStoredAssets
