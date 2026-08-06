@@ -10,6 +10,13 @@
 #   VPS_PORT    - SSH port (e.g. 22; required — use 22 if standard)
 #   VPS_SSH_KEY - Private SSH key (PEM) with access to the VPS
 #
+# Deployment blockers observed in Actions annotations:
+#   1) GitHub account billing lock prevents runners from starting
+#      ("The job was not started because your account is locked due to a billing issue.")
+#   2) Built-in "pages build and deployment" is unrelated to production VPS.
+#      Disable GitHub Pages (Settings → Pages → None) to stop deployment_queued
+#      timeouts on the Pages deploy job. Production is served from the VPS.
+#
 # VPS prerequisites (one-time setup):
 #   1. Clone this repo to /root/BYOSESEMARKET4
 #   2. Configure /root/BYOSESEMARKET4/.env for production
@@ -27,10 +34,11 @@ on:
   # Allows manual redeploy from the GitHub Actions tab without a new commit.
   workflow_dispatch:
 
-# Prevent overlapping production deploys; queue new runs instead of cancelling.
+# Prevent overlapping production deploys. Cancel older queued/in-progress runs so
+# a stuck job cannot block the latest production push indefinitely.
 concurrency:
   group: production-vps-deploy
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -42,18 +50,33 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      # -----------------------------------------------------------------------
-      # Step 1: Checkout is not required for SSH deploy, but keeps the job
-      # auditable and allows future pre-deploy checks from the repo if needed.
-      # -----------------------------------------------------------------------
+      - name: Verify required deploy secrets
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in VPS_HOST VPS_USER VPS_PORT VPS_SSH_KEY; do
+            # Secrets are injected as env below; empty means missing/misconfigured.
+            eval "value=\${$name:-}"
+            if [[ -z "${value}" ]]; then
+              echo "::error::Missing required repository secret: ${name}"
+              missing=1
+            else
+              echo "Secret ${name} is present."
+            fi
+          done
+          if [[ "${missing}" -ne 0 ]]; then
+            echo "::error::Configure VPS_HOST, VPS_USER, VPS_PORT, and VPS_SSH_KEY in repository Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # -----------------------------------------------------------------------
-      # Step 2: Deploy over SSH using repository secrets.
-      # The remote script fetches origin/main, installs deps, reloads PM2,
-      # and verifies /healthz before reporting success.
-      # -----------------------------------------------------------------------
       - name: Deploy to VPS via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -68,18 +91,11 @@ jobs:
             export DEPLOY_DIR="/root/BYOSESEMARKET4"
             export DEPLOY_BRANCH="main"
             cd "${DEPLOY_DIR}"
-            # Pull latest code before running the versioned deploy script so the
-            # first workflow run succeeds even when deploy-vps.sh is newly added.
             git fetch origin "${DEPLOY_BRANCH}"
             git reset --hard "origin/${DEPLOY_BRANCH}"
             chmod +x scripts/deploy-vps.sh 2>/dev/null || true
             bash scripts/deploy-vps.sh
 
-      # -----------------------------------------------------------------------
-      # Step 3: External API smoke test against the VPS API port.
-      # Uses the direct API health endpoint (not https://byosemarket.com/healthz,
-      # which serves storefront HTML via nginx). Requires HTTP 200 + JSON status.
-      # -----------------------------------------------------------------------
       - name: Verify public production health endpoint
         env:
           PUBLIC_HEALTH_URL: https://byosemarket.com/healthz
