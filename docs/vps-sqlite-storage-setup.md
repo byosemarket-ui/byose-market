@@ -6,10 +6,11 @@ Target environment: InterServer Ubuntu 24.04 VPS
 - **Host Server:** KVM509
 - **IP Address:** 153.75.227.160
 - **SSH:** `ssh root@153.75.227.160`
-- **Deploy root (API):** `/root/BYOSESEMARKET4/`
+- **GitHub:** https://github.com/byosemarket-ui/byose-market
+- **Deploy root (API):** `/root/byose-market/` (legacy: `/root/BYOSESEMARKET4/`)
 - **Storefront web root:** `/var/www/byosemarket/`
-- **SQLite DB:** `/root/BYOSESEMARKET4/server/database/byosemarket.sqlite`
-- **Uploads root:** `/root/BYOSESEMARKET4/server/uploads/`
+- **SQLite DB:** `/root/byose-market/server/database/byosemarket.sqlite`
+- **Uploads root:** `/var/lib/byosemarket/uploads/` (preferred; legacy under deploy root `server/uploads/`)
 
 ## Architecture
 

@@ -5,7 +5,15 @@
 #
 set -euo pipefail
 
-DEPLOY_DIR="${DEPLOY_DIR:-/root/BYOSESEMARKET4}"
+if [[ -z "${DEPLOY_DIR:-}" ]]; then
+  if [[ -d "/root/byose-market" ]]; then
+    DEPLOY_DIR="/root/byose-market"
+  elif [[ -d "/root/BYOSESEMARKET4" ]]; then
+    DEPLOY_DIR="/root/BYOSESEMARKET4"
+  else
+    DEPLOY_DIR="/root/byose-market"
+  fi
+fi
 UPLOADS_DIR="${UPLOADS_DIR:-/var/lib/byosemarket/uploads}"
 LEGACY_UPLOADS_DIR="${LEGACY_UPLOADS_DIR:-${DEPLOY_DIR}/server/uploads}"
 
@@ -49,12 +57,13 @@ sync_legacy_uploads() {
 }
 
 log "Ensuring uploads directory exists: ${UPLOADS_DIR}"
-mkdir -p "${UPLOADS_DIR}/products" "${UPLOADS_DIR}/categories" "${UPLOADS_DIR}/users" "${UPLOADS_DIR}/reviews" "${UPLOADS_DIR}/temp"
+mkdir -p "${UPLOADS_DIR}/products" "${UPLOADS_DIR}/categories" "${UPLOADS_DIR}/users" "${UPLOADS_DIR}/reviews" "${UPLOADS_DIR}/temp" "${UPLOADS_DIR}/hero"
 chmod -R u+rwX,go+rX "${UPLOADS_DIR}"
 
 sync_legacy_uploads "${LEGACY_UPLOADS_DIR}"
 
 for legacy_root in \
+  "/root/byose-market/server/uploads" \
   "/root/BYOSESEMARKET4/server/uploads" \
   "${DEPLOY_DIR}/server/uploads"
 do

@@ -4,11 +4,20 @@
 # verify that a real on-disk product image is publicly reachable.
 #
 # Run on the VPS as root:
-#   cd /root/BYOSESEMARKET4 && bash scripts/fix-vps-uploads-serving.sh
+#   cd /root/byose-market && bash scripts/fix-vps-uploads-serving.sh
+#   # legacy path still supported: /root/BYOSESEMARKET4
 #
 set -euo pipefail
 
-DEPLOY_DIR="${DEPLOY_DIR:-/root/BYOSESEMARKET4}"
+if [[ -z "${DEPLOY_DIR:-}" ]]; then
+  if [[ -d "/root/byose-market" ]]; then
+    DEPLOY_DIR="/root/byose-market"
+  elif [[ -d "/root/BYOSESEMARKET4" ]]; then
+    DEPLOY_DIR="/root/BYOSESEMARKET4"
+  else
+    DEPLOY_DIR="/root/byose-market"
+  fi
+fi
 UPLOADS_DIR="${UPLOADS_DIR:-/var/lib/byosemarket/uploads}"
 NGINX_SITE="${NGINX_SITE:-/etc/nginx/sites-available/byosemarket}"
 NGINX_ENABLED="${NGINX_ENABLED:-/etc/nginx/sites-enabled/byosemarket}"

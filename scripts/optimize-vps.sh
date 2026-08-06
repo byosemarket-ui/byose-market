@@ -7,11 +7,20 @@
 #   - Reload nginx + PM2 and verify health/API latency
 #
 # Run on the VPS as root:
-#   cd /root/BYOSESEMARKET4 && bash scripts/optimize-vps.sh
+#   cd /root/byose-market && bash scripts/optimize-vps.sh
+#   # legacy path still supported: /root/BYOSESEMARKET4
 #
 set -euo pipefail
 
-DEPLOY_DIR="${DEPLOY_DIR:-/root/BYOSESEMARKET4}"
+if [[ -z "${DEPLOY_DIR:-}" ]]; then
+  if [[ -d "/root/byose-market" ]]; then
+    DEPLOY_DIR="/root/byose-market"
+  elif [[ -d "/root/BYOSESEMARKET4" ]]; then
+    DEPLOY_DIR="/root/BYOSESEMARKET4"
+  else
+    DEPLOY_DIR="/root/byose-market"
+  fi
+fi
 WEB_ROOT="${WEB_ROOT:-/var/www/byosemarket}"
 UPLOADS_DIR="${UPLOADS_DIR:-/var/lib/byosemarket/uploads}"
 NGINX_SITE="${NGINX_SITE:-/etc/nginx/sites-available/byosemarket}"
@@ -20,6 +29,7 @@ NGINX_SNIPPET_UPLOADS="${NGINX_SNIPPET_UPLOADS:-/etc/nginx/snippets/byosemarket-
 NGINX_SNIPPET_STATIC="${NGINX_SNIPPET_STATIC:-/etc/nginx/snippets/byosemarket-static-assets.conf}"
 PM2_APP_NAME="${PM2_APP_NAME:-byosemarket-api}"
 API_PORT="${API_PORT:-5000}"
+GITHUB_REPO_URL="${GITHUB_REPO_URL:-https://github.com/byosemarket-ui/byose-market.git}"
 
 log() { printf '[optimize-vps] %s\n' "$*"; }
 warn() { printf '[optimize-vps] WARNING: %s\n' "$*" >&2; }

@@ -1,10 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEPLOY_DIR="${DEPLOY_DIR:-/root/BYOSESEMARKET4}"
+DEPLOY_DIR="${DEPLOY_DIR:-}"
+GITHUB_REPO_URL="${GITHUB_REPO_URL:-https://github.com/byosemarket-ui/byose-market.git}"
 API_PORT="${API_PORT:-5000}"
 
+if [[ -z "${DEPLOY_DIR}" ]]; then
+  if [[ -d "/root/byose-market" ]]; then
+    DEPLOY_DIR="/root/byose-market"
+  elif [[ -d "/root/BYOSESEMARKET4" ]]; then
+    DEPLOY_DIR="/root/BYOSESEMARKET4"
+  else
+    DEPLOY_DIR="/root/byose-market"
+  fi
+fi
+
 echo "[setup-vps-proxy] API repo: ${DEPLOY_DIR}"
+echo "[setup-vps-proxy] GitHub remote: ${GITHUB_REPO_URL}"
 
 if [[ ! -d "${DEPLOY_DIR}" ]]; then
   echo "[setup-vps-proxy] ERROR: ${DEPLOY_DIR} does not exist."
@@ -12,6 +24,10 @@ if [[ ! -d "${DEPLOY_DIR}" ]]; then
 fi
 
 cd "${DEPLOY_DIR}"
+
+if [[ -d .git ]]; then
+  git remote set-url origin "${GITHUB_REPO_URL}"
+fi
 
 if ! command -v nginx >/dev/null 2>&1; then
   echo "[setup-vps-proxy] Installing nginx..."

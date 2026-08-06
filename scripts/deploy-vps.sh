@@ -4,8 +4,9 @@
 # Invoked by GitHub Actions after git fetch/reset, or manually on the server.
 #
 # Environment overrides (optional):
-#   DEPLOY_DIR        - repository path on the VPS (default: /root/BYOSESEMARKET4)
+#   DEPLOY_DIR        - repository path on the VPS (default: /root/byose-market, legacy /root/BYOSESEMARKET4)
 #   DEPLOY_BRANCH     - branch to deploy (default: main)
+#   GITHUB_REPO_URL   - canonical GitHub remote (default: https://github.com/byosemarket-ui/byose-market.git)
 #   PM2_APP_NAME      - PM2 process name (default: byosemarket-api)
 #   API_PORT          - API port for health checks (default: 5000)
 #   VPS_HEALTH_HOST   - preferred health-check host (default: 127.0.0.1)
@@ -14,7 +15,16 @@
 #
 set -euo pipefail
 
-DEPLOY_DIR="${DEPLOY_DIR:-/root/BYOSESEMARKET4}"
+GITHUB_REPO_URL="${GITHUB_REPO_URL:-https://github.com/byosemarket-ui/byose-market.git}"
+if [[ -z "${DEPLOY_DIR:-}" ]]; then
+  if [[ -d "/root/byose-market/.git" || -d "/root/byose-market" ]]; then
+    DEPLOY_DIR="/root/byose-market"
+  elif [[ -d "/root/BYOSESEMARKET4/.git" || -d "/root/BYOSESEMARKET4" ]]; then
+    DEPLOY_DIR="/root/BYOSESEMARKET4"
+  else
+    DEPLOY_DIR="/root/byose-market"
+  fi
+fi
 WEB_ROOT="${WEB_ROOT:-/var/www/byosemarket}"
 DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
 PM2_APP_NAME="${PM2_APP_NAME:-byosemarket-api}"
@@ -227,8 +237,13 @@ fi
 cd "${DEPLOY_DIR}"
 
 log "Repository: ${DEPLOY_DIR}"
+log "Canonical remote: ${GITHUB_REPO_URL}"
 log "Branch: origin/${DEPLOY_BRANCH}"
 log "Commit before update: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
+log "Pointing origin at the canonical GitHub repository..."
+git remote set-url origin "${GITHUB_REPO_URL}"
+git remote -v
 
 log "Fetching latest code from GitHub..."
 git fetch origin "${DEPLOY_BRANCH}"
