@@ -34,6 +34,7 @@ fi
 echo "[setup-vps-proxy] Verifying local API health..."
 curl -fsS "http://127.0.0.1:${API_PORT}/healthz" >/dev/null
 curl -fsS "http://127.0.0.1/healthz" >/dev/null
+curl -fsS "http://127.0.0.1:${API_PORT}/api/products?limit=1" >/dev/null
 curl -fsS "http://127.0.0.1/api/products?limit=1" >/dev/null
 
 echo "[setup-vps-proxy] PASS - nginx serves /uploads from disk and proxies /api to port ${API_PORT}"

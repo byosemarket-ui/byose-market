@@ -120,6 +120,8 @@ sync_storefront_static() {
     product-details.html
     product-details2.html
     checkout.html
+    products.html
+    order-success.html
     shop.css
     mobile-nav.css
     contact.css

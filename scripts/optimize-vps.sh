@@ -170,14 +170,27 @@ curl -fsS --max-time 10 "http://127.0.0.1/healthz" >/dev/null || fail "Nginx /he
 
 PRODUCTS_HEADERS="$(mktemp)"
 PRODUCTS_BODY="$(mktemp)"
+
+# Prefer the direct Node listener first so deploy health is not blocked by the
+# public HTTP→HTTPS redirect on port 80. Then confirm nginx still proxies /api.
 HTTP_CODE="$(curl -sS -o "${PRODUCTS_BODY}" -D "${PRODUCTS_HEADERS}" -w "%{http_code}" \
   -H 'Accept-Encoding: gzip' \
   --max-time 20 \
-  "http://127.0.0.1/api/products?limit=20&fields=card" || printf '000')"
+  "http://127.0.0.1:${API_PORT}/api/products?limit=20&fields=card" || printf '000')"
 
 if [[ "${HTTP_CODE}" != "200" ]]; then
   rm -f "${PRODUCTS_HEADERS}" "${PRODUCTS_BODY}"
-  fail "Product API returned HTTP ${HTTP_CODE}"
+  fail "Product API returned HTTP ${HTTP_CODE} on port ${API_PORT}"
+fi
+
+NGINX_PRODUCTS_CODE="$(curl -sS -o /dev/null -w "%{http_code}" \
+  -H 'Accept-Encoding: gzip' \
+  --max-time 20 \
+  "http://127.0.0.1/api/products?limit=1&fields=card" || printf '000')"
+
+if [[ "${NGINX_PRODUCTS_CODE}" != "200" ]]; then
+  rm -f "${PRODUCTS_HEADERS}" "${PRODUCTS_BODY}"
+  fail "Nginx product API proxy returned HTTP ${NGINX_PRODUCTS_CODE}"
 fi
 
 BYTES="$(wc -c < "${PRODUCTS_BODY}" | tr -d ' ')"

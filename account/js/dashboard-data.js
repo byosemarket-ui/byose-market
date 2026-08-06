@@ -84,9 +84,14 @@
   }
 
   async function loadProducts() {
-    const base = String(window.__BYOSE_API_BASE__ || window.location.origin || '').replace(/\/+$/, '');
+    const configured = String(window.__BYOSE_API_BASE__ || window.BYOSE_API_BASE_URL || '').replace(/\/+$/, '');
+    const origin = String(window.location.origin || '').replace(/\/+$/, '');
+    const productsUrl = configured
+      ? (/\/api$/i.test(configured) ? `${configured}/products?limit=4` : `${configured}/api/products?limit=4`)
+      : `${origin}/api/products?limit=4`;
+
     try {
-      const response = await fetch(`${base}/api/products?limit=4`, { headers: { Accept: 'application/json' } });
+      const response = await fetch(productsUrl, { headers: { Accept: 'application/json' } });
       const payload = await response.json();
       return Array.isArray(payload?.products) ? payload.products : (Array.isArray(payload) ? payload : []);
     } catch (error) {
