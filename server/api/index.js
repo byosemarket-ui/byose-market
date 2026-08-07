@@ -5,6 +5,12 @@ const adminCustomerRoutes = require('../routes/admincustomers');
 const adminCartRoutes = require('../routes/admincarts');
 const adminDashboardRoutes = require('../routes/admindashboard');
 const adminSettingsRoutes = require('../routes/adminsettings');
+const adminProfileRoutes = require('../routes/adminprofile');
+const adminSecurityRoutes = require('../routes/adminsecurity');
+const adminPasswordRoutes = require('../routes/adminpassword');
+const adminBrandingRoutes = require('../routes/adminbranding');
+const adminDeliveryRoutes = require('../routes/admindelivery');
+const adminSeoRoutes = require('../routes/adminseo');
 const adminMessageRoutes = require('../routes/adminmessages');
 const adminOrderRoutes = require('../routes/adminorders');
 const adminActivityRoutes = require('../routes/adminactivity');
@@ -22,6 +28,8 @@ const cartRoutes = require('../routes/cart');
 const orderRoutes = require('../routes/orders');
 const storefrontStateRoutes = require('../routes/storefrontstate');
 const uploadRoutes = require('./routes/uploads');
+const publicSettingsRoutes = require('../routes/publicsettings');
+const publicShippingRoutes = require('../routes/publicshipping');
 
 const authRateLimiter = createRateLimiter({
     windowMs: 15 * 60 * 1000,
@@ -52,6 +60,12 @@ function createApiRouter() {
     router.use('/admin/carts', requireDatabase, adminCartRoutes);
     router.use('/admin/dashboard', requireDatabase, adminDashboardRoutes);
     router.use('/admin/settings', requireDatabase, adminSettingsRoutes);
+    router.use('/admin/profile', requireDatabase, adminProfileRoutes);
+    router.use('/admin/security', requireDatabase, adminSecurityRoutes);
+    router.use('/admin/password', requireDatabase, adminPasswordRoutes);
+    router.use('/admin/branding', requireDatabase, adminBrandingRoutes);
+    router.use('/admin/delivery', requireDatabase, adminDeliveryRoutes);
+    router.use('/admin/seo', requireDatabase, adminSeoRoutes);
     router.use('/admin/messages', requireDatabase, adminMessageRoutes);
     router.use('/admin/orders', requireDatabase, adminOrderRoutes);
     router.use('/admin/activity', requireDatabase, adminActivityRoutes);
@@ -67,6 +81,8 @@ function createApiRouter() {
     router.use('/orders', requireDatabase, orderRoutes);
     router.use('/storefront/state', requireDatabase, storefrontStateRoutes);
     router.use('/realtime', realtimeRateLimiter, realtimeRoutes);
+    router.use('/settings', publicSettingsRoutes);
+    router.use('/shipping', publicShippingRoutes);
     router.use('/uploads', uploadRoutes);
 
     router.use((_req, res) => {

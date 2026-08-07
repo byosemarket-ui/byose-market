@@ -1,66 +1,71 @@
-import { emptyState, panel } from "../components/ui.js";
-import { getSettings, updateSettings } from "../services/admin-data.service.js";
+import { panel } from "../components/ui.js";
+import { renderAdminProfilePanel } from "./settings-profile.js";
+import { renderAdminSecurityPanel } from "./settings-security.js";
+import { renderAdminPasswordPanel } from "./settings-password.js";
+import { renderAdminGeneralPanel } from "./settings-general.js";
+import { renderAdminBrandingPanel } from "./settings-branding.js";
+import { renderAdminDeliveryPanel } from "./settings-delivery.js";
+import { renderAdminSeoPanel } from "./settings-seo.js";
+import { renderAdminLogoutPanel } from "./settings-logout.js";
 
-function settingsForm(settings) {
-  return `
-    <form class="settings-form" id="settingsForm">
-      <label>
-        <span>Store Name</span>
-        <input name="storeName" type="text" value="${String(settings?.storeName || "").replace(/\"/g, "&quot;")}" />
-      </label>
-      <label>
-        <span>Support Email</span>
-        <input name="supportEmail" type="email" value="${String(settings?.supportEmail || "").replace(/\"/g, "&quot;")}" />
-      </label>
-      <label>
-        <span>Support Phone</span>
-        <input name="supportPhone" type="text" value="${String(settings?.supportPhone || "").replace(/\"/g, "&quot;")}" />
-      </label>
-      <label>
-        <span>Default Currency</span>
-        <input name="currency" type="text" value="${String(settings?.currency || "RWF").replace(/\"/g, "&quot;")}" />
-      </label>
-      <button class="btn btn-primary" type="submit">Save Settings</button>
-      <p id="settingsFeedback" class="form-feedback"></p>
-    </form>
-  `;
+function getSettingsPanel() {
+  const hash = String(window.location.hash || "");
+  const queryIndex = hash.indexOf("?");
+  if (queryIndex < 0) {
+    return "general";
+  }
+
+  const params = new URLSearchParams(hash.slice(queryIndex + 1));
+  const panelName = String(params.get("panel") || "general").trim().toLowerCase();
+  return panelName || "general";
 }
 
 export async function renderSettings(container) {
-  const settings = await getSettings();
+  const activePanel = getSettingsPanel();
 
-  container.innerHTML = panel(
-    "Settings",
-    "Centralized admin preferences and store configuration",
-    settingsForm(settings)
-  );
-
-  const form = document.getElementById("settingsForm");
-  const feedback = document.getElementById("settingsFeedback");
-
-  if (!form || !feedback) {
-    container.insertAdjacentHTML("beforeend", emptyState("Unable to mount settings form."));
+  if (activePanel === "profile") {
+    await renderAdminProfilePanel(container);
     return;
   }
 
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
+  if (activePanel === "security") {
+    await renderAdminSecurityPanel(container);
+    return;
+  }
 
-    const formData = new FormData(form);
-    const payload = {
-      storeName: String(formData.get("storeName") || "").trim(),
-      supportEmail: String(formData.get("supportEmail") || "").trim(),
-      supportPhone: String(formData.get("supportPhone") || "").trim(),
-      currency: String(formData.get("currency") || "RWF").trim() || "RWF"
-    };
+  if (activePanel === "password") {
+    await renderAdminPasswordPanel(container);
+    return;
+  }
 
-    feedback.textContent = "Saving settings...";
+  if (activePanel === "branding") {
+    await renderAdminBrandingPanel(container);
+    return;
+  }
 
-    try {
-      await updateSettings(payload);
-      feedback.textContent = "Settings saved successfully.";
-    } catch (error) {
-      feedback.textContent = error?.message || "Unable to save settings right now.";
-    }
-  });
+  if (activePanel === "delivery") {
+    await renderAdminDeliveryPanel(container);
+    return;
+  }
+
+  if (activePanel === "seo") {
+    await renderAdminSeoPanel(container);
+    return;
+  }
+
+  if (activePanel === "logout" || activePanel === "sessions") {
+    await renderAdminLogoutPanel(container);
+    return;
+  }
+
+  if (activePanel === "general" || !activePanel) {
+    await renderAdminGeneralPanel(container);
+    return;
+  }
+
+  container.innerHTML = panel(
+    "Admin Settings",
+    "Configuration modules",
+    `<p class="admin-profile-help">This settings panel is not available yet. Use General, Branding, Delivery, SEO, Profile, Security, Password, or Logout & Sessions.</p>`
+  );
 }

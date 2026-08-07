@@ -37,8 +37,17 @@ function persistRoute(routeKey) {
 }
 
 function setHashForRoute(routeKey) {
-  const targetHash = `#/${normalizeRouteKey(routeKey)}`;
-  const currentRouteHash = `#/${normalizeRouteKey(routeFromHash(window.location.hash) || "")}`;
+  const normalizedRoute = normalizeRouteKey(routeKey);
+  const targetHash = `#/${normalizedRoute}`;
+  const currentHash = String(window.location.hash || "");
+  const currentRouteKey = normalizeRouteKey(routeFromHash(currentHash) || "");
+
+  // Preserve query panels (e.g. #/settings?panel=profile) when already on that route.
+  if (currentRouteKey === normalizedRoute && currentHash.includes("?")) {
+    return;
+  }
+
+  const currentRouteHash = `#/${currentRouteKey}`;
   if (currentRouteHash !== targetHash) {
     window.location.hash = targetHash;
   }

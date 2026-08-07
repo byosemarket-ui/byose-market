@@ -84,7 +84,14 @@ form.addEventListener("submit", async (e) => {
         "Content-Type": "application/json",
         "Accept": "application/json"
       },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({
+        email,
+        password,
+        deviceFingerprint: window.AdminSecurity && typeof window.AdminSecurity.getDeviceFingerprint === "function"
+          ? window.AdminSecurity.getDeviceFingerprint()
+          : "",
+        deviceName: /Mobi|Android/i.test(navigator.userAgent || "") ? "Mobile browser" : "Desktop browser"
+      }),
       signal: requestController.signal
     }).finally(() => {
       window.clearTimeout(timeoutId);

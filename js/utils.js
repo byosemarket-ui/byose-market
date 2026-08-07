@@ -9,17 +9,25 @@ const Util = {
 
   // FORMATTING
   formatRWF: (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'RWF',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount || 0);
+    const currency = String(window.ByoseStoreSettings?.currency || 'RWF').toUpperCase();
+    const locale = String(window.ByoseStoreSettings?.numberFormat || 'en-US');
+    try {
+      return new Intl.NumberFormat(locale, {
+        style: 'currency',
+        currency,
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      }).format(amount || 0);
+    } catch (_error) {
+      return `${currency} ${Math.round(amount || 0).toLocaleString(locale)}`;
+    }
   },
 
   formatPrice: (amount) => {
-    if (!amount) return 'RWF 0';
-    return 'RWF ' + Math.round(amount).toLocaleString('en-US');
+    const currency = String(window.ByoseStoreSettings?.currencySymbol || window.ByoseStoreSettings?.currency || 'RWF');
+    const locale = String(window.ByoseStoreSettings?.numberFormat || 'en-US');
+    if (!amount) return `${currency} 0`;
+    return `${currency} ${Math.round(amount).toLocaleString(locale)}`;
   },
 
   // STORAGE

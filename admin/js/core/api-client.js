@@ -58,6 +58,14 @@
 		}
 	}
 
+	function getAdminSessionId() {
+		try {
+			return String(global.localStorage.getItem("adminSessionId") || "").trim();
+		} catch (error) {
+			return "";
+		}
+	}
+
 	function getBaseUrl() {
 		return String(global.AdminConfig?.apiBaseUrl || "").replace(/\/+$/, "");
 	}
@@ -77,15 +85,17 @@
 	async function request(path, options) {
 		const url = buildUrl(path);
 		const adminToken = getAdminToken();
+		const adminSessionId = getAdminSessionId();
 
 		const response = await fetch(url, {
+			...options,
 			headers: {
 				"Content-Type": "application/json",
 				"Accept": "application/json",
 				...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}),
+				...(adminSessionId ? { "X-Admin-Session-Id": adminSessionId } : {}),
 				...(options?.headers || {})
-			},
-			...options
+			}
 		});
 
 		const contentType = response.headers.get("content-type") || "";

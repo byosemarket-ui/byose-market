@@ -1,8 +1,13 @@
 const bcrypt = require("bcryptjs");
 const requireAdminAuth = require("../../server/middleware/requireadminauth");
 const userDataService = require("../../server/services/userdataservice");
+const adminProfileService = require("../../server/services/adminprofileservice");
+const adminSecurityService = require("../../server/services/adminsecurityservice");
 const { generateToken, getJwtConfig } = require("../../server/utils/token");
 const { appLogger, monitorAsyncOperation } = require("../../server/utils/logger");
+const crypto = require("crypto");
+const { parseUserAgent } = require("../../server/utils/useragent");
+const { setRuntimeAdminPasswordHash } = require("../../server/utils/adminpassword");
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const MAX_LOGIN_ATTEMPTS = 5;
@@ -76,6 +81,16 @@ function clearFailedAttempts(clientId) {
   loginAttempts.delete(clientId);
 }
 
+function getClientIp(req) {
+  const forwardedFor = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return forwardedFor || req.ip || req.socket?.remoteAddress || "unknown";
+}
+
+function detectDevice(userAgent) {
+  const parsed = parseUserAgent(userAgent);
+  return parsed.deviceName || "Web browser";
+}
+
 async function syncAdminUserRecord(adminEmail, adminPasswordHash, logger) {
   await monitorAsyncOperation(logger, "database.admin.upsert", { adminEmail }, () => userDataService.upsertAdminUser({
     publicId: buildAdminUserId(adminEmail),
@@ -84,6 +99,31 @@ async function syncAdminUserRecord(adminEmail, adminPasswordHash, logger) {
     name: "Administrator"
   }), { slowThresholdMs: 500 });
   logger.info("auth.admin.bootstrap_synced", { adminEmail });
+}
+
+async function recordSuccessfulAdminLogin(req, adminPayload, logger, options = {}) {
+  const sessionId = options.sessionId || `sess_${crypto.randomBytes(16).toString("hex")}`;
+  try {
+    const result = await adminSecurityService.createLoginSession(adminPayload, req, {
+      sessionId,
+      deviceFingerprint: options.deviceFingerprint || "",
+      deviceName: options.deviceName || "",
+      expiresAt: options.expiresAt || null,
+      tokenFingerprint: options.tokenFingerprint || "",
+      meta: options.meta || {}
+    });
+    logger.info("auth.admin.login_history_recorded", {
+      adminId: adminPayload.id,
+      sessionId: result.sessionId
+    });
+    return result;
+  } catch (error) {
+    logger.warn("auth.admin.login_history_failed", {
+      adminId: adminPayload.id,
+      error
+    });
+    return null;
+  }
 }
 
 exports.loginAdmin = async (req, res) => {
@@ -133,15 +173,35 @@ exports.loginAdmin = async (req, res) => {
       });
     }
 
-    const userFound = enteredEmail === adminEmail;
-    const passwordMatch = userFound
-      ? await bcrypt.compare(String(password), adminPasswordHash)
-      : false;
     const tokenPayload = {
       id: buildAdminUserId(adminEmail),
       email: adminEmail,
       role: "admin"
     };
+
+    const userFound = enteredEmail === adminEmail;
+    let passwordMatch = false;
+    let authSource = 'env';
+
+    if (userFound) {
+      passwordMatch = await bcrypt.compare(String(password), adminPasswordHash);
+      if (!passwordMatch) {
+        try {
+          const dbAdmin = await userDataService.findUserById(tokenPayload.id);
+          if (dbAdmin?.password && await bcrypt.compare(String(password), dbAdmin.password)) {
+            passwordMatch = true;
+            authSource = 'database';
+            try {
+              setRuntimeAdminPasswordHash(dbAdmin.password);
+            } catch (_error) {
+              // Keep login success even if runtime env sync fails.
+            }
+          }
+        } catch (_error) {
+          // Fall through to invalid credentials.
+        }
+      }
+    }
 
     if (!userFound || !passwordMatch) {
       recordFailedAttempt(clientId);
@@ -150,6 +210,15 @@ exports.loginAdmin = async (req, res) => {
         attemptCount: loginAttempts.get(clientId)?.count || 0,
         reason: !userFound ? 'user_not_found' : 'password_mismatch'
       });
+
+      void adminSecurityService.recordFailedLogin({
+        id: buildAdminUserId(adminEmail || enteredEmail),
+        email: enteredEmail
+      }, req, {
+        reason: !userFound ? 'user_not_found' : 'password_mismatch',
+        deviceFingerprint: String(req.body?.deviceFingerprint || "").trim()
+      }).catch(() => {});
+
       return res.status(401).json({
         success: false,
         message: "Invalid email or password"
@@ -160,22 +229,36 @@ exports.loginAdmin = async (req, res) => {
     logger.info('auth.admin.login_succeeded', {
       adminId: tokenPayload.id,
       adminEmail: tokenPayload.email,
-      authSource: 'env'
+      authSource
     });
 
-    void syncAdminUserRecord(adminEmail, adminPasswordHash, logger.child({ scope: 'admin_bootstrap' }))
-      .catch((error) => {
-        logger.warn('auth.admin.bootstrap_sync_failed', {
-          adminEmail,
-          error
-        });
-      });
+    let sessionProfile = {
+      id: tokenPayload.id,
+      email: tokenPayload.email,
+      role: tokenPayload.role
+    };
+    let loginSessionId = `sess_${crypto.randomBytes(16).toString("hex")}`;
+    let tokenOptions = { expiresIn: jwtConfig?.expiresIn || "7d" };
+    let sessionPolicyMeta = null;
+
+    try {
+      tokenOptions = await adminSecurityService.resolveLoginTokenOptions();
+      sessionPolicyMeta = {
+        sessionDurationHours: tokenOptions.sessionDurationHours,
+        idleTimeoutHours: tokenOptions.idleTimeoutHours,
+        sessionDurationMs: tokenOptions.sessionDurationMs,
+        idleTimeoutMs: tokenOptions.idleTimeoutMs
+      };
+    } catch (_error) {
+      tokenOptions = { expiresIn: jwtConfig?.expiresIn || "7d" };
+    }
 
     const token = generateToken({
       id: tokenPayload.id,
       email: tokenPayload.email,
-      role: tokenPayload.role
-    });
+      role: tokenPayload.role,
+      sid: loginSessionId
+    }, { expiresIn: tokenOptions.expiresIn });
 
     const encodedPayload = String(token).split('.')[1] || '';
     const decodedToken = Buffer.from(encodedPayload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
@@ -188,10 +271,41 @@ exports.loginAdmin = async (req, res) => {
       }
     } catch (_error) {}
 
+    try {
+      await syncAdminUserRecord(adminEmail, adminPasswordHash, logger.child({ scope: 'admin_bootstrap' }));
+      const loginRecord = await recordSuccessfulAdminLogin(req, tokenPayload, logger, {
+        sessionId: loginSessionId,
+        deviceFingerprint: String(req.body?.deviceFingerprint || "").trim(),
+        deviceName: String(req.body?.deviceName || "").trim() || detectDevice(req.headers["user-agent"]),
+        expiresAt,
+        tokenFingerprint: adminSecurityService.tokenFingerprint(token),
+        meta: {
+          trustDevice: Boolean(req.body?.trustDevice)
+        }
+      });
+      loginSessionId = String(loginRecord?.sessionId || loginSessionId);
+      if (loginRecord?.user) {
+        sessionProfile = adminProfileService.getPublicSessionProfile(loginRecord.user);
+      }
+
+      if (req.body?.trustDevice && String(req.body?.deviceFingerprint || "").trim()) {
+        await adminSecurityService.trustCurrentDevice(tokenPayload, req, {
+          deviceFingerprint: String(req.body.deviceFingerprint || "").trim(),
+          deviceName: String(req.body?.deviceName || "").trim()
+        });
+      }
+    } catch (error) {
+      logger.warn('auth.admin.bootstrap_sync_failed', {
+        adminEmail,
+        error
+      });
+    }
+
     logger.info('auth.admin.login_token_issued', {
       adminId: tokenPayload.id,
       adminEmail: tokenPayload.email,
       expiresAt: expiresAt || '',
+      sessionId: loginSessionId,
       jwtSecretSource: jwtConfig ? jwtConfig.secretSource : 'unknown'
     });
 
@@ -199,12 +313,10 @@ exports.loginAdmin = async (req, res) => {
       success: true,
       message: "Login successful",
       token,
-      admin: {
-        id: tokenPayload.id,
-        email: tokenPayload.email,
-        role: tokenPayload.role
-      },
-      expiresAt
+      admin: sessionProfile,
+      sessionId: loginSessionId || undefined,
+      expiresAt,
+      sessionPolicy: sessionPolicyMeta || undefined
     });
   } catch (error) {
     logger.error('auth.admin.login_error', { error });
@@ -218,19 +330,34 @@ exports.loginAdmin = async (req, res) => {
 
 exports.requireAdminAuth = requireAdminAuth;
 
-exports.getAdminSession = (req, res) => {
+exports.getAdminSession = async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  (req.log || appLogger).info('auth.admin.session_valid', {
-    adminId: req.admin.id,
-    adminEmail: req.admin.email,
+  const logger = req.log || appLogger;
+
+  let adminProfile = {
+    id: req.admin.id,
+    email: req.admin.email,
     role: req.admin.role
+  };
+
+  try {
+    const user = await adminProfileService.ensureAdminUser(req.admin);
+    adminProfile = adminProfileService.getPublicSessionProfile(user);
+  } catch (error) {
+    logger.warn('auth.admin.session_profile_enrich_failed', {
+      adminId: req.admin.id,
+      error
+    });
+  }
+
+  logger.info('auth.admin.session_valid', {
+    adminId: adminProfile.id,
+    adminEmail: adminProfile.email,
+    role: adminProfile.role
   });
+
   return res.status(200).json({
     success: true,
-    admin: {
-      id: req.admin.id,
-      email: req.admin.email,
-      role: req.admin.role
-    }
+    admin: adminProfile
   });
 };

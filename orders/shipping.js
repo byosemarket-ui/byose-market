@@ -1,4 +1,4 @@
-import { initCheckout, commitShipping, getState, guardStep, subscribe, updateShipping } from './core/state.js';
+import { initCheckout, commitShipping, getState, guardStep, setDeliveryQuote, subscribe, updateShipping } from './core/state.js';
 import { renderProgress, renderSidebar, renderStickyBar, showMessage } from './ui/layout.js';
 import {
   LOCATION_STATUS,
@@ -26,6 +26,67 @@ const gpsMapLink = document.getElementById('gpsMapLink');
 const gpsBadge = document.getElementById('gpsBadge');
 const gpsRetryBtn = document.getElementById('gpsRetryBtn');
 const shippingBackLink = document.getElementById('shippingBackLink');
+const deliveryMethodSelect = document.getElementById('deliveryMethodKey');
+const deliveryEstimate = document.getElementById('deliveryEstimate');
+let quoteTimer = null;
+
+async function loadDeliveryMethods() {
+  if (!deliveryMethodSelect || !window.ByoseShippingApi) return;
+  try {
+    const delivery = await window.ByoseShippingApi.getDeliveryConfig();
+    const methods = Array.isArray(delivery?.methods) ? delivery.methods : [];
+    if (!methods.length) return;
+    const current = deliveryMethodSelect.value || getState().deliveryMethodKey || 'homeDelivery';
+    deliveryMethodSelect.innerHTML = methods.map((method) => (
+      `<option value="${method.id}">${method.label}</option>`
+    )).join('');
+    deliveryMethodSelect.value = methods.some((method) => method.id === current)
+      ? current
+      : methods[0].id;
+  } catch (_error) {
+    // Keep default option.
+  }
+}
+
+async function refreshShippingQuote() {
+  if (!window.ByoseShippingApi?.calculateShipping) return;
+  const state = getState();
+  const address = {
+    country: 'Rwanda',
+    ...readAddressFields()
+  };
+  const method = deliveryMethodSelect?.value || state.deliveryMethodKey || 'homeDelivery';
+  try {
+    const quote = await window.ByoseShippingApi.calculateShipping({
+      subtotal: state.totals?.subtotal || 0,
+      address,
+      method
+    });
+    setDeliveryQuote({
+      fee: quote.fee,
+      method: quote.method,
+      estimate: quote.estimatedDelivery
+    });
+    if (deliveryEstimate) {
+      const feeLabel = `${Number(quote.fee || 0).toLocaleString('en-US')} RWF`;
+      deliveryEstimate.textContent = quote.freeDeliveryApplied
+        ? `Free delivery applied · ETA ${quote.estimatedDelivery || '—'}`
+        : `Shipping ${feeLabel} · ETA ${quote.estimatedDelivery || '—'}`;
+    }
+    render();
+  } catch (error) {
+    if (deliveryEstimate) {
+      deliveryEstimate.textContent = error?.message || 'Unable to calculate shipping for this address yet.';
+    }
+  }
+}
+
+function scheduleQuoteRefresh() {
+  clearTimeout(quoteTimer);
+  quoteTimer = setTimeout(() => {
+    void refreshShippingQuote();
+  }, 350);
+}
 
 function syncShippingBackLink() {
   if (!shippingBackLink) return;
@@ -165,8 +226,13 @@ function applyPositionToState(position) {
   });
 }
 
-function handleContinue() {
+async function handleContinue() {
   showMessage(messageEl, '');
+  try {
+    await refreshShippingQuote();
+  } catch (_error) {
+    // Quote failures are surfaced in the estimate helper text.
+  }
   const result = commitShipping(readForm());
   if (!result.valid) {
     showErrors(result.errors || {});
@@ -247,6 +313,13 @@ form?.addEventListener('input', (event) => {
     showMessage(messageEl, '');
   }
   updateShipping(readForm());
+  if (['provinceCity', 'district', 'sector', 'cell', 'village', 'deliveryMethodKey'].includes(target?.name)) {
+    scheduleQuoteRefresh();
+  }
+});
+deliveryMethodSelect?.addEventListener('change', () => {
+  updateShipping(readForm());
+  scheduleQuoteRefresh();
 });
 form?.addEventListener('submit', (e) => { e.preventDefault(); handleContinue(); });
 continueBtn?.addEventListener('click', handleContinue);
@@ -254,6 +327,11 @@ continueBtn?.addEventListener('click', handleContinue);
 subscribe(() => render());
 
 await initCheckout('shipping');
+await loadDeliveryMethods();
+if (typeof window.ByoseShippingApi?.resolveDefaultFee === 'function') {
+  setDeliveryQuote({ fee: window.ByoseShippingApi.resolveDefaultFee() });
+}
+scheduleQuoteRefresh();
 const access = guardStep('shipping');
 if (!access.ok) {
   window.location.href = access.redirect;

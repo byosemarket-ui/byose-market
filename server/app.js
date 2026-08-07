@@ -171,6 +171,24 @@ function createApp() {
     });
 
     app.use('/api', cors(getCorsOptions()), apiRouter);
+
+    // Dynamic SEO surfaces (override static robots.txt / sitemap.xml when DB is ready).
+    app.get(['/robots.txt', '/sitemap.xml'], async (req, res, next) => {
+        try {
+            const databaseStatus = getDatabaseStatus();
+            if (!databaseStatus.ready) {
+                return next();
+            }
+            const adminSeoController = require('./controllers/adminseocontroller');
+            if (req.path === '/robots.txt') {
+                return adminSeoController.getRobotsTxt(req, res);
+            }
+            return adminSeoController.getSitemapXml(req, res);
+        } catch (error) {
+            return next(error);
+        }
+    });
+
     app.use(config.uploads.publicMountPath, express.static(config.uploads.rootDir, {
         fallthrough: false,
         index: false,

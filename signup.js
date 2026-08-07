@@ -362,6 +362,16 @@ function bindSignup() {
         if (isSubmitting) return;
         if (!validateSignup()) return;
 
+        const platformSettings = window.ByoseStoreSettings || {};
+        if (platformSettings.allowCustomerRegistration === false) {
+            showError('Customer registration is currently disabled.');
+            return;
+        }
+        if (platformSettings.maintenanceMode || String(platformSettings.storeStatus || '').toLowerCase() === 'closed') {
+            showError('The store is temporarily unavailable. Please try again later.');
+            return;
+        }
+
         const user = {
             name: nameInput.value.trim(),
             email: isEmailMode() ? emailInputSignup.value.trim().toLowerCase() : '',

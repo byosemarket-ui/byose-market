@@ -1,7 +1,7 @@
 const SQLiteBaseRepository = require('./base.repository');
 
-const DELIVERY_FEE = 2000;
-const COD_FEE = 0;
+const FALLBACK_DELIVERY_FEE = 2000;
+const FALLBACK_COD_FEE = 0;
 
 class SQLiteOrderRepository extends SQLiteBaseRepository {
     constructor() {
@@ -36,7 +36,10 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
         });
 
         const subtotal = this.toNumber(row.subtotal, 0);
-        const total = subtotal + DELIVERY_FEE + COD_FEE;
+        const shippingFee = this.toNumber(row.shipping_fee != null ? row.shipping_fee : row.delivery_fee, FALLBACK_DELIVERY_FEE);
+        const deliveryFee = this.toNumber(row.delivery_fee != null ? row.delivery_fee : row.shipping_fee, shippingFee);
+        const codFee = this.toNumber(row.cod_fee, FALLBACK_COD_FEE);
+        const total = this.toNumber(row.total_amount, subtotal + deliveryFee + codFee);
 
         return {
             id: this.normalizeText(row.legacy_id || row.order_id),
@@ -52,9 +55,9 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
             customerName: this.normalizeText(row.customer_name),
             customerImage: this.normalizeText(row.customer_image),
             subtotal,
-            shippingFee: DELIVERY_FEE,
-            deliveryFee: DELIVERY_FEE,
-            codFee: COD_FEE,
+            shippingFee,
+            deliveryFee,
+            codFee,
             totalAmount: total,
             totalPrice: total,
             total,
@@ -110,6 +113,11 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
 
     async create(order) {
         const now = this.now(order.createdAt);
+        const shippingFee = Math.max(0, this.toNumber(order.shippingFee != null ? order.shippingFee : order.deliveryFee, FALLBACK_DELIVERY_FEE));
+        const deliveryFee = Math.max(0, this.toNumber(order.deliveryFee != null ? order.deliveryFee : order.shippingFee, shippingFee));
+        const codFee = Math.max(0, this.toNumber(order.codFee, FALLBACK_COD_FEE));
+        const subtotal = this.toNumber(order.subtotal, 0);
+        const totalAmount = Math.max(0, this.toNumber(order.totalAmount != null ? order.totalAmount : order.total, subtotal + deliveryFee + codFee));
         const payload = {
             orderId: this.normalizeText(order.orderId),
             legacyId: this.normalizeText(order.id || order.orderId),
@@ -124,12 +132,12 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
             phoneNumber: this.normalizeText(order.phoneNumber),
             customerName: this.normalizeText(order.customerName),
             customerImage: this.normalizeText(order.customerImage),
-            subtotal: this.toNumber(order.subtotal, 0),
-            shippingFee: DELIVERY_FEE,
-            deliveryFee: DELIVERY_FEE,
-            codFee: COD_FEE,
-            totalAmount: this.toNumber(order.subtotal, 0) + DELIVERY_FEE + COD_FEE,
-            totalPrice: this.toNumber(order.subtotal, 0) + DELIVERY_FEE + COD_FEE,
+            subtotal,
+            shippingFee,
+            deliveryFee,
+            codFee,
+            totalAmount,
+            totalPrice: totalAmount,
             status: this.normalizeText(order.status, 'Pending'),
             orderStatus: this.normalizeText(order.orderStatus, 'pending'),
             paymentStatus: this.normalizeText(order.paymentStatus, 'pending'),

@@ -14,7 +14,8 @@ import { renderInventory } from "./pages/inventory.js";
 import { renderActivity } from "./pages/activity.js";
 import { renderSettings } from "./pages/settings.js";
 import { renderHeroSlider } from "./pages/hero-slider/index.js";
-import { ADMIN_SYNC_EVENT, startRealtimeAnalyticsSync, stopRealtimeAnalyticsSync } from "./services/admin-data.service.js";
+import { ADMIN_SYNC_EVENT, getAdminBranding, startRealtimeAnalyticsSync, stopRealtimeAnalyticsSync } from "./services/admin-data.service.js";
+import { applyAdminBranding, loadAndApplyAdminBranding } from "./utils/admin-branding.js";
 
 const pageMap = {
   dashboard: renderDashboard,
@@ -268,6 +269,11 @@ async function bootstrap() {
   renderAppShell(appRoot);
   bindLayoutActions();
   mountModalHandlers();
+
+  loadAndApplyAdminBranding(() => getAdminBranding({ force: true })).catch(() => {});
+  window.addEventListener("byose:admin-branding-updated", (event) => {
+    applyAdminBranding(event?.detail || {});
+  });
 
   const store = createStore({ route: "dashboard" });
 

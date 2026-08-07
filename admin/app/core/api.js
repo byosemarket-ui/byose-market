@@ -10,6 +10,14 @@ function getToken() {
   }
 }
 
+function getSessionId() {
+  try {
+    return String(window.localStorage.getItem("adminSessionId") || "").trim();
+  } catch (_error) {
+    return "";
+  }
+}
+
 function getBaseUrl() {
   const base = String(window.AdminConfig?.apiBaseUrl || "").replace(/\/+$/, "");
   return base || "";
@@ -87,6 +95,7 @@ async function fallbackRequest(path, options) {
   const url = buildUrl(path);
 
   const token = getToken();
+  const sessionId = getSessionId();
   const controller = new AbortController();
   const externalSignal = options?.signal;
   const abortForwarder = () => {
@@ -102,14 +111,15 @@ async function fallbackRequest(path, options) {
   }
 
   const response = await fetch(url, {
+    ...options,
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(sessionId ? { "X-Admin-Session-Id": sessionId } : {}),
       ...(options?.headers || {})
     },
-    signal: controller.signal,
-    ...options
+    signal: controller.signal
   }).finally(() => {
     if (externalSignal && typeof externalSignal.removeEventListener === "function") {
       externalSignal.removeEventListener("abort", abortForwarder);

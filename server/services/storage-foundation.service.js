@@ -38,6 +38,11 @@ function getUploadBuckets() {
             directory: config.uploads.heroDir,
             publicPath: toPublicPath('hero')
         },
+        branding: {
+            key: 'branding',
+            directory: config.uploads.brandingDir,
+            publicPath: toPublicPath('branding')
+        },
         temp: {
             key: 'temp',
             directory: config.uploads.tempDir,

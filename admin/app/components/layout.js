@@ -156,14 +156,25 @@ function readAdminSessionProfile() {
       : null;
     const profile = snapshot && snapshot.profile && typeof snapshot.profile === "object" ? snapshot.profile : null;
     const email = String(profile?.email || snapshot?.email || "admin@byosemarket.com").trim() || "admin@byosemarket.com";
-    const firstName = String(profile?.firstName || profile?.name || "Central").trim() || "Central";
-    const lastName = String(profile?.lastName || "Admin").trim() || "Admin";
+    const fullName = String(profile?.name || "").trim();
+    const firstName = String(profile?.firstName || fullName.split(/\s+/)[0] || "Central").trim() || "Central";
+    const lastName = String(
+      profile?.lastName
+      || (fullName.includes(" ") ? fullName.split(/\s+/).slice(1).join(" ") : "Admin")
+    ).trim() || "Admin";
     const role = String(profile?.role || "admin").trim() || "admin";
+    const avatarUrl = String(profile?.avatarUrl || "").trim();
+    const avatar = String(profile?.avatar || "").trim();
+    const resolvedAvatar = avatarUrl
+      || (avatar
+        ? (/^https?:\/\//i.test(avatar) || avatar.startsWith("/") ? avatar : `/uploads/${avatar.replace(/^\/+/, "")}`)
+        : "");
 
     return {
-      fullName: `${firstName} ${lastName}`.trim(),
+      fullName: fullName || `${firstName} ${lastName}`.trim(),
       email,
       role,
+      avatarUrl: resolvedAvatar,
       initials: `${firstName.charAt(0)}${lastName.charAt(0)}`.replace(/[^A-Za-z0-9]/g, "").toUpperCase() || "CA"
     };
   } catch (_error) {
@@ -171,6 +182,7 @@ function readAdminSessionProfile() {
       fullName: "Central Admin",
       email: "admin@byosemarket.com",
       role: "admin",
+      avatarUrl: "",
       initials: "CA"
     };
   }
@@ -338,7 +350,11 @@ export function renderAppShell(rootElement) {
               </div>
               <div class="header-panel-anchor header-profile-anchor">
                 <button class="header-profile" type="button" aria-label="Admin profile area" data-header-panel-toggle="profile" aria-expanded="false" aria-controls="headerProfilePanel">
-                  <span class="header-profile-avatar">${adminProfile.initials}</span>
+                  <span class="header-profile-avatar" id="headerProfileAvatar">
+                    ${adminProfile.avatarUrl
+                      ? `<img src="${adminProfile.avatarUrl}" alt="" />`
+                      : adminProfile.initials}
+                  </span>
                   <span class="header-profile-copy">
                     <strong id="headerProfileName">${adminProfile.fullName}</strong>
                     <span id="headerProfileRole">${adminProfile.role}</span>
@@ -346,11 +362,15 @@ export function renderAppShell(rootElement) {
                 </button>
                 <section class="header-panel header-profile-panel" id="headerProfilePanel" data-header-panel="profile" hidden>
                   <div class="header-panel-header header-profile-panel-header">
-                    <span class="header-profile-avatar header-profile-avatar-large">${adminProfile.initials}</span>
+                    <span class="header-profile-avatar header-profile-avatar-large" id="headerProfileAvatarLarge">
+                      ${adminProfile.avatarUrl
+                        ? `<img src="${adminProfile.avatarUrl}" alt="" />`
+                        : adminProfile.initials}
+                    </span>
                     <div>
                       <p>Signed in as</p>
-                      <strong>${adminProfile.fullName}</strong>
-                      <small>${adminProfile.email}</small>
+                      <strong id="headerProfilePanelDetail">${adminProfile.fullName}</strong>
+                      <small id="headerProfileEmailDetail">${adminProfile.email}</small>
                     </div>
                   </div>
                   <div class="header-panel-body header-panel-links">
@@ -683,6 +703,35 @@ export function bindLayoutActions() {
 
   syncResponsiveShellMode();
   syncNavigationState();
+
+  const syncHeaderProfileFromEvent = (event) => {
+    const next = readAdminSessionProfile();
+    const detailProfile = event?.detail?.profile;
+    const fullName = String(detailProfile?.name || next.fullName || "").trim() || next.fullName;
+    const role = String(detailProfile?.role || next.role || "admin");
+    const email = String(detailProfile?.email || next.email || "");
+    const avatarUrl = String(detailProfile?.avatarUrl || next.avatarUrl || "").trim();
+    const initials = next.initials;
+
+    const nameNode = document.getElementById("headerProfileName");
+    const roleNode = document.getElementById("headerProfileRole");
+    const detailName = document.getElementById("headerProfilePanelDetail");
+    const detailEmail = document.getElementById("headerProfileEmailDetail");
+    const avatarNode = document.getElementById("headerProfileAvatar");
+    const avatarLarge = document.getElementById("headerProfileAvatarLarge");
+
+    if (nameNode) nameNode.textContent = fullName;
+    if (roleNode) roleNode.textContent = role;
+    if (detailName) detailName.textContent = fullName;
+    if (detailEmail) detailEmail.textContent = email;
+
+    const safeAvatarUrl = avatarUrl.replace(/"/g, "");
+    const avatarHtml = safeAvatarUrl ? `<img src="${safeAvatarUrl}?v=${Date.now()}" alt="" />` : initials;
+    if (avatarNode) avatarNode.innerHTML = avatarHtml;
+    if (avatarLarge) avatarLarge.innerHTML = avatarHtml;
+  };
+
+  window.addEventListener("byose:admin-profile-updated", syncHeaderProfileFromEvent);
 }
 
 export function setRouteTitle(title) {

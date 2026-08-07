@@ -5,9 +5,12 @@
   var ADMIN_TOKEN_KEY = "adminToken";
   var ADMIN_TOKEN_EXPIRY_KEY = "adminTokenExpiresAt";
   var ADMIN_PROFILE_KEY = "adminProfile";
+  var ADMIN_SESSION_ID_KEY = "adminSessionId";
+  var ADMIN_DEVICE_FINGERPRINT_KEY = "adminDeviceFingerprint";
   var ADMIN_API_BASE_URL_KEY = "adminApiBaseUrl";
   var ADMIN_VALIDATED_API_BASE_URL_KEY = "adminValidatedApiBaseUrl";
   var ADMIN_LAST_VALIDATED_AT_KEY = "adminLastValidatedAt";
+  var ADMIN_IDLE_TIMEOUT_KEY = "adminIdleTimeoutMs";
   var DEFAULT_SESSION_MS = 8 * 60 * 60 * 1000;
   var SESSION_VALIDATION_GRACE_MS = 2 * 60 * 1000;
   var SESSION_VALIDATION_TIMEOUT_MS = 10000;
@@ -76,6 +79,10 @@
     var parsed = Number(raw);
     if (Number.isFinite(parsed) && parsed > 0) {
       return parsed;
+    }
+    var stored = Number(safeStorageGet(ADMIN_IDLE_TIMEOUT_KEY) || "");
+    if (Number.isFinite(stored) && stored > 0) {
+      return stored;
     }
     return DEFAULT_SESSION_MS;
   }
@@ -249,6 +256,16 @@
 
     safeStorageSet(ADMIN_PROFILE_KEY, JSON.stringify(admin));
 
+    if (payload && payload.sessionId) {
+      safeStorageSet(ADMIN_SESSION_ID_KEY, String(payload.sessionId));
+    }
+
+    if (payload && payload.sessionPolicy && Number(payload.sessionPolicy.idleTimeoutMs) > 0) {
+      safeStorageSet(ADMIN_IDLE_TIMEOUT_KEY, String(payload.sessionPolicy.idleTimeoutMs));
+    } else if (payload && payload.sessionPolicy && Number(payload.sessionPolicy.sessionDurationMs) > 0) {
+      safeStorageSet(ADMIN_IDLE_TIMEOUT_KEY, String(payload.sessionPolicy.sessionDurationMs));
+    }
+
     if (apiBaseUrl) {
       persistResolvedApiBaseUrl(apiBaseUrl);
     }
@@ -272,6 +289,8 @@
       email: safeStorageGet(ADMIN_EMAIL_KEY),
       token: getStoredToken(),
       expiresAt: safeStorageGet(ADMIN_TOKEN_EXPIRY_KEY),
+      sessionId: safeStorageGet(ADMIN_SESSION_ID_KEY) || "",
+      deviceFingerprint: safeStorageGet(ADMIN_DEVICE_FINGERPRINT_KEY) || "",
       apiBaseUrl: normalizeApiBaseUrl(safeStorageGet(ADMIN_API_BASE_URL_KEY)),
       validatedApiBaseUrl: readValidatedApiBaseUrl(),
       profile: (function () {
@@ -282,6 +301,31 @@
         }
       })()
     };
+  }
+
+  function getOrCreateDeviceFingerprint() {
+    var existing = String(safeStorageGet(ADMIN_DEVICE_FINGERPRINT_KEY) || "").trim();
+    if (existing) {
+      return existing;
+    }
+
+    var seed = [
+      String(navigator.userAgent || ""),
+      String(navigator.language || ""),
+      String(screen && screen.width ? screen.width : ""),
+      String(screen && screen.height ? screen.height : ""),
+      String(Intl && Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone : "")
+    ].join("|");
+
+    var hash = 2166136261;
+    for (var index = 0; index < seed.length; index += 1) {
+      hash ^= seed.charCodeAt(index);
+      hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+    }
+
+    var fingerprint = "dev_" + (hash >>> 0).toString(16) + "_" + String(seed.length);
+    safeStorageSet(ADMIN_DEVICE_FINGERPRINT_KEY, fingerprint);
+    return fingerprint;
   }
 
   function getStoredToken() {
@@ -355,6 +399,8 @@
     safeStorageRemove(ADMIN_TOKEN_KEY);
     safeStorageRemove(ADMIN_TOKEN_EXPIRY_KEY);
     safeStorageRemove(ADMIN_PROFILE_KEY);
+    safeStorageRemove(ADMIN_SESSION_ID_KEY);
+    safeStorageRemove(ADMIN_IDLE_TIMEOUT_KEY);
     safeStorageRemove(ADMIN_API_BASE_URL_KEY);
     safeStorageRemove(ADMIN_VALIDATED_API_BASE_URL_KEY);
     safeStorageRemove(ADMIN_LAST_VALIDATED_AT_KEY);
@@ -418,6 +464,29 @@
   }
 
   function logout() {
+    var token = getStoredToken();
+    var sessionId = String(safeStorageGet(ADMIN_SESSION_ID_KEY) || "").trim();
+    var apiBase = resolveApiBaseUrl();
+
+    if (token && sessionId && apiBase) {
+      try {
+        var url = apiBase.replace(/\/+$/, "") + "/admin/security/sessions/" + encodeURIComponent(sessionId) + "?confirmCurrent=true";
+        if (globalThis.fetch) {
+          fetch(url, {
+            method: "DELETE",
+            headers: {
+              Accept: "application/json",
+              Authorization: "Bearer " + token,
+              "X-Admin-Session-Id": sessionId
+            },
+            keepalive: true
+          }).catch(function () {});
+        }
+      } catch (_error) {
+        // Ignore revoke failures and continue local logout.
+      }
+    }
+
     clearAuth();
 
     try {
@@ -634,6 +703,10 @@
     getLoginUrl: getLoginUrl,
     getDashboardUrl: getDashboardUrl,
     getToken: getStoredToken,
+    getSessionId: function () {
+      return String(safeStorageGet(ADMIN_SESSION_ID_KEY) || "").trim();
+    },
+    getDeviceFingerprint: getOrCreateDeviceFingerprint,
     getApiBaseUrl: resolveApiBaseUrl,
     getSessionSnapshot: getSessionSnapshot,
     protectPage: protectPage

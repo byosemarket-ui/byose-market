@@ -156,10 +156,23 @@ function readMemoryCache(scope, ttlMs = IN_MEMORY_CACHE_TTL_MS) {
 }
 
 function writeMemoryCache(scope, payload) {
+  if (payload == null) {
+    scopeMemoryCache.delete(scope);
+    return;
+  }
   scopeMemoryCache.set(scope, {
     cachedAt: Date.now(),
     payload
   });
+}
+
+function clearScopeCache(scope) {
+  scopeMemoryCache.delete(scope);
+  try {
+    window.localStorage.removeItem(cacheKey(scope));
+  } catch (_error) {
+    // ignore
+  }
 }
 
 function getCachedScopePayload(scope, options = {}) {
@@ -1169,18 +1182,468 @@ export async function getInventory(options = {}) {
   }
 }
 
-export async function getSettings() {
+export async function getSettings(options = {}) {
+  const force = options?.force === true;
   const scope = "settings";
-  const cached = readCache(scope);
-  return asObject(cached?.payload || {});
+  const cached = getCachedScopePayload(scope);
+  if (!force && cached && typeof cached === "object" && Object.keys(cached).length) {
+    return asObject(cached);
+  }
+
+  const payload = await withRetry("admin/settings", () => api.get("admin/settings"));
+  const settings = asObject(payload?.settings || payload);
+  writeMemoryCache(scope, settings);
+  writeCache(scope, settings);
+  emitSync(scope, settings);
+  return settings;
 }
 
 export async function updateSettings(nextSettings) {
-  const safeSettings = asObject(nextSettings);
-  writeMemoryCache("settings", safeSettings);
-  writeCache("settings", safeSettings);
-  emitSync("settings", safeSettings);
-  return safeSettings;
+  const payload = await api.put("admin/settings", asObject(nextSettings));
+  const settings = asObject(payload?.settings || nextSettings);
+  writeMemoryCache("settings", settings);
+  writeCache("settings", settings);
+  emitSync("settings", settings);
+  return settings;
+}
+
+export async function getAdminBranding(options = {}) {
+  const force = options?.force === true;
+  const cached = getCachedScopePayload("admin-branding");
+  if (!force && cached && typeof cached === "object" && Object.keys(cached).length) {
+    return asObject(cached);
+  }
+
+  const payload = await withRetry("admin/branding", () => api.get("admin/branding"));
+  const branding = asObject(payload?.branding || payload);
+  writeMemoryCache("admin-branding", branding);
+  writeCache("admin-branding", branding);
+  emitSync("admin-branding", branding);
+  return branding;
+}
+
+export async function updateAdminBranding(nextBranding) {
+  const payload = await api.put("admin/branding", asObject(nextBranding));
+  const branding = asObject(payload?.branding || nextBranding);
+  writeMemoryCache("admin-branding", branding);
+  writeCache("admin-branding", branding);
+  emitSync("admin-branding", branding);
+  try {
+    window.dispatchEvent(new CustomEvent("byose:admin-branding-updated", { detail: branding }));
+  } catch (_error) {
+    // ignore
+  }
+  return branding;
+}
+
+export async function setAdminBrandingAsset(assetKey, assetPath) {
+  const payload = await api.post(`admin/branding/assets/${encodeURIComponent(assetKey)}`, {
+    path: String(assetPath || "").trim()
+  });
+  const branding = asObject(payload?.branding);
+  if (Object.keys(branding).length) {
+    writeMemoryCache("admin-branding", branding);
+    writeCache("admin-branding", branding);
+    emitSync("admin-branding", branding);
+    try {
+      window.dispatchEvent(new CustomEvent("byose:admin-branding-updated", { detail: branding }));
+    } catch (_error) {
+      // ignore
+    }
+  }
+  return branding;
+}
+
+export async function removeAdminBrandingAsset(assetKey) {
+  const payload = await api.remove(`admin/branding/assets/${encodeURIComponent(assetKey)}`);
+  const branding = asObject(payload?.branding);
+  if (Object.keys(branding).length) {
+    writeMemoryCache("admin-branding", branding);
+    writeCache("admin-branding", branding);
+    emitSync("admin-branding", branding);
+    try {
+      window.dispatchEvent(new CustomEvent("byose:admin-branding-updated", { detail: branding }));
+    } catch (_error) {
+      // ignore
+    }
+  }
+  return branding;
+}
+
+export async function getAdminDelivery(options = {}) {
+  const force = options?.force === true;
+  const cached = getCachedScopePayload("admin-delivery");
+  if (!force && cached && typeof cached === "object" && Object.keys(cached).length) {
+    return asObject(cached);
+  }
+
+  const payload = await withRetry("admin/delivery", () => api.get("admin/delivery"));
+  const delivery = asObject(payload?.delivery || payload);
+  writeMemoryCache("admin-delivery", delivery);
+  writeCache("admin-delivery", delivery);
+  emitSync("admin-delivery", delivery);
+  return delivery;
+}
+
+export async function updateAdminDelivery(nextDelivery) {
+  const payload = await api.put("admin/delivery", asObject(nextDelivery));
+  const delivery = asObject(payload?.delivery || nextDelivery);
+  writeMemoryCache("admin-delivery", delivery);
+  writeCache("admin-delivery", delivery);
+  emitSync("admin-delivery", delivery);
+  return delivery;
+}
+
+export async function createAdminDeliveryZone(zone) {
+  const payload = await api.post("admin/delivery/zones", asObject(zone));
+  clearScopeCache("admin-delivery");
+  emitSync("admin-delivery", null);
+  return asObject(payload?.zone || payload);
+}
+
+export async function updateAdminDeliveryZone(zoneId, updates) {
+  const payload = await api.put(`admin/delivery/zones/${encodeURIComponent(zoneId)}`, asObject(updates));
+  clearScopeCache("admin-delivery");
+  emitSync("admin-delivery", null);
+  return asObject(payload?.zone || payload);
+}
+
+export async function deleteAdminDeliveryZone(zoneId) {
+  const payload = await api.remove(`admin/delivery/zones/${encodeURIComponent(zoneId)}`);
+  clearScopeCache("admin-delivery");
+  emitSync("admin-delivery", null);
+  return Boolean(payload?.success);
+}
+
+export async function getAdminSeo(options = {}) {
+  const force = options?.force === true;
+  const cached = getCachedScopePayload("admin-seo");
+  if (!force && cached && typeof cached === "object" && Object.keys(cached).length) {
+    return asObject(cached);
+  }
+
+  const payload = await withRetry("admin/seo", () => api.get("admin/seo"));
+  const seo = asObject(payload?.seo || payload);
+  writeMemoryCache("admin-seo", seo);
+  writeCache("admin-seo", seo);
+  emitSync("admin-seo", seo);
+  return seo;
+}
+
+export async function updateAdminSeo(nextSeo) {
+  const payload = await api.put("admin/seo", asObject(nextSeo));
+  const seo = asObject(payload?.seo || nextSeo);
+  writeMemoryCache("admin-seo", seo);
+  writeCache("admin-seo", seo);
+  emitSync("admin-seo", seo);
+  return seo;
+}
+
+export async function validateAdminSeo(nextSeo) {
+  const payload = await api.post("admin/seo/validate", asObject(nextSeo));
+  return {
+    valid: Boolean(payload?.valid),
+    warnings: Array.isArray(payload?.warnings) ? payload.warnings : []
+  };
+}
+
+export async function setAdminSeoImage(field, assetPath) {
+  const payload = await api.post(`admin/seo/images/${encodeURIComponent(field)}`, {
+    path: String(assetPath || "").trim()
+  });
+  const seo = asObject(payload?.seo);
+  if (Object.keys(seo).length) {
+    writeMemoryCache("admin-seo", seo);
+    writeCache("admin-seo", seo);
+    emitSync("admin-seo", seo);
+  }
+  return seo;
+}
+
+export async function removeAdminSeoImage(field) {
+  const payload = await api.remove(`admin/seo/images/${encodeURIComponent(field)}`);
+  const seo = asObject(payload?.seo);
+  if (Object.keys(seo).length) {
+    writeMemoryCache("admin-seo", seo);
+    writeCache("admin-seo", seo);
+    emitSync("admin-seo", seo);
+  }
+  return seo;
+}
+
+function persistAdminProfileLocally(profile) {
+  const safeProfile = asObject(profile);
+  if (!safeProfile.id && !safeProfile.email) {
+    return safeProfile;
+  }
+
+  try {
+    const existing = JSON.parse(window.localStorage.getItem("adminProfile") || "null") || {};
+    const nextProfile = {
+      ...existing,
+      id: safeProfile.id || existing.id,
+      email: safeProfile.email || existing.email,
+      role: safeProfile.role || existing.role || "admin",
+      name: safeProfile.name || existing.name,
+      firstName: safeProfile.firstName || existing.firstName,
+      lastName: safeProfile.lastName || existing.lastName,
+      username: safeProfile.username || existing.username,
+      avatar: safeProfile.avatar || "",
+      avatarUrl: safeProfile.avatarUrl || "",
+      status: safeProfile.status || existing.status,
+      verified: Boolean(safeProfile.verified)
+    };
+    window.localStorage.setItem("adminProfile", JSON.stringify(nextProfile));
+    if (nextProfile.email) {
+      window.localStorage.setItem("adminEmail", nextProfile.email);
+    }
+    window.dispatchEvent(new CustomEvent("byose:admin-profile-updated", { detail: { profile: nextProfile } }));
+  } catch (_error) {
+    // Ignore local persistence failures.
+  }
+
+  return safeProfile;
+}
+
+export async function getAdminProfile(options = {}) {
+  const force = options?.force === true;
+  const cached = getCachedScopePayload("admin-profile");
+  if (!force && cached && typeof cached === "object") {
+    return asObject(cached);
+  }
+
+  const payload = await withRetry("admin/profile", () => api.get("admin/profile"));
+  const profile = asObject(payload?.profile || payload);
+  writeMemoryCache("admin-profile", profile);
+  writeCache("admin-profile", profile);
+  persistAdminProfileLocally(profile);
+  emitSync("admin-profile", profile);
+  return profile;
+}
+
+export async function updateAdminProfile(updates) {
+  const payload = await api.put("admin/profile", asObject(updates));
+  const profile = asObject(payload?.profile || payload);
+  writeMemoryCache("admin-profile", profile);
+  writeCache("admin-profile", profile);
+  persistAdminProfileLocally(profile);
+  emitSync("admin-profile", profile);
+  return profile;
+}
+
+export async function uploadAdminProfilePhoto(avatarPath) {
+  const payload = await api.post("admin/profile/photo", {
+    avatar: normalizeText(avatarPath)
+  });
+  const profile = asObject(payload?.profile || payload);
+  writeMemoryCache("admin-profile", profile);
+  writeCache("admin-profile", profile);
+  persistAdminProfileLocally(profile);
+  emitSync("admin-profile", profile);
+  return profile;
+}
+
+export async function removeAdminProfilePhoto() {
+  const payload = await api.remove("admin/profile/photo");
+  const profile = asObject(payload?.profile || payload);
+  writeMemoryCache("admin-profile", profile);
+  writeCache("admin-profile", profile);
+  persistAdminProfileLocally(profile);
+  emitSync("admin-profile", profile);
+  return profile;
+}
+
+function getDeviceFingerprint() {
+  if (window.AdminSecurity && typeof window.AdminSecurity.getDeviceFingerprint === "function") {
+    return window.AdminSecurity.getDeviceFingerprint();
+  }
+  try {
+    return String(window.localStorage.getItem("adminDeviceFingerprint") || "").trim();
+  } catch (_error) {
+    return "";
+  }
+}
+
+export async function getAdminSecurityOverview(options = {}) {
+  const force = options?.force === true;
+  const cached = getCachedScopePayload("admin-security");
+  if (!force && cached && typeof cached === "object") {
+    return asObject(cached);
+  }
+
+  const payload = await withRetry("admin/security", () => api.get("admin/security"));
+  const overview = asObject(payload);
+  writeMemoryCache("admin-security", overview);
+  writeCache("admin-security", overview);
+  emitSync("admin-security", overview);
+  return overview;
+}
+
+export async function getAdminSecuritySessions() {
+  const payload = await api.get("admin/security/sessions");
+  return asObject(payload);
+}
+
+export async function terminateAdminSession(sessionId, { confirmCurrent = false } = {}) {
+  const encoded = encodeURIComponent(String(sessionId || "").trim());
+  const suffix = confirmCurrent ? "?confirmCurrent=true" : "";
+  const payload = await api.remove(`admin/security/sessions/${encoded}${suffix}`);
+  emitSync("admin-security", null);
+  return asObject(payload);
+}
+
+export async function logoutOtherAdminSessions() {
+  const payload = await api.post("admin/security/sessions/logout-others", {});
+  emitSync("admin-security", null);
+  return asObject(payload);
+}
+
+export async function logoutAllAdminSessions({ confirmAll = true } = {}) {
+  const payload = await api.post("admin/security/sessions/logout-all", {
+    confirmAll: Boolean(confirmAll)
+  });
+  emitSync("admin-security", null);
+  return asObject(payload);
+}
+
+export async function logoutSelectedAdminSessions(sessionIds, { confirmCurrent = false } = {}) {
+  const payload = await api.post("admin/security/sessions/logout-selected", {
+    sessionIds: Array.isArray(sessionIds) ? sessionIds : [],
+    confirmCurrent: Boolean(confirmCurrent)
+  });
+  emitSync("admin-security", null);
+  return asObject(payload);
+}
+
+export async function getAdminCurrentSession() {
+  const payload = await api.get("admin/security/sessions/current");
+  return asObject(payload);
+}
+
+export async function validateAdminSecuritySession() {
+  const payload = await api.get("admin/security/sessions/validate");
+  return asObject(payload);
+}
+
+export async function getAdminSessionPolicy() {
+  const payload = await api.get("admin/security/sessions/policy");
+  return asObject(payload?.policy || payload);
+}
+
+export async function updateAdminSessionPolicy(policy) {
+  const payload = await api.put("admin/security/sessions/policy", asObject(policy));
+  emitSync("admin-security", null);
+  return asObject(payload?.policy || payload);
+}
+
+export async function getAdminLoginHistory(options = {}) {
+  const query = new URLSearchParams();
+  if (options.query) query.set("q", String(options.query));
+  if (options.status) query.set("status", String(options.status));
+  if (options.page) query.set("page", String(options.page));
+  if (options.limit) query.set("limit", String(options.limit));
+  if (options.sort) query.set("sort", String(options.sort));
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const payload = await api.get(`admin/security/login-history${suffix}`);
+  return asObject(payload);
+}
+
+export async function getAdminTrustedDevices() {
+  const payload = await api.get("admin/security/trusted-devices");
+  return asArray(payload?.devices);
+}
+
+export async function trustCurrentAdminDevice(payload = {}) {
+  const body = {
+    deviceFingerprint: payload.deviceFingerprint || getDeviceFingerprint(),
+    deviceName: normalizeText(payload.deviceName, "Trusted device")
+  };
+  const response = await api.post("admin/security/trusted-devices", body);
+  emitSync("admin-security", null);
+  return asObject(response?.device || response);
+}
+
+export async function renameAdminTrustedDevice(deviceId, deviceName) {
+  const payload = await api.put(`admin/security/trusted-devices/${encodeURIComponent(deviceId)}`, {
+    deviceName: normalizeText(deviceName)
+  });
+  emitSync("admin-security", null);
+  return asObject(payload?.device || payload);
+}
+
+export async function removeAdminTrustedDevice(deviceId) {
+  const payload = await api.remove(`admin/security/trusted-devices/${encodeURIComponent(deviceId)}`);
+  emitSync("admin-security", null);
+  return asObject(payload?.device || payload);
+}
+
+export async function getAdminSecurityEvents(options = {}) {
+  const query = new URLSearchParams();
+  if (options.page) query.set("page", String(options.page));
+  if (options.limit) query.set("limit", String(options.limit));
+  if (options.eventType) query.set("type", String(options.eventType));
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const payload = await api.get(`admin/security/events${suffix}`);
+  return asObject(payload);
+}
+
+export async function getAdminTwoFactorStatus() {
+  const payload = await api.get("admin/security/two-factor");
+  return asObject(payload?.twoFactor || payload);
+}
+
+export async function updateAdminTwoFactorPlaceholder(enabled) {
+  const payload = await api.put("admin/security/two-factor", { enabled: Boolean(enabled) });
+  emitSync("admin-security", null);
+  return asObject(payload?.twoFactor || payload);
+}
+
+export async function getAdminPasswordStatus(options = {}) {
+  const force = options?.force === true;
+  const cached = getCachedScopePayload("admin-password");
+  if (!force && cached && typeof cached === "object") {
+    return asObject(cached);
+  }
+
+  const payload = await withRetry("admin/password", () => api.get("admin/password"));
+  const password = asObject(payload?.password || payload);
+  writeMemoryCache("admin-password", password);
+  writeCache("admin-password", password);
+  emitSync("admin-password", password);
+  return password;
+}
+
+export async function validateAdminPasswordStrength(password, currentPassword = "") {
+  const payload = await api.post("admin/password/validate", {
+    password: String(password || ""),
+    currentPassword: String(currentPassword || "")
+  });
+  return asObject(payload?.strength || payload);
+}
+
+export async function verifyAdminCurrentPassword(currentPassword) {
+  const payload = await api.post("admin/password/verify-current", {
+    currentPassword: String(currentPassword || "")
+  });
+  return Boolean(payload?.valid || payload?.success);
+}
+
+export async function changeAdminPassword(payload = {}) {
+  const response = await api.put("admin/password", {
+    currentPassword: String(payload.currentPassword || ""),
+    newPassword: String(payload.newPassword || ""),
+    confirmPassword: String(payload.confirmPassword || "")
+  });
+  const password = asObject(response?.password || response);
+  writeMemoryCache("admin-password", password);
+  writeCache("admin-password", password);
+  emitSync("admin-password", password);
+  emitSync("admin-security", null);
+  return {
+    ...password,
+    message: response?.message || "Password updated successfully.",
+    revokedOtherSessions: Number(response?.revokedOtherSessions || 0) || 0
+  };
 }
 
 export async function getHeroSlides(options = {}) {

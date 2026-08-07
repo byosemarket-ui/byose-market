@@ -7,6 +7,6 @@ const router = express.Router();
 
 router.use(adminAccessDisabled);
 router.get('/', adminSettingsController.getSettings);
-router.put('/', adminSettingsController.updateSettings);
+router.put('/', adminSettingsController.settingsMutationLimiter, adminSettingsController.updateSettings);
 
 module.exports = router;

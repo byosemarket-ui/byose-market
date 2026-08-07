@@ -17,10 +17,14 @@
     <!-- Login Card -->
     <section class="login__card">
 
+      <div class="login__brand" id="adminLoginBrand">
+        <img id="adminLoginLogo" src="../../img/logo.png" alt="BYOSE Market" width="64" height="64" data-brand-logo="login" />
+      </div>
+
       <!-- Title -->
       <header class="login__header">
         <h1 class="login__title">Admin Login</h1>
-        <p class="login__subtitle">Sign in to manage your store</p>
+        <p class="login__subtitle" id="adminLoginTagline">Sign in to manage your store</p>
       </header>
 
       <!-- Form -->
@@ -73,7 +77,24 @@
 
   <!-- JS -->
   <script src="js/admin-security.js"></script>
+  <script src="../../js/storefront-settings.js"></script>
   <script type="module" src="admin-login.js"></script>
+  <script>
+    window.addEventListener("byose:store-settings", function (event) {
+      var branding = event.detail && event.detail.branding ? event.detail.branding : {};
+      var logos = branding.logos || {};
+      var colors = branding.colors || {};
+      var identity = branding.identity || {};
+      var logo = document.getElementById("adminLoginLogo");
+      var nextLogo = logos.loginLogo || logos.adminLogo || logos.mainLogo;
+      if (logo && nextLogo) logo.src = nextLogo;
+      if (colors.primary) {
+        document.documentElement.style.setProperty("--login-primary", colors.primary);
+      }
+      var tagline = document.getElementById("adminLoginTagline");
+      if (tagline && identity.tagline) tagline.textContent = identity.tagline;
+    });
+  </script>
 
 </body>
 </html>

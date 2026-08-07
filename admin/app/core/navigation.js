@@ -170,11 +170,11 @@ export const ADMIN_NAVIGATION = [
           routeLink("settings-profile", "Admin Profile", "settings", { query: "?panel=profile", description: "Administrator profile and workspace identity." }),
           routeLink("settings-security", "Security", "settings", { query: "?panel=security", description: "Access and session security controls." }),
           routeLink("settings-password", "Password", "settings", { query: "?panel=password", description: "Password and credential management." }),
-          externalLink("settings-general", "General", "settings/general.html", { description: "Detected general settings page." }),
-          externalLink("settings-branding", "Branding", "settings/branding.html", { description: "Detected branding configuration page." }),
-          externalLink("settings-delivery", "Delivery", "settings/delivery.html", { description: "Detected delivery and fulfillment settings." }),
-          externalLink("settings-seo", "SEO", "settings/seo.html", { description: "Detected SEO management page." }),
-          actionItem("settings-logout", "Logout", "logout", { description: "Securely end the current admin session." })
+          routeLink("settings-general", "General", "settings", { query: "?panel=general", description: "Platform store, regional, and system configuration." }),
+          routeLink("settings-branding", "Branding", "settings", { query: "?panel=branding", description: "Logos, colors, icons, and brand identity." }),
+          routeLink("settings-delivery", "Delivery", "settings", { query: "?panel=delivery", description: "Delivery zones, fees, methods, and timing." }),
+          routeLink("settings-seo", "SEO", "settings", { query: "?panel=seo", description: "Website SEO, social cards, analytics, and structured data." }),
+          routeLink("settings-logout", "Logout & Sessions", "settings", { query: "?panel=logout", description: "Active sessions, secure logout, expiration, and audit trail." })
         ]
       }
     ]

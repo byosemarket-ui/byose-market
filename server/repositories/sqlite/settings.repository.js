@@ -33,6 +33,29 @@ class SQLiteSettingsRepository extends SQLiteBaseRepository {
         const normalizedKey = this.normalizeText(key, 'global');
         const now = this.now();
         const existing = await this.findByKey(normalizedKey);
+        const MODULE_KEYS = ['branding', 'delivery', 'seo', 'sessionManagement'];
+        const existingValue = existing?.value && typeof existing.value === 'object' ? existing.value : {};
+        const incomingValue = payload?.value && typeof payload.value === 'object' ? payload.value : {};
+        const touched = Array.isArray(payload?.touchedModules)
+            ? payload.touchedModules.map((entry) => String(entry || '').trim()).filter(Boolean)
+            : null;
+
+        // Merge against a fresh row so concurrent module updates cannot wipe siblings.
+        // When touchedModules is provided, only those namespaces are taken from the payload.
+        // When omitted, module namespaces always stay on the fresh existing values.
+        const nextValue = { ...existingValue, ...incomingValue };
+        const touchedSet = touched ? new Set(touched) : null;
+        MODULE_KEYS.forEach((moduleKey) => {
+            if (touchedSet && touchedSet.has(moduleKey) && Object.prototype.hasOwnProperty.call(incomingValue, moduleKey)) {
+                nextValue[moduleKey] = incomingValue[moduleKey];
+                return;
+            }
+            if (Object.prototype.hasOwnProperty.call(existingValue, moduleKey)) {
+                nextValue[moduleKey] = existingValue[moduleKey];
+            } else {
+                delete nextValue[moduleKey];
+            }
+        });
 
         if (existing) {
             this.db.prepare(`
@@ -44,7 +67,7 @@ class SQLiteSettingsRepository extends SQLiteBaseRepository {
                 this.normalizeText(payload.supportEmail),
                 this.normalizeText(payload.supportPhone),
                 this.normalizeText(payload.currency, 'RWF'),
-                this.stringifyJson(payload.value || {}, {}),
+                this.stringifyJson(nextValue, {}),
                 this.normalizeText(payload.updatedByAdminId),
                 this.normalizeText(payload.updatedByAdminEmail).toLowerCase(),
                 now,
@@ -61,7 +84,7 @@ class SQLiteSettingsRepository extends SQLiteBaseRepository {
                 this.normalizeText(payload.supportEmail),
                 this.normalizeText(payload.supportPhone),
                 this.normalizeText(payload.currency, 'RWF'),
-                this.stringifyJson(payload.value || {}, {}),
+                this.stringifyJson(nextValue, {}),
                 this.normalizeText(payload.updatedByAdminId),
                 this.normalizeText(payload.updatedByAdminEmail).toLowerCase(),
                 now,

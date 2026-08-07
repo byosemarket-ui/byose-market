@@ -92,6 +92,23 @@ async function generateUserId() {
 // ===============================
 exports.signup = async (req, res) => {
     try {
+        const generalSettingsService = require('../services/generalsettings.service');
+        const platformSettings = await generalSettingsService.getGeneralSettings();
+        if (!platformSettings.allowCustomerRegistration) {
+            return res.status(403).json({
+                success: false,
+                code: 'REGISTRATION_DISABLED',
+                message: 'Customer registration is currently disabled.'
+            });
+        }
+        if (platformSettings.maintenanceMode || platformSettings.storeStatus === 'closed') {
+            return res.status(503).json({
+                success: false,
+                code: 'STORE_UNAVAILABLE',
+                message: 'The store is temporarily unavailable. Please try again later.'
+            });
+        }
+
         const { name, email, phone, password } = req.body || {};
         if (!name) return res.status(400).json({ success: false, message: 'Name required' });
         if (!email && !phone) return res.status(400).json({ success: false, message: 'Email or phone required' });
@@ -122,7 +139,8 @@ exports.signup = async (req, res) => {
             email: email ? String(email).toLowerCase() : '',
             phone: phone ? canonicalizePhone(phone) : '',
             password: hashed,
-            avatar
+            avatar,
+            role: platformSettings.defaultCustomerRole || 'user'
         });
 
         const realtimeService = getRealtimeEventService();

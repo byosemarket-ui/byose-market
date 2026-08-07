@@ -10,6 +10,10 @@ const sqliteStorefrontStateRepository = require('./sqlite/storefront-state.repos
 const sqliteUserRepository = require('./sqlite/user.repository');
 const sqliteMessageRepository = require('./sqlite/message.repository');
 const sqliteHeroSlideRepository = require('./sqlite/hero-slide.repository');
+const sqliteAdminProfileRepository = require('./sqlite/admin-profile.repository');
+const sqliteAdminSecurityRepository = require('./sqlite/admin-security.repository');
+const sqliteAdminPasswordRepository = require('./sqlite/admin-password.repository');
+const sqliteDeliveryZoneRepository = require('./sqlite/delivery-zone.repository');
 
 const sqliteRepositories = {
     activity: sqliteActivityRepository,
@@ -22,7 +26,11 @@ const sqliteRepositories = {
     storefrontStates: sqliteStorefrontStateRepository,
     users: sqliteUserRepository,
     messages: sqliteMessageRepository,
-    heroSlides: sqliteHeroSlideRepository
+    heroSlides: sqliteHeroSlideRepository,
+    adminProfile: sqliteAdminProfileRepository,
+    adminSecurity: sqliteAdminSecurityRepository,
+    adminPassword: sqliteAdminPasswordRepository,
+    deliveryZones: sqliteDeliveryZoneRepository
 };
 
 function getRepositoryBundle() {

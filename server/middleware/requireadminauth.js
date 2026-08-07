@@ -18,7 +18,12 @@ function extractBearerToken(req) {
     return queryToken;
 }
 
-function requireAdminAuth(req, res, next) {
+function getClientIp(req) {
+    const forwardedFor = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    return forwardedFor || req.ip || req.socket?.remoteAddress || '';
+}
+
+async function requireAdminAuth(req, res, next) {
     res.setHeader('Cache-Control', 'no-store');
 
     const token = extractBearerToken(req);
@@ -73,13 +78,52 @@ function requireAdminAuth(req, res, next) {
         });
     }
 
-    req.admin = payload;
+    const headerSessionId = String(req.headers['x-admin-session-id'] || '').trim();
+    const sessionId = String(payload.sid || headerSessionId || '').trim();
+
+    if (sessionId) {
+        try {
+            const adminSecurityService = require('../services/adminsecurityservice');
+            const sessionCheck = await adminSecurityService.assertSessionAllowed(sessionId, {
+                touch: true,
+                ip: getClientIp(req)
+            });
+
+            if (!sessionCheck.allowed) {
+                logger.warn('auth.admin.session_revoked', {
+                    adminId: payload.id || '',
+                    sessionId
+                });
+                return res.status(401).json({
+                    success: false,
+                    code: 'ADMIN_SESSION_REVOKED',
+                    message: 'This administrator session is no longer active. Please sign in again.'
+                });
+            }
+
+            req.adminSession = sessionCheck.session;
+        } catch (error) {
+            logger.warn('auth.admin.session_check_failed', {
+                adminId: payload.id || '',
+                sessionId,
+                error
+            });
+            // Fail open only for transient DB issues on legacy traffic paths.
+        }
+    }
+
+    req.admin = {
+        ...payload,
+        sid: sessionId || payload.sid || undefined
+    };
     req.adminToken = token;
     req.adminTokenFingerprint = String(token).slice(-12);
+    req.adminSessionId = sessionId || '';
     logger.debug('auth.admin.authorized', {
         adminId: payload.id,
         adminEmail: payload.email,
         role: payload.role,
+        sessionId: sessionId || '',
         secretSource: result.secretSource || 'unknown'
     });
     return next();

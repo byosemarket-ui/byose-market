@@ -135,8 +135,10 @@ export function buildOrderPayload(options = {}) {
     codFee: state.totals.codFee,
     total: state.totals.total,
     totalAmount: state.totals.total,
-    deliveryMethod: 'delivery',
-    deliveryLabel: 'Delivery to address',
+    deliveryMethod: state.deliveryMethodKey === 'storePickup' ? 'pickup' : 'delivery',
+    deliveryMethodKey: state.deliveryMethodKey || 'homeDelivery',
+    deliveryLabel: state.deliveryMethodKey === 'storePickup' ? 'Store Pickup' : 'Delivery to address',
+    deliveryEstimate: state.deliveryEstimate || '',
     items,
     products: items,
     shippingAddress: {

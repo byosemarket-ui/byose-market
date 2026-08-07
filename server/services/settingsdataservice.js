@@ -25,7 +25,15 @@ async function updateSettings(payload) {
     return saved;
 }
 
+async function updateSettingsModule(touchedModules, payload) {
+    return updateSettings({
+        ...payload,
+        touchedModules: Array.isArray(touchedModules) ? touchedModules : [touchedModules].filter(Boolean)
+    });
+}
+
 module.exports = {
     getSettings,
-    updateSettings
+    updateSettings,
+    updateSettingsModule
 };

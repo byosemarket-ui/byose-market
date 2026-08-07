@@ -224,8 +224,8 @@ function normalizeStorefrontOrder(payload, user) {
         (sum, item) => sum + item.price * item.quantity,
         0
     );
-    // Never accept delivery or total amounts from the client. Delivery is a
-    // fixed RWF 2,000 for every submitted order, regardless of cart contents.
+    // Never accept delivery totals from the client blindly — createOrder recalculates
+    // shipping using Delivery Settings. Placeholder fee kept for interim totals only.
     const shippingFee = DELIVERY_FEE;
     const codFee = COD_FEE;
     const total = subtotal + shippingFee + codFee;
@@ -242,6 +242,7 @@ function normalizeStorefrontOrder(payload, user) {
     const paymentTransaction = source.payment?.transaction && typeof source.payment.transaction === 'object'
         ? source.payment.transaction
         : {};
+    const deliveryMethodKey = normalizeText(source.deliveryMethodKey || source.deliveryMethod || 'homeDelivery') || 'homeDelivery';
 
     return {
         id: normalizeText(source.id || source.orderId),
@@ -271,14 +272,16 @@ function normalizeStorefrontOrder(payload, user) {
         total,
         totalAmount: total,
         totalPrice: total,
-        deliveryMethod: 'delivery',
-        deliveryLabel: normalizeText(source.deliveryLabel) || 'Delivery to address',
+        deliveryMethod: deliveryMethodKey === 'storePickup' ? 'pickup' : 'delivery',
+        deliveryMethodKey,
+        deliveryLabel: normalizeText(source.deliveryLabel) || (deliveryMethodKey === 'storePickup' ? 'Store Pickup' : 'Delivery to address'),
         items,
         products: items,
         shippingAddress: {
             ...shippingAddress,
             fullName: normalizeText(shippingAddress.fullName || source.customerName || customer.name || user?.name),
             phone: customerPhone,
+            country: normalizeText(shippingAddress.country || 'Rwanda'),
             provinceCity: normalizeText(shippingAddress.provinceCity || shippingAddress.city),
             city: normalizeText(shippingAddress.provinceCity || shippingAddress.city),
             district: normalizeText(shippingAddress.district),
@@ -515,8 +518,46 @@ function applyReturnAction(order, action, meta = {}) {
 exports.createOrder = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'orders' });
     try {
+        const generalSettingsService = require('../services/generalsettings.service');
+        const platformSettings = await generalSettingsService.getGeneralSettings();
+        if (platformSettings.maintenanceMode) {
+            return res.status(503).json({
+                success: false,
+                code: 'MAINTENANCE_MODE',
+                message: 'Ordering is temporarily unavailable while maintenance is in progress.'
+            });
+        }
+        if (platformSettings.storeStatus === 'closed') {
+            return res.status(503).json({
+                success: false,
+                code: 'STORE_CLOSED',
+                message: 'The store is currently closed and not accepting orders.'
+            });
+        }
+
         const user = await monitorAsyncOperation(logger, 'database.user.resolve_for_order', {}, () => resolveUser(req), { slowThresholdMs: 500 });
         let normalizedOrder = normalizeStorefrontOrder(req.body, user);
+
+        if (!normalizedOrder.customerId && !platformSettings.allowGuestCheckout) {
+            return res.status(403).json({
+                success: false,
+                code: 'GUEST_CHECKOUT_DISABLED',
+                message: 'Guest checkout is disabled. Please sign in to place an order.'
+            });
+        }
+
+        const defaultOrderStatus = String(platformSettings.defaultOrderStatus || 'Pending').trim() || 'Pending';
+        normalizedOrder.status = defaultOrderStatus;
+        normalizedOrder.orderStatus = defaultOrderStatus.toLowerCase();
+
+        const defaultPaymentStatus = String(platformSettings.defaultPaymentStatus || 'pending').trim().toLowerCase();
+        if (defaultPaymentStatus === 'paid') {
+            normalizedOrder.paymentStatus = 'paid';
+            normalizedOrder.paymentStatusLabel = 'Paid';
+        } else if (defaultPaymentStatus === 'unpaid' && String(normalizedOrder.paymentStatus || '').toLowerCase() === 'pending') {
+            normalizedOrder.paymentStatus = 'unpaid';
+            normalizedOrder.paymentStatusLabel = 'Unpaid';
+        }
 
         if (!normalizedOrder.orderId) {
             return res.status(400).json({ success: false, message: 'orderId required' });
@@ -546,20 +587,43 @@ exports.createOrder = async (req, res) => {
         try {
             const pricedItems = await applyCatalogPricing(normalizedOrder.items);
             const subtotal = pricedItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-            const total = subtotal + DELIVERY_FEE + COD_FEE;
+            const deliverySettingsService = require('../services/deliverysettings.service');
+            const shippingQuote = await deliverySettingsService.calculateShipping({
+                subtotal,
+                address: normalizedOrder.shippingAddress || {},
+                method: normalizedOrder.deliveryMethodKey || 'homeDelivery'
+            });
+            const shippingFee = Number(shippingQuote.fee) || 0;
+            const total = subtotal + shippingFee + COD_FEE;
             normalizedOrder = {
                 ...normalizedOrder,
                 items: pricedItems,
                 products: pricedItems,
                 subtotal,
-                deliveryFee: DELIVERY_FEE,
-                shippingFee: DELIVERY_FEE,
+                deliveryFee: shippingFee,
+                shippingFee,
                 codFee: COD_FEE,
                 total,
                 totalAmount: total,
-                totalPrice: total
+                totalPrice: total,
+                deliveryLabel: shippingQuote.methodLabel || normalizedOrder.deliveryLabel,
+                shippingQuote: {
+                    zoneId: shippingQuote.zone?.id || '',
+                    zoneName: shippingQuote.zone?.name || '',
+                    estimatedDelivery: shippingQuote.estimatedDelivery || '',
+                    freeDeliveryApplied: Boolean(shippingQuote.freeDeliveryApplied),
+                    pricingMode: shippingQuote.pricingMode || ''
+                }
             };
         } catch (pricingError) {
+            if (pricingError?.statusCode && pricingError.statusCode < 500) {
+                return res.status(pricingError.statusCode).json({
+                    success: false,
+                    code: pricingError.code || 'SHIPPING_CALCULATION_FAILED',
+                    message: pricingError.message || 'Unable to calculate shipping',
+                    details: pricingError.details || undefined
+                });
+            }
             if (pricingError?.code === 'PRODUCT_NOT_FOUND' || pricingError?.code === 'INVALID_ORDER_ITEM') {
                 return res.status(409).json({
                     success: false,

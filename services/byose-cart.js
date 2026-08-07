@@ -9,6 +9,17 @@ const CHECKOUT_KEY = 'byose_checkout_active_v1';
 // Delivery is a flat fee per non-empty order. It is intentionally independent
 // of item count, quantity, category, weight, and subtotal.
 const SHIPPING_FEE = 2000;
+
+function resolveShippingFee() {
+  if (typeof window !== 'undefined' && window.ByoseShippingApi?.resolveDefaultFee) {
+    return Number(window.ByoseShippingApi.resolveDefaultFee()) || SHIPPING_FEE;
+  }
+  const delivery = typeof window !== 'undefined' ? window.ByoseStoreSettings?.delivery : null;
+  if (delivery?.pricing?.fixedFee != null) {
+    return Number(delivery.pricing.fixedFee) || SHIPPING_FEE;
+  }
+  return SHIPPING_FEE;
+}
 const TAX_RATE = 0;
 const MAX_QTY = 99;
 
@@ -419,7 +430,7 @@ const ByoseCart = {
       }
       return sum;
     }, 0);
-    const shipping = quantity > 0 ? SHIPPING_FEE : 0;
+    const shipping = quantity > 0 ? resolveShippingFee() : 0;
     const tax = Math.round(subtotal * TAX_RATE);
     const total = subtotal + shipping + tax;
 
@@ -581,10 +592,16 @@ const ByoseCart = {
       return `• ${item.name}${attrs} x${item.qty} — ${this.formatPrice(item.price * item.qty)}`;
     });
     const summary = this.getSummary({ selectedOnly: true });
-    const message = encodeURIComponent(
-      `Hello Byose Market, I would like to order:\n\n${lines.join('\n')}\n\nTotal: ${this.formatPrice(summary.total)}`
-    );
-    window.open(`https://wa.me/250723731250?text=${message}`, '_blank', 'noopener');
+    const storeName = String(window.ByoseStoreSettings?.storeName || 'Byose Market');
+    const whatsapp = window.ByoseStoreSettings?.whatsappContact
+      || window.ByoseStoreSettings?.whatsappNumber
+      || '250723731250';
+    const message =
+      `Hello ${storeName}, I would like to order:\n\n${lines.join('\n')}\n\nTotal: ${this.formatPrice(summary.total)}`;
+    const href = typeof window.ByoseStoreSettingsLoader?.waHref === 'function'
+      ? window.ByoseStoreSettingsLoader.waHref(whatsapp, message)
+      : `https://wa.me/${String(whatsapp).replace(/\D+/g, '')}?text=${encodeURIComponent(message)}`;
+    window.open(href, '_blank', 'noopener');
   }
 };
 

@@ -34,7 +34,7 @@
     <div class="container header-shell">
       <div class="header-mobile-top">
         <a class="brand brand-mobile" href="../index.html" aria-label="Byose Market Home">
-          <img class="brand-logo" src="../img/logo.png" alt="Byose Market logo">
+          <img class="brand-logo" src="../img/logo.png" alt="Byose Market logo" data-brand-logo="mobile">
         </a>
         <a href="../contact.html#form-message" class="icon-btn mobile-messages-btn" aria-label="Contact support">
           <i class="fa-regular fa-comment-dots" aria-hidden="true"></i>
@@ -42,7 +42,7 @@
       </div>
 
       <a class="brand header-desktop-brand" href="../index.html" aria-label="Byose Market Home">
-        <img class="brand-logo" src="../img/logo.png" alt="Byose Market logo">
+        <img class="brand-logo" src="../img/logo.png" alt="Byose Market logo" data-brand-logo="main">
       </a>
 
       <nav class="header-nav nav header-desktop-nav" aria-label="Main navigation">
@@ -274,9 +274,9 @@
       <section class="footer-brand" aria-labelledby="footer-brand-title">
         <div class="footer-brand__head">
           <a href="../index.html" class="footer-logo-link" aria-label="Byose Market Home">
-            <img class="footer-logo" src="../img/logo.png" alt="" width="40" height="40">
+            <img class="footer-logo" src="../img/logo.png" alt="" width="40" height="40" data-brand-logo="footer">
           </a>
-          <h2 id="footer-brand-title" class="footer-brand__name">BYOSE MARKET</h2>
+          <h2 id="footer-brand-title" class="footer-brand__name" data-store-setting="storeName">BYOSE MARKET</h2>
         </div>
         <p class="footer-brand__desc">Rwanda's trusted online marketplace for fashion, shoes, electronics and everyday essentials — fast, simple, affordable.</p>
       </section>
@@ -294,32 +294,32 @@
       <section class="footer-panel footer-panel--contact" aria-labelledby="footer-contact-title">
         <h3 id="footer-contact-title" class="footer-panel__title">Contact</h3>
         <div class="footer-contact-cards">
-          <a href="tel:+250780430710" class="footer-touch-card">
+          <a href="tel:+250780430710" class="footer-touch-card" data-store-href="customerServicePhone">
             <span class="footer-touch-card__icon footer-touch-card__icon--phone" aria-hidden="true"><i class="fa-solid fa-phone"></i></span>
             <span class="footer-touch-card__copy">
               <span class="footer-touch-card__label">Phone</span>
-              <span class="footer-touch-card__value">0780 430 710</span>
+              <span class="footer-touch-card__value" data-store-setting="customerServicePhone">0780 430 710</span>
             </span>
           </a>
-          <a href="https://wa.me/250723731250" class="footer-touch-card" target="_blank" rel="noopener noreferrer">
+          <a href="https://wa.me/250723731250" class="footer-touch-card" target="_blank" rel="noopener noreferrer" data-store-href="whatsappContact">
             <span class="footer-touch-card__icon footer-touch-card__icon--whatsapp" aria-hidden="true"><i class="fa-brands fa-whatsapp"></i></span>
             <span class="footer-touch-card__copy">
               <span class="footer-touch-card__label">WhatsApp</span>
-              <span class="footer-touch-card__value">0723 731 250</span>
+              <span class="footer-touch-card__value" data-store-setting="whatsappContact">0723 731 250</span>
             </span>
           </a>
-          <a href="mailto:byosemarket@gmail.com" class="footer-touch-card">
+          <a href="mailto:byosemarket@gmail.com" class="footer-touch-card" data-store-href="supportEmail">
             <span class="footer-touch-card__icon footer-touch-card__icon--email" aria-hidden="true"><i class="fa-regular fa-envelope"></i></span>
             <span class="footer-touch-card__copy">
               <span class="footer-touch-card__label">Email</span>
-              <span class="footer-touch-card__value">byosemarket@gmail.com</span>
+              <span class="footer-touch-card__value" data-store-setting="supportEmail">byosemarket@gmail.com</span>
             </span>
           </a>
-          <a href="https://maps.google.com/?q=Kigali,Rwanda" class="footer-touch-card" target="_blank" rel="noopener noreferrer">
+          <a href="https://maps.google.com/?q=Kigali,Rwanda" class="footer-touch-card" target="_blank" rel="noopener noreferrer" data-store-href="location">
             <span class="footer-touch-card__icon footer-touch-card__icon--location" aria-hidden="true"><i class="fa-solid fa-location-dot"></i></span>
             <span class="footer-touch-card__copy">
               <span class="footer-touch-card__label">Location</span>
-              <span class="footer-touch-card__value">Kigali, Rwanda</span>
+              <span class="footer-touch-card__value" data-store-setting="location">Kigali, Rwanda</span>
             </span>
           </a>
         </div>
@@ -343,6 +343,7 @@
   </footer>
 
   <script src="../services/authservice.js"></script>
+  <script src="../js/storefront-settings.js"></script>
   <script src="../js/products.js"></script>
   <script src="../shared/storage.js"></script>
   <script src="../js/utils.js"></script>

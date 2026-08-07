@@ -6,7 +6,7 @@ export const STEPS = [
 ];
 
 export const DELIVERY_FEE = 2000;
-// The checkout total is always subtotal + the flat delivery fee.
+// Fallback only — live checkout uses Delivery Settings via /api/shipping/calculate.
 export const COD_FEE = 0;
 
 export const COD_PAYMENT_STATUS = 'awaiting_delivery_payment';

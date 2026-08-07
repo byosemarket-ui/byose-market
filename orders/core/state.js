@@ -51,9 +51,13 @@ const state = {
   products: [],
   customer: { id: '', name: '', email: '', phone: '', avatar: '' },
   shipping: clone(DEFAULT_ADDRESS),
+  deliveryMethodKey: 'homeDelivery',
+  deliveryEstimate: '',
   payment: { method: 'mtn', phone: '' },
   totals: { subtotal: 0, discount: 0, tax: 0, deliveryFee: DELIVERY_FEE, codFee: 0, total: DELIVERY_FEE }
 };
+
+let runtimeDeliveryFee = DELIVERY_FEE;
 
 function emit(event) {
   listeners.forEach((fn) => {
@@ -152,7 +156,7 @@ function recalcTotals() {
     }
     return sum;
   }, 0);
-  const deliveryFee = DELIVERY_FEE;
+  const deliveryFee = state.deliveryMethodKey === 'storePickup' ? 0 : runtimeDeliveryFee;
   const codFee = state.payment.method === 'cod' ? COD_FEE : 0;
   const tax = 0;
   state.totals = {
@@ -163,6 +167,17 @@ function recalcTotals() {
     codFee,
     total: subtotal + deliveryFee + codFee
   };
+}
+
+export function setDeliveryQuote({ fee, method, estimate } = {}) {
+  if (method) state.deliveryMethodKey = String(method);
+  if (estimate != null) state.deliveryEstimate = String(estimate || '');
+  if (fee != null && Number.isFinite(Number(fee))) {
+    runtimeDeliveryFee = Math.max(0, Number(fee));
+  }
+  recalcTotals();
+  emit({ type: 'delivery' });
+  return getState();
 }
 
 function normalizeProduct(item) {
@@ -426,6 +441,9 @@ export function commitShipping(formData) {
     ...gpsFields,
     phone: normalizePhone(formData.phone)
   };
+  if (formData.deliveryMethodKey) {
+    state.deliveryMethodKey = String(formData.deliveryMethodKey);
+  }
   state.step = 'review';
   persistUserAddress(state.shipping);
   persistDraft();
