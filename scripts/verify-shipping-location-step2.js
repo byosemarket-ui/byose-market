@@ -23,6 +23,11 @@ function checkPermissionsPolicy() {
   const headers = read('server/middleware/securityheaders.js');
   assert(nginx.includes('geolocation=(self)'), 'nginx must allow geolocation=(self)');
   assert(!nginx.includes('geolocation=()'), 'nginx must not block geolocation with empty allowlist');
+  // HTML location overrides server add_header inheritance — must restate Permissions-Policy.
+  assert(
+    /location\s+~\*\s+\\\.html\$[\s\S]*?Permissions-Policy[^\n]*geolocation=\(self\)/.test(nginx),
+    'HTML location must include Permissions-Policy geolocation=(self)'
+  );
   assert(headers.includes('geolocation=(self)'), 'Express security headers must allow geolocation=(self)');
   assert(!headers.includes("geolocation=()"), 'Express must not block geolocation with empty allowlist');
 }
