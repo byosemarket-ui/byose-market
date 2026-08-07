@@ -1,5 +1,10 @@
 import { initCheckout, commitShipping, getState, guardStep, subscribe, updateShipping } from './core/state.js';
 import { renderProgress, renderSidebar, renderStickyBar, showMessage } from './ui/layout.js';
+import {
+  LOCATION_STATUS,
+  formatCoordinates,
+  initializeShippingLocation
+} from './location-service.js';
 import { normalizePhone } from './utils.js';
 
 function formatPhoneLocal(phone) {
@@ -14,28 +19,49 @@ const progressEl = document.getElementById('progress');
 const sidebarEl = document.getElementById('sidebar');
 const stickyEl = document.getElementById('stickyBar');
 const continueBtn = document.getElementById('shippingContinueBtn');
+const gpsCard = document.getElementById('gpsCard') || document.querySelector('.ck-gps-card');
 const gpsStatus = document.getElementById('gpsStatus');
 const gpsMeta = document.getElementById('gpsMeta');
 const gpsMapLink = document.getElementById('gpsMapLink');
+const gpsBadge = document.getElementById('gpsBadge');
+const gpsRetryBtn = document.getElementById('gpsRetryBtn');
+const shippingBackLink = document.getElementById('shippingBackLink');
+
+function syncShippingBackLink() {
+  if (!shippingBackLink) return;
+  const source = getState().source;
+  if (source === 'direct') {
+    shippingBackLink.href = '../index.html';
+    shippingBackLink.textContent = 'Continue Shopping';
+  } else {
+    shippingBackLink.href = '../cart.html';
+    shippingBackLink.textContent = 'Back';
+  }
+}
 
 function render() {
   const state = getState();
   progressEl.innerHTML = renderProgress('shipping');
   sidebarEl.innerHTML = renderSidebar(state.products, state.totals);
-  stickyEl.innerHTML = renderStickyBar('Continue', 'shippingContinueBtn');
+  stickyEl.innerHTML = renderStickyBar('Continue to Review', 'shippingContinueBtn');
   document.getElementById('stickyContinueBtn')?.addEventListener('click', handleContinue);
+  syncShippingBackLink();
 }
 
-function fillForm(shipping) {
+function fillForm(shipping, { onlyEmpty = false } = {}) {
   if (!form) return;
-  Object.entries(shipping).forEach(([key, value]) => {
+  const keys = ['fullName', 'phone', 'provinceCity', 'district', 'sector', 'cell', 'village', 'note'];
+  keys.forEach((key) => {
+    if (shipping?.[key] === undefined) return;
     const input = form.elements.namedItem(key);
     if (!input || !('value' in input)) return;
+    if (onlyEmpty && String(input.value || '').trim()) return;
+
     if (key === 'phone') {
-      input.value = formatPhoneLocal(value);
+      input.value = formatPhoneLocal(shipping[key]);
       return;
     }
-    input.value = String(value || '');
+    input.value = String(shipping[key] || '');
   });
 }
 
@@ -46,15 +72,96 @@ function readForm() {
   return data;
 }
 
+function readAddressFields() {
+  const data = readForm();
+  return {
+    provinceCity: data.provinceCity || '',
+    district: data.district || '',
+    sector: data.sector || '',
+    cell: data.cell || '',
+    village: data.village || ''
+  };
+}
+
+function clearFieldError(fieldName) {
+  if (!form || !fieldName) return;
+  const errorEl = form.querySelector(`[data-error="${fieldName}"]`);
+  if (errorEl) errorEl.textContent = '';
+  const input = form.elements.namedItem(fieldName);
+  if (input && 'classList' in input) {
+    input.classList.remove('is-invalid');
+    input.removeAttribute('aria-invalid');
+  }
+}
+
 function showErrors(errors = {}) {
   if (!form) return;
+  let firstInvalid = null;
+
   form.querySelectorAll('[data-error]').forEach((el) => {
     const field = el.dataset.error;
-    el.textContent = errors[field] || '';
+    const message = errors[field] || '';
+    el.textContent = message;
     const input = form.elements.namedItem(field);
     if (input && 'classList' in input) {
-      input.classList.toggle('is-invalid', Boolean(errors[field]));
+      const invalid = Boolean(message);
+      input.classList.toggle('is-invalid', invalid);
+      if (invalid) {
+        input.setAttribute('aria-invalid', 'true');
+        if (!firstInvalid) firstInvalid = input;
+      } else {
+        input.removeAttribute('aria-invalid');
+      }
     }
+  });
+
+  if (firstInvalid && typeof firstInvalid.focus === 'function') {
+    firstInvalid.focus({ preventScroll: false });
+  }
+}
+
+function setGpsUi(status, label, position) {
+  if (gpsStatus) {
+    gpsStatus.textContent = label || '';
+  }
+  if (gpsCard) {
+    gpsCard.dataset.state = status || '';
+  }
+  if (gpsBadge) {
+    gpsBadge.dataset.state = status || '';
+    gpsBadge.textContent = status === LOCATION_STATUS.SUCCESS
+      ? 'Ready'
+      : status === LOCATION_STATUS.MANUAL || status === LOCATION_STATUS.UNAVAILABLE
+        ? 'Manual'
+        : status === LOCATION_STATUS.IMPROVING
+          ? 'Refining'
+          : 'Locating';
+  }
+
+  if (gpsRetryBtn) {
+    const showRetry = status === LOCATION_STATUS.MANUAL || status === LOCATION_STATUS.UNAVAILABLE;
+    gpsRetryBtn.hidden = !showRetry;
+  }
+
+  if (position?.latitude && position?.longitude) {
+    if (gpsMeta) {
+      gpsMeta.textContent = formatCoordinates(position.latitude, position.longitude, position.accuracy);
+    }
+    if (gpsMapLink && position.mapLink) {
+      gpsMapLink.href = position.mapLink;
+      gpsMapLink.hidden = false;
+    }
+  }
+}
+
+function applyPositionToState(position) {
+  if (!position?.latitude || !position?.longitude) return;
+  updateShipping({
+    latitude: position.latitude,
+    longitude: position.longitude,
+    mapLink: position.mapLink,
+    locationAccuracy: String(position.accuracy || ''),
+    locationCapturedAt: position.capturedAt || new Date().toISOString()
   });
 }
 
@@ -63,55 +170,84 @@ function handleContinue() {
   const result = commitShipping(readForm());
   if (!result.valid) {
     showErrors(result.errors || {});
-    showMessage(messageEl, 'Please fix the highlighted fields.');
+    showMessage(messageEl, 'Please complete the highlighted fields to continue.');
     return;
   }
+  showErrors({});
   window.location.assign('checkout.html');
 }
 
-function captureGps() {
-  if (!navigator.geolocation) {
-    gpsStatus.textContent = 'GPS not available on this device.';
-    return;
+async function startLocationService({ allowReprompt = false } = {}) {
+  const existing = getState().shipping || {};
+  if (existing.latitude && existing.longitude) {
+    setGpsUi(
+      LOCATION_STATUS.SUCCESS,
+      'Location detected successfully.',
+      {
+        latitude: existing.latitude,
+        longitude: existing.longitude,
+        accuracy: existing.locationAccuracy,
+        mapLink: existing.mapLink
+      }
+    );
+  } else {
+    setGpsUi(LOCATION_STATUS.DETECTING, 'Detecting location...');
   }
 
-  navigator.geolocation.getCurrentPosition(
-    async (pos) => {
-      const lat = pos.coords.latitude.toFixed(6);
-      const lng = pos.coords.longitude.toFixed(6);
-      const mapLink = `https://www.google.com/maps?q=${lat},${lng}`;
-      updateShipping({
-        latitude: lat,
-        longitude: lng,
-        mapLink,
-        locationAccuracy: String(Math.round(pos.coords.accuracy || 0)),
-        locationCapturedAt: new Date().toISOString()
-      });
-      gpsStatus.textContent = 'Location captured.';
-      gpsMeta.textContent = `${lat}, ${lng}`;
-      gpsMapLink.href = mapLink;
-      gpsMapLink.hidden = false;
-
-      try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
-        const data = await res.json();
-        const addr = data?.address || {};
-        const patch = {};
-        if (form && !form.provinceCity?.value && (addr.city || addr.state)) patch.provinceCity = addr.city || addr.state;
-        if (form && !form.district?.value && addr.county) patch.district = addr.county;
-        if (form && !form.sector?.value && addr.suburb) patch.sector = addr.suburb;
-        if (Object.keys(patch).length) {
-          updateShipping(patch);
-          fillForm(getState().shipping);
-        }
-      } catch (_) { /* optional */ }
+  await initializeShippingLocation({
+    allowReprompt,
+    currentAddress: readAddressFields(),
+    onStatus(status, label, position) {
+      setGpsUi(status, label, position);
     },
-    () => { gpsStatus.textContent = 'Location permission denied. You can still continue.'; },
-    { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
-  );
+    onPosition(position) {
+      applyPositionToState(position);
+      const accuracy = Number(position.accuracy);
+      const refining = Number.isFinite(accuracy) && accuracy > 45;
+      setGpsUi(
+        refining ? LOCATION_STATUS.IMPROVING : LOCATION_STATUS.SUCCESS,
+        refining ? 'Improving GPS accuracy...' : 'Location detected successfully.',
+        position
+      );
+    },
+    onAddress(autofill) {
+      if (!autofill || !Object.keys(autofill).length) return;
+      updateShipping(autofill);
+      fillForm(autofill, { onlyEmpty: true });
+    }
+  });
+
+  const shipping = getState().shipping || {};
+  if (shipping.latitude && shipping.longitude) {
+    setGpsUi(
+      LOCATION_STATUS.SUCCESS,
+      'Location detected successfully.',
+      {
+        latitude: shipping.latitude,
+        longitude: shipping.longitude,
+        accuracy: shipping.locationAccuracy,
+        mapLink: shipping.mapLink
+      }
+    );
+  } else if (gpsCard?.dataset.state !== LOCATION_STATUS.MANUAL) {
+    setGpsUi(LOCATION_STATUS.MANUAL, 'Using manual address.');
+  }
 }
 
-form?.addEventListener('input', () => updateShipping(readForm()));
+gpsRetryBtn?.addEventListener('click', () => {
+  void startLocationService({ allowReprompt: true });
+});
+
+form?.addEventListener('input', (event) => {
+  const target = event.target;
+  if (target && target.name) {
+    clearFieldError(target.name);
+  }
+  if (messageEl && !messageEl.hidden) {
+    showMessage(messageEl, '');
+  }
+  updateShipping(readForm());
+});
 form?.addEventListener('submit', (e) => { e.preventDefault(); handleContinue(); });
 continueBtn?.addEventListener('click', handleContinue);
 
@@ -124,6 +260,6 @@ if (!access.ok) {
 } else {
   fillForm(getState().shipping);
   render();
-  captureGps();
+  void startLocationService();
   window.__ckStep = 'shipping';
 }

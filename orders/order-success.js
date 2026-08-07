@@ -1,6 +1,6 @@
 import { getConfirmation, initCheckout } from './core/state.js';
 import { DELIVERY_FEE } from './core/constants.js';
-import { renderProductList, renderTotals } from './ui/layout.js';
+import { renderProductList, renderShippingSummary, renderTotals } from './ui/layout.js';
 import { escapeHtml } from './utils.js';
 
 const container = document.getElementById('successContent');
@@ -36,6 +36,8 @@ if (!confirmationMatches) {
   const codFee = Number(confirmation?.codFee);
   const totals = {
     subtotal,
+    discount: Number(confirmation?.discount) || 0,
+    tax: Number(confirmation?.tax) || 0,
     deliveryFee: Number.isFinite(deliveryFee) ? deliveryFee : DELIVERY_FEE,
     codFee: Number.isFinite(codFee) ? codFee : 0,
     total: Number(confirmation?.total) || (subtotal + (Number.isFinite(deliveryFee) ? deliveryFee : DELIVERY_FEE) + (Number.isFinite(codFee) ? codFee : 0))
@@ -46,6 +48,16 @@ if (!confirmationMatches) {
     ? (confirmation?.paymentMethodLabel || confirmation?.payment?.methodLabel || 'Cash on Delivery')
     : (confirmation?.paymentMethodLabel || confirmation?.payment?.methodLabel || confirmation?.payment?.method || 'Mobile Money').toUpperCase();
   const paymentStatus = confirmation?.paymentStatusLabel || confirmation?.payment?.statusLabel || '';
+
+  const shippingForSummary = {
+    ...(confirmation?.shippingAddress || {}),
+    latitude: confirmation?.gpsLocation?.latitude || confirmation?.shippingAddress?.latitude || '',
+    longitude: confirmation?.gpsLocation?.longitude || confirmation?.shippingAddress?.longitude || '',
+    mapLink: confirmation?.gpsLocation?.googleMapsLink
+      || confirmation?.gpsLocation?.mapLink
+      || confirmation?.shippingAddress?.mapLink
+      || ''
+  };
 
   container.innerHTML = `
     <div class="ck-success-icon">✓</div>
@@ -61,13 +73,7 @@ if (!confirmationMatches) {
       ${renderTotals(totals)}
       <p style="margin-top:12px"><strong>Payment:</strong> ${escapeHtml(paymentLabel)}</p>
       ${paymentStatus ? `<p><strong>Payment status:</strong> ${escapeHtml(paymentStatus)}</p>` : ''}
-      ${confirmation?.shippingAddress ? `
-        <h3 style="margin-top:16px">Delivery To</h3>
-        <p>${escapeHtml(confirmation.shippingAddress.fullName || '')}<br>
-        ${escapeHtml(confirmation.shippingAddress.phone || '')}<br>
-        ${escapeHtml([confirmation.shippingAddress.provinceCity, confirmation.shippingAddress.district, confirmation.shippingAddress.sector].filter(Boolean).join(', '))}</p>
-      ` : ''}
-      ${confirmation?.gpsLocation?.latitude ? `<p class="ck-gps">GPS: ${escapeHtml(confirmation.gpsLocation.latitude)}, ${escapeHtml(confirmation.gpsLocation.longitude)}</p>` : ''}
+      <div style="margin-top:16px">${renderShippingSummary(shippingForSummary)}</div>
     </div>
     <div class="ck-success-actions">
       <a class="ck-btn ck-btn--primary" href="../index.html">Continue Shopping</a>

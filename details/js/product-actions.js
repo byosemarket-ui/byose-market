@@ -132,22 +132,39 @@ function validateRequestedQuantity(product, quantity, attributes = {}) {
   };
 }
 
-function startDirectCheckout(item) {
-  if (!item) {
+function startDirectCheckout(itemsInput) {
+  const items = (Array.isArray(itemsInput) ? itemsInput : [itemsInput]).filter(Boolean);
+  if (!items.length) {
     return;
   }
 
   try {
-    // Buy Now must not compete with a previous cart checkout selection.
-    window.localStorage.removeItem(CHECKOUT_ACTIVE_KEY);
-    window.ByoseStorefrontSync?.writeStateByKey?.(DIRECT_CHECKOUT_KEY, item);
     window.ByoseStorefrontSync?.removeStateByKey?.(CHECKOUT_DRAFT_KEY);
     window.ByoseStorefrontSync?.removeStateByKey?.(CHECKOUT_CONFIRMATION_KEY);
-    window.ByoseStorefrontSync?.syncPatch?.({
-      directCheckout: item,
-      checkoutDraft: null,
-      checkoutConfirmation: null
-    });
+
+    if (items.length === 1) {
+      // Single Buy Now item uses the dedicated direct-checkout payload.
+      window.localStorage.removeItem(CHECKOUT_ACTIVE_KEY);
+      window.localStorage.setItem(DIRECT_CHECKOUT_KEY, JSON.stringify(items[0]));
+      window.ByoseStorefrontSync?.writeStateByKey?.(DIRECT_CHECKOUT_KEY, items[0]);
+      window.ByoseStorefrontSync?.syncPatch?.({
+        directCheckout: items[0],
+        checkoutDraft: null,
+        checkoutConfirmation: null
+      });
+    } else {
+      // Multi-variant Buy Now reuses the cart checkout-active selection path.
+      window.localStorage.removeItem(DIRECT_CHECKOUT_KEY);
+      window.localStorage.setItem(CHECKOUT_ACTIVE_KEY, JSON.stringify(items));
+      window.ByoseStorefrontSync?.writeStateByKey?.(CHECKOUT_ACTIVE_KEY, items);
+      window.ByoseStorefrontSync?.removeStateByKey?.(DIRECT_CHECKOUT_KEY);
+      window.ByoseStorefrontSync?.syncPatch?.({
+        checkoutActive: items,
+        directCheckout: null,
+        checkoutDraft: null,
+        checkoutConfirmation: null
+      });
+    }
   } catch (error) {
     console.error('Unable to start direct checkout', error);
   }
@@ -199,7 +216,7 @@ export function initProductActions(options) {
       }
 
       if (action === 'buy') {
-        startDirectCheckout(items[0]);
+        startDirectCheckout(items);
         return;
       }
 

@@ -84,7 +84,7 @@
       <div class="orders-address-grid">
         ${rows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('')}
       </div>
-      ${gps.googleMapsLink ? `<p class="orders-detail-note"><a class="orders-map-link" href="${escapeHtml(gps.googleMapsLink)}" target="_blank" rel="noreferrer noopener"><i class="fa-solid fa-location-dot" aria-hidden="true"></i>Open Google Maps location</a></p>` : ''}
+      ${gps.googleMapsLink || gps.mapLink ? `<p class="orders-detail-note"><a class="orders-map-link" href="${escapeHtml(gps.googleMapsLink || gps.mapLink)}" target="_blank" rel="noreferrer noopener"><i class="fa-solid fa-location-dot" aria-hidden="true"></i>Open Google Maps location</a></p>` : ''}
     `;
   }
 

@@ -5,8 +5,8 @@ import {
 } from './core/state.js';
 import { validatePayment } from './core/validation.js';
 import {
-  renderPaymentInstructions, renderPaymentMethods, renderProgress, renderSidebar,
-  renderStickyBar, renderTotals, showMessage
+  renderPaymentInstructions, renderPaymentMethods, renderProgress, renderShippingSummary,
+  renderSidebar, renderStickyBar, renderTotals, showMessage
 } from './ui/layout.js';
 
 const progressEl = document.getElementById('progress');
@@ -14,6 +14,7 @@ const sidebarEl = document.getElementById('sidebar');
 const stickyEl = document.getElementById('stickyBar');
 const methodsEl = document.getElementById('paymentMethods');
 const totalsBlockEl = document.getElementById('totalsBlock');
+const shippingSummaryEl = document.getElementById('paymentShippingSummary');
 const instructionsEl = document.getElementById('paymentInstructions');
 const phoneField = document.getElementById('paymentPhoneField');
 const phoneInput = document.querySelector('input[name="paymentPhone"]');
@@ -51,6 +52,9 @@ function renderMethods() {
 function render() {
   const state = getState();
   progressEl.innerHTML = renderProgress('payment');
+  if (shippingSummaryEl) {
+    shippingSummaryEl.innerHTML = renderShippingSummary(state.shipping);
+  }
   renderMethods();
   totalsBlockEl.innerHTML = renderTotals(state.totals);
   sidebarEl.innerHTML = renderSidebar(state.products, state.totals);

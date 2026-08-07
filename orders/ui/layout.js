@@ -27,11 +27,11 @@ export function renderProductLine(product) {
 
   return `
     <article class="ck-product">
-      <div class="ck-product-img">${img ? `<img src="${escapeHtml(img)}" alt="">` : '<span class="ck-product-ph">📦</span>'}</div>
+      <div class="ck-product-img">${img ? `<img src="${escapeHtml(img)}" alt="">` : '<span class="ck-product-ph" aria-hidden="true"></span>'}</div>
       <div class="ck-product-body">
         <h3>${escapeHtml(name)}</h3>
         ${meta ? `<p class="ck-product-meta">${escapeHtml(meta)}</p>` : ''}
-        <p class="ck-product-qty">Qty: ${qty}</p>
+        <p class="ck-product-qty">Qty: ${qty} · ${formatCurrency(price)} each</p>
       </div>
       <div class="ck-product-price">${formatCurrency(price * qty)}</div>
     </article>
@@ -54,10 +54,11 @@ export function renderProductList(products, { editable = false } = {}) {
 
     return `
       <article class="ck-product ck-product--edit" data-product-key="${escapeHtml(key)}">
-        <div class="ck-product-img">${img ? `<img src="${escapeHtml(img)}" alt="">` : '<span class="ck-product-ph">📦</span>'}</div>
+        <div class="ck-product-img">${img ? `<img src="${escapeHtml(img)}" alt="">` : '<span class="ck-product-ph" aria-hidden="true"></span>'}</div>
         <div class="ck-product-body">
           <h3>${escapeHtml(name)}</h3>
           ${meta ? `<p class="ck-product-meta">${escapeHtml(meta)}</p>` : ''}
+          <p class="ck-product-unit">${formatCurrency((Number(product.price) || 0))} each</p>
           <div class="ck-qty-controls">
             <button type="button" class="ck-qty-btn" data-qty-action="dec" data-id="${escapeHtml(product.id)}" data-variant="${escapeHtml(product.variantKey || '')}">−</button>
             <span>${qty}</span>
@@ -115,10 +116,14 @@ export function renderPaymentMethods(methods, selectedId) {
 }
 
 export function renderTotals(totals) {
+  const discount = Number(totals.discount) || 0;
+  const tax = Number(totals.tax) || 0;
   return `
     <dl class="ck-totals">
       <div><dt>Subtotal</dt><dd>${formatCurrency(totals.subtotal)}</dd></div>
+      ${discount > 0 ? `<div><dt>Discount</dt><dd>−${formatCurrency(discount)}</dd></div>` : ''}
       <div><dt>Delivery</dt><dd>${formatCurrency(totals.deliveryFee)}</dd></div>
+      ${tax > 0 ? `<div><dt>Tax</dt><dd>${formatCurrency(tax)}</dd></div>` : ''}
       ${totals.codFee > 0 ? `<div><dt>COD fee</dt><dd>${formatCurrency(totals.codFee)}</dd></div>` : ''}
       <div class="ck-totals-total"><dt>Total</dt><dd>${formatCurrency(totals.total)}</dd></div>
     </dl>
@@ -189,11 +194,17 @@ export function renderShippingSummary(shipping) {
     shipping.note
   ].filter(Boolean);
 
+  const mapLink = String(shipping.mapLink || shipping.googleMapsLink || '').trim()
+    || (shipping.latitude && shipping.longitude
+      ? `https://www.google.com/maps?q=${encodeURIComponent(`${shipping.latitude},${shipping.longitude}`)}`
+      : '');
+
   return `
     <section class="ck-card">
       <h3>Delivery Address</h3>
       <p>${lines.map((l) => escapeHtml(l)).join('<br>')}</p>
       ${shipping.latitude && shipping.longitude ? `<p class="ck-gps">GPS: ${escapeHtml(shipping.latitude)}, ${escapeHtml(shipping.longitude)}</p>` : ''}
+      ${mapLink ? `<p class="ck-gps"><a class="ck-map-link" href="${escapeHtml(mapLink)}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a></p>` : ''}
     </section>
   `;
 }

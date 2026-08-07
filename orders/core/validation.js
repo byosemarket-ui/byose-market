@@ -6,13 +6,13 @@ export function validateShipping(address = {}) {
 
   REQUIRED_SHIPPING_FIELDS.forEach((field) => {
     if (!String(address[field] || '').trim()) {
-      errors[field] = `${FIELD_LABELS[field]} is required.`;
+      errors[field] = `Please enter your ${FIELD_LABELS[field].toLowerCase()}.`;
     }
   });
 
-  const phone = normalizePhone(address.phone);
-  if (address.phone && !isValidPhone(phone)) {
-    errors.phone = 'Enter a valid Rwanda phone number (e.g. 07XXXXXXXX).';
+  const rawPhone = String(address.phone || '').trim();
+  if (rawPhone && !isValidPhone(normalizePhone(rawPhone))) {
+    errors.phone = 'Please enter a valid Rwanda phone number (07XXXXXXXX).';
   }
 
   return {

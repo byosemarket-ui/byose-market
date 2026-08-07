@@ -479,11 +479,14 @@ const ByoseCart = {
       const availability = normalizeAvailability(product.availability, stock);
       const priceChanged = Math.round(price) !== Math.round(item.price);
 
+      const colorImage = item.colorImage || item.variantSelection?.colorImage || '';
       return normalizeLine({
         ...item,
         name: product.name || item.name,
         slug: product.slug || item.slug,
-        image: product.image || product.mainImage || item.image,
+        // Keep variant color image; fall back to catalog only when the line has none.
+        colorImage,
+        image: colorImage || item.image || product.image || product.mainImage || '',
         price,
         comparePrice,
         discountPrice: price,

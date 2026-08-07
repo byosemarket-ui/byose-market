@@ -1,7 +1,6 @@
 import ByoseCart from '../services/byose-cart.js';
 import productService from '../services/centralized-products.service.js';
 import { normalizeStorefrontAssetUrl } from '../services/storefront-asset-url.js';
-import { normalizeStorefrontAssetUrl } from '../services/storefront-asset-url.js';
 
 const els = {
   items: document.getElementById('cartItems'),

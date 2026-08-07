@@ -14,70 +14,140 @@
     <div class="ck-layout">
       <main>
         <div class="ck-progress" id="progress"></div>
-        <article class="ck-panel">
+        <article class="ck-panel ck-panel--shipping">
           <header class="ck-panel-head">
             <p>Step 1 of 4</p>
             <h1>Shipping</h1>
             <p>Enter your delivery address in Rwanda.</p>
           </header>
-          <div id="message" hidden></div>
-          <form id="shippingForm" class="ck-form-grid" novalidate>
-            <label class="ck-field ck-field--full">
-              <span>Full Name *</span>
-              <input type="text" name="fullName" autocomplete="name" placeholder="Enter full name">
-              <small class="ck-field-error" data-error="fullName"></small>
-            </label>
-            <label class="ck-field ck-field--full">
-              <span>Phone Number *</span>
-              <input type="tel" name="phone" autocomplete="tel" inputmode="tel" placeholder="07XXXXXXXX">
-              <small class="ck-field-error" data-error="phone"></small>
-            </label>
-            <div class="ck-form-row">
-              <label class="ck-field">
-                <span>Province / City *</span>
-                <input type="text" name="provinceCity" autocomplete="address-level1" placeholder="Kigali City">
-                <small class="ck-field-error" data-error="provinceCity"></small>
-              </label>
-              <label class="ck-field">
-                <span>District *</span>
-                <input type="text" name="district" autocomplete="address-level2" placeholder="Gasabo">
-                <small class="ck-field-error" data-error="district"></small>
-              </label>
-            </div>
-            <div class="ck-form-row">
-              <label class="ck-field">
-                <span>Sector *</span>
-                <input type="text" name="sector" placeholder="Kimironko">
-                <small class="ck-field-error" data-error="sector"></small>
-              </label>
-              <label class="ck-field">
-                <span>Cell *</span>
-                <input type="text" name="cell" placeholder="Bibare">
-                <small class="ck-field-error" data-error="cell"></small>
-              </label>
-            </div>
-            <div class="ck-form-row">
-              <label class="ck-field">
-                <span>Village *</span>
-                <input type="text" name="village" placeholder="Village name">
-                <small class="ck-field-error" data-error="village"></small>
-              </label>
-              <label class="ck-field">
-                <span>Landmark / Note</span>
-                <input type="text" name="note" placeholder="Nearby landmark">
-              </label>
-            </div>
-            <section class="ck-gps-card" aria-live="polite">
-              <div>
-                <h3>Device Location</h3>
-                <p id="gpsStatus">Requesting permission...</p>
-                <div class="ck-gps-meta" id="gpsMeta"></div>
+          <div id="message" class="ck-message" hidden role="alert"></div>
+          <form id="shippingForm" class="ck-form-grid ck-shipping-form" novalidate>
+            <section class="ck-shipping-section" aria-labelledby="shippingContactTitle">
+              <h2 class="ck-shipping-section__title" id="shippingContactTitle">Contact</h2>
+              <div class="ck-shipping-section__grid">
+                <label class="ck-field ck-field--full">
+                  <span class="ck-field__label">Full Name</span>
+                  <input
+                    type="text"
+                    name="fullName"
+                    autocomplete="name"
+                    placeholder="Andika amazina yawe yose"
+                    aria-required="true"
+                    aria-describedby="error-fullName"
+                  >
+                  <small class="ck-field-error" id="error-fullName" data-error="fullName"></small>
+                </label>
+                <label class="ck-field ck-field--full">
+                  <span class="ck-field__label">Phone Number</span>
+                  <input
+                    type="tel"
+                    name="phone"
+                    autocomplete="tel"
+                    inputmode="tel"
+                    placeholder="Andika nimero ya telefone"
+                    aria-required="true"
+                    aria-describedby="error-phone"
+                  >
+                  <small class="ck-field-error" id="error-phone" data-error="phone"></small>
+                </label>
               </div>
-              <a class="ck-map-link" id="gpsMapLink" href="#" target="_blank" rel="noopener" hidden>Maps</a>
             </section>
-            <div class="ck-actions">
-              <a class="ck-btn ck-btn--ghost" href="../cart.html">Back</a>
-              <button type="button" class="ck-btn ck-btn--primary" id="shippingContinueBtn">Continue to Review</button>
+
+            <section class="ck-shipping-section" aria-labelledby="shippingAddressTitle">
+              <h2 class="ck-shipping-section__title" id="shippingAddressTitle">Delivery address</h2>
+              <div class="ck-shipping-section__grid">
+                <div class="ck-form-row">
+                  <label class="ck-field">
+                    <span class="ck-field__label">Province / City</span>
+                    <input
+                      type="text"
+                      name="provinceCity"
+                      autocomplete="address-level1"
+                      placeholder="Hitamo Intara cyangwa Umujyi"
+                      aria-required="true"
+                      aria-describedby="error-provinceCity"
+                    >
+                    <small class="ck-field-error" id="error-provinceCity" data-error="provinceCity"></small>
+                  </label>
+                  <label class="ck-field">
+                    <span class="ck-field__label">District</span>
+                    <input
+                      type="text"
+                      name="district"
+                      autocomplete="address-level2"
+                      placeholder="Hitamo Akarere"
+                      aria-required="true"
+                      aria-describedby="error-district"
+                    >
+                    <small class="ck-field-error" id="error-district" data-error="district"></small>
+                  </label>
+                </div>
+                <div class="ck-form-row">
+                  <label class="ck-field">
+                    <span class="ck-field__label">Sector</span>
+                    <input
+                      type="text"
+                      name="sector"
+                      placeholder="Hitamo Umurenge"
+                      aria-required="true"
+                      aria-describedby="error-sector"
+                    >
+                    <small class="ck-field-error" id="error-sector" data-error="sector"></small>
+                  </label>
+                  <label class="ck-field">
+                    <span class="ck-field__label">Cell</span>
+                    <input
+                      type="text"
+                      name="cell"
+                      placeholder="Hitamo Akagari"
+                      aria-required="true"
+                      aria-describedby="error-cell"
+                    >
+                    <small class="ck-field-error" id="error-cell" data-error="cell"></small>
+                  </label>
+                </div>
+                <div class="ck-form-row">
+                  <label class="ck-field">
+                    <span class="ck-field__label">Village</span>
+                    <input
+                      type="text"
+                      name="village"
+                      placeholder="Andika Umudugudu"
+                      aria-required="true"
+                      aria-describedby="error-village"
+                    >
+                    <small class="ck-field-error" id="error-village" data-error="village"></small>
+                  </label>
+                  <label class="ck-field">
+                    <span class="ck-field__label">Landmark / Note</span>
+                    <input
+                      type="text"
+                      name="note"
+                      placeholder="Andika ahantu hafasha kukubona"
+                      aria-describedby="error-note"
+                    >
+                    <small class="ck-field-error" id="error-note" data-error="note"></small>
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section class="ck-gps-card" id="gpsCard" data-state="detecting" aria-live="polite">
+              <div class="ck-gps-card__copy">
+                <div class="ck-gps-card__title-row">
+                  <h3>Device Location</h3>
+                  <span class="ck-gps-badge" id="gpsBadge" data-state="detecting">Locating</span>
+                </div>
+                <p id="gpsStatus">Detecting location...</p>
+                <div class="ck-gps-meta" id="gpsMeta"></div>
+                <button type="button" class="ck-gps-retry" id="gpsRetryBtn" hidden>Retry location</button>
+              </div>
+              <a class="ck-map-link" id="gpsMapLink" href="#" target="_blank" rel="noopener" hidden>Open in Maps</a>
+            </section>
+
+            <div class="ck-actions ck-actions--shipping">
+              <a class="ck-btn ck-btn--ghost" id="shippingBackLink" href="../cart.html">Back</a>
+              <button type="submit" class="ck-btn ck-btn--primary" id="shippingContinueBtn">Continue to Review</button>
             </div>
           </form>
         </article>

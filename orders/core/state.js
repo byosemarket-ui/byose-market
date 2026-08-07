@@ -52,7 +52,7 @@ const state = {
   customer: { id: '', name: '', email: '', phone: '', avatar: '' },
   shipping: clone(DEFAULT_ADDRESS),
   payment: { method: 'mtn', phone: '' },
-  totals: { subtotal: 0, deliveryFee: DELIVERY_FEE, codFee: 0, total: DELIVERY_FEE }
+  totals: { subtotal: 0, discount: 0, tax: 0, deliveryFee: DELIVERY_FEE, codFee: 0, total: DELIVERY_FEE }
 };
 
 function emit(event) {
@@ -143,21 +143,41 @@ function recalcTotals() {
     (sum, p) => sum + (Number(p.price) || 0) * Math.max(1, Number(p.qty || p.quantity) || 1),
     0
   );
+  const discount = state.products.reduce((sum, p) => {
+    const price = Number(p.price) || 0;
+    const compare = Number(p.comparePrice || p.oldPrice) || 0;
+    const qty = Math.max(1, Number(p.qty || p.quantity) || 1);
+    if (compare > price) {
+      return sum + (compare - price) * qty;
+    }
+    return sum;
+  }, 0);
   const deliveryFee = DELIVERY_FEE;
   const codFee = state.payment.method === 'cod' ? COD_FEE : 0;
-  state.totals = { subtotal, deliveryFee, codFee, total: subtotal + deliveryFee + codFee };
+  const tax = 0;
+  state.totals = {
+    subtotal,
+    discount,
+    tax,
+    deliveryFee,
+    codFee,
+    total: subtotal + deliveryFee + codFee
+  };
 }
 
 function normalizeProduct(item) {
   if (!item || typeof item !== 'object') return null;
   const qty = Math.max(1, Number(item.qty || item.quantity) || 1);
   const price = Number(item.price) || 0;
+  const comparePrice = Number(item.comparePrice || item.oldPrice) || 0;
   return {
     ...item,
     id: String(item.id || item.productId || ''),
     productId: String(item.productId || item.id || ''),
     name: String(item.name || 'Product'),
     price,
+    comparePrice: comparePrice > price ? comparePrice : 0,
+    oldPrice: comparePrice > price ? comparePrice : 0,
     qty,
     quantity: qty,
     image: item.image || item.img || item.productImage || '',
@@ -190,10 +210,11 @@ function loadProducts() {
 
   const direct = readDirectCheckout() || readPersistedDirectCheckout();
   if (direct) {
-    const item = normalizeProduct(direct);
-    if (item) {
+    const list = Array.isArray(direct) ? direct : [direct];
+    const items = list.map(normalizeProduct).filter(Boolean);
+    if (items.length) {
       state.source = 'direct';
-      state.products = [item];
+      state.products = items;
       return;
     }
   }
@@ -389,11 +410,26 @@ export function updateShipping(patch) {
 export function commitShipping(formData) {
   const check = validateShipping(formData);
   if (!check.valid) return check;
-  state.shipping = { ...state.shipping, ...formData };
-  state.shipping.phone = normalizePhone(formData.phone);
+
+  // Preserve GPS metadata that is not part of the visible form controls.
+  const gpsFields = {
+    latitude: state.shipping.latitude,
+    longitude: state.shipping.longitude,
+    mapLink: state.shipping.mapLink,
+    locationAccuracy: state.shipping.locationAccuracy,
+    locationCapturedAt: state.shipping.locationCapturedAt
+  };
+
+  state.shipping = {
+    ...state.shipping,
+    ...formData,
+    ...gpsFields,
+    phone: normalizePhone(formData.phone)
+  };
   state.step = 'review';
   persistUserAddress(state.shipping);
   persistDraft();
+  writeHandoff();
   emit('shipping-changed');
   return { valid: true };
 }
@@ -425,6 +461,13 @@ export function updateProductQty(productId, variantKey, qty) {
   }
   recalcTotals();
   persistDraft();
+
+  // Keep cart checkout selection in sync when quantities change on Review.
+  const checkoutActive = readStorage(STORAGE_KEYS.checkoutActive, []);
+  if (Array.isArray(checkoutActive) && checkoutActive.length) {
+    writeStorage(STORAGE_KEYS.checkoutActive, state.products);
+  }
+
   emit('products-changed');
 }
 
