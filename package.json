@@ -25,6 +25,7 @@
     "verify:integration": "node scripts/validate-product-integration.js && node scripts/validate-color-inventory.js && node scripts/validate-color-variant-images.js && node scripts/validate-variant-cart-payload.js && node scripts/validate-discount-display.js",
     "verify:variant-flow": "node scripts/verify-variant-data-flow.mjs",
     "verify:storefront": "node scripts/verify-storefront-full.mjs",
+    "verify:hero-slider": "node scripts/verify-hero-slider-flow.js",
     "verify:modal": "node scripts/verify-modal-redesign.mjs",
     "verify:checkout": "node scripts/verify-checkout-flow.mjs"
   },

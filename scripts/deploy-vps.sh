@@ -167,6 +167,22 @@ sync_storefront_static() {
     fi
   done
 
+  # Bust browser caches for the homepage entry module after every deploy.
+  local asset_version
+  asset_version="$(git -C "${DEPLOY_DIR}" rev-parse --short HEAD 2>/dev/null || date +%s)"
+  if [[ -f "${WEB_ROOT}/index.html" ]]; then
+    node -e "
+      const fs = require('fs');
+      const file = process.argv[1];
+      const version = process.argv[2];
+      let html = fs.readFileSync(file, 'utf8');
+      html = html.replace(/src=([\"'])index\\.js(?:\\?[^\"']*)?\\1/g, 'src=\$1index.js?v=' + version + '\$1');
+      html = html.replace(/src=([\"'])js\\/byose-cart-bootstrap\\.js(?:\\?[^\"']*)?\\1/g, 'src=\$1js/byose-cart-bootstrap.js?v=' + version + '\$1');
+      fs.writeFileSync(file, html);
+      console.log('Storefront asset version stamped:', version);
+    " "${WEB_ROOT}/index.html" "${asset_version}"
+  fi
+
   log "Storefront static sync complete."
 }
 
@@ -292,6 +308,19 @@ install_nginx_uploads_config
 
 log "Waiting for API health checks (HTTP 200 + JSON status field)..."
 if wait_for_healthy_api; then
+  log "Verifying public hero slides API..."
+  hero_code="$(curl -sS -o /tmp/byose-hero-slides.json -w "%{http_code}" --max-time 15 \
+    -H 'Accept: application/json' -H 'Cache-Control: no-cache' \
+    "http://127.0.0.1:${API_PORT}/api/hero-slides" || printf '000')"
+  if [[ "${hero_code}" != "200" ]]; then
+    fail "Hero slides API returned HTTP ${hero_code}"
+  fi
+  node -e "
+    const fs = require('fs');
+    const payload = JSON.parse(fs.readFileSync('/tmp/byose-hero-slides.json', 'utf8'));
+    if (!payload || payload.success !== true || !Array.isArray(payload.slides)) process.exit(1);
+    console.log('Hero slides OK count=', payload.slides.length);
+  "
   exit 0
 fi
 

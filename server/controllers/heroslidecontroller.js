@@ -1,6 +1,8 @@
 const config = require('../config/env');
 const HeroSlide = require('../models/heroslide');
 const heroSlideDataService = require('../services/heroslidedataservice');
+const { deleteManagedFiles } = require('../services/uploadstorage.service');
+const getRealtimeEventService = require('../services/realtimeeventservice');
 const { appLogger } = require('../utils/logger');
 
 function normalizeText(value, fallback = '') {
@@ -78,11 +80,14 @@ function serializeSlide(slide) {
         ? slide.toObject({ versionKey: false })
         : { ...(slide || {}) };
 
+    const subtitle = normalizeText(source.subtitle);
+
     return {
         id: normalizeText(source.slideId || source.id || source._id),
         slideId: normalizeText(source.slideId || source.id || source._id),
         title: normalizeText(source.title),
-        subtitle: normalizeText(source.subtitle),
+        subtitle,
+        description: subtitle,
         buttonText: normalizeText(source.buttonText),
         buttonLink: normalizeText(source.buttonLink),
         imageUrl: normalizeText(source.imageUrl),
@@ -121,8 +126,10 @@ function extractSlidePayload(body = {}) {
     if (Object.prototype.hasOwnProperty.call(body, 'title')) {
         payload.title = normalizeText(body.title);
     }
-    if (Object.prototype.hasOwnProperty.call(body, 'subtitle')) {
-        payload.subtitle = normalizeText(body.subtitle);
+    if (Object.prototype.hasOwnProperty.call(body, 'subtitle') || Object.prototype.hasOwnProperty.call(body, 'description')) {
+        payload.subtitle = normalizeText(
+            Object.prototype.hasOwnProperty.call(body, 'subtitle') ? body.subtitle : body.description
+        );
     }
     if (Object.prototype.hasOwnProperty.call(body, 'buttonText')) {
         payload.buttonText = normalizeText(body.buttonText);
@@ -148,6 +155,118 @@ function extractSlidePayload(body = {}) {
 
     return payload;
 }
+
+function serializePublicSlide(slide) {
+    const serialized = serializeSlide(slide);
+    return {
+        id: serialized.id,
+        slideId: serialized.slideId,
+        title: serialized.title,
+        subtitle: serialized.subtitle,
+        description: serialized.description,
+        buttonText: serialized.buttonText,
+        buttonLink: serialized.buttonLink,
+        imageUrl: serialized.imageUrl,
+        imagePath: serialized.imagePath,
+        displayOrder: serialized.displayOrder,
+        status: serialized.status
+    };
+}
+
+function requireHeroImage(imageUrl, imagePath) {
+    return Boolean(normalizeText(imageUrl) || normalizeText(imagePath));
+}
+
+function isUniqueConstraintError(error) {
+    const message = String(error?.message || error || '').toLowerCase();
+    const code = String(error?.code || '');
+    return code === 'SQLITE_CONSTRAINT'
+        || code === '11000'
+        || message.includes('unique')
+        || message.includes('duplicate');
+}
+
+function setPublicHeroCacheHeaders(res) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+}
+
+function emitHeroRealtime(action, slides = []) {
+    try {
+        const realtimeService = getRealtimeEventService();
+        realtimeService.emitHeroSlidesUpdated(action, Array.isArray(slides) ? slides : []);
+    } catch (_error) {
+        // Realtime is best-effort and must not break CRUD responses.
+    }
+}
+
+async function safeDeleteMongoHeroImages(paths = [], excludeSlideId = '') {
+    const candidates = Array.isArray(paths) ? paths : [paths];
+    const removable = [];
+
+    for (const entry of candidates) {
+        const normalized = normalizeText(entry).replace(/^\/uploads\//, '').replace(/^\/+/, '');
+        if (!normalized) {
+            continue;
+        }
+
+        const publicUrl = `/uploads/${normalized}`;
+        const query = {
+            $or: [
+                { imagePath: normalized },
+                { imagePath: `/${normalized}` },
+                { imageUrl: publicUrl },
+                { imageUrl: { $regex: `${normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$` } }
+            ]
+        };
+        if (excludeSlideId) {
+            query.slideId = { $ne: excludeSlideId };
+        }
+
+        const count = await HeroSlide.countDocuments(query);
+        if (count === 0) {
+            removable.push(normalized);
+        }
+    }
+
+    return deleteManagedFiles(removable);
+}
+
+exports.listPublicHeroSlides = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'public_hero_slides' });
+    try {
+        const limit = Math.min(50, Math.max(1, Number(req.query?.limit || 20) || 20));
+        setPublicHeroCacheHeaders(res);
+
+        if (isSqlite()) {
+            const slides = await heroSlideDataService.listHeroSlides({
+                status: 'active',
+                sort: 'order-asc',
+                limit,
+                page: 1
+            });
+
+            return res.json({
+                success: true,
+                slides: slides.map(serializePublicSlide)
+            });
+        }
+
+        const slides = await HeroSlide.find({ status: 'active' })
+            .sort(buildSortQuery('order-asc'))
+            .limit(limit)
+            .lean();
+
+        return res.json({
+            success: true,
+            slides: slides.map(serializePublicSlide)
+        });
+    } catch (error) {
+        logger.error('public.hero_slides.list_failed', { error });
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
 
 exports.listHeroSlides = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'admin_hero_slides' });
@@ -248,6 +367,12 @@ exports.createHeroSlide = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Button link must be a valid internal path or http(s) URL.' });
         }
 
+        const imageUrl = normalizeText(body.imageUrl);
+        const imagePath = normalizeText(body.imagePath);
+        if (!requireHeroImage(imageUrl, imagePath)) {
+            return res.status(400).json({ success: false, message: 'Hero slide image is required.' });
+        }
+
         const slideId = buildSlideId(body);
         let displayOrder = Object.prototype.hasOwnProperty.call(body, 'displayOrder')
             ? toNumber(body.displayOrder, 0)
@@ -267,6 +392,10 @@ exports.createHeroSlide = async (req, res) => {
             }
         }
 
+        const subtitle = normalizeText(
+            Object.prototype.hasOwnProperty.call(body, 'subtitle') ? body.subtitle : body.description
+        );
+
         if (isSqlite()) {
             if (displayOrder === null) {
                 displayOrder = await heroSlideDataService.nextDisplayOrder();
@@ -275,17 +404,19 @@ exports.createHeroSlide = async (req, res) => {
             const document = await heroSlideDataService.createHeroSlide({
                 slideId,
                 title,
-                subtitle: normalizeText(body.subtitle),
+                subtitle,
                 buttonText: normalizeText(body.buttonText),
                 buttonLink,
-                imageUrl: normalizeText(body.imageUrl),
-                imagePath: normalizeText(body.imagePath),
+                imageUrl,
+                imagePath,
                 displayOrder,
                 status: normalizeStatus(body.status),
                 meta: body.meta && typeof body.meta === 'object' ? body.meta : {}
             });
 
-            return res.status(201).json({ success: true, slide: serializeSlide(document) });
+            const created = serializeSlide(document);
+            emitHeroRealtime('created', [created]);
+            return res.status(201).json({ success: true, slide: created });
         }
 
         if (displayOrder === null) {
@@ -296,18 +427,26 @@ exports.createHeroSlide = async (req, res) => {
         const document = await HeroSlide.create({
             slideId,
             title,
-            subtitle: normalizeText(body.subtitle),
+            subtitle,
             buttonText: normalizeText(body.buttonText),
             buttonLink,
-            imageUrl: normalizeText(body.imageUrl),
-            imagePath: normalizeText(body.imagePath),
+            imageUrl,
+            imagePath,
             displayOrder,
             status: normalizeStatus(body.status),
             meta: body.meta && typeof body.meta === 'object' ? body.meta : {}
         });
 
-        return res.status(201).json({ success: true, slide: serializeSlide(document) });
+        const created = serializeSlide(document);
+        emitHeroRealtime('created', [created]);
+        return res.status(201).json({ success: true, slide: created });
     } catch (error) {
+        if (isUniqueConstraintError(error)) {
+            return res.status(409).json({
+                success: false,
+                message: 'A hero slide with that display order or id already exists.'
+            });
+        }
         logger.error('admin.hero_slides.create_failed', { error });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
@@ -345,11 +484,28 @@ exports.updateHeroSlide = async (req, res) => {
         }
 
         if (isSqlite()) {
+            const existing = await heroSlideDataService.findHeroSlideById(identifier);
+            if (!existing) {
+                return res.status(404).json({ success: false, message: 'Hero slide not found.' });
+            }
+
+            const nextImageUrl = Object.prototype.hasOwnProperty.call(updates, 'imageUrl')
+                ? updates.imageUrl
+                : existing.imageUrl;
+            const nextImagePath = Object.prototype.hasOwnProperty.call(updates, 'imagePath')
+                ? updates.imagePath
+                : existing.imagePath;
+            if (!requireHeroImage(nextImageUrl, nextImagePath)) {
+                return res.status(400).json({ success: false, message: 'Hero slide image is required.' });
+            }
+
             const slide = await heroSlideDataService.updateHeroSlide(identifier, updates);
             if (!slide) {
                 return res.status(404).json({ success: false, message: 'Hero slide not found.' });
             }
-            return res.json({ success: true, slide: serializeSlide(slide) });
+            const serialized = serializeSlide(slide);
+            emitHeroRealtime('updated', [serialized]);
+            return res.json({ success: true, slide: serialized });
         }
 
         const slide = await HeroSlide.findOne({ slideId: identifier });
@@ -357,11 +513,106 @@ exports.updateHeroSlide = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Hero slide not found.' });
         }
 
+        const previous = slide.toObject({ versionKey: false });
+        const nextImageUrl = Object.prototype.hasOwnProperty.call(updates, 'imageUrl')
+            ? updates.imageUrl
+            : previous.imageUrl;
+        const nextImagePath = Object.prototype.hasOwnProperty.call(updates, 'imagePath')
+            ? updates.imagePath
+            : previous.imagePath;
+        if (!requireHeroImage(nextImageUrl, nextImagePath)) {
+            return res.status(400).json({ success: false, message: 'Hero slide image is required.' });
+        }
+
         Object.assign(slide, updates);
         await slide.save();
-        return res.json({ success: true, slide: serializeSlide(slide) });
+        await safeDeleteMongoHeroImages(
+            heroSlideDataService.collectRemovedHeroImagePaths(previous, slide.toObject({ versionKey: false })),
+            identifier
+        );
+        const serialized = serializeSlide(slide);
+        emitHeroRealtime('updated', [serialized]);
+        return res.json({ success: true, slide: serialized });
     } catch (error) {
+        if (isUniqueConstraintError(error)) {
+            return res.status(409).json({
+                success: false,
+                message: 'A hero slide with that display order or id already exists.'
+            });
+        }
         logger.error('admin.hero_slides.update_failed', { error, requestedSlideId: req.params.id });
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.moveHeroSlide = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'admin_hero_slides' });
+    try {
+        const identifier = normalizeText(req.params.id);
+        if (!identifier) {
+            return res.status(400).json({ success: false, message: 'Slide id is required.' });
+        }
+
+        const direction = normalizeText(req.body?.direction, 'up').toLowerCase() === 'down' ? 'down' : 'up';
+
+        if (isSqlite()) {
+            const result = await heroSlideDataService.moveHeroSlide(identifier, direction);
+            if (!result?.slide) {
+                return res.status(404).json({ success: false, message: 'Hero slide not found.' });
+            }
+            const serializedSlide = serializeSlide(result.slide);
+            const serializedNeighbor = result.neighbor ? serializeSlide(result.neighbor) : null;
+            if (result.moved) {
+                emitHeroRealtime('moved', [serializedSlide, serializedNeighbor].filter(Boolean));
+            }
+            return res.json({
+                success: true,
+                moved: Boolean(result.moved),
+                slide: serializedSlide,
+                neighbor: serializedNeighbor
+            });
+        }
+
+        const slides = await HeroSlide.find({}).sort(buildSortQuery('order-asc')).lean();
+        const index = slides.findIndex((entry) => String(entry.slideId) === identifier);
+        if (index < 0) {
+            return res.status(404).json({ success: false, message: 'Hero slide not found.' });
+        }
+
+        const neighborIndex = direction === 'up' ? index - 1 : index + 1;
+        if (neighborIndex < 0 || neighborIndex >= slides.length) {
+            return res.json({
+                success: true,
+                moved: false,
+                slide: serializeSlide(slides[index]),
+                neighbor: null
+            });
+        }
+
+        const left = await HeroSlide.findOne({ slideId: slides[index].slideId });
+        const right = await HeroSlide.findOne({ slideId: slides[neighborIndex].slideId });
+        const orderA = toNumber(left.displayOrder, 0);
+        const orderB = toNumber(right.displayOrder, 0);
+        const tempOrder = -1 - Math.abs(Date.now() % 100000000);
+
+        left.displayOrder = tempOrder;
+        await left.save();
+        right.displayOrder = orderA;
+        await right.save();
+        left.displayOrder = orderB === orderA ? orderA + 1 : orderB;
+        await left.save();
+
+        const serializedLeft = serializeSlide(left);
+        const serializedRight = serializeSlide(right);
+        emitHeroRealtime('moved', [serializedLeft, serializedRight]);
+        return res.json({
+            success: true,
+            moved: true,
+            slide: serializedLeft,
+            neighbor: serializedRight
+        });
+    } catch (error) {
+        logger.error('admin.hero_slides.move_failed', { error, requestedSlideId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
@@ -379,6 +630,7 @@ exports.deleteHeroSlide = async (req, res) => {
             if (!slide) {
                 return res.status(404).json({ success: false, message: 'Hero slide not found.' });
             }
+            emitHeroRealtime('deleted', [serializeSlide(slide)]);
             return res.json({ success: true, slideId: identifier });
         }
 
@@ -387,6 +639,8 @@ exports.deleteHeroSlide = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Hero slide not found.' });
         }
 
+        await safeDeleteMongoHeroImages(heroSlideDataService.collectHeroSlideManagedPaths(slide));
+        emitHeroRealtime('deleted', [serializeSlide(slide)]);
         return res.json({ success: true, slideId: identifier });
     } catch (error) {
         logger.error('admin.hero_slides.delete_failed', { error, requestedSlideId: req.params.id });

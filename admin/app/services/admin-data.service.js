@@ -1,6 +1,7 @@
 import * as api from "../core/api.js";
 import { publishRealtime } from "../core/realtime-adapter.js";
 import productCatalogService from "../../../services/centralized-products.service.js";
+import { publishHeroSlidesBump } from "../../../../services/hero-slides.service.js";
 
 const CACHE_PREFIX = "byose_admin_api_cache_v2";
 const DEFAULT_RETRY_COUNT = 2;
@@ -1125,6 +1126,7 @@ export async function createHeroSlide(slideData = {}) {
   const payload = await api.post("admin/hero-slides", asObject(slideData));
   const slide = normalizeHeroSlide(payload?.slide || payload);
   await getHeroSlides({ force: true, emit: true });
+  notifyStorefrontHeroUpdate("create");
   return slide;
 }
 
@@ -1137,7 +1139,26 @@ export async function updateHeroSlide(slideId, updates = {}) {
   const payload = await api.put(`admin/hero-slides/${encodeURIComponent(id)}`, asObject(updates));
   const slide = normalizeHeroSlide(payload?.slide || payload);
   await getHeroSlides({ force: true, emit: true });
+  notifyStorefrontHeroUpdate("update");
   return slide;
+}
+
+export async function moveHeroSlide(slideId, direction = "up") {
+  const id = normalizeText(slideId);
+  if (!id) {
+    throw new Error("Slide id is required.");
+  }
+
+  const payload = await api.put(`admin/hero-slides/${encodeURIComponent(id)}/move`, {
+    direction: String(direction || "up").toLowerCase() === "down" ? "down" : "up"
+  });
+  await getHeroSlides({ force: true, emit: true });
+  notifyStorefrontHeroUpdate("move");
+  return {
+    moved: Boolean(payload?.moved),
+    slide: normalizeHeroSlide(payload?.slide || {}),
+    neighbor: payload?.neighbor ? normalizeHeroSlide(payload.neighbor) : null
+  };
 }
 
 export async function deleteHeroSlide(slideId) {
@@ -1148,7 +1169,12 @@ export async function deleteHeroSlide(slideId) {
 
   const payload = await api.remove(`admin/hero-slides/${encodeURIComponent(id)}`);
   await getHeroSlides({ force: true, emit: true });
+  notifyStorefrontHeroUpdate("delete");
   return payload || { slideId: id };
+}
+
+function notifyStorefrontHeroUpdate(action = "update") {
+  publishHeroSlidesBump(`admin:${action}`);
 }
 
 async function resyncEnterpriseScopes(scopes = []) {
@@ -1173,6 +1199,10 @@ async function resyncEnterpriseScopes(scopes = []) {
 
   if (normalizedScopes.has("activity")) {
     tasks.push(getActivityLogs({ force: true, emit: true }));
+  }
+
+  if (normalizedScopes.has("heroslider") || normalizedScopes.has("hero-slides") || normalizedScopes.has("hero")) {
+    tasks.push(getHeroSlides({ force: true, emit: true }));
   }
 
   if (tasks.length) {

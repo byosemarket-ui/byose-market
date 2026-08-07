@@ -63,15 +63,21 @@ fi
 if [[ -f "${DEPLOY_DIR}/scripts/migrate-production-uploads.sh" ]]; then
   bash "${DEPLOY_DIR}/scripts/migrate-production-uploads.sh"
 else
-  mkdir -p "${UPLOADS_DIR}/products" "${UPLOADS_DIR}/categories" "${UPLOADS_DIR}/users" "${UPLOADS_DIR}/reviews" "${UPLOADS_DIR}/temp"
+  mkdir -p "${UPLOADS_DIR}/products" "${UPLOADS_DIR}/categories" "${UPLOADS_DIR}/users" "${UPLOADS_DIR}/reviews" "${UPLOADS_DIR}/hero" "${UPLOADS_DIR}/temp"
   chmod -R u+rwX,go+rX "${UPLOADS_DIR}"
 fi
 
 product_count="$(find "${UPLOADS_DIR}/products" -type f ! -name '.gitkeep' 2>/dev/null | wc -l | tr -d ' ')"
+hero_count="$(find "${UPLOADS_DIR}/hero" -type f ! -name '.gitkeep' 2>/dev/null | wc -l | tr -d ' ')"
 log "Product image files on disk: ${product_count}"
+log "Hero image files on disk: ${hero_count}"
 
 if [[ "${product_count}" -eq 0 ]]; then
   warn "No product images in ${UPLOADS_DIR}/products yet; HTTP verification will be skipped."
+fi
+
+if [[ "${hero_count}" -eq 0 ]]; then
+  warn "No hero images in ${UPLOADS_DIR}/hero yet; hero HTTP verification will be skipped."
 fi
 
 if ! command -v nginx >/dev/null 2>&1; then
@@ -92,7 +98,7 @@ location ^~ /uploads/ {
     open_file_cache max=2000 inactive=60s;
     open_file_cache_valid 30s;
     open_file_cache_min_uses 2;
-    open_file_cache_errors on;
+    open_file_cache_errors off;
     types {
         image/jpeg  jpg jpeg;
         image/png   png;
@@ -244,6 +250,22 @@ verify_upload_routes() {
     fi
   else
     log "HTTPS verification skipped (domain or certificate unavailable from this host)."
+  fi
+
+  # Optional hero-bucket probe (UUID files, same /uploads location rules).
+  local hero_file hero_path
+  hero_file="$(find "${UPLOADS_DIR}/hero" -type f ! -name '.gitkeep' 2>/dev/null | head -n 1 || true)"
+  if [[ -n "${hero_file}" ]]; then
+    hero_path="/uploads/hero/$(basename "${hero_file}")"
+    result="$(probe_upload_url "hero-nginx" "http://${NGINX_VERIFY_HOST}" "${hero_path}")"
+    IFS='|' read -r http_code content_type _ full_url <<< "${result}"
+    log "hero probe: ${full_url} -> HTTP ${http_code}, Content-Type: ${content_type:-unknown}"
+    if [[ "${http_code}" != "200" || "${content_type}" != image/* ]]; then
+      fail "Hero upload route returned HTTP ${http_code} / '${content_type:-unknown}' for ${hero_path}"
+    fi
+    log "Hero upload route OK (${content_type})"
+  else
+    warn "No hero images on disk; skipped hero HTTP probe."
   fi
 }
 

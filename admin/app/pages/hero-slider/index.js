@@ -3,9 +3,10 @@ import {
   createHeroSlide,
   deleteHeroSlide,
   getHeroSlides,
+  moveHeroSlide,
   updateHeroSlide
 } from "../../services/admin-data.service.js";
-import { HERO_BUCKET, uploadWithRetry } from "../../../../services/uploadService.js";
+import { HERO_BUCKET, removeStoredAssets, uploadWithRetry } from "../../../../services/uploadService.js";
 import { mountHeroSlideForm, renderHeroSlideFormMarkup } from "./form.js";
 import {
   escapeHtml,
@@ -96,7 +97,7 @@ function renderPreviewCell(slide) {
     return `<div class="hs-preview hs-preview-empty" aria-hidden="true">No image</div>`;
   }
 
-  return `<div class="hs-preview"><img src="${escapeHtml(image)}" alt="" loading="lazy" /></div>`;
+  return `<div class="hs-preview"><img src="${escapeHtml(image)}" alt="" loading="lazy" decoding="async" onerror="this.onerror=null;this.remove();" /></div>`;
 }
 
 function renderActionButtons(slide) {
@@ -109,6 +110,8 @@ function renderActionButtons(slide) {
     <div class="hs-row-actions">
       <button type="button" class="pm-btn pm-btn-ghost pm-btn-sm" data-hs-action="view" data-slide-id="${id}">View</button>
       <button type="button" class="pm-btn pm-btn-ghost pm-btn-sm" data-hs-action="edit" data-slide-id="${id}">Edit</button>
+      <button type="button" class="pm-btn pm-btn-ghost pm-btn-sm" data-hs-action="move-up" data-slide-id="${id}" title="Move earlier in display order">↑</button>
+      <button type="button" class="pm-btn pm-btn-ghost pm-btn-sm" data-hs-action="move-down" data-slide-id="${id}" title="Move later in display order">↓</button>
       <button type="button" class="pm-btn pm-btn-ghost pm-btn-sm" data-hs-action="replace-image" data-slide-id="${id}">Replace Image</button>
       <button type="button" class="pm-btn pm-btn-secondary pm-btn-sm" data-hs-action="toggle" data-slide-id="${id}" data-next-status="${nextStatus}">${toggleLabel}</button>
       <button type="button" class="pm-btn pm-btn-danger pm-btn-sm" data-hs-action="delete" data-slide-id="${id}">Delete</button>
@@ -178,10 +181,11 @@ function renderViewDetails(slide) {
   `;
 }
 
-async function uploadSlideImage(file, previousPath = "") {
+async function uploadSlideImage(file) {
   const uploaded = await uploadWithRetry(file, {
     bucket: HERO_BUCKET,
-    cleanupPaths: previousPath ? [previousPath] : [],
+    // Defer old-image cleanup until after the database record is updated.
+    cleanupPaths: [],
     progressLabel: "Uploading hero slide image..."
   });
 
@@ -281,12 +285,32 @@ export async function renderHeroSlider(container) {
   container.innerHTML = buildShellMarkup();
 
   async function loadSlides() {
-    slides = await getHeroSlides({
-      force: state.force || !hasLoaded,
-      allowCacheFallback: true,
-      emit: false,
-      limit: MAX_PAGE_FETCH
-    });
+    const force = state.force || !hasLoaded;
+    try {
+      slides = await getHeroSlides({
+        force,
+        allowCacheFallback: false,
+        emit: false,
+        limit: MAX_PAGE_FETCH
+      });
+    } catch (error) {
+      if (!hasLoaded) {
+        // First paint: allow one cached fallback so the page remains usable offline briefly.
+        try {
+          slides = await getHeroSlides({
+            force: false,
+            allowCacheFallback: true,
+            emit: false,
+            limit: MAX_PAGE_FETCH
+          });
+          showFeedback(container, "Showing cached hero slides. Live refresh failed — retry shortly.", "warn");
+        } catch (_cacheError) {
+          throw error;
+        }
+      } else {
+        showFeedback(container, error?.message || "Unable to refresh hero slides from the server.", "error");
+      }
+    }
     state.force = false;
     hasLoaded = true;
   }
@@ -410,11 +434,18 @@ export async function renderHeroSlider(container) {
 
     try {
       showFeedback(container, "Uploading replacement image...", "warn");
-      const media = await uploadSlideImage(file, slide.imagePath || "");
-      await updateHeroSlide(getSlideId(slide), {
-        imageUrl: media.imageUrl,
-        imagePath: media.imagePath
-      });
+      const media = await uploadSlideImage(file);
+      try {
+        await updateHeroSlide(getSlideId(slide), {
+          imageUrl: media.imageUrl,
+          imagePath: media.imagePath
+        });
+      } catch (error) {
+        if (media.imagePath) {
+          await removeStoredAssets([media.imagePath]);
+        }
+        throw error;
+      }
       showFeedback(container, "Hero slide image replaced successfully.");
       await refresh({ force: true });
     } catch (error) {
@@ -479,6 +510,23 @@ export async function renderHeroSlider(container) {
     if (action === "replace-image") {
       replaceTargetId = slideId;
       replaceInput.click();
+      return;
+    }
+
+    if (action === "move-up" || action === "move-down") {
+      actionButton.disabled = true;
+      try {
+        const result = await moveHeroSlide(slideId, action === "move-up" ? "up" : "down");
+        showFeedback(
+          container,
+          result?.moved ? "Display order updated." : "Slide is already at the edge of the list.",
+          result?.moved ? "success" : "warn"
+        );
+        await refresh({ force: true });
+      } catch (error) {
+        actionButton.disabled = false;
+        showFeedback(container, error?.message || "Unable to change display order.", "error");
+      }
       return;
     }
 

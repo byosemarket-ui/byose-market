@@ -59,7 +59,7 @@ command -v nginx >/dev/null 2>&1 || fail "nginx is not installed"
 command -v curl >/dev/null 2>&1 || fail "curl is not installed"
 
 mkdir -p /etc/nginx/snippets "${WEB_ROOT}" /var/www/certbot
-mkdir -p "${UPLOADS_DIR}/products" "${UPLOADS_DIR}/categories" "${UPLOADS_DIR}/users" "${UPLOADS_DIR}/reviews" "${UPLOADS_DIR}/temp"
+mkdir -p "${UPLOADS_DIR}/products" "${UPLOADS_DIR}/categories" "${UPLOADS_DIR}/users" "${UPLOADS_DIR}/reviews" "${UPLOADS_DIR}/hero" "${UPLOADS_DIR}/temp"
 chmod -R u+rwX,go+rX "${UPLOADS_DIR}" || true
 
 # ---------------------------------------------------------------------------

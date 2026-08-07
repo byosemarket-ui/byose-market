@@ -1,4 +1,4 @@
-import { HERO_BUCKET, uploadWithRetry } from "../../../../services/uploadService.js";
+import { HERO_BUCKET, removeStoredAssets, uploadWithRetry } from "../../../../services/uploadService.js";
 import {
   HERO_IMAGE_ACCEPT,
   HERO_MAX_IMAGE_LABEL,
@@ -158,10 +158,11 @@ export function renderHeroSlideFormMarkup(slide = null, mode = "create") {
   `;
 }
 
-async function uploadSlideImage(file, previousPath = "") {
+async function uploadSlideImage(file) {
   const uploaded = await uploadWithRetry(file, {
     bucket: HERO_BUCKET,
-    cleanupPaths: previousPath ? [previousPath] : [],
+    // Do not cleanup previous images here — only after DB save succeeds.
+    cleanupPaths: [],
     progressLabel: "Uploading hero slide image..."
   });
 
@@ -415,16 +416,17 @@ export function mountHeroSlideForm(form, options = {}) {
     const payload = { ...validation.payload };
     const slideId = form.getAttribute("data-slide-id") || "";
     const continueEditing = saveMode === "continue";
+    let uploadedImagePath = "";
 
     try {
       setBusy(form, true);
       setFormNote(form, imageState.pendingFile ? "Uploading image and saving slide..." : "Saving slide...", "warn");
 
       if (imageState.pendingFile) {
-        const previousPath = imageState.removedExisting ? "" : (imageState.existingImagePath || "");
-        const media = await uploadSlideImage(imageState.pendingFile, previousPath);
+        const media = await uploadSlideImage(imageState.pendingFile);
         payload.imageUrl = media.imageUrl;
         payload.imagePath = media.imagePath;
+        uploadedImagePath = media.imagePath || "";
       }
 
       let savedSlide = null;
@@ -458,6 +460,9 @@ export function mountHeroSlideForm(form, options = {}) {
       revokeObjectUrl();
       closeModal();
     } catch (error) {
+      if (uploadedImagePath) {
+        await removeStoredAssets([uploadedImagePath]);
+      }
       const message = error?.message || "Unable to save the slide.";
       setFormNote(form, message, "error");
       if (typeof options.onError === "function") {

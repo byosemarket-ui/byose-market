@@ -9,6 +9,7 @@
 import productService from './services/centralized-products.service.js';
 import ProductCardSystem from './js/product-card-system.js';
 import { normalizeStorefrontAssetUrl, resolveProductImageUrl } from './services/storefront-asset-url.js';
+import heroSlidesService from './services/hero-slides.service.js';
 import {
   filterProductsForSection,
   getProductPlacements,
@@ -29,6 +30,7 @@ const FALLBACK_IMAGE = 'img/logo.png';
 const SPOTLIGHT_LIMIT = 6;
 const SPOTLIGHT_START_OFFSET = 5;
 const HERO_INTERVAL_MS = 3500;
+const HERO_BRAND_EYEBROW = 'Byose Market Rwanda';
 const NEWSLETTER_STORAGE_KEY = 'byose_market_newsletter_subscribers';
 
 const CATEGORY_ALIASES = {
@@ -69,7 +71,8 @@ if (document.readyState === 'loading') {
 function initializeHomePage() {
   syncCatalog();
   setupFilterControls();
-  setupHeroSlider();
+  heroSlidesService.ensureHeroSlidesLiveSync();
+  syncHeroSlides();
 
   // Re-render from the already-synced catalog payload — do not refetch.
   window.addEventListener(productService.GLOBAL_SYNC_EVENT, (event) => {
@@ -80,7 +83,23 @@ function initializeHomePage() {
     }
     syncCatalog();
   });
-  window.addEventListener('byose:hero-slides-updated', setupHeroSlider);
+  window.addEventListener(heroSlidesService.HERO_SLIDES_UPDATED_EVENT, (event) => {
+    if (event?.detail?.forceRefresh) {
+      syncHeroSlides();
+      return;
+    }
+    const slides = event?.detail?.slides;
+    if (Array.isArray(slides)) {
+      const fingerprint = event?.detail?.fingerprint || heroSlidesService.slidesFingerprint(slides);
+      const root = document.querySelector('.hero-slides');
+      if (root?.dataset.heroFingerprint === fingerprint) {
+        return;
+      }
+      applyHeroSlides(slides);
+      return;
+    }
+    syncHeroSlides();
+  });
 }
 
 function applyCatalog(products) {
@@ -447,6 +466,98 @@ function setupFilterControls() {
   }
 }
 
+function buildHeroSlideMarkup(slide, index) {
+  const title = escapeHtml(slide.title);
+  const description = escapeHtml(slide.description || slide.subtitle || '');
+  const imageUrl = escapeHtml(slide.imageUrl);
+  const fallbackImage = escapeHtml(normalizeStorefrontAssetUrl(FALLBACK_IMAGE) || FALLBACK_IMAGE);
+  const slideId = escapeHtml(slide.id || slide.slideId || `hero-slide-${index + 1}`);
+  const isFirst = index === 0;
+  const loading = isFirst ? 'eager' : 'lazy';
+  const descriptionMarkup = (slide.description || slide.subtitle)
+    ? `<p>${description}</p>`
+    : '';
+  const ctaMarkup = slide.buttonText && slide.buttonLink
+    ? `<a class="primary-cta hero-slide-cta" href="${escapeHtml(slide.buttonLink)}">${escapeHtml(slide.buttonText)}</a>`
+    : '';
+
+  return `
+    <div class="hero-slide${isFirst ? ' active' : ''}" data-slide-id="${slideId}" data-display-order="${escapeHtml(String(slide.displayOrder ?? index))}" aria-hidden="${isFirst ? 'false' : 'true'}">
+      <img src="${imageUrl}" alt="${title}" loading="${loading}" decoding="async"${isFirst ? ' fetchpriority="high"' : ''} onerror="this.onerror=null;this.src='${fallbackImage}';">
+      <div class="hero-slide-copy">
+        <span class="hero-slide-eyebrow">${escapeHtml(HERO_BRAND_EYEBROW)}</span>
+        <h1>${title}</h1>
+        ${descriptionMarkup}
+        ${ctaMarkup}
+      </div>
+    </div>
+  `;
+}
+
+function renderHeroSlides(slides) {
+  const root = document.querySelector('.hero-slides');
+  if (!root) {
+    return false;
+  }
+
+  const items = Array.isArray(slides) ? slides : [];
+  const fingerprint = heroSlidesService.slidesFingerprint(items);
+  if (root.dataset.heroFingerprint === fingerprint && root.dataset.heroSource === 'api') {
+    root.setAttribute('aria-busy', 'false');
+    return false;
+  }
+
+  root.innerHTML = items.map((slide, index) => buildHeroSlideMarkup(slide, index)).join('');
+  root.dataset.heroSource = items.length ? 'api' : 'empty';
+  root.dataset.heroFingerprint = fingerprint;
+  root.setAttribute('aria-busy', 'false');
+  return true;
+}
+
+function applyHeroSlides(slides) {
+  try {
+    const changed = renderHeroSlides(slides);
+    if (changed) {
+      setupHeroSlider();
+    } else if (!document.querySelector('.hero-slide')) {
+      setupHeroSlider();
+    }
+  } catch (error) {
+    console.error('[Homepage] Failed to render hero slides:', error);
+    const root = document.querySelector('.hero-slides');
+    if (root) {
+      root.dataset.heroSource = 'error';
+      root.setAttribute('aria-busy', 'false');
+    }
+  }
+}
+
+async function syncHeroSlides() {
+  const root = document.querySelector('.hero-slides');
+  if (root && root.dataset.heroSource !== 'api' && root.dataset.heroSource !== 'empty') {
+    root.dataset.heroSource = 'loading';
+    root.setAttribute('aria-busy', 'true');
+  }
+
+  try {
+    const slides = await heroSlidesService.getActiveHeroSlides({
+      emit: false,
+      force: true,
+      source: 'homepage'
+    });
+    applyHeroSlides(slides);
+  } catch (error) {
+    console.error('[Homepage] Failed to sync hero slides:', error);
+    if (root && !root.querySelector('.hero-slide')) {
+      root.innerHTML = '';
+      root.dataset.heroSource = 'error';
+      root.dataset.heroFingerprint = '';
+      root.setAttribute('aria-busy', 'false');
+      setupHeroSlider();
+    }
+  }
+}
+
 function setupHeroSlider() {
   if (typeof window.__byoseHeroSliderCleanup === 'function') {
     window.__byoseHeroSliderCleanup();
@@ -463,6 +574,9 @@ function setupHeroSlider() {
   if (!slides.length || !dotsRoot || !hero) {
     if (dotsRoot) {
       dotsRoot.innerHTML = '';
+    }
+    if (controls) {
+      controls.hidden = true;
     }
     return;
   }

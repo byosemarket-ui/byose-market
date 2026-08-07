@@ -17,6 +17,7 @@ const realtimeRoutes = require('../routes/realtime');
 const authRoutes = require('../routes/auth');
 const messageRoutes = require('../routes/messages');
 const productRoutes = require('../routes/products');
+const heroSlideRoutes = require('../routes/heroslides');
 const cartRoutes = require('../routes/cart');
 const orderRoutes = require('../routes/orders');
 const storefrontStateRoutes = require('../routes/storefrontstate');
@@ -61,6 +62,7 @@ function createApiRouter() {
     router.use('/auth', authRateLimiter, authRoutes);
     router.use('/messages', requireDatabase, messageRoutes);
     router.use('/products', requireDatabase, productRoutes);
+    router.use('/hero-slides', requireDatabase, heroSlideRoutes);
     router.use('/cart', requireDatabase, cartRoutes);
     router.use('/orders', requireDatabase, orderRoutes);
     router.use('/storefront/state', requireDatabase, storefrontStateRoutes);

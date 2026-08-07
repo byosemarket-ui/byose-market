@@ -229,6 +229,81 @@ class SQLiteHeroSlideRepository extends SQLiteBaseRepository {
         const row = this.db.prepare('SELECT MAX(display_order) AS max_order FROM hero_slides').get();
         return this.toNumber(row?.max_order, -1) + 1;
     }
+
+    async countByImageReference(imagePath, excludeSlideId = '') {
+        const normalized = this.normalizeText(imagePath).replace(/^\/uploads\//, '');
+        if (!normalized) {
+            return 0;
+        }
+
+        const publicUrl = `/uploads/${normalized.replace(/^\/+/, '')}`;
+        const excluded = this.normalizeText(excludeSlideId);
+        if (excluded) {
+            const row = this.db.prepare(`
+                SELECT COUNT(*) AS total
+                FROM hero_slides
+                WHERE slide_id != ?
+                  AND (
+                    image_path = ?
+                    OR image_path = ?
+                    OR image_url = ?
+                    OR image_url LIKE ?
+                  )
+            `).get(
+                excluded,
+                normalized,
+                `/${normalized}`,
+                publicUrl,
+                `%/${normalized}`
+            );
+            return Number(row?.total || 0);
+        }
+
+        const row = this.db.prepare(`
+            SELECT COUNT(*) AS total
+            FROM hero_slides
+            WHERE image_path = ?
+               OR image_path = ?
+               OR image_url = ?
+               OR image_url LIKE ?
+        `).get(
+            normalized,
+            `/${normalized}`,
+            publicUrl,
+            `%/${normalized}`
+        );
+        return Number(row?.total || 0);
+    }
+
+    async swapDisplayOrders(slideIdA, slideIdB) {
+        const left = await this.findBySlideId(slideIdA);
+        const right = await this.findBySlideId(slideIdB);
+        if (!left || !right) {
+            return null;
+        }
+
+        const orderA = this.toNumber(left.displayOrder, 0);
+        const orderB = this.toNumber(right.displayOrder, 0);
+        const tempOrder = -1 - Math.abs(Date.now() % 100000000);
+
+        const updateOrder = this.db.prepare(`
+            UPDATE hero_slides
+            SET display_order = ?, updated_at = ?
+            WHERE slide_id = ?
+        `);
+
+        const applySwap = this.db.transaction(() => {
+            updateOrder.run(tempOrder, this.now(), left.slideId);
+            updateOrder.run(orderA, this.now(), right.slideId);
+            updateOrder.run(orderB === orderA ? orderA + 1 : orderB, this.now(), left.slideId);
+        });
+        applySwap();
+
+        return {
+            left: await this.findBySlideId(slideIdA),
+            right: await this.findBySlideId(slideIdB)
+        };
+    }
 }
 
 module.exports = new SQLiteHeroSlideRepository();

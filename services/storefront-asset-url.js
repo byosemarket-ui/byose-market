@@ -42,7 +42,7 @@ export function normalizeStorefrontAssetUrl(value) {
     return `${origin}/${normalized.replace(/^\/+/, "")}`;
   }
 
-  if (/^(?:products|categories|users|reviews|temp)\//i.test(normalized)) {
+  if (/^(?:products|categories|users|reviews|hero|temp)\//i.test(normalized)) {
     return `${origin}/uploads/${normalized.replace(/^\/+/, "")}`;
   }
 

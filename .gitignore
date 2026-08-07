@@ -12,6 +12,7 @@ server/uploads/*
 !server/uploads/users/
 !server/uploads/reviews/
 !server/uploads/temp/
+!server/uploads/hero/
 server/uploads/products/*
 !server/uploads/products/.gitkeep
 server/uploads/categories/*
@@ -22,6 +23,8 @@ server/uploads/reviews/*
 !server/uploads/reviews/.gitkeep
 server/uploads/temp/*
 !server/uploads/temp/.gitkeep
+server/uploads/hero/*
+!server/uploads/hero/.gitkeep
 logs/*
 !logs/.gitkeep
 verification-artifacts/

@@ -35,6 +35,46 @@ export function resolveImageUrl(slide) {
   return `/uploads/${imagePath.replace(/^\/+/, "")}`;
 }
 
+export function resolveStoragePath(slide) {
+  const imagePath = String(slide?.imagePath || "").trim();
+  if (imagePath) {
+    if (imagePath.startsWith("/uploads/")) {
+      return imagePath.replace(/^\/uploads\//, "");
+    }
+    if (/^https?:\/\//i.test(imagePath)) {
+      try {
+        const pathname = new URL(imagePath).pathname || "";
+        if (pathname.startsWith("/uploads/")) {
+          return pathname.replace(/^\/uploads\//, "");
+        }
+      } catch (_error) {
+        return "";
+      }
+    }
+    return imagePath.replace(/^\/+/, "");
+  }
+
+  const imageUrl = String(slide?.imageUrl || "").trim();
+  if (!imageUrl) {
+    return "";
+  }
+
+  if (imageUrl.startsWith("/uploads/")) {
+    return imageUrl.replace(/^\/uploads\//, "");
+  }
+
+  try {
+    const pathname = new URL(imageUrl).pathname || "";
+    if (pathname.startsWith("/uploads/")) {
+      return pathname.replace(/^\/uploads\//, "");
+    }
+  } catch (_error) {
+    // Ignore URL parse failures.
+  }
+
+  return "";
+}
+
 export function formatFileSize(bytes) {
   const size = Number(bytes || 0);
   if (!Number.isFinite(size) || size <= 0) {

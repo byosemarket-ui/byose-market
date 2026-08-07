@@ -129,6 +129,18 @@ class RealtimeEventService extends EventEmitter {
     });
   }
 
+  emitHeroSlidesUpdated(action = 'updated', slides = []) {
+    return this.broadcast({
+      type: 'hero-slides:updated',
+      scope: 'heroslider',
+      payload: {
+        action,
+        slides: Array.isArray(slides) ? slides : [],
+        count: Array.isArray(slides) ? slides.length : 0
+      }
+    });
+  }
+
   emitInventoryAlert(alert) {
     return this.broadcast({
       type: 'inventory:alert',
