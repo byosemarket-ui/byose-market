@@ -142,7 +142,7 @@
 
   function normalizeStatus(status) {
     const normalized = String(status || '').toLowerCase().trim();
-    if (normalized.includes('return')) {
+    if (normalized.includes('return') || normalized.includes('refund')) {
       return 'returned';
     }
     if (normalized.includes('cancel')) {
@@ -161,7 +161,7 @@
     ) {
       return 'pending';
     }
-    if (normalized.includes('confirm') || normalized.includes('process') || normalized.includes('approve')) {
+    if (normalized.includes('confirm') || normalized.includes('process') || normalized.includes('approve') || normalized.includes('pack')) {
       return 'confirmed';
     }
     return 'pending';

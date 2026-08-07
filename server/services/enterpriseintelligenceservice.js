@@ -57,12 +57,23 @@ function monthLabel(dateInput) {
 
 function normalizeOrderStatus(status) {
     const value = normalizeText(status).toLowerCase();
-    if (value.includes('deliver') || value.includes('complete')) return 'Delivered';
+    if (value.includes('deliver')) return 'Delivered';
+    if (value.includes('complete')) return 'Completed';
     if (value.includes('ship')) return 'Shipping';
-    if (value.includes('confirm') || value.includes('process') || value.includes('payment')) return 'Confirmed';
     if (value.includes('cancel')) return 'Cancelled';
+    if (value.includes('refund')) return 'Refunded';
     if (value.includes('return')) return 'Returned';
+    if (value.includes('awaiting')) return 'Pending';
+    if (value.includes('confirm') || value.includes('process')) return 'Confirmed';
     return 'Pending';
+}
+
+function isRevenueEligibleOrder(order) {
+    const status = normalizeOrderStatus(order?.orderStatus || order?.status || '');
+    const payment = normalizeText(order?.paymentStatus || order?.payment?.status).toLowerCase();
+    if (['Cancelled', 'Returned', 'Refunded'].includes(status)) return false;
+    if (payment.includes('refund')) return false;
+    return true;
 }
 
 function escapeCsv(value) {
@@ -216,6 +227,7 @@ function buildMonthlyRevenueSeries(orders) {
     }
 
     orders.forEach((order) => {
+        if (!isRevenueEligibleOrder(order)) return;
         const createdAt = new Date(order?.createdAt || order?.date || 0);
         if (!Number.isFinite(createdAt.getTime())) return;
 
@@ -230,7 +242,7 @@ function buildMonthlyRevenueSeries(orders) {
 
 function buildStatusBreakdown(orders) {
     return orders.reduce((accumulator, order) => {
-        const key = normalizeOrderStatus(order?.status || order?.orderStatus || order?.paymentStatus);
+        const key = normalizeOrderStatus(order?.status || order?.orderStatus || '');
         accumulator[key] = toNumber(accumulator[key], 0) + 1;
         return accumulator;
     }, {});
@@ -386,13 +398,14 @@ async function collectBaseData(rangeDays = 30) {
 
     const visitEvents = activity.filter((entry) => normalizeText(entry?.eventType).toLowerCase() === 'visit');
     const statusBreakdown = buildStatusBreakdown(orders);
-    const totalRevenue = orders.reduce((sum, order) => sum + toNumber(order?.totalAmount ?? order?.totalPrice ?? order?.total, 0), 0);
+    const revenueOrders = orders.filter(isRevenueEligibleOrder);
+    const totalRevenue = revenueOrders.reduce((sum, order) => sum + toNumber(order?.totalAmount ?? order?.totalPrice ?? order?.total, 0), 0);
     const ordersCount = orders.length;
     const visitsCount = visitEvents.length;
     const conversionRate = visitsCount > 0 ? (ordersCount / visitsCount) * 100 : 0;
-    const completedOrders = toNumber(statusBreakdown.Delivered, 0);
+    const completedOrders = toNumber(statusBreakdown.Delivered, 0) + toNumber(statusBreakdown.Completed, 0);
     const fulfillmentRate = ordersCount > 0 ? (completedOrders / ordersCount) * 100 : 0;
-    const averageOrderValue = ordersCount > 0 ? (totalRevenue / ordersCount) : 0;
+    const averageOrderValue = revenueOrders.length > 0 ? (totalRevenue / revenueOrders.length) : 0;
     const topProducts = buildTopProducts(orders);
     const inventory = buildInventoryInsights(products);
     const dailySeries = buildDailySeries(orders, visitEvents, customers, safeRangeDays);

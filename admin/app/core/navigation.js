@@ -88,8 +88,7 @@ export const ADMIN_NAVIGATION = [
           routeLink("orders-pending", "Pending Orders", "orders", { query: "?status=pending", description: "Orders awaiting action." }),
           routeLink("orders-completed", "Completed Orders", "orders", { query: "?status=completed", description: "Orders that finished fulfillment." }),
           routeLink("orders-cancelled", "Cancelled Orders", "orders", { query: "?status=cancelled", description: "Cancelled order monitoring." }),
-          routeLink("orders-returns", "Returns & Refunds", "orders", { query: "?status=returns", description: "Returns and refund workflow staging." }),
-          externalLink("orders-details", "Order Details", "orders/details.html", { description: "Detected detailed order page." })
+          routeLink("orders-returns", "Returns & Refunds", "orders", { query: "?status=returns", description: "Returns and refund workflow staging." })
         ]
       },
       {

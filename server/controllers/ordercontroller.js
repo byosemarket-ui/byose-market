@@ -141,7 +141,8 @@ async function applyCatalogPricing(items = []) {
 
 function isCancelledLike(status) {
     const value = normalizeText(status).toLowerCase();
-    return value.includes('cancel') || value.includes('return');
+    // Returns/refunds use returnAction workflow — do not treat them as cancellations.
+    return value.includes('cancel') && !value.includes('return') && !value.includes('refund');
 }
 
 function restoreOrderStock(order) {
@@ -327,21 +328,188 @@ function normalizeStorefrontOrder(payload, user) {
     };
 }
 
-function appendStatusHistory(order, status) {
+function appendStatusHistory(order, status, meta = {}) {
     const normalizedStatus = normalizeText(status);
     const timestamp = new Date().toISOString();
     const nextHistory = Array.isArray(order.statusHistory) ? order.statusHistory.slice() : [];
+    const actor = normalizeText(meta.actor || meta.cancelledBy);
+    const reason = normalizeText(meta.reason || meta.cancellationReason || meta.note);
 
     nextHistory.push({
         status: normalizedStatus.toLowerCase(),
         label: normalizedStatus,
-        timestamp
+        timestamp,
+        actor: actor || undefined,
+        reason: reason || undefined,
+        note: reason || normalizeText(meta.note) || undefined
     });
 
     order.status = normalizedStatus || order.status;
     order.orderStatus = normalizedStatus.toLowerCase() || order.orderStatus;
     order.updatedAt = new Date(timestamp);
     order.statusHistory = nextHistory;
+}
+
+function applyCancellationMetadata(order, meta = {}) {
+    const timestamp = new Date().toISOString();
+    const actor = normalizeText(meta.actor || meta.cancelledBy) || 'Admin';
+    const reason = normalizeText(meta.reason || meta.cancellationReason || meta.note)
+        || (actor.toLowerCase() === 'customer' ? 'Cancelled by customer' : 'Cancelled by administrator');
+    const paymentStatus = normalizeText(order.paymentStatus || order.payment?.status).toLowerCase();
+    const wasPaid = paymentStatus.includes('paid')
+        || paymentStatus.includes('confirm')
+        || paymentStatus.includes('complete')
+        || paymentStatus.includes('success');
+
+    order.cancelledAt = timestamp;
+    order.cancelledBy = actor;
+    order.cancellationReason = reason;
+    order.payment = {
+        ...(order.payment && typeof order.payment === 'object' ? order.payment : {}),
+        cancellation: {
+            cancelledBy: actor,
+            reason,
+            cancelledAt: timestamp,
+            adminId: normalizeText(meta.adminId),
+            refundRequired: wasPaid,
+            previousPaymentStatus: order.paymentStatus || order.payment?.status || ''
+        }
+    };
+
+    if (wasPaid) {
+        order.paymentStatus = 'refund_required';
+        order.paymentStatusLabel = 'Refund Required';
+        const workflow = ensureReturnWorkflow(order);
+        workflow.refundStatus = workflow.refundStatus || 'required';
+        workflow.returnStatus = workflow.returnStatus || 'requested';
+        workflow.returnRequestedAt = workflow.returnRequestedAt || timestamp;
+        workflow.returnReason = workflow.returnReason || reason;
+        workflow.stockRestored = true;
+        order.payment.returnWorkflow = workflow;
+    }
+}
+
+function clearCancellationMetadata(order) {
+    if (order.payment && typeof order.payment === 'object') {
+        const previous = normalizeText(order.payment.cancellation?.previousPaymentStatus);
+        const nextPayment = { ...order.payment };
+        delete nextPayment.cancellation;
+        // Restoring a cancelled order removes it from the Returns & Refunds queue
+        // unless a refund was already completed.
+        const refundDone = String(nextPayment.returnWorkflow?.refundStatus || '').toLowerCase() === 'completed'
+            || String(order.paymentStatus || '').toLowerCase() === 'refunded';
+        if (!refundDone) {
+            delete nextPayment.returnWorkflow;
+        }
+        order.payment = nextPayment;
+        if (previous) {
+            order.paymentStatus = previous;
+            order.paymentStatusLabel = resolvePaymentStatusLabel(previous);
+        }
+    }
+    order.cancelledAt = '';
+    order.cancelledBy = '';
+    order.cancellationReason = '';
+}
+
+function ensureReturnWorkflow(order) {
+    order.payment = order.payment && typeof order.payment === 'object' ? order.payment : {};
+    if (!order.payment.returnWorkflow || typeof order.payment.returnWorkflow !== 'object') {
+        order.payment.returnWorkflow = {};
+    }
+    return order.payment.returnWorkflow;
+}
+
+function applyReturnAction(order, action, meta = {}) {
+    const workflow = ensureReturnWorkflow(order);
+    const now = new Date().toISOString();
+    const adminId = normalizeText(meta.adminId);
+    const reason = normalizeText(meta.reason || meta.note || meta.adminNotes);
+    const adminNotes = normalizeText(meta.adminNotes || meta.note || meta.reason);
+    const normalizedAction = normalizeText(action).toLowerCase();
+
+    if (normalizedAction === 'open_return' || normalizedAction === 'request_return') {
+        if (['approved', 'received'].includes(String(workflow.returnStatus || '').toLowerCase())
+            || ['completed'].includes(String(workflow.refundStatus || '').toLowerCase())) {
+            const error = new Error('A return or refund is already in progress or completed for this order.');
+            error.code = 'DUPLICATE_RETURN';
+            throw error;
+        }
+        workflow.returnStatus = 'requested';
+        workflow.returnRequestedAt = workflow.returnRequestedAt || now;
+        workflow.returnReason = reason || workflow.returnReason || 'Return requested';
+        workflow.customerNotes = normalizeText(meta.customerNotes) || workflow.customerNotes || '';
+        workflow.productCondition = normalizeText(meta.productCondition) || workflow.productCondition || 'Not specified';
+        workflow.returnImages = Array.isArray(meta.returnImages) ? meta.returnImages : (Array.isArray(workflow.returnImages) ? workflow.returnImages : []);
+        if (!workflow.refundStatus || workflow.refundStatus === 'rejected') {
+            workflow.refundStatus = 'required';
+        }
+        appendStatusHistory(order, 'Return Requested', { actor: 'Admin', adminId, reason: workflow.returnReason });
+        order.payment.returnWorkflow = workflow;
+        return workflow;
+    }
+
+    if (normalizedAction === 'approve_return') {
+        workflow.returnStatus = 'approved';
+        workflow.returnApprovedAt = now;
+        workflow.adminNotes = adminNotes || workflow.adminNotes || '';
+        order.status = 'Returned';
+        order.orderStatus = 'returned';
+        if (!order.payment?.cancellation?.cancelledAt && !workflow.stockRestored) {
+            restoreOrderStock(order);
+            workflow.stockRestored = true;
+        }
+        if (!workflow.refundStatus || workflow.refundStatus === 'rejected') {
+            workflow.refundStatus = 'required';
+        }
+        appendStatusHistory(order, 'Returned', { actor: 'Admin', adminId, reason: adminNotes || 'Return approved' });
+        order.payment.returnWorkflow = workflow;
+        return workflow;
+    }
+
+    if (normalizedAction === 'reject_return') {
+        workflow.returnStatus = 'rejected';
+        workflow.returnRejectedAt = now;
+        workflow.adminNotes = adminNotes || workflow.adminNotes || '';
+        appendStatusHistory(order, 'Return Rejected', { actor: 'Admin', adminId, reason: adminNotes || 'Return rejected' });
+        order.payment.returnWorkflow = workflow;
+        return workflow;
+    }
+
+    if (normalizedAction === 'approve_refund') {
+        const refundStatus = String(workflow.refundStatus || order.paymentStatus || '').toLowerCase();
+        if (refundStatus === 'completed' || refundStatus === 'refunded' || String(order.paymentStatus || '').toLowerCase() === 'refunded') {
+            const error = new Error('Refund already completed for this order.');
+            error.code = 'DUPLICATE_REFUND';
+            throw error;
+        }
+        workflow.refundStatus = 'completed';
+        workflow.refundApprovedAt = now;
+        workflow.refundDate = now;
+        workflow.refundAmount = Number(meta.refundAmount ?? order.totalAmount ?? order.total ?? 0) || 0;
+        workflow.refundMethod = normalizeText(meta.refundMethod) || normalizeText(order.paymentMethod) || 'original_payment';
+        workflow.adminNotes = adminNotes || workflow.adminNotes || '';
+        order.paymentStatus = 'refunded';
+        order.paymentStatusLabel = 'Refunded';
+        order.status = 'Refunded';
+        order.orderStatus = 'refunded';
+        appendStatusHistory(order, 'Refunded', { actor: 'Admin', adminId, reason: adminNotes || 'Refund approved' });
+        order.payment.returnWorkflow = workflow;
+        return workflow;
+    }
+
+    if (normalizedAction === 'reject_refund') {
+        workflow.refundStatus = 'rejected';
+        workflow.refundRejectedAt = now;
+        workflow.adminNotes = adminNotes || workflow.adminNotes || '';
+        appendStatusHistory(order, 'Refund Rejected', { actor: 'Admin', adminId, reason: adminNotes || 'Refund rejected' });
+        order.payment.returnWorkflow = workflow;
+        return workflow;
+    }
+
+    const error = new Error('Unknown return action');
+    error.code = 'INVALID_RETURN_ACTION';
+    throw error;
 }
 
 exports.createOrder = async (req, res) => {
@@ -516,7 +684,14 @@ exports.updateOrderStatus = async (req, res) => {
             });
         }
 
-        appendStatusHistory(order, 'Cancelled');
+        appendStatusHistory(order, 'Cancelled', {
+            actor: 'Customer',
+            reason: normalizeText(req.body?.reason || req.body?.cancellationReason) || 'Cancelled by customer'
+        });
+        applyCancellationMetadata(order, {
+            actor: 'Customer',
+            reason: normalizeText(req.body?.reason || req.body?.cancellationReason) || 'Cancelled by customer'
+        });
         try {
             restoreOrderStock(order);
         } catch (stockError) {
@@ -537,7 +712,7 @@ exports.updateOrderStatus = async (req, res) => {
 exports.getAdminOrders = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'admin_orders' });
     try {
-        const limit = Math.min(500, Math.max(1, Number(req.query?.limit || 100) || 100));
+        const limit = Math.min(500, Math.max(1, Number(req.query?.limit || 500) || 500));
         const page = Math.max(1, Number(req.query?.page || 1) || 1);
         const skip = (page - 1) * limit;
         const orders = await monitorAsyncOperation(logger, 'database.order.list_admin', { adminId: req.admin?.id || '', limit, page }, () => orderDataService.listAdminOrders({ limit, page }), { slowThresholdMs: 900 });
@@ -566,9 +741,23 @@ exports.getAdminOrderById = async (req, res) => {
 exports.updateAdminOrderStatus = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'admin_orders' });
     try {
-        const { status } = req.body || {};
-        if (!status) {
-            return res.status(400).json({ success: false, message: 'status required' });
+        const {
+            status,
+            reason,
+            cancellationReason,
+            note,
+            returnAction,
+            adminNotes,
+            customerNotes,
+            productCondition,
+            refundAmount,
+            refundMethod,
+            returnImages
+        } = req.body || {};
+
+        const normalizedReturnAction = normalizeText(returnAction).toLowerCase();
+        if (!status && !normalizedReturnAction) {
+            return res.status(400).json({ success: false, message: 'status or returnAction required' });
         }
 
         const order = await monitorAsyncOperation(logger, 'database.order.find_for_admin_status_update', { requestedOrderId: req.params.id }, () => orderDataService.findOrderByIdentifier(req.params.id), { slowThresholdMs: 700 });
@@ -577,35 +766,103 @@ exports.updateAdminOrderStatus = async (req, res) => {
         }
 
         const oldStatus = order.status || order.orderStatus || 'Pending';
-        const nextStatus = normalizeText(status);
-        appendStatusHistory(order, nextStatus);
+        const oldStatusLower = normalizeText(oldStatus).toLowerCase();
 
-        if (!isCancelledLike(oldStatus) && isCancelledLike(nextStatus)) {
+        if (normalizedReturnAction) {
             try {
-                restoreOrderStock(order);
-            } catch (stockError) {
-                logger.warn('admin.order_stock_restore_failed', { error: stockError, orderId: order.orderId || order.id });
+                applyReturnAction(order, normalizedReturnAction, {
+                    adminId: req.admin?.id || '',
+                    reason: normalizeText(reason || cancellationReason || note || adminNotes),
+                    adminNotes: normalizeText(adminNotes || note || reason),
+                    customerNotes,
+                    productCondition,
+                    refundAmount,
+                    refundMethod,
+                    returnImages
+                });
+            } catch (actionError) {
+                if (actionError?.code === 'DUPLICATE_RETURN' || actionError?.code === 'DUPLICATE_REFUND' || actionError?.code === 'INVALID_RETURN_ACTION') {
+                    return res.status(409).json({
+                        success: false,
+                        message: actionError.message,
+                        code: actionError.code
+                    });
+                }
+                throw actionError;
+            }
+        } else {
+            const nextStatus = normalizeText(status);
+            const cancelMeta = {
+                actor: 'Admin',
+                adminId: req.admin?.id || '',
+                reason: normalizeText(reason || cancellationReason || note)
+            };
+
+            if (isCancelledLike(nextStatus) && !isCancelledLike(oldStatus)) {
+                appendStatusHistory(order, nextStatus, cancelMeta);
+                applyCancellationMetadata(order, cancelMeta);
+                try {
+                    restoreOrderStock(order);
+                } catch (stockError) {
+                    logger.warn('admin.order_stock_restore_failed', { error: stockError, orderId: order.orderId || order.id });
+                }
+            } else if (isCancelledLike(oldStatus) && !isCancelledLike(nextStatus)) {
+                try {
+                    reReserveOrderStock(order);
+                } catch (stockError) {
+                    logger.warn('admin.order_stock_rereserve_failed', { error: stockError, orderId: order.orderId || order.id });
+                    return res.status(409).json({
+                        success: false,
+                        message: stockError?.message || 'Unable to restore order stock. Check inventory before restoring.',
+                        code: stockError?.code || 'STOCK_RESTORE_FAILED'
+                    });
+                }
+                clearCancellationMetadata(order);
+                appendStatusHistory(order, nextStatus, {
+                    actor: 'Admin',
+                    adminId: req.admin?.id || '',
+                    reason: normalizeText(reason || note) || 'Order restored by administrator'
+                });
+            } else {
+                appendStatusHistory(order, nextStatus, {
+                    actor: 'Admin',
+                    adminId: req.admin?.id || '',
+                    reason: normalizeText(reason || note)
+                });
             }
         }
 
-        await monitorAsyncOperation(logger, 'database.order.save_status_admin', { orderId: order.orderId || order.id, status, adminId: req.admin?.id || '' }, () => orderDataService.saveOrder(order), { slowThresholdMs: 700 });
-        logger.info('admin.order_status_updated', { orderId: order.orderId || order.id, status, adminId: req.admin?.id || '' });
+        await monitorAsyncOperation(logger, 'database.order.save_status_admin', { orderId: order.orderId || order.id, status: order.status, adminId: req.admin?.id || '' }, () => orderDataService.saveOrder(order), { slowThresholdMs: 700 });
+        logger.info('admin.order_status_updated', {
+            orderId: order.orderId || order.id,
+            status: order.status,
+            returnAction: normalizedReturnAction || null,
+            from: oldStatusLower,
+            to: normalizeText(order.status || order.orderStatus).toLowerCase(),
+            adminId: req.admin?.id || ''
+        });
 
-        // Emit realtime event
         try {
           const realtimeService = getRealtimeEventService();
-          realtimeService.emitOrderStatusChanged(order._id || order.id, oldStatus, status);
+          realtimeService.emitOrderStatusChanged(order._id || order.id, oldStatus, order.status);
         } catch (eventError) {
           logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'order.status-changed' });
         }
 
-        void notifyOrderStatusChanged(order, nextStatus).catch((notifyError) => {
+        void notifyOrderStatusChanged(order, order.status).catch((notifyError) => {
           logger.warn('notification.order_status_failed', { error: notifyError, orderId: order.orderId || order.id });
         });
 
         return res.json({ success: true, order });
     } catch (err) {
         logger.error('admin.order_status_update_failed', { error: err, requestedOrderId: req.params.id });
+        if (err?.code === 'INSUFFICIENT_STOCK') {
+            return res.status(409).json({
+                success: false,
+                message: err.message || 'Unable to restore order due to stock availability.',
+                code: err.code
+            });
+        }
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };

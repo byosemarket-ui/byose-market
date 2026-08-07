@@ -74,11 +74,15 @@ function normalizeText(value, fallback = "") {
 
 function normalizeStatus(status) {
   const value = normalizeText(status, "Pending").toLowerCase();
-  if (value.includes("deliver") || value.includes("complete")) return "Delivered";
+  if (value.includes("deliver")) return "Delivered";
+  if (value.includes("complete")) return "Completed";
   if (value.includes("ship")) return "Shipping";
   if (value.includes("cancel")) return "Cancelled";
+  if (value.includes("refund")) return "Refunded";
   if (value.includes("return")) return "Returned";
-  if (value.includes("confirm") || value.includes("process")) return "Confirmed";
+  if (value.includes("pack")) return "Packed";
+  if (value.includes("process")) return "Processing";
+  if (value.includes("confirm") || value.includes("paid")) return "Confirmed";
   return "Pending";
 }
 
@@ -354,43 +358,133 @@ function normalizeDate(value) {
 function normalizeOrder(order) {
   const status = normalizeStatus(order?.orderStatus || order?.status || "Pending");
   const total = toNumber(order?.totalAmount ?? order?.totalPrice ?? order?.total ?? order?.amount);
+  const payment = asObject(order?.payment);
   const items = asArray(order?.items || order?.products).map((item) => {
     const attrs = item?.attributes && typeof item.attributes === "object" ? item.attributes : {};
+    const color = normalizeText(item?.color || item?.colorName || attrs.Color);
+    const size = normalizeText(item?.size || item?.sizeLabel || attrs.Size);
+    const sku = normalizeText(item?.sku || item?.variantSku || attrs.SKU);
+    const quantity = Math.max(1, toNumber(item?.quantity || item?.qty || 1));
+    const price = toNumber(item?.price);
     return {
       productId: normalizeText(item?.productId || item?.id),
       productName: normalizeText(item?.productName || item?.name || "Product"),
-      quantity: toNumber(item?.quantity || item?.qty || 1),
-      price: toNumber(item?.price),
+      quantity,
+      price,
+      lineTotal: price * quantity,
       image: normalizeText(item?.image || item?.colorImage || attrs.colorImage),
-      color: normalizeText(item?.color || item?.colorName || attrs.Color),
-      size: normalizeText(item?.size || item?.sizeLabel || attrs.Size),
-      sku: normalizeText(item?.sku || item?.variantSku || attrs.SKU),
+      color,
+      colorName: color,
+      size,
+      sizeLabel: size,
+      sku,
+      variantSku: sku,
+      variantKey: normalizeText(item?.variantKey || attrs.variantKey),
+      attributeSummary: normalizeText(item?.attributeSummary || [color, size].filter(Boolean).join(" · ")),
       category: normalizeText(item?.category || attrs.Category),
       productUrl: normalizeText(item?.productUrl || item?.productLink || attrs.productUrl || attrs.productLink)
     };
   });
 
+  const statusHistory = asArray(order?.statusHistory).map((entry) => ({
+    status: normalizeText(entry?.status || entry?.label),
+    label: normalizeText(entry?.label || entry?.status),
+    note: normalizeText(entry?.note || entry?.message || entry?.reason),
+    reason: normalizeText(entry?.reason || entry?.note || entry?.message),
+    actor: normalizeText(entry?.actor || entry?.cancelledBy),
+    timestamp: entry?.timestamp || entry?.at || entry?.createdAt || ""
+  })).filter((entry) => entry.status || entry.label);
+
+  const shippingAddress = asObject(order?.shippingAddress);
+  const fullAddress = asObject(order?.fullAddress);
+  const gpsLocation = asObject(order?.gpsLocation);
+  const paymentCancellation = asObject(payment.cancellation);
+  const returnWorkflowRaw = asObject(payment.returnWorkflow || order?.returnWorkflow);
+  const cancelHistory = [...statusHistory].reverse().find((entry) => /cancel/i.test(`${entry.status} ${entry.label}`));
+  const paymentStatusValue = normalizeText(order?.paymentStatus || payment.status || status);
+  const paymentStatusLower = paymentStatusValue.toLowerCase();
+  const refundRequired = Boolean(paymentCancellation.refundRequired)
+    || paymentStatusLower.includes("refund_required")
+    || String(returnWorkflowRaw.refundStatus || "").toLowerCase() === "required";
+
+  const returnWorkflow = {
+    returnStatus: normalizeText(returnWorkflowRaw.returnStatus || (status.toLowerCase().includes("return") ? status : "")),
+    refundStatus: normalizeText(returnWorkflowRaw.refundStatus
+      || (paymentStatusLower.includes("refund_required") ? "required"
+        : paymentStatusLower.includes("refund") ? "completed"
+          : "")),
+    returnReason: normalizeText(returnWorkflowRaw.returnReason || paymentCancellation.reason || order?.cancellationReason),
+    customerNotes: normalizeText(returnWorkflowRaw.customerNotes),
+    adminNotes: normalizeText(returnWorkflowRaw.adminNotes),
+    productCondition: normalizeText(returnWorkflowRaw.productCondition),
+    returnImages: asArray(returnWorkflowRaw.returnImages).map((image) => normalizeText(image)).filter(Boolean),
+    returnRequestedAt: normalizeText(returnWorkflowRaw.returnRequestedAt || paymentCancellation.cancelledAt),
+    returnApprovedAt: normalizeText(returnWorkflowRaw.returnApprovedAt),
+    returnRejectedAt: normalizeText(returnWorkflowRaw.returnRejectedAt),
+    refundApprovedAt: normalizeText(returnWorkflowRaw.refundApprovedAt),
+    refundRejectedAt: normalizeText(returnWorkflowRaw.refundRejectedAt),
+    refundDate: normalizeText(returnWorkflowRaw.refundDate || returnWorkflowRaw.refundApprovedAt),
+    refundAmount: toNumber(returnWorkflowRaw.refundAmount ?? (String(returnWorkflowRaw.refundStatus || "").toLowerCase() === "completed" ? (order?.totalAmount ?? order?.total) : 0)),
+    refundMethod: normalizeText(returnWorkflowRaw.refundMethod),
+    stockRestored: Boolean(returnWorkflowRaw.stockRestored)
+  };
+
   return {
     id: normalizeText(order?.id || order?.orderId || order?._id),
     orderId: normalizeText(order?.orderId || order?.id || order?._id),
     status,
+    orderStatus: status,
     total,
+    grandTotal: total,
     subtotal: toNumber(order?.subtotal),
     deliveryFee: toNumber(order?.deliveryFee ?? order?.shippingFee),
+    shippingCost: toNumber(order?.deliveryFee ?? order?.shippingFee),
+    discount: toNumber(order?.discount ?? order?.discountAmount),
+    tax: toNumber(order?.tax ?? order?.taxAmount),
     codFee: toNumber(order?.codFee),
     date: order?.date || order?.createdAt || new Date().toISOString(),
-    customerName: normalizeText(order?.customerName || order?.customer?.name || order?.customer || "Guest"),
+    createdAt: order?.createdAt || order?.date || new Date().toISOString(),
+    updatedAt: order?.updatedAt || order?.date || order?.createdAt || "",
+    cancelledAt: normalizeText(order?.cancelledAt || paymentCancellation.cancelledAt || cancelHistory?.timestamp),
+    cancelledBy: normalizeText(order?.cancelledBy || paymentCancellation.cancelledBy || cancelHistory?.actor || ""),
+    cancellationReason: normalizeText(order?.cancellationReason || paymentCancellation.reason || cancelHistory?.reason || cancelHistory?.note || ""),
+    refundRequired,
+    returnWorkflow,
+    returnStatus: returnWorkflow.returnStatus,
+    refundStatus: returnWorkflow.refundStatus,
+    returnReason: returnWorkflow.returnReason,
+    returnRequestedAt: returnWorkflow.returnRequestedAt,
+    refundAmount: returnWorkflow.refundAmount,
+    refundMethod: returnWorkflow.refundMethod,
+    refundDate: returnWorkflow.refundDate,
+    customerName: normalizeText(order?.customerName || order?.customer?.name || shippingAddress.fullName || "Guest"),
     customerEmail: normalizeText(order?.customerEmail || order?.userEmail || order?.customer?.email),
-    customerPhone: normalizeText(order?.customerPhone || order?.phoneNumber || order?.customer?.phone),
-    paymentMethod: normalizeText(order?.paymentMethod || order?.payment?.method),
-    paymentMethodLabel: normalizeText(order?.paymentMethodLabel || order?.payment?.methodLabel || (order?.paymentMethod === "cod" ? "Cash on Delivery" : order?.paymentMethod)),
-    paymentStatus: normalizeText(order?.paymentStatus || order?.payment?.status || status),
-    paymentStatusLabel: normalizeText(order?.paymentStatusLabel || order?.payment?.statusLabel),
+    customerPhone: normalizeText(order?.customerPhone || order?.phoneNumber || order?.customer?.phone || shippingAddress.phone),
+    customerId: normalizeText(order?.customerId || order?.customer?.id),
+    isGuest: Boolean(order?.isGuest || order?.customer?.isGuest),
+    paymentMethod: normalizeText(order?.paymentMethod || payment.method),
+    paymentMethodLabel: normalizeText(order?.paymentMethodLabel || payment.methodLabel || (order?.paymentMethod === "cod" || payment.method === "cod" ? "Cash on Delivery" : order?.paymentMethod || payment.method)),
+    paymentStatus: paymentStatusValue,
+    paymentStatusLabel: normalizeText(order?.paymentStatusLabel || payment.statusLabel),
+    payerPhone: normalizeText(payment.payerPhone || order?.payerPhone),
+    paymentNote: normalizeText(payment.note || order?.paymentNote),
+    paymentType: normalizeText(payment.type || order?.paymentType),
+    paymentCancellation,
     deliveryMethod: normalizeText(order?.deliveryMethod),
     deliveryLabel: normalizeText(order?.deliveryLabel),
-    shippingAddress: order?.shippingAddress && typeof order.shippingAddress === "object" ? order.shippingAddress : {},
-    fullAddress: order?.fullAddress && typeof order.fullAddress === "object" ? order.fullAddress : {},
-    gpsLocation: order?.gpsLocation && typeof order.gpsLocation === "object" ? order.gpsLocation : {},
+    shippingStatus: status,
+    deliveryStatus: status,
+    shippingAddress,
+    fullAddress,
+    gpsLocation: {
+      latitude: normalizeText(gpsLocation.latitude || shippingAddress.latitude),
+      longitude: normalizeText(gpsLocation.longitude || shippingAddress.longitude),
+      googleMapsLink: normalizeText(gpsLocation.googleMapsLink || gpsLocation.mapLink || shippingAddress.mapLink),
+      mapLink: normalizeText(gpsLocation.mapLink || gpsLocation.googleMapsLink || shippingAddress.mapLink),
+      accuracy: normalizeText(gpsLocation.accuracy || shippingAddress.locationAccuracy),
+      capturedAt: normalizeText(gpsLocation.capturedAt || shippingAddress.locationCapturedAt)
+    },
+    statusHistory,
     itemsCount: items.length,
     items,
     products: items
@@ -509,6 +603,9 @@ function buildMonthlyRevenueSeries(orders) {
   }
 
   orders.forEach((order) => {
+    if (!isRevenueEligibleOrder(order)) {
+      return;
+    }
     const date = normalizeDate(order.date);
     if (!date) {
       return;
@@ -586,9 +683,22 @@ function buildVisitorSeries(activityEntries) {
   return Array.from(map.entries()).map(([label, total]) => ({ label, total }));
 }
 
+function isRevenueEligibleOrder(order) {
+  const status = String(order?.status || order?.orderStatus || "").toLowerCase();
+  const payment = String(order?.paymentStatus || order?.paymentStatusLabel || "").toLowerCase();
+  if (status.includes("cancel") || status.includes("return") || status.includes("refund")) {
+    return false;
+  }
+  if (payment.includes("refund")) {
+    return false;
+  }
+  return true;
+}
+
 function buildPerformanceMetrics(orders, customers, visitors) {
-  const revenue = orders.reduce((sum, order) => sum + toNumber(order.total), 0);
-  const orderCount = orders.length;
+  const revenueOrders = (Array.isArray(orders) ? orders : []).filter(isRevenueEligibleOrder);
+  const revenue = revenueOrders.reduce((sum, order) => sum + toNumber(order.total), 0);
+  const orderCount = revenueOrders.length;
   const visitorsCount = visitors.length;
   const averageOrderValue = orderCount ? revenue / orderCount : 0;
   const conversionRate = visitorsCount ? (orderCount / visitorsCount) * 100 : 0;
@@ -810,7 +920,7 @@ export async function getOrders(options = {}) {
 
   const promise = (async () => {
     try {
-      const payload = await withRetry("admin/orders", () => api.get("admin/orders"));
+      const payload = await withRetry("admin/orders", () => api.get("admin/orders?limit=500"));
       const orders = capArray(asArray(payload?.orders || payload?.data || payload).map(normalizeOrder), options?.maxItems || MAX_ORDERS_ITEMS);
       writeMemoryCache(scope, orders);
       writeCache(scope, orders);
@@ -1212,15 +1322,34 @@ async function resyncEnterpriseScopes(scopes = []) {
   await refreshRealtimeIntelligence();
 }
 
-export async function updateOrderStatus(orderId, status) {
+export async function updateOrderStatus(orderId, status, options = {}) {
   const id = normalizeText(orderId);
   const nextStatus = normalizeText(status);
-  if (!id || !nextStatus) {
-    throw new Error("Order id and status are required.");
+  const returnAction = normalizeText(options?.returnAction);
+  if (!id || (!nextStatus && !returnAction)) {
+    throw new Error("Order id and status (or returnAction) are required.");
   }
 
-  const payload = await api.put(`admin/orders/${encodeURIComponent(id)}/status`, { status: nextStatus });
-  await resyncEnterpriseScopes(["orders"]);
+  const body = {
+    reason: normalizeText(options?.reason),
+    cancellationReason: normalizeText(options?.cancellationReason || options?.reason),
+    note: normalizeText(options?.note || options?.reason || options?.adminNotes),
+    adminNotes: normalizeText(options?.adminNotes || options?.note || options?.reason),
+    customerNotes: normalizeText(options?.customerNotes),
+    productCondition: normalizeText(options?.productCondition),
+    refundMethod: normalizeText(options?.refundMethod)
+  };
+  if (nextStatus) body.status = nextStatus;
+  if (returnAction) body.returnAction = returnAction;
+  if (options?.refundAmount != null && options?.refundAmount !== "") {
+    body.refundAmount = toNumber(options.refundAmount);
+  }
+  if (Array.isArray(options?.returnImages)) {
+    body.returnImages = options.returnImages.map((image) => normalizeText(image)).filter(Boolean);
+  }
+
+  const payload = await api.put(`admin/orders/${encodeURIComponent(id)}/status`, body);
+  await resyncEnterpriseScopes(["orders", "products", "inventory", "analytics"]);
   return payload?.order || payload || null;
 }
 

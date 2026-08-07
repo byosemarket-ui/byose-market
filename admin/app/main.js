@@ -41,7 +41,8 @@ const REFRESHABLE_ROUTES = new Set(["dashboard", "enterprise", "orders", "custom
 const ROUTE_SCOPE_MAP = {
   dashboard: new Set(["dashboard", "orders", "customers", "products", "activity", "messages", "analytics", "inventory", "carts", "intelligence"]),
   enterprise: new Set(["dashboard", "orders", "customers", "products", "activity", "messages", "analytics", "inventory", "carts", "intelligence"]),
-  orders: new Set(["orders", "intelligence"]),
+  // Orders refreshes via live feeds + explicit status mutations — avoid intelligence soft-remount wiping UI state.
+  orders: new Set(["orders"]),
   customers: new Set(["customers", "intelligence"]),
   products: new Set(["products", "intelligence"]),
   analytics: new Set(["analytics", "orders", "customers", "activity", "messages", "dashboard", "intelligence"]),
