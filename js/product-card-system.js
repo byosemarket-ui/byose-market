@@ -233,11 +233,11 @@ export const ProductCardSystem = (() => {
         const originalSrc = String(img.dataset.productImageSrc || img.getAttribute('src') || '').trim();
         if (originalSrc && img.dataset.retried !== 'true') {
           img.dataset.retried = 'true';
-          const separator = originalSrc.includes('?') ? '&' : '?';
-          img.src = `${originalSrc}${separator}v=${Date.now()}`;
+          // One silent retry without cache-busting (avoids forcing a second full download).
+          img.removeAttribute('src');
+          img.src = originalSrc;
           return;
         }
-        return;
       }
 
       img.dataset.fallbackApplied = 'true';

@@ -73,9 +73,19 @@ export function normalizePlacementList(value) {
 
 export function getProductPlacements(product) {
   const metadata = asObject(product?.metadata);
-  const fromMetadata = normalizePlacementList(metadata.placement);
+  const fromMetadata = normalizePlacementList(
+    (Array.isArray(metadata.placement) && metadata.placement.length)
+      ? metadata.placement
+      : metadata.placements
+  );
   if (fromMetadata.length) {
     return fromMetadata;
+  }
+
+  // Also honor top-level placement arrays from normalized card payloads.
+  const fromProduct = normalizePlacementList(product?.placement);
+  if (fromProduct.length) {
+    return fromProduct;
   }
 
   const placements = new Set();

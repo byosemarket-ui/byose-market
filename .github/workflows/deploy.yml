@@ -36,11 +36,11 @@ on:
   # Allows manual redeploy from the GitHub Actions tab without a new commit.
   workflow_dispatch:
 
-# Prevent overlapping production deploys. Cancel older queued/in-progress runs so
-# a stuck job cannot block the latest production push indefinitely.
+# Prevent overlapping production deploys. Queue newer runs instead of canceling
+# an in-progress deploy mid npm-ci / PM2 reload / static sync.
 concurrency:
   group: production-vps-deploy
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -117,7 +117,6 @@ jobs:
         env:
           PUBLIC_HEALTH_URL: https://byosemarket.com/healthz
           PUBLIC_PRODUCTS_URL: https://byosemarket.com/api/products?limit=5&fields=card
-          DIRECT_API_HEALTH_URL: http://153.75.227.160:5000/healthz
         run: |
           set -euo pipefail
           verify_json_health() {
@@ -146,16 +145,16 @@ jobs:
           }
 
           echo "Checking ${PUBLIC_HEALTH_URL} ..."
-          for attempt in $(seq 1 6); do
+          for attempt in $(seq 1 8); do
             if verify_json_health "${PUBLIC_HEALTH_URL}"; then
               echo "Public HTTPS health check passed."
               break
             fi
-            if [[ "${attempt}" -eq 6 ]]; then
-              echo "Falling back to direct API health ${DIRECT_API_HEALTH_URL} ..."
-              verify_json_health "${DIRECT_API_HEALTH_URL}"
+            if [[ "${attempt}" -eq 8 ]]; then
+              echo "ERROR: Public health check failed after ${attempt} attempts: ${PUBLIC_HEALTH_URL}" >&2
+              exit 1
             fi
-            echo "Public health check not ready (attempt ${attempt}/6)..."
+            echo "Public health check not ready (attempt ${attempt}/8)..."
             sleep 10
           done
 

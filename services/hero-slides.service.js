@@ -11,8 +11,8 @@ export const HERO_SLIDES_UPDATED_EVENT = "byose:hero-slides-updated";
 export const HERO_SLIDES_BUMP_STORAGE_KEY = "byose_market_hero_slides_bump_v1";
 
 const DEFAULT_TIMEOUT_MS = 12000;
-const LIVE_SYNC_INTERVAL_MS = 90000;
-const STALE_THRESHOLD_MS = 90000;
+const LIVE_SYNC_INTERVAL_MS = 45000;
+const STALE_THRESHOLD_MS = 45000;
 const REFRESH_DEBOUNCE_MS = 400;
 
 let cachedSlides = null;

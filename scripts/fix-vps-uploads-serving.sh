@@ -119,7 +119,11 @@ log "Ensuring root storefront JavaScript and CSS are published..."
 if [[ -d "${WEB_ROOT:-/var/www/byosemarket}" ]]; then
   for file in "${DEPLOY_DIR}"/*.js; do
     if [[ -f "${file}" ]]; then
-      cp -f "${file}" "${WEB_ROOT:-/var/www/byosemarket}/$(basename "${file}")"
+      base="$(basename "${file}")"
+      if [[ "${base}" == "ecosystem.config.js" ]]; then
+        continue
+      fi
+      cp -f "${file}" "${WEB_ROOT:-/var/www/byosemarket}/${base}"
     fi
   done
 

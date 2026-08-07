@@ -45,7 +45,9 @@ function requireAdminAuth(req, res, next) {
     }
 
     const payload = result.payload || {};
-    const configuredAdminEmail = String(process.env.ADMIN_EMAIL || config.adminEmail || '').trim().toLowerCase();
+    const configuredAdminEmail = String(
+        process.env.ADMIN_EMAIL || (config.auth && config.auth.adminEmail) || config.adminEmail || ''
+    ).trim().toLowerCase();
     const tokenEmail = String(payload.email || '').trim().toLowerCase();
     if (
         payload.role !== 'admin'

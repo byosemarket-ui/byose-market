@@ -200,7 +200,7 @@ function writeStoredProducts(products) {
   }
 
   try {
-    const fingerprint = `${products.length}:${products.map((entry) => `${entry.id}:${entry.updatedAt || entry.price || 0}`).join("|")}`;
+    const fingerprint = `${products.length}:${products.map((entry) => `${entry.id}:${entry.updatedAt || ''}:${entry.price || 0}:${entry.stock || 0}:${entry.name || ''}:${entry.mainImage || entry.image || ''}`).join("|")}`;
     if (fingerprint === lastStoredFingerprint) {
       return;
     }
@@ -385,6 +385,18 @@ function resolveProductImages(source) {
   };
 }
 
+function isCardLikePayload(source) {
+  const variants = source.variants;
+  const attributes = source.attributes;
+  const emptyVariants = !variants
+    || variants === "{}"
+    || (typeof variants === "object" && !Array.isArray(variants) && Object.keys(variants).length === 0);
+  const emptyAttributes = !attributes
+    || attributes === "[]"
+    || (Array.isArray(attributes) && attributes.length === 0);
+  return emptyVariants && emptyAttributes && !source.colorVariants && !source.color_variants;
+}
+
 function normalizeProductRecord(record) {
   const source = asObject(record);
   const catalogId = Math.max(0, Math.floor(toNumber(source.catalog_id ?? source.catalogId ?? source.id, 0)));
@@ -402,6 +414,10 @@ function normalizeProductRecord(record) {
   const discountPercent = Number.isFinite(storedDiscountPercent) && storedDiscountPercent > 0
     ? Math.max(0, Math.min(100, Math.floor(storedDiscountPercent)))
     : (oldPrice > price ? Math.round(((oldPrice - price) / oldPrice) * 100) : 0);
+  const cardLike = isCardLikePayload(source);
+  const placementList = parseJsonArray(metadataObject.placement).length
+    ? parseJsonArray(metadataObject.placement)
+    : parseJsonArray(metadataObject.placements);
 
   const baseRecord = {
     ...source,
@@ -411,7 +427,7 @@ function normalizeProductRecord(record) {
     title: normalizeText(source.title || source.name, "Untitled product"),
     description: normalizeText(source.description || source.short_description || source.shortDescription),
     shortDescription: normalizeText(source.short_description ?? source.shortDescription ?? source.description),
-    longDescription: parseJsonArray(source.long_description ?? source.longDescription),
+    longDescription: cardLike ? [] : parseJsonArray(source.long_description ?? source.longDescription),
     badge: normalizeText(source.badge),
     category: normalizeText(source.category, "general").toLowerCase(),
     price,
@@ -425,13 +441,13 @@ function normalizeProductRecord(record) {
     image: mainImage,
     mainImage,
     thumbnail: mainImage,
-    gallery,
-    keywords: parseJsonArray(source.keywords).length ? parseJsonArray(source.keywords) : buildKeywords(source),
-    highlights: parseJsonArray(source.highlights),
-    trust: parseJsonArray(source.trust),
-    specs: parseJsonArray(source.specs),
-    attributes: parseJsonArray(source.attributes),
-    variants: parseJsonObject(source.variants),
+    gallery: cardLike ? (mainImage ? [mainImage] : gallery.slice(0, 1)) : gallery,
+    keywords: cardLike ? [] : (parseJsonArray(source.keywords).length ? parseJsonArray(source.keywords) : buildKeywords(source)),
+    highlights: cardLike ? [] : parseJsonArray(source.highlights),
+    trust: cardLike ? [] : parseJsonArray(source.trust),
+    specs: cardLike ? [] : parseJsonArray(source.specs),
+    attributes: cardLike ? [] : parseJsonArray(source.attributes),
+    variants: cardLike ? {} : parseJsonObject(source.variants),
     visibility,
     priority: normalizePriority(source.priority),
     orderIndex: Math.max(0, Math.floor(toNumber(source.order_index ?? source.orderIndex, 0))),
@@ -442,10 +458,12 @@ function normalizeProductRecord(record) {
     createdAt,
     updatedAt,
     mainImageStoragePath: normalizeText(source.main_image_storage_path ?? source.mainImageStoragePath) || normalizeManagedUploadPath(mainImage),
-    galleryStoragePaths: (parseJsonArray(source.gallery_storage_paths ?? source.galleryStoragePaths).length
-      ? parseJsonArray(source.gallery_storage_paths ?? source.galleryStoragePaths)
-      : gallery.map((entry) => normalizeManagedUploadPath(entry)).filter(Boolean)),
-    extraInfo: parseJsonObject(source.extra_info ?? source.extraInfo),
+    galleryStoragePaths: cardLike
+      ? []
+      : (parseJsonArray(source.gallery_storage_paths ?? source.galleryStoragePaths).length
+        ? parseJsonArray(source.gallery_storage_paths ?? source.galleryStoragePaths)
+        : gallery.map((entry) => normalizeManagedUploadPath(entry)).filter(Boolean)),
+    extraInfo: cardLike ? {} : parseJsonObject(source.extra_info ?? source.extraInfo),
     brand: normalizeText(source.brand ?? source.metadata?.brand),
     sku: normalizeText(source.sku ?? source.metadata?.sku),
     costPrice: toNumber(source.costPrice ?? source.metadata?.costPrice, 0),
@@ -455,19 +473,30 @@ function normalizeProductRecord(record) {
     metaDescription: normalizeText(source.metaDescription ?? source.metadata?.metaDescription ?? source.shortDescription),
     shortName: normalizeText(source.metadata?.shortName ?? source.shortName ?? ""),
     slug: normalizeText(source.slug ?? source.metadata?.slug),
-    tags: parseJsonArray(source.tags).length ? parseJsonArray(source.tags) : asArray(source.metadata?.tags),
-    metadata: parseJsonObject(source.metadata),
-    placement: parseJsonArray(parseJsonObject(source.metadata).placement).length
-      ? parseJsonArray(parseJsonObject(source.metadata).placement)
-      : [],
-    positionMode: normalizeText(parseJsonObject(source.metadata).positionMode, "automatic"),
-    priorityScore: normalizePriority(parseJsonObject(source.metadata).priorityScore ?? source.priority),
+    tags: cardLike ? [] : (parseJsonArray(source.tags).length ? parseJsonArray(source.tags) : asArray(source.metadata?.tags)),
+    metadata: metadataObject,
+    placement: placementList,
+    positionMode: normalizeText(metadataObject.positionMode, "automatic"),
+    priorityScore: normalizePriority(metadataObject.priorityScore ?? source.priority),
     inventory: asObject(source.inventory) || {
       available: Math.max(0, Math.floor(toNumber(source.stock, 0))),
       totalAvailable: Math.max(0, Math.floor(toNumber(source.stock, 0))),
       status: Math.max(0, Math.floor(toNumber(source.stock, 0))) > 0 ? "in_stock" : "out_of_stock"
     }
   };
+
+  if (cardLike) {
+    return {
+      ...baseRecord,
+      availableStock: baseRecord.stock,
+      inventory: {
+        ...(baseRecord.inventory || {}),
+        available: baseRecord.stock,
+        totalAvailable: baseRecord.stock,
+        status: baseRecord.stock > 0 ? "in_stock" : "out_of_stock"
+      }
+    };
+  }
 
   const enriched = enrichProductColorVariants(baseRecord, normalizeStorefrontAssetUrl);
 
@@ -842,7 +871,11 @@ export async function forceRefreshProducts(options = {}) {
 export async function getProducts() {
   hydrateFromStorage();
 
-  if (hasHydratedCatalog && !isCacheStale()) {
+  // Stale-while-revalidate: paint cached catalog immediately, refresh in background.
+  if (hasHydratedCatalog && cachedProducts.length) {
+    if (isCacheStale() && !catalogFetchInFlight) {
+      void forceRefreshProducts({ silent: true }).catch(() => {});
+    }
     return cachedProducts.slice();
   }
 
@@ -852,9 +885,9 @@ export async function getProducts() {
 export async function getProductsWithRetry() {
   hydrateFromStorage();
 
-  if (hasHydratedCatalog && !isCacheStale()) {
+  if (hasHydratedCatalog && cachedProducts.length) {
     // Soft background refresh without blocking first paint.
-    if (!catalogFetchInFlight) {
+    if (!catalogFetchInFlight && isCacheStale()) {
       void forceRefreshProducts({ silent: true }).catch(() => {});
     }
     return cachedProducts.slice();
@@ -908,6 +941,7 @@ export async function getProductById(productId) {
 }
 
 export function getCachedProducts() {
+  hydrateFromStorage();
   return cachedProducts.slice();
 }
 

@@ -3,9 +3,9 @@
 // ===============================
 
 // ===============================
-// 📦 BASE URL (Render Backend)
+// 📦 BASE URL (production VPS)
 // ===============================
-const PRODUCTION_API_ORIGIN = "https://byosesemarket4.onrender.com";
+const PRODUCTION_API_ORIGIN = "https://byosemarket.com";
 
 function normalizeBase(value) {
   return String(value || "").trim().replace(/\/+$/, "");

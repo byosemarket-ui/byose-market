@@ -201,6 +201,14 @@ function validateForm(form, imageState, options = {}) {
     errors.title = "Slide title is required.";
   }
 
+  if (payload.buttonText && !payload.buttonLink) {
+    errors.buttonLink = "Add a button link when button text is set.";
+  }
+
+  if (payload.buttonLink && !payload.buttonText) {
+    errors.buttonText = "Add button text when a button link is set.";
+  }
+
   if (payload.buttonLink && !isValidButtonLink(payload.buttonLink)) {
     errors.buttonLink = "Enter a valid internal path or http(s) URL.";
   }

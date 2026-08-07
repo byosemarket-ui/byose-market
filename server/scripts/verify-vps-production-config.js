@@ -37,15 +37,17 @@ function main() {
 
   if (config.isProduction) {
     const resolvedUploads = path.resolve(config.uploads.rootDir);
-    const allowedRoots = [
-      path.resolve(VPS.uploadsRoot),
-      path.resolve(VPS.deployRoot, "server/uploads"),
-      ...(VPS.legacyUploadsRoots || []).map((entry) => path.resolve(entry))
-    ];
+    const requiredRoot = path.resolve(VPS.uploadsRoot);
 
     assert(
-      allowedRoots.some((allowedRoot) => resolvedUploads === allowedRoot),
-      `Production UPLOADS_DIR must be ${VPS.uploadsRoot} (legacy: ${(VPS.legacyUploadsRoots || []).join(", ")})`
+      resolvedUploads === requiredRoot,
+      `Production UPLOADS_DIR must be exactly ${VPS.uploadsRoot} (got ${resolvedUploads}). Legacy in-repo upload roots are not allowed.`
+    );
+
+    assert(
+      !resolvedUploads.includes(`${path.sep}server${path.sep}uploads`)
+        && !resolvedUploads.endsWith(`${path.sep}server${path.sep}uploads`),
+      "Production uploads must live outside the git deploy directory so deploys never wipe images."
     );
   }
 

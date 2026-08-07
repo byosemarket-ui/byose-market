@@ -296,10 +296,8 @@
       `;
     }
 
-    // Build all cards asynchronously
-    const cardsPromises = items.map(item => buildProductCard(item));
-    const cardsHtml = await Promise.all(cardsPromises);
-    return cardsHtml.join('');
+    const cardSystem = await loadProductCardSystem();
+    return cardSystem.renderCards(items, { eagerCount: 8 });
   }
 
   function applyStorefrontGridClasses(targetGrid) {

@@ -1,4 +1,4 @@
-import { escapeHtml, formatCurrency, resolveCheckoutAsset } from '../utils.js';
+import { escapeHtml, formatCurrency, resolveCheckoutAsset, resolveOrderItemImage } from '../utils.js';
 import { DELIVERY_FEE, STEPS } from '../core/constants.js';
 import { getState, getStepIndex } from '../core/state.js';
 
@@ -10,8 +10,16 @@ export function renderProgress(currentStepId) {
   }).join('');
 }
 
+function resolveProductImageSrc(product) {
+  const preferred = String(product?.colorImage || '').trim();
+  if (preferred) {
+    return resolveCheckoutAsset(preferred);
+  }
+  return resolveCheckoutAsset(resolveOrderItemImage(product));
+}
+
 export function renderProductLine(product) {
-  const img = product.colorImage || product.image || product.productImage || '';
+  const img = resolveProductImageSrc(product);
   const meta = [product.colorName || product.color, product.sizeLabel || product.size].filter(Boolean).join(' · ');
   const qty = Math.max(1, Number(product.qty || product.quantity) || 1);
   const price = Number(product.price) || 0;
@@ -39,7 +47,7 @@ export function renderProductList(products, { editable = false } = {}) {
 
     const key = `${product.id}::${product.variantKey || ''}`;
     const qty = Math.max(1, Number(product.qty || product.quantity) || 1);
-    const img = product.colorImage || product.image || '';
+    const img = resolveProductImageSrc(product);
     const meta = [product.colorName || product.color, product.sizeLabel || product.size].filter(Boolean).join(' · ');
 
     return `

@@ -100,11 +100,37 @@ function titleCase(value) {
   return String(value || 'featured').replace(/(^\w|\s\w)/g, match => match.toUpperCase());
 }
 
-function getNumericId() {
+function getQueryParam(name) {
   const params = new URLSearchParams(window.location.search);
-  const raw = params.get('id') || params.get('product');
+  return String(params.get(name) || '').trim();
+}
+
+function getNumericId() {
+  const raw = getQueryParam('id') || getQueryParam('product');
   const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function getRequestedSlug() {
+  return getQueryParam('slug').toLowerCase();
+}
+
+async function resolveProductFromRequest() {
+  const productId = getNumericId();
+  if (productId) {
+    return getProductContentById(productId);
+  }
+
+  const slug = getRequestedSlug();
+  if (!slug) {
+    return null;
+  }
+
+  const catalog = await getCatalog();
+  return catalog.find((entry) => {
+    const entrySlug = String(entry?.slug || entry?.metadata?.slug || '').trim().toLowerCase();
+    return entrySlug && entrySlug === slug;
+  }) || null;
 }
 
 function resolveAssetPath(path) {
@@ -284,8 +310,7 @@ export function createProductUrl(product, mode = 'relative') {
 }
 
 export async function loadProductData() {
-  const productId = getNumericId();
-  const product = await getProductContentById(productId);
+  const product = await resolveProductFromRequest();
 
   if (!product) {
     return null;

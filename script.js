@@ -29,6 +29,8 @@ const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
 const FALLBACK_IMAGE = 'img/logo.png';
 const SPOTLIGHT_LIMIT = 6;
 const SPOTLIGHT_START_OFFSET = 5;
+const HOME_INITIAL_CARD_COUNT = 12;
+const HOME_EAGER_IMAGE_COUNT = 6;
 const HERO_INTERVAL_MS = 3500;
 const HERO_BRAND_EYEBROW = 'Byose Market Rwanda';
 const NEWSLETTER_STORAGE_KEY = 'byose_market_newsletter_subscribers';
@@ -42,9 +44,11 @@ const CATEGORY_ALIASES = {
 
 const state = {
   catalog: [],
+  catalogFingerprint: '',
   filterCache: new Map(),
   markupCache: new Map(),
-  currentFilter: DEFAULT_FILTER
+  currentFilter: DEFAULT_FILTER,
+  pendingGridExpansion: null
 };
 
 const PLACEMENT_SECTION_LIMIT = 6;
@@ -69,6 +73,7 @@ if (document.readyState === 'loading') {
 }
 
 function initializeHomePage() {
+  paintCachedCatalog();
   syncCatalog();
   setupFilterControls();
   heroSlidesService.ensureHeroSlidesLiveSync();
@@ -102,11 +107,58 @@ function initializeHomePage() {
   });
 }
 
+function catalogFingerprint(products) {
+  if (!Array.isArray(products) || !products.length) {
+    return 'empty';
+  }
+
+  return products
+    .map((product) => [
+      product?.id || '',
+      product?.updatedAt || '',
+      product?.price || '',
+      product?.stock || '',
+      product?.name || product?.title || '',
+      product?.mainImage || product?.image || '',
+      Array.isArray(product?.metadata?.placements)
+        ? product.metadata.placements.join(',')
+        : (Array.isArray(product?.placement) ? product.placement.join(',') : '')
+    ].join(':'))
+    .join('|');
+}
+
+function paintCachedCatalog() {
+  try {
+    const cached = typeof productService.getCachedProducts === 'function'
+      ? productService.getCachedProducts()
+      : [];
+    if (Array.isArray(cached) && cached.length) {
+      applyCatalog(cached);
+      return;
+    }
+
+    // Hydrate from localStorage without blocking; paint as soon as available.
+    void productService.getProducts().then((products) => {
+      if (Array.isArray(products) && products.length && !state.catalog.length) {
+        applyCatalog(products);
+      }
+    }).catch(() => {});
+  } catch (error) {
+    console.warn('[Homepage] Cached catalog paint skipped:', error);
+  }
+}
+
 function applyCatalog(products) {
   try {
+    const fingerprint = catalogFingerprint(products);
+    if (fingerprint && fingerprint === state.catalogFingerprint && state.catalog.length) {
+      return;
+    }
+
     const normalized = products.map(normalizeProduct);
     const visible = normalized.filter(product => shouldShowOnSurfaceLocal(product, 'home'));
     state.catalog = visible.sort(sortProductsByDisplayLocal);
+    state.catalogFingerprint = fingerprint;
     state.filterCache.clear();
     state.markupCache.clear();
     renderProductGrid(state.currentFilter);
@@ -122,36 +174,19 @@ async function syncCatalog() {
     traceStorefrontStage("fetch-start", { surface: "home" });
     const products = await productService.getProducts();
     traceStorefrontStage("fetch-complete", { surface: "home", count: products.length });
-
-    const normalized = products.map(normalizeProduct);
-    const visible = normalized.filter(product => shouldShowOnSurfaceLocal(product, 'home'));
-    state.catalog = visible.sort(sortProductsByDisplayLocal);
-
+    applyCatalog(products);
     traceStorefrontStage("filter-complete", {
       surface: "home",
       fetchedCount: products.length,
       visibleCount: state.catalog.length,
       filteredOut: products.length - state.catalog.length
     });
-    
-    state.filterCache.clear();
-    state.markupCache.clear();
-    renderProductGrid(state.currentFilter);
-    renderPlacementSections();
-    renderSpotlightGrid();
   } catch (error) {
     console.error('[Homepage] Failed to sync products:', error);
     traceStorefrontStage("fetch-error", { surface: "home", message: String(error?.message || error) });
-    // Attempt to use cached data as fallback
     const cached = productService.getCachedProducts();
     if (Array.isArray(cached) && cached.length > 0) {
-      state.catalog = cached
-        .map(normalizeProduct)
-        .filter(product => shouldShowOnSurfaceLocal(product, 'home'))
-        .sort(sortProductsByDisplayLocal);
-      renderProductGrid(state.currentFilter);
-      renderPlacementSections();
-      renderSpotlightGrid();
+      applyCatalog(cached);
     }
   }
 }
@@ -304,8 +339,8 @@ function sortProductsByDisplayLocal(left, right) {
   return sortProductsByDisplay(left, right);
 }
 
-function createProductCard(product) {
-  return ProductCardSystem.renderCard(product);
+function createProductCard(product, options = {}) {
+  return ProductCardSystem.renderCard(product, options);
 }
 
 function bindGridImageFallback(grid) {
@@ -321,15 +356,34 @@ function applyStorefrontGridClasses(grid) {
   grid.classList.toggle('byose-product-grid--spotlight', grid.id === 'spotlightGrid');
 }
 
-function renderGrid(grid, cacheKey, items) {
+function scheduleIdleWork(callback) {
+  if (typeof window.requestIdleCallback === 'function') {
+    return window.requestIdleCallback(callback, { timeout: 400 });
+  }
+  return window.setTimeout(callback, 32);
+}
+
+function cancelIdleWork(handle) {
+  if (handle == null) {
+    return;
+  }
+  if (typeof window.cancelIdleCallback === 'function') {
+    window.cancelIdleCallback(handle);
+    return;
+  }
+  window.clearTimeout(handle);
+}
+
+function renderGrid(grid, cacheKey, items, options = {}) {
   if (!grid) {
     return;
   }
 
   applyStorefrontGridClasses(grid);
 
-  // Use unified product card system's grid rendering
   if (items.length === 0) {
+    cancelIdleWork(state.pendingGridExpansion);
+    state.pendingGridExpansion = null;
     grid.innerHTML = `
       <div class="byose-product-grid-empty">
         <div class="byose-product-grid-empty-icon">📭</div>
@@ -339,12 +393,27 @@ function renderGrid(grid, cacheKey, items) {
     return;
   }
 
-  const markup = state.markupCache.get(cacheKey) || items.map(createProductCard).join('');
-  state.markupCache.set(cacheKey, markup);
+  const isHomeMainGrid = grid.id === 'homeProductGrid';
+  const eagerCount = Math.max(0, Number(options.eagerCount ?? (isHomeMainGrid ? HOME_EAGER_IMAGE_COUNT : 2)) || 0);
+  const progressiveEligible = isHomeMainGrid && items.length > HOME_INITIAL_CARD_COUNT;
+  const cachedMarkup = state.markupCache.get(cacheKey);
+  const markup = cachedMarkup
+    || ProductCardSystem.renderCards(
+      progressiveEligible ? items.slice(0, HOME_INITIAL_CARD_COUNT) : items,
+      { eagerCount }
+    );
+  const needsProgressiveExpand = progressiveEligible && !cachedMarkup;
+
+  if (!cachedMarkup) {
+    state.markupCache.set(cacheKey, markup);
+  }
 
   if (grid.dataset.renderKey === cacheKey && grid.dataset.renderMarkup === markup) {
     return;
   }
+
+  cancelIdleWork(state.pendingGridExpansion);
+  state.pendingGridExpansion = null;
 
   grid.setAttribute('aria-busy', 'true');
   grid.innerHTML = markup;
@@ -352,6 +421,23 @@ function renderGrid(grid, cacheKey, items) {
   grid.dataset.renderKey = cacheKey;
   grid.dataset.renderMarkup = markup;
   grid.removeAttribute('aria-busy');
+
+  if (needsProgressiveExpand) {
+    const remaining = items.slice(HOME_INITIAL_CARD_COUNT);
+    state.pendingGridExpansion = scheduleIdleWork(() => {
+      if (grid.dataset.renderKey !== cacheKey) {
+        state.pendingGridExpansion = null;
+        return;
+      }
+      const remainingMarkup = ProductCardSystem.renderCards(remaining, { eagerCount: 0 });
+      grid.insertAdjacentHTML('beforeend', remainingMarkup);
+      bindGridImageFallback(grid);
+      const fullMarkup = `${markup}${remainingMarkup}`;
+      state.markupCache.set(cacheKey, fullMarkup);
+      grid.dataset.renderMarkup = fullMarkup;
+      state.pendingGridExpansion = null;
+    });
+  }
 }
 
 function getProductsForFilter(filter) {
@@ -542,10 +628,16 @@ async function syncHeroSlides() {
   try {
     const slides = await heroSlidesService.getActiveHeroSlides({
       emit: false,
-      force: true,
+      force: false,
       source: 'homepage'
     });
     applyHeroSlides(slides);
+    // Soft refresh in background so admin updates still land without blocking first paint.
+    void heroSlidesService.getActiveHeroSlides({
+      emit: true,
+      force: true,
+      source: 'homepage-refresh'
+    }).catch(() => {});
   } catch (error) {
     console.error('[Homepage] Failed to sync hero slides:', error);
     if (root && !root.querySelector('.hero-slide')) {

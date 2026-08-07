@@ -11,7 +11,7 @@ export const STORAGE_KEYS = {
   storefrontUser: 'byose_market_user'
 };
 
-const PRODUCTION_API_ORIGIN = 'https://byosesemarket4.onrender.com';
+const PRODUCTION_API_ORIGIN = 'https://byosemarket.com';
 const STOREFRONT_STATE_FIELDS = {
   [STORAGE_KEYS.cart]: 'cartItems',
   [STORAGE_KEYS.directCheckout]: 'directCheckout',
@@ -72,6 +72,11 @@ export function resolveApiOrigin() {
 
   if (protocol === 'file:' || isLocalHost(hostname)) {
     return `http://${hostname || 'localhost'}:5000`;
+  }
+
+  // Prefer same-origin on the live VPS site so checkout always hits nginx → local API.
+  if (/^(?:www\.)?byosemarket\.com$/i.test(hostname)) {
+    return normalizeBase(window.location?.origin || PRODUCTION_API_ORIGIN) || PRODUCTION_API_ORIGIN;
   }
 
   if (shouldUseProductionApi(hostname)) {
@@ -369,22 +374,30 @@ export function escapeHtml(value) {
 
 /** Resolve a site-root asset path for pages under /orders/. */
 export function resolveCheckoutAsset(path) {
-  const raw = String(path || '').trim().replace(/^\/+/, '');
+  const normalized = String(path || '').trim();
+  if (!normalized) return '';
+
+  if (/^(?:https?:|data:|blob:)/i.test(normalized)) {
+    return normalized;
+  }
+
+  const raw = normalized.replace(/^\/+/, '');
   if (!raw) return '';
   return `../${raw.split('/').map(encodeURIComponent).join('/')}`;
 }
 
 export function resolveProductUrl(product = {}) {
   const slug = String(product?.slug || '').trim();
-  const id = String(product?.id || product?.productId || '').trim();
+  const id = String(product?.productId || product?.id || '').trim();
   const base = typeof window !== 'undefined' && window.location?.origin
     ? window.location.origin
     : '';
-  if (slug) {
-    return `${base}/details/product-details1.html?slug=${encodeURIComponent(slug)}`;
-  }
+  // Product details resolves by numeric id; prefer id so cart/order links open the correct item.
   if (id) {
     return `${base}/details/product-details1.html?id=${encodeURIComponent(id)}`;
+  }
+  if (slug) {
+    return `${base}/details/product-details1.html?slug=${encodeURIComponent(slug)}`;
   }
   return '';
 }
@@ -474,7 +487,7 @@ export function resolveOrderItemImage(item) {
     || item?.mainImage
     || item?.thumbnail
     || galleryImage
-    || 'img/logo.png'
+    || '/img/logo.png'
   ).trim();
 }
 

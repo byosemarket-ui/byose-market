@@ -323,7 +323,10 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             `).all(safeLimit, safeOffset);
         }
 
-        const imageLookup = this.loadImagesForProductIds(rows.map((row) => Number(row.id)));
+        // Card payloads only need main_image/image columns — skip gallery table lookup.
+        const imageLookup = columns === 'card'
+            ? new Map()
+            : this.loadImagesForProductIds(rows.map((row) => Number(row.id)));
         return rows.map((row) => this.mapRow(row, imageLookup.get(Number(row.id)) || []));
     }
 

@@ -9,8 +9,8 @@
     "setup:env": "node scripts/setup-env.js",
     "backend:start": "node server/server.js",
     "backend:dev": "nodemon server/server.js",
-    "pm2:start": "pm2 start ecosystem.config.js --env production",
-    "pm2:reload": "pm2 reload ecosystem.config.js --env production",
+    "pm2:start": "pm2 start ecosystem.config.js --env production --update-env",
+    "pm2:reload": "pm2 reload ecosystem.config.js --env production --update-env",
     "pm2:stop": "pm2 delete byosemarket-api",
     "verify:e2e": "node scripts/verify-e2e-step5.mjs",
     "verify:api-routes": "node server/scripts/verify-api-routes.js",
@@ -27,7 +27,10 @@
     "verify:storefront": "node scripts/verify-storefront-full.mjs",
     "verify:hero-slider": "node scripts/verify-hero-slider-flow.js",
     "verify:modal": "node scripts/verify-modal-redesign.mjs",
-    "verify:checkout": "node scripts/verify-checkout-flow.mjs"
+    "verify:checkout": "node scripts/verify-checkout-flow.mjs",
+    "verify:perf": "node scripts/perf-homepage-smoke.js",
+    "verify:query-cache": "node scripts/verify-query-cache.js",
+    "verify:production": "node scripts/audit-smoke-local.js && node scripts/perf-homepage-smoke.js && node scripts/verify-query-cache.js && npm run verify:integration && npm run verify:hero-slider && npm run verify:upload-flow"
   },
   "author": "Kwizera Evode",
   "license": "ISC",

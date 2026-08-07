@@ -84,9 +84,49 @@ walkJs(path.join(root, "admin", "app"));
 walkJs(path.join(root, "services"));
 walkJs(path.join(root, "shared"));
 walkJs(path.join(root, "config"));
+walkJs(path.join(root, "js"));
+walkJs(path.join(root, "details"));
+walkJs(path.join(root, "account"));
+walkJs(path.join(root, "orders"));
 
+// Root-level entry modules (index.js, script.js, shop.js, cart.js, …)
+for (const ent of fs.readdirSync(root, { withFileTypes: true })) {
+  if (!ent.isFile() || !/\.js$/i.test(ent.name)) continue;
+  const full = path.join(root, ent.name);
+  const text = fs.readFileSync(full, "utf8");
+  let match;
+  importRe.lastIndex = 0;
+  while ((match = importRe.exec(text))) {
+    let spec = match[1];
+    if (!spec.endsWith(".js") && !spec.endsWith(".json") && !spec.endsWith(".css")) {
+      const asJs = path.resolve(path.dirname(full), `${spec}.js`);
+      const asIndex = path.resolve(path.dirname(full), spec, "index.js");
+      if (!fs.existsSync(asJs) && !fs.existsSync(asIndex) && !fs.existsSync(path.resolve(path.dirname(full), spec))) {
+        jsMissing.push({
+          file: path.relative(root, full).replace(/\\/g, "/"),
+          ref: spec
+        });
+      }
+      continue;
+    }
+    const resolved = path.resolve(path.dirname(full), spec);
+    if (!fs.existsSync(resolved)) {
+      jsMissing.push({
+        file: path.relative(root, full).replace(/\\/g, "/"),
+        ref: spec,
+        resolved: path.relative(root, resolved).replace(/\\/g, "/")
+      });
+    }
+  }
+}
+
+const failed = missing.length + jsMissing.length;
 console.log(JSON.stringify({
   htmlFiles: htmlFiles.length,
   missingHtmlAssets: missing,
-  missingJsImports: jsMissing
+  missingJsImports: jsMissing,
+  ok: failed === 0
 }, null, 2));
+if (failed > 0) {
+  process.exitCode = 1;
+}

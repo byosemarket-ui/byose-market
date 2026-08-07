@@ -61,7 +61,7 @@
 
     const id = Number(product && product.id);
     if (Number.isFinite(id) && id > 0) {
-      return `product-details1.html?id=${encodeURIComponent(id)}`;
+      return `details/product-details1.html?id=${encodeURIComponent(id)}`;
     }
 
     const rawPage = String(product && product.page ? product.page : '').trim();
@@ -69,7 +69,7 @@
       return rawPage;
     }
 
-    return 'product-details1.html';
+    return 'details/product-details1.html';
   }
 
   function buildSearchText(product) {

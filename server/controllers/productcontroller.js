@@ -2,6 +2,7 @@ const { appLogger, monitorAsyncOperation } = require('../utils/logger');
 const config = require('../config/env');
 const productDataService = require('../services/productdataservice');
 const getRealtimeEventService = require('../services/realtimeeventservice');
+const { queryCache } = require('../services/querycache.service');
 const {
     detectStorefrontVisibilityIssues,
     isAdminProductRequest,
@@ -529,6 +530,9 @@ function serializeProductCard(product, options = {}) {
     const gallery = absolutizePublicAssetList(
         uniqueStrings(source.gallery || []).slice(0, 1).concat(rawMainImage ? [rawMainImage] : [])
     ).slice(0, 1);
+    const placements = Array.isArray(metadataObject.placements) && metadataObject.placements.length
+        ? metadataObject.placements
+        : (Array.isArray(metadataObject.placement) ? metadataObject.placement : []);
 
     return {
         id: catalogId,
@@ -558,8 +562,10 @@ function serializeProductCard(product, options = {}) {
         updatedAt: source.updatedAt || null,
         createdAt: source.createdAt || null,
         metadata: {
-            placements: Array.isArray(metadataObject.placements) ? metadataObject.placements : [],
-            discountPercent: discountPercent || undefined
+            placement: placements,
+            placements,
+            discountPercent: discountPercent || undefined,
+            shortName: toTrimmedString(metadataObject.shortName) || undefined
         }
     };
 }
@@ -738,8 +744,13 @@ exports.getAllProducts = async (req, res) => {
         const payload = { success: true, products: serialized, view: serializeMode };
 
         if (forPublic) {
-            res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+            // Short browser cache + SWR keeps homepage fast while admin edits propagate quickly.
+            const cacheControl = serializeMode === 'card'
+                ? 'public, max-age=15, stale-while-revalidate=60'
+                : 'public, max-age=10, stale-while-revalidate=30';
+            res.setHeader('Cache-Control', cacheControl);
             res.setHeader('Vary', 'Accept-Encoding, Authorization');
+            res.setHeader('X-Byose-Catalog-Generation', String(queryCache.getGeneration()));
         } else {
             res.setHeader('Cache-Control', 'no-store');
         }

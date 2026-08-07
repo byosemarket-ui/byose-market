@@ -296,6 +296,15 @@ async function main() {
 
     const adminDataSource = fs.readFileSync(path.resolve(__dirname, "../admin/app/services/admin-data.service.js"), "utf8");
     assert(adminDataSource.includes("publishHeroSlidesBump") || adminDataSource.includes("notifyStorefrontHeroUpdate"), "Admin→storefront hero notify missing");
+    assert(
+      adminDataSource.includes('from "../../../services/hero-slides.service.js"')
+        || adminDataSource.includes("from '../../../services/hero-slides.service.js'"),
+      "Admin data service has wrong hero-slides.service.js import path"
+    );
+    assert(
+      !adminDataSource.includes("../../../../services/hero-slides.service.js"),
+      "Admin data service still uses out-of-repo hero-slides import path"
+    );
 
     const scriptSource = fs.readFileSync(path.resolve(__dirname, "../script.js"), "utf8");
     assert(scriptSource.includes("ensureHeroSlidesLiveSync"), "Homepage does not start hero live sync");

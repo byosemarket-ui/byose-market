@@ -507,8 +507,14 @@ const ByoseCart = {
 
   getProductUrl(item) {
     const prefix = window.location.pathname.includes('/details/') ? '' : 'details/';
-    const slug = item.slug ? `?slug=${encodeURIComponent(item.slug)}` : `?id=${encodeURIComponent(item.productId)}`;
-    return `${prefix}product-details1.html${slug}`;
+    const productId = item.productId || item.id;
+    if (productId) {
+      return `${prefix}product-details1.html?id=${encodeURIComponent(productId)}`;
+    }
+    if (item.slug) {
+      return `${prefix}product-details1.html?slug=${encodeURIComponent(item.slug)}`;
+    }
+    return `${prefix}product-details1.html`;
   },
 
   formatPrice(amount) {

@@ -154,6 +154,27 @@ async function uploadSingleAsset(source, options = {}) {
 
   if (/^(?:https?:|\/|\.)/i.test(normalized) || /^(?:products|categories|users|reviews|hero|temp)\//i.test(normalized)) {
     reportProgress(options.onProgress, options.progressLabel || "Using existing asset reference", { phase: "reference" });
+
+    if (/^https?:\/\//i.test(normalized)) {
+      let storagePath = normalized;
+      try {
+        const parsed = new URL(normalized);
+        const pathname = String(parsed.pathname || "").replace(/^\/+/, "");
+        storagePath = pathname.startsWith("uploads/")
+          ? pathname.replace(/^uploads\//, "")
+          : pathname;
+      } catch (_error) {
+        storagePath = normalized;
+      }
+
+      return {
+        path: storagePath,
+        storagePath,
+        url: normalized,
+        publicUrl: normalized
+      };
+    }
+
     const publicUrl = normalized.startsWith("/") ? normalized : `/uploads/${normalized.replace(/^\/+/, "")}`;
     return {
       path: normalized.startsWith("/uploads/") ? normalized.replace(/^\/uploads\//, "") : normalized,

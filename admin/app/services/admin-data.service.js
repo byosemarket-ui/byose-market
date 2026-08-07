@@ -1,7 +1,7 @@
 import * as api from "../core/api.js";
 import { publishRealtime } from "../core/realtime-adapter.js";
 import productCatalogService from "../../../services/centralized-products.service.js";
-import { publishHeroSlidesBump } from "../../../../services/hero-slides.service.js";
+import { publishHeroSlidesBump } from "../../../services/hero-slides.service.js";
 
 const CACHE_PREFIX = "byose_admin_api_cache_v2";
 const DEFAULT_RETRY_COUNT = 2;

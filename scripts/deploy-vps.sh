@@ -108,11 +108,12 @@ sync_storefront_static() {
     config
     shared
     img
-    components
     orders
     account
     admin
     logout
+    auth
+    shop
   )
 
   local files=(
@@ -131,7 +132,9 @@ sync_storefront_static() {
     product-details2.html
     checkout.html
     products.html
+    categories.html
     order-success.html
+    admin.html
     shop.css
     mobile-nav.css
     contact.css
@@ -163,7 +166,13 @@ sync_storefront_static() {
 
   for file in "${DEPLOY_DIR}"/*.js; do
     if [[ -f "${file}" ]]; then
-      cp -f "${file}" "${WEB_ROOT}/$(basename "${file}")"
+      local base
+      base="$(basename "${file}")"
+      # Never publish server/runtime config into the public web root.
+      if [[ "${base}" == "ecosystem.config.js" || "${base}" == "render.yaml" ]]; then
+        continue
+      fi
+      cp -f "${file}" "${WEB_ROOT}/${base}"
     fi
   done
 
@@ -217,9 +226,9 @@ wait_for_healthy_api() {
   if [[ -n "${HEALTH_URL:-}" ]]; then
     candidates=("${HEALTH_URL}")
   else
+    # API binds to 127.0.0.1 in production (PM2). Probe loopback only.
     candidates=(
       "$(build_health_url "${VPS_HEALTH_HOST}")"
-      "$(build_health_url "${VPS_PUBLIC_HOST}")"
     )
   fi
 
@@ -294,6 +303,7 @@ mkdir -p logs
 log "Restarting application with PM2..."
 if pm2 describe "${PM2_APP_NAME}" >/dev/null 2>&1; then
   # Graceful reload keeps the API available during restart when possible.
+  # --update-env is required so UPLOADS_DIR / JWT / admin auth changes apply.
   npm run pm2:reload
 else
   log "PM2 process '${PM2_APP_NAME}' not found; starting a new process..."
@@ -301,6 +311,10 @@ else
 fi
 
 pm2 save
+
+# Confirm the running process is writing uploads outside the git tree.
+log "Verifying live PM2 upload path..."
+UPLOADS_DIR="${UPLOADS_DIR}" PM2_APP_NAME="${PM2_APP_NAME}" node scripts/verify-pm2-uploads-path.js
 
 sync_storefront_static
 

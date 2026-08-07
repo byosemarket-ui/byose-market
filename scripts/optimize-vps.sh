@@ -81,7 +81,7 @@ location ^~ /uploads/ {
     open_file_cache max=2000 inactive=60s;
     open_file_cache_valid 30s;
     open_file_cache_min_uses 2;
-    open_file_cache_errors on;
+    open_file_cache_errors off;
     types {
         image/jpeg  jpg jpeg;
         image/png   png;
@@ -162,7 +162,12 @@ fi
 if [[ -d "${WEB_ROOT}" ]]; then
   log "Syncing root JS/CSS into ${WEB_ROOT}..."
   for file in "${DEPLOY_DIR}"/*.js; do
-    [[ -f "${file}" ]] && cp -f "${file}" "${WEB_ROOT}/$(basename "${file}")"
+    [[ -f "${file}" ]] || continue
+    base="$(basename "${file}")"
+    if [[ "${base}" == "ecosystem.config.js" ]]; then
+      continue
+    fi
+    cp -f "${file}" "${WEB_ROOT}/${base}"
   done
   for file in "${DEPLOY_DIR}"/*.css; do
     [[ -f "${file}" ]] && cp -f "${file}" "${WEB_ROOT}/$(basename "${file}")"
