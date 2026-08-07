@@ -10,8 +10,24 @@ const { notifyPasswordReset } = require('../utils/notifications');
 const { appLogger } = require('../utils/logger');
 const getRealtimeEventService = require('../services/realtimeeventservice');
 const userDataService = require('../services/userdataservice');
+const { normalizeRwandaPhone, rwandaPhoneVariants } = require('../utils/phone');
 
 const authLogger = appLogger.child({ scope: 'auth' });
+
+function canonicalizePhone(value) {
+    return normalizeRwandaPhone(value) || String(value || '').trim();
+}
+
+async function phoneAlreadyExists(phone, excludeUserId = '') {
+    const variants = rwandaPhoneVariants(phone);
+    for (const variant of variants) {
+        const exists = await userDataService.phoneExists(variant, excludeUserId);
+        if (exists) {
+            return true;
+        }
+    }
+    return false;
+}
 
 function sanitizeUserForClient(u) {
     if (!u) return null;
@@ -91,7 +107,8 @@ exports.signup = async (req, res) => {
             if (ex) return res.status(409).json({ success: false, message: 'This email is already registered.' });
         }
         if (phone) {
-            const ex2 = await userDataService.phoneExists(String(phone));
+            const canonicalPhone = canonicalizePhone(phone);
+            const ex2 = await phoneAlreadyExists(canonicalPhone);
             if (ex2) return res.status(409).json({ success: false, message: 'This phone number is already registered.' });
         }
 
@@ -103,7 +120,7 @@ exports.signup = async (req, res) => {
             id,
             name: String(name),
             email: email ? String(email).toLowerCase() : '',
-            phone: phone ? String(phone) : '',
+            phone: phone ? canonicalizePhone(phone) : '',
             password: hashed,
             avatar
         });
@@ -197,7 +214,7 @@ exports.updateMe = async (req, res) => {
         const nextName = String(req.body?.name || user.name || '').trim();
         const nextAvatar = String(req.body?.avatar || user.avatar || '').trim();
         const nextEmail = String(req.body?.email || user.email || '').trim().toLowerCase();
-        const nextPhone = String(req.body?.phone || user.phone || '').trim();
+        const nextPhone = canonicalizePhone(req.body?.phone || user.phone || '');
 
         if (!nextName) {
             return res.status(400).json({ success: false, message: 'Name required' });
@@ -210,8 +227,8 @@ exports.updateMe = async (req, res) => {
             }
         }
 
-        if (nextPhone && nextPhone !== String(user.phone || '').trim()) {
-            const existingPhone = await userDataService.phoneExists(nextPhone, user.id);
+        if (nextPhone && nextPhone !== canonicalizePhone(user.phone || '')) {
+            const existingPhone = await phoneAlreadyExists(nextPhone, user.id);
             if (existingPhone) {
                 return res.status(409).json({ success: false, message: 'This phone number is already registered.' });
             }

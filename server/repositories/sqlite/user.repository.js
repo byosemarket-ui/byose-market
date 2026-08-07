@@ -48,15 +48,41 @@ class SQLiteUserRepository extends SQLiteBaseRepository {
     }
 
     async findByIdentifier(identifier, { includeAdmins = true } = {}) {
+        const { rwandaPhoneVariants, normalizeRwandaPhone } = require('../../utils/phone');
         const normalized = this.normalizeText(identifier);
         const lower = normalized.toLowerCase();
         const roleClause = includeAdmins ? '' : " AND role <> 'admin'";
+        const phoneCandidates = rwandaPhoneVariants(identifier);
+        const placeholders = phoneCandidates.map(() => '?').join(', ') || '?';
+        const phoneParams = phoneCandidates.length ? phoneCandidates : [normalized];
+
         return this.mapRow(this.db.prepare(`
             SELECT * FROM users
-            WHERE (public_id = ? OR email = ? OR phone = ?)
+            WHERE (
+                public_id = ?
+                OR email = ?
+                OR phone = ?
+                OR phone IN (${placeholders})
+            )
             ${roleClause}
             LIMIT 1
-        `).get(normalized, lower, normalized));
+        `).get(normalized, lower, normalizeRwandaPhone(identifier) || normalized, ...phoneParams));
+    }
+
+    async existsByPhone(phone, excludePublicId = '') {
+        const { rwandaPhoneVariants } = require('../../utils/phone');
+        const variants = rwandaPhoneVariants(phone);
+        if (!variants.length) {
+            return false;
+        }
+
+        const placeholders = variants.map(() => '?').join(', ');
+        const row = this.db.prepare(`
+            SELECT public_id FROM users
+            WHERE phone IN (${placeholders}) AND public_id <> ?
+            LIMIT 1
+        `).get(...variants, this.normalizeText(excludePublicId));
+        return Boolean(row);
     }
 
     async list({ includeAdmins = false, query = '', status = '' } = {}) {
@@ -90,15 +116,6 @@ class SQLiteUserRepository extends SQLiteBaseRepository {
         }
 
         const row = this.db.prepare('SELECT public_id FROM users WHERE email = ? AND public_id <> ? LIMIT 1').get(this.normalizeText(email).toLowerCase(), this.normalizeText(excludePublicId));
-        return Boolean(row);
-    }
-
-    async existsByPhone(phone, excludePublicId = '') {
-        if (!this.normalizeText(phone)) {
-            return false;
-        }
-
-        const row = this.db.prepare('SELECT public_id FROM users WHERE phone = ? AND public_id <> ? LIMIT 1').get(this.normalizeText(phone), this.normalizeText(excludePublicId));
         return Boolean(row);
     }
 

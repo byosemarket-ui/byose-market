@@ -1,5 +1,7 @@
 import ByoseCart from '../services/byose-cart.js';
 import productService from '../services/centralized-products.service.js';
+import { normalizeStorefrontAssetUrl } from '../services/storefront-asset-url.js';
+import { normalizeStorefrontAssetUrl } from '../services/storefront-asset-url.js';
 
 const els = {
   items: document.getElementById('cartItems'),
@@ -55,7 +57,7 @@ function renderItem(item, { saved = false } = {}) {
     : '';
   const disabled = item.unavailable ? 'disabled' : '';
   const checked = item.selected !== false ? 'checked' : '';
-  const lineImage = item.colorImage || item.image || 'img/logo.png';
+  const lineImage = normalizeStorefrontAssetUrl(item.colorImage || item.image) || 'img/logo.png';
   const variantDetails = renderVariantDetails(item);
 
   const selectCell = saved

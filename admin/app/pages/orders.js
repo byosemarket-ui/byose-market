@@ -1,5 +1,8 @@
 import { badge, emptyState, formatCurrency, formatDate, panel } from "../components/ui.js";
-import { getOrders } from "../services/admin-data.service.js";
+import { getOrders, updateOrderStatus } from "../services/admin-data.service.js";
+import { subscribeToLiveFeeds } from "../services/live-feeds.service.js";
+
+const STATUS_OPTIONS = ["Pending", "Confirmed", "Processing", "Shipping", "Delivered", "Cancelled", "Returned"];
 
 function escapeHtml(value) {
   return String(value || "")
@@ -49,7 +52,18 @@ function renderGps(order) {
 }
 
 function renderProductCard(item) {
-  const image = item?.image ? `<img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.productName)}" loading="lazy">` : `<div class="order-product-ph">📦</div>`;
+  const rawImage = item?.image || item?.colorImage || "";
+  const imageSrc = (() => {
+    const value = String(rawImage || "").trim();
+    if (!value) return "";
+    if (/^(?:https?:|data:|blob:)/i.test(value)) return value;
+    if (value.startsWith("/uploads/") || value.startsWith("/img/")) return value;
+    if (value.startsWith("uploads/") || value.startsWith("img/")) return `/${value}`;
+    if (/^(?:products|categories|users|reviews|hero|temp)\//i.test(value)) return `/uploads/${value}`;
+    if (value.startsWith("/")) return value;
+    return value;
+  })();
+  const image = imageSrc ? `<img src="${escapeHtml(imageSrc)}" alt="${escapeHtml(item.productName)}" loading="lazy">` : `<div class="order-product-ph">📦</div>`;
   const meta = [item?.color, item?.size, item?.sku ? `SKU ${item.sku}` : "", item?.category].filter(Boolean).join(" · ");
   const link = item?.productUrl
     ? `<a class="orders-inline-link" href="${escapeHtml(item.productUrl)}" target="_blank" rel="noopener">View product</a>`
@@ -76,12 +90,26 @@ function renderProductCard(item) {
   `;
 }
 
+function renderStatusSelect(order) {
+  const current = String(order.status || order.orderStatus || "Pending");
+  const options = STATUS_OPTIONS.map((status) => (
+    `<option value="${escapeHtml(status)}" ${status.toLowerCase() === current.toLowerCase() ? "selected" : ""}>${escapeHtml(status)}</option>`
+  )).join("");
+
+  return `
+    <label class="orders-status-control">
+      <span>Update status</span>
+      <select data-order-status="${escapeHtml(order.orderId || order.id)}">${options}</select>
+    </label>
+  `;
+}
+
 function renderOrderCard(order) {
   const items = Array.isArray(order?.items) ? order.items : [];
   const paymentStatus = order?.paymentStatusLabel || order?.paymentStatus || "Pending";
 
   return `
-    <article class="order-mobile-card">
+    <article class="order-mobile-card" data-order-id="${escapeHtml(order.orderId || order.id)}">
       <div class="order-mobile-head">
         <div>
           <h3>${escapeHtml(order.orderId || order.id)}</h3>
@@ -102,32 +130,65 @@ function renderOrderCard(order) {
       <div class="orders-detail-card">
         <h4>Shipping</h4>
         <div class="orders-address-block"><p>${formatAddress(order)}</p>${renderGps(order)}</div>
+        ${renderStatusSelect(order)}
       </div>
       ${items.length ? `<div class="orders-products-list">${items.map(renderProductCard).join("")}</div>` : ""}
     </article>
   `;
 }
 
-export async function renderOrders(container) {
-  const orders = await getOrders();
+let unsubscribeLive = null;
 
-  if (!orders.length) {
-    container.innerHTML = panel("Orders", "Live backend orders", emptyState("No orders found."));
-    return;
+export async function renderOrders(container) {
+  if (typeof unsubscribeLive === "function") {
+    unsubscribeLive();
+    unsubscribeLive = null;
   }
 
-  const cards = orders.slice(0, 40).map(renderOrderCard).join("");
-  container.innerHTML = `
-    <div class="orders-page-grid">
-      <section class="orders-hero-card">
-        <p class="dashboard-eyebrow">Fulfillment</p>
-        <h2>Orders</h2>
-        <p>Customer, product, shipping, payment, and GPS details from checkout — including Cash on Delivery.</p>
-        <div class="orders-hero-status-row">
-          <span>${orders.length} orders loaded</span>
-        </div>
-      </section>
-      <div class="orders-mobile-grid">${cards}</div>
-    </div>
-  `;
+  async function paint(options = {}) {
+    const query = typeof options === 'boolean' ? { force: options } : (options || {});
+    const orders = await getOrders(query);
+
+    if (!orders.length) {
+      container.innerHTML = panel("Orders", "Live backend orders", emptyState("No orders found."));
+      return;
+    }
+
+    const cards = orders.slice(0, 100).map(renderOrderCard).join("");
+    container.innerHTML = `
+      <div class="orders-page-grid">
+        <section class="orders-hero-card">
+          <p class="dashboard-eyebrow">Fulfillment</p>
+          <h2>Orders</h2>
+          <p>Customer, product, shipping, payment, and GPS details from checkout — including Cash on Delivery.</p>
+          <div class="orders-hero-status-row">
+            <span>${orders.length} orders loaded</span>
+          </div>
+        </section>
+        <div class="orders-mobile-grid">${cards}</div>
+      </div>
+    `;
+  }
+
+  await paint({ force: true });
+
+  container.onchange = async (event) => {
+    const select = event.target?.closest?.("select[data-order-status]");
+    if (!select) return;
+    const orderId = select.getAttribute("data-order-status");
+    const nextStatus = select.value;
+    select.disabled = true;
+    try {
+      await updateOrderStatus(orderId, nextStatus);
+      await paint({ force: true });
+    } catch (error) {
+      console.error(error);
+      alert(error?.message || "Unable to update order status.");
+      select.disabled = false;
+    }
+  };
+
+  unsubscribeLive = subscribeToLiveFeeds("orders", () => {
+    void paint({ preferCache: true, force: false });
+  });
 }

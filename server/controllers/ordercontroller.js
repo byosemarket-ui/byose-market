@@ -1,10 +1,15 @@
 const { appLogger, monitorAsyncOperation } = require('../utils/logger');
 const orderDataService = require('../services/orderdataservice');
 const userDataService = require('../services/userdataservice');
+const productDataService = require('../services/productdataservice');
 const getRealtimeEventService = require('../services/realtimeeventservice');
+const { getRepositoryBundle } = require('../repositories');
+const { notifyOrderConfirmed, notifyOrderStatusChanged } = require('../utils/notifications');
+const { normalizeRwandaPhone, isValidRwandaPhone: isValidSharedRwandaPhone } = require('../utils/phone');
 
 const DELIVERY_FEE = 2000;
 const COD_FEE = 0;
+const REQUIRED_SHIPPING_FIELDS = ['fullName', 'phone', 'provinceCity', 'district', 'sector', 'cell', 'village'];
 
 async function resolveUser(req) {
     if (!req.user || !req.user.id) return null;
@@ -20,10 +25,23 @@ function normalizeEmail(value) {
 }
 
 function normalizePhone(value) {
-    return normalizeText(value).replace(/\s+/g, '');
+    return normalizeRwandaPhone(value) || String(value || '').replace(/\s+/g, '').trim();
 }
 
-const PAYMENT_STATES = new Set(['pending', 'authorized', 'paid', 'failed', 'refunded', 'cancelled', 'awaiting_delivery_payment']);
+function isValidRwandaPhone(value) {
+    return isValidSharedRwandaPhone(value);
+}
+
+const PAYMENT_STATES = new Set([
+    'pending',
+    'authorized',
+    'paid',
+    'failed',
+    'refunded',
+    'cancelled',
+    'awaiting_delivery_payment',
+    'awaiting_payment'
+]);
 
 function normalizePaymentMethod(value) {
     return normalizeText(value).toLowerCase();
@@ -37,12 +55,100 @@ function normalizePaymentState(value) {
 function resolvePaymentStatusLabel(paymentState) {
     const state = normalizePaymentState(paymentState);
     if (state === 'awaiting_delivery_payment') return 'Awaiting Delivery Payment';
+    if (state === 'awaiting_payment') return 'Awaiting Payment';
     if (state === 'authorized') return 'Authorized';
     if (state === 'paid') return 'Paid';
     if (state === 'failed') return 'Failed';
     if (state === 'refunded') return 'Refunded';
     if (state === 'cancelled') return 'Cancelled';
     return 'Pending';
+}
+
+function validateShippingAddress(shippingAddress = {}, paymentMethod = '') {
+    const errors = [];
+    REQUIRED_SHIPPING_FIELDS.forEach((field) => {
+        if (!normalizeText(shippingAddress[field] || (field === 'provinceCity' ? shippingAddress.city : ''))) {
+            errors.push(`${field} is required`);
+        }
+    });
+
+    const phone = normalizePhone(shippingAddress.phone);
+    if (!isValidRwandaPhone(phone)) {
+        errors.push('Enter a valid Rwanda phone number');
+    }
+
+    if (paymentMethod === 'cod') {
+        const city = normalizeText(shippingAddress.provinceCity || shippingAddress.city).toLowerCase();
+        if (!city.includes('kigali')) {
+            errors.push('Cash on Delivery is only available in Kigali');
+        }
+    }
+
+    return errors;
+}
+
+async function applyCatalogPricing(items = []) {
+    const source = Array.isArray(items) ? items : [];
+    const uniqueIds = Array.from(new Set(source.map((item) => normalizeText(item.productId)).filter(Boolean)));
+    const catalogById = new Map();
+
+    await Promise.all(uniqueIds.map(async (productId) => {
+        const product = await productDataService.findProductByIdentifier(productId);
+        if (product) {
+            catalogById.set(productId, product);
+            const catalogId = normalizeText(product.catalogId || product.id);
+            if (catalogId) {
+                catalogById.set(catalogId, product);
+            }
+        }
+    }));
+
+    return source.map((item) => {
+        const productId = normalizeText(item.productId);
+        if (!productId) {
+            const error = new Error('Order item is missing productId');
+            error.code = 'INVALID_ORDER_ITEM';
+            throw error;
+        }
+
+        const product = catalogById.get(productId);
+        if (!product) {
+            const error = new Error(`Product not found: ${productId}`);
+            error.code = 'PRODUCT_NOT_FOUND';
+            error.productId = productId;
+            throw error;
+        }
+
+        const unitPrice = Number(product.price ?? product.discountPrice ?? 0) || 0;
+        if (unitPrice <= 0) {
+            const error = new Error(`Product has invalid catalog price: ${productId}`);
+            error.code = 'INVALID_ORDER_ITEM';
+            error.productId = productId;
+            throw error;
+        }
+
+        return {
+            ...item,
+            productId,
+            productName: normalizeText(product.name || product.title) || item.productName || 'Product',
+            price: unitPrice,
+            image: normalizeText(item.image || product.mainImage || product.image),
+            slug: normalizeText(item.slug || product.slug || product.metadata?.slug),
+            category: normalizeText(item.category || product.category)
+        };
+    });
+}
+
+function isCancelledLike(status) {
+    const value = normalizeText(status).toLowerCase();
+    return value.includes('cancel') || value.includes('return');
+}
+
+function restoreOrderStock(order) {
+    const items = Array.isArray(order?.items) ? order.items : (Array.isArray(order?.products) ? order.products : []);
+    if (!items.length) return;
+    const { products } = getRepositoryBundle();
+    products.restoreStockForOrderItems(items);
 }
 
 function normalizeItems(items) {
@@ -98,9 +204,20 @@ function normalizeStorefrontOrder(payload, user) {
     const customer = source.customer && typeof source.customer === 'object' ? source.customer : {};
     const shippingAddress = source.shippingAddress && typeof source.shippingAddress === 'object' ? source.shippingAddress : {};
     const items = normalizeItems(Array.isArray(source.items) && source.items.length ? source.items : source.products);
-    const customerId = normalizeText(source.customerId || source.userId || customer.id || user?.id);
-    const customerEmail = normalizeEmail(source.customerEmail || source.userEmail || customer.email || user?.email);
-    const customerPhone = normalizePhone(source.customerPhone || source.phoneNumber || customer.phone || shippingAddress.phone || user?.phone);
+    // Authenticated users always bind to their account; guests cannot spoof a customerId.
+    const customerId = user?.id
+        ? normalizeText(user.id)
+        : '';
+    const customerEmail = user?.email
+        ? normalizeEmail(user.email)
+        : normalizeEmail(source.customerEmail || source.userEmail || customer.email);
+    const customerPhone = normalizePhone(
+        shippingAddress.phone
+        || source.customerPhone
+        || source.phoneNumber
+        || customer.phone
+        || user?.phone
+    );
     const createdAt = source.createdAt || source.date || source.timestamp || new Date().toISOString();
     const subtotal = items.reduce(
         (sum, item) => sum + item.price * item.quantity,
@@ -114,9 +231,12 @@ function normalizeStorefrontOrder(payload, user) {
     const paymentMethod = normalizePaymentMethod(source.paymentMethod || source.payment?.method);
     let paymentStatus = normalizePaymentState(source.paymentStatus || source.payment?.status || source.payment?.transaction?.state);
     let paymentStatusLabel = normalizeText(source.paymentStatusLabel || source.payment?.statusLabel) || resolvePaymentStatusLabel(paymentStatus);
-    if (paymentMethod === 'cod' && paymentStatus === 'pending' && !source.paymentStatus) {
+    if (paymentMethod === 'cod' && (paymentStatus === 'pending' || !source.paymentStatus)) {
         paymentStatus = 'awaiting_delivery_payment';
         paymentStatusLabel = 'Awaiting Delivery Payment';
+    } else if (paymentMethod && paymentMethod !== 'cod' && (paymentStatus === 'pending' || !source.paymentStatus)) {
+        paymentStatus = 'awaiting_payment';
+        paymentStatusLabel = 'Awaiting Payment';
     }
     const paymentTransaction = source.payment?.transaction && typeof source.payment.transaction === 'object'
         ? source.payment.transaction
@@ -129,19 +249,19 @@ function normalizeStorefrontOrder(payload, user) {
         userId: customerId,
         accountId: normalizeText(source.accountId || customerId),
         customerId,
-        isGuest: source.isGuest === true || !customerId,
+        isGuest: !customerId,
         userEmail: customerEmail,
         customerEmail,
         customerPhone,
         phoneNumber: customerPhone,
-        customerName: normalizeText(source.customerName || customer.name || shippingAddress.fullName) || 'Guest Customer',
-        customerImage: normalizeText(source.customerImage || customer.avatar || customer.image),
-        status: normalizeText(source.status) || 'Pending',
-        orderStatus: normalizeText(source.orderStatus) || 'pending',
+        customerName: normalizeText(shippingAddress.fullName || source.customerName || customer.name || user?.name) || 'Guest Customer',
+        customerImage: normalizeText(source.customerImage || customer.avatar || customer.image || user?.avatar),
+        status: 'Pending',
+        orderStatus: 'pending',
         paymentStatus,
         paymentStatusLabel,
         paymentMethod,
-        paymentType: normalizeText(source.paymentType || source.payment?.type),
+        paymentType: paymentMethod === 'cod' ? 'cod' : 'pay_now',
         note: normalizeText(source.note || source.payment?.note),
         subtotal,
         deliveryFee: shippingFee,
@@ -150,12 +270,30 @@ function normalizeStorefrontOrder(payload, user) {
         total,
         totalAmount: total,
         totalPrice: total,
-        deliveryMethod: normalizeText(source.deliveryMethod) === 'pickup' ? 'delivery' : (normalizeText(source.deliveryMethod) || 'delivery'),
+        deliveryMethod: 'delivery',
         deliveryLabel: normalizeText(source.deliveryLabel) || 'Delivery to address',
         items,
         products: items,
-        shippingAddress,
-        fullAddress: source.fullAddress && typeof source.fullAddress === 'object' ? source.fullAddress : {},
+        shippingAddress: {
+            ...shippingAddress,
+            fullName: normalizeText(shippingAddress.fullName || source.customerName || customer.name || user?.name),
+            phone: customerPhone,
+            provinceCity: normalizeText(shippingAddress.provinceCity || shippingAddress.city),
+            city: normalizeText(shippingAddress.provinceCity || shippingAddress.city),
+            district: normalizeText(shippingAddress.district),
+            sector: normalizeText(shippingAddress.sector),
+            cell: normalizeText(shippingAddress.cell),
+            village: normalizeText(shippingAddress.village),
+            note: normalizeText(shippingAddress.note)
+        },
+        fullAddress: source.fullAddress && typeof source.fullAddress === 'object' ? source.fullAddress : {
+            province: normalizeText(shippingAddress.provinceCity || shippingAddress.city),
+            district: normalizeText(shippingAddress.district),
+            sector: normalizeText(shippingAddress.sector),
+            cell: normalizeText(shippingAddress.cell),
+            village: normalizeText(shippingAddress.village),
+            note: normalizeText(shippingAddress.note)
+        },
         gpsLocation: source.gpsLocation && typeof source.gpsLocation === 'object' ? source.gpsLocation : {},
         payment: source.payment && typeof source.payment === 'object'
             ? {
@@ -176,7 +314,13 @@ function normalizeStorefrontOrder(payload, user) {
                 statusLabel: paymentStatusLabel,
                 transaction: { state: paymentStatus }
             },
-        customer: customer && typeof customer === 'object' ? customer : {},
+        customer: {
+            id: customerId,
+            name: normalizeText(shippingAddress.fullName || source.customerName || customer.name || user?.name) || 'Guest Customer',
+            email: customerEmail,
+            phone: customerPhone,
+            isGuest: !customerId
+        },
         statusHistory: Array.isArray(source.statusHistory) ? source.statusHistory : [],
         createdAt: new Date(createdAt),
         updatedAt: new Date(source.updatedAt || createdAt)
@@ -204,7 +348,7 @@ exports.createOrder = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'orders' });
     try {
         const user = await monitorAsyncOperation(logger, 'database.user.resolve_for_order', {}, () => resolveUser(req), { slowThresholdMs: 500 });
-        const normalizedOrder = normalizeStorefrontOrder(req.body, user);
+        let normalizedOrder = normalizeStorefrontOrder(req.body, user);
 
         if (!normalizedOrder.orderId) {
             return res.status(400).json({ success: false, message: 'orderId required' });
@@ -216,6 +360,47 @@ exports.createOrder = async (req, res) => {
 
         if (!normalizedOrder.customerName || !normalizedOrder.customerPhone) {
             return res.status(400).json({ success: false, message: 'customer details required' });
+        }
+
+        if (!isValidRwandaPhone(normalizedOrder.customerPhone)) {
+            return res.status(400).json({ success: false, message: 'Enter a valid Rwanda phone number' });
+        }
+
+        const shippingErrors = validateShippingAddress(normalizedOrder.shippingAddress, normalizedOrder.paymentMethod);
+        if (shippingErrors.length) {
+            return res.status(400).json({ success: false, message: shippingErrors[0], errors: shippingErrors });
+        }
+
+        if (!normalizedOrder.paymentMethod) {
+            return res.status(400).json({ success: false, message: 'payment method required' });
+        }
+
+        try {
+            const pricedItems = await applyCatalogPricing(normalizedOrder.items);
+            const subtotal = pricedItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+            const total = subtotal + DELIVERY_FEE + COD_FEE;
+            normalizedOrder = {
+                ...normalizedOrder,
+                items: pricedItems,
+                products: pricedItems,
+                subtotal,
+                deliveryFee: DELIVERY_FEE,
+                shippingFee: DELIVERY_FEE,
+                codFee: COD_FEE,
+                total,
+                totalAmount: total,
+                totalPrice: total
+            };
+        } catch (pricingError) {
+            if (pricingError?.code === 'PRODUCT_NOT_FOUND' || pricingError?.code === 'INVALID_ORDER_ITEM') {
+                return res.status(409).json({
+                    success: false,
+                    message: pricingError.message,
+                    code: pricingError.code,
+                    productId: pricingError.productId || null
+                });
+            }
+            throw pricingError;
         }
 
         const existingOrder = await monitorAsyncOperation(logger, 'database.order.find_by_order_id', { orderId: normalizedOrder.orderId }, () => orderDataService.findOrderByIdentifier(normalizedOrder.orderId), { slowThresholdMs: 700 });
@@ -260,9 +445,22 @@ exports.createOrder = async (req, res) => {
           logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'order.created' });
         }
 
+        void notifyOrderConfirmed(order).catch((notifyError) => {
+          logger.warn('notification.order_confirmed_failed', { error: notifyError, orderId: normalizedOrder.orderId });
+        });
+
         return res.json({ success: true, order });
     } catch (err) {
         logger.error('order.create_failed', { error: err });
+        if (err?.code === 'INSUFFICIENT_STOCK' || err?.code === 'PRODUCT_NOT_FOUND' || err?.code === 'INVALID_ORDER_ITEM') {
+            return res.status(409).json({
+                success: false,
+                message: err.message || 'Unable to place order due to stock availability.',
+                code: err.code,
+                productId: err.productId || null,
+                available: Number.isFinite(err.available) ? err.available : undefined
+            });
+        }
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
@@ -314,13 +512,21 @@ exports.updateOrderStatus = async (req, res) => {
         if (requestedStatus !== 'cancelled' || !cancellableStatuses.has(currentStatus)) {
             return res.status(409).json({
                 success: false,
-                message: 'Only pending or confirmed orders can be cancelled by the customer'
+                message: 'Only pending, confirmed, or processing orders can be cancelled by the customer'
             });
         }
 
         appendStatusHistory(order, 'Cancelled');
+        try {
+            restoreOrderStock(order);
+        } catch (stockError) {
+            logger.warn('order.stock_restore_failed', { error: stockError, orderId: order.orderId || order.id });
+        }
         await monitorAsyncOperation(logger, 'database.order.save_status_user', { orderId: order.orderId || order.id, status }, () => orderDataService.saveOrder(order), { slowThresholdMs: 700 });
         logger.info('order.status_updated_by_customer', { orderId: order.orderId || order.id, userId: user.id, status });
+        void notifyOrderStatusChanged(order, 'Cancelled').catch((notifyError) => {
+            logger.warn('notification.order_status_failed', { error: notifyError, orderId: order.orderId || order.id });
+        });
         return res.json({ success: true, order });
     } catch (err) {
         logger.error('order.status_update_by_customer_failed', { error: err, requestedOrderId: req.params.id });
@@ -371,7 +577,17 @@ exports.updateAdminOrderStatus = async (req, res) => {
         }
 
         const oldStatus = order.status || order.orderStatus || 'Pending';
-        appendStatusHistory(order, status);
+        const nextStatus = normalizeText(status);
+        appendStatusHistory(order, nextStatus);
+
+        if (!isCancelledLike(oldStatus) && isCancelledLike(nextStatus)) {
+            try {
+                restoreOrderStock(order);
+            } catch (stockError) {
+                logger.warn('admin.order_stock_restore_failed', { error: stockError, orderId: order.orderId || order.id });
+            }
+        }
+
         await monitorAsyncOperation(logger, 'database.order.save_status_admin', { orderId: order.orderId || order.id, status, adminId: req.admin?.id || '' }, () => orderDataService.saveOrder(order), { slowThresholdMs: 700 });
         logger.info('admin.order_status_updated', { orderId: order.orderId || order.id, status, adminId: req.admin?.id || '' });
 
@@ -383,6 +599,10 @@ exports.updateAdminOrderStatus = async (req, res) => {
           logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'order.status-changed' });
         }
 
+        void notifyOrderStatusChanged(order, nextStatus).catch((notifyError) => {
+          logger.warn('notification.order_status_failed', { error: notifyError, orderId: order.orderId || order.id });
+        });
+
         return res.json({ success: true, order });
     } catch (err) {
         logger.error('admin.order_status_update_failed', { error: err, requestedOrderId: req.params.id });
@@ -393,6 +613,19 @@ exports.updateAdminOrderStatus = async (req, res) => {
 exports.deleteAdminOrder = async (req, res) => {
     const logger = (req.log || appLogger).child({ scope: 'admin_orders' });
     try {
+        const existing = await orderDataService.findOrderByIdentifier(req.params.id);
+        if (!existing) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+
+        if (!isCancelledLike(existing.orderStatus || existing.status)) {
+            try {
+                restoreOrderStock(existing);
+            } catch (stockError) {
+                logger.warn('admin.order_delete_stock_restore_failed', { error: stockError, orderId: existing.orderId || existing.id });
+            }
+        }
+
         const order = await monitorAsyncOperation(logger, 'database.order.delete_admin', { requestedOrderId: req.params.id, adminId: req.admin?.id || '' }, () => orderDataService.deleteOrder(req.params.id), { slowThresholdMs: 700 });
         if (!order) {
             return res.status(404).json({ success: false, message: 'Order not found' });

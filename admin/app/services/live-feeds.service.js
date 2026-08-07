@@ -27,6 +27,7 @@ class LiveFeedsHandler {
     this.updateQueues = new Map();
     this.lastUpdates = new Map();
     this.scopeRefreshInFlight = new Map();
+    this.retryTimers = new Map();
     this.isCriticalUpdate = false;
   }
 
@@ -88,6 +89,17 @@ class LiveFeedsHandler {
     this.debounceTimers.set(scope, timer);
   }
 
+  scheduleFlush(scope, delayMs = DEBOUNCE_TIME_MS) {
+    if (this.retryTimers.has(scope)) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.retryTimers.delete(scope);
+      void this.flushUpdates(scope);
+    }, Math.max(50, Number(delayMs) || DEBOUNCE_TIME_MS));
+    this.retryTimers.set(scope, timer);
+  }
+
   /**
    * Process queued updates
    */
@@ -96,12 +108,15 @@ class LiveFeedsHandler {
     if (updates.length === 0) return;
 
     const lastUpdatedAt = Number(this.lastUpdates.get(scope) || 0);
-    if ((Date.now() - lastUpdatedAt) < MIN_SCOPE_REFRESH_INTERVAL_MS) {
+    const elapsed = Date.now() - lastUpdatedAt;
+    if (elapsed < MIN_SCOPE_REFRESH_INTERVAL_MS) {
+      this.scheduleFlush(scope, MIN_SCOPE_REFRESH_INTERVAL_MS - elapsed + 20);
       return;
     }
 
     const existing = this.scopeRefreshInFlight.get(scope);
     if (existing) {
+      this.scheduleFlush(scope, DEBOUNCE_TIME_MS);
       return;
     }
 
@@ -139,6 +154,10 @@ class LiveFeedsHandler {
         console.error(`[LiveFeeds] Error processing ${scope} updates:`, error);
       } finally {
         this.scopeRefreshInFlight.delete(scope);
+        const pending = this.updateQueues.get(scope) || [];
+        if (pending.length) {
+          this.scheduleFlush(scope, DEBOUNCE_TIME_MS);
+        }
       }
     })();
 

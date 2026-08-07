@@ -381,8 +381,13 @@ export function resolveCheckoutAsset(path) {
     return normalized;
   }
 
-  const raw = normalized.replace(/^\/+/, '');
+  let raw = normalized.replace(/^\/+/, '');
   if (!raw) return '';
+
+  if (/^(?:products|categories|users|reviews|hero|temp)\//i.test(raw)) {
+    raw = `uploads/${raw}`;
+  }
+
   return `../${raw.split('/').map(encodeURIComponent).join('/')}`;
 }
 

@@ -4,11 +4,18 @@ const config = require('../config/env');
 
 function extractBearerToken(req) {
     const authHeader = String(req.headers.authorization || req.headers.Authorization || '').trim();
-    if (!authHeader || !/^Bearer\s+/i.test(authHeader)) {
-        return '';
+    if (authHeader && /^Bearer\s+/i.test(authHeader)) {
+        return authHeader.replace(/^Bearer\s+/i, '').trim();
     }
 
-    return authHeader.replace(/^Bearer\s+/i, '').trim();
+    // EventSource cannot set Authorization headers; allow short-lived query token
+    // for the realtime SSE endpoint only.
+    const queryToken = String(
+        req.query?.access_token
+        || req.query?.token
+        || ''
+    ).trim();
+    return queryToken;
 }
 
 function requireAdminAuth(req, res, next) {

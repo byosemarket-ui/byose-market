@@ -150,6 +150,9 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
         };
 
         const transaction = this.db.transaction(() => {
+            const productRepository = require('./product.repository');
+            productRepository.decrementStockForOrderItems(Array.isArray(order.items) ? order.items : []);
+
             const result = this.db.prepare(`
                 INSERT INTO orders (
                     order_id, legacy_id, user_id, user_public_id, account_id, customer_id, is_guest, user_email, customer_email, customer_phone, phone_number,
@@ -242,10 +245,13 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
             params.push(this.normalizeText(user.email).toLowerCase());
         }
         if (user?.phone) {
-            clauses.push('customer_phone = ?');
-            params.push(this.normalizeText(user.phone));
-            clauses.push('phone_number = ?');
-            params.push(this.normalizeText(user.phone));
+            const { rwandaPhoneVariants } = require('../../utils/phone');
+            rwandaPhoneVariants(user.phone).forEach((variant) => {
+                clauses.push('customer_phone = ?');
+                params.push(variant);
+                clauses.push('phone_number = ?');
+                params.push(variant);
+            });
         }
 
         if (!clauses.length) {

@@ -23,12 +23,13 @@ export function renderProductLine(product) {
   const meta = [product.colorName || product.color, product.sizeLabel || product.size].filter(Boolean).join(' · ');
   const qty = Math.max(1, Number(product.qty || product.quantity) || 1);
   const price = Number(product.price) || 0;
+  const name = product.name || product.productName || 'Product';
 
   return `
     <article class="ck-product">
       <div class="ck-product-img">${img ? `<img src="${escapeHtml(img)}" alt="">` : '<span class="ck-product-ph">📦</span>'}</div>
       <div class="ck-product-body">
-        <h3>${escapeHtml(product.name)}</h3>
+        <h3>${escapeHtml(name)}</h3>
         ${meta ? `<p class="ck-product-meta">${escapeHtml(meta)}</p>` : ''}
         <p class="ck-product-qty">Qty: ${qty}</p>
       </div>
@@ -49,12 +50,13 @@ export function renderProductList(products, { editable = false } = {}) {
     const qty = Math.max(1, Number(product.qty || product.quantity) || 1);
     const img = resolveProductImageSrc(product);
     const meta = [product.colorName || product.color, product.sizeLabel || product.size].filter(Boolean).join(' · ');
+    const name = product.name || product.productName || 'Product';
 
     return `
       <article class="ck-product ck-product--edit" data-product-key="${escapeHtml(key)}">
         <div class="ck-product-img">${img ? `<img src="${escapeHtml(img)}" alt="">` : '<span class="ck-product-ph">📦</span>'}</div>
         <div class="ck-product-body">
-          <h3>${escapeHtml(product.name)}</h3>
+          <h3>${escapeHtml(name)}</h3>
           ${meta ? `<p class="ck-product-meta">${escapeHtml(meta)}</p>` : ''}
           <div class="ck-qty-controls">
             <button type="button" class="ck-qty-btn" data-qty-action="dec" data-id="${escapeHtml(product.id)}" data-variant="${escapeHtml(product.variantKey || '')}">−</button>
@@ -133,15 +135,47 @@ export function renderSidebar(products, totals) {
   `;
 }
 
-export function renderStickyBar(label, buttonId) {
+export function renderStickyBar(label, buttonId, options = {}) {
   const state = getState();
+  const disabled = Boolean(options.disabled || state.isSubmitting);
   return `
     <div class="ck-sticky">
       <div class="ck-sticky-total">
         <span>Total</span>
         <strong>${formatCurrency(state.totals.total)}</strong>
       </div>
-      <button type="button" class="ck-btn ck-btn--primary" id="stickyContinueBtn">${escapeHtml(label)}</button>
+      <button type="button" class="ck-btn ck-btn--primary" id="stickyContinueBtn" ${disabled ? 'disabled' : ''}>${escapeHtml(label)}</button>
+    </div>
+  `;
+}
+
+export function renderPaymentInstructions(methodId, totals = {}) {
+  const method = String(methodId || '').toLowerCase();
+  if (!method || method === 'cod') {
+    return `
+      <div class="ck-pay-instructions ck-pay-instructions--cod">
+        <strong>Cash on Delivery</strong>
+        <p>Pay when your order arrives. Available in Kigali only.</p>
+      </div>
+    `;
+  }
+
+  const accounts = [
+    { id: 'mtn', label: 'MTN Mobile Money', number: '0780430710', accountName: 'Vestine Uwifashije' },
+    { id: 'airtel', label: 'Airtel Money', number: '0723137250', accountName: 'Kwizera Byose Market' },
+    { id: 'bank', label: 'Bank Transfer', number: 'Contact support after placing the order', accountName: 'Byose Market' },
+    { id: 'card', label: 'Card Payment', number: 'We will confirm card payment manually', accountName: 'Byose Market' }
+  ];
+  const account = accounts.find((entry) => entry.id === method) || accounts[0];
+  const total = formatCurrency(totals.total || 0);
+
+  return `
+    <div class="ck-pay-instructions">
+      <strong>Payment instructions</strong>
+      <p>After placing your order, send <strong>${total}</strong> via ${escapeHtml(account.label)}.</p>
+      <p><strong>Account:</strong> ${escapeHtml(account.accountName)}</p>
+      <p><strong>Number:</strong> ${escapeHtml(account.number)}</p>
+      <p>Use your order ID as the payment reference. Your order stays <em>Awaiting Payment</em> until we confirm.</p>
     </div>
   `;
 }

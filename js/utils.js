@@ -458,8 +458,59 @@ window.Util = Util;
     });
   }
 
+  function cartLineIdentity(item) {
+    const lineId = String(item?.lineId || '').trim();
+    if (lineId) return `line:${lineId}`;
+    const productId = String(item?.productId || item?.id || '').trim();
+    const variantKey = String(item?.variantKey || '').trim();
+    return `pv:${productId}|${variantKey}`;
+  }
+
+  function mergeCartItemLists(remoteItems, localItems) {
+    const merged = new Map();
+    (Array.isArray(remoteItems) ? remoteItems : []).forEach((item) => {
+      if (!item) return;
+      merged.set(cartLineIdentity(item), cloneValue(item));
+    });
+    (Array.isArray(localItems) ? localItems : []).forEach((item) => {
+      if (!item) return;
+      const key = cartLineIdentity(item);
+      const existing = merged.get(key);
+      if (!existing) {
+        merged.set(key, cloneValue(item));
+        return;
+      }
+      const remoteQty = Math.max(1, Number(existing.qty || existing.quantity) || 1);
+      const localQty = Math.max(1, Number(item.qty || item.quantity) || 1);
+      merged.set(key, cloneValue({
+        ...existing,
+        ...item,
+        qty: Math.max(remoteQty, localQty),
+        quantity: Math.max(remoteQty, localQty),
+        selected: existing.selected !== false || item.selected !== false
+      }));
+    });
+    return Array.from(merged.values());
+  }
+
   function buildBootstrapPatch(remoteState) {
     return Object.entries(bootstrapState).reduce((patch, [field, value]) => {
+      if (field === 'cartItems' && Array.isArray(value) && value.length) {
+        const remoteItems = Array.isArray(remoteState?.cartItems) ? remoteState.cartItems : [];
+        if (!remoteItems.length) {
+          patch[field] = cloneValue(value);
+          return patch;
+        }
+
+        const merged = mergeCartItemLists(remoteItems, value);
+        const remoteSignature = JSON.stringify(remoteItems);
+        const mergedSignature = JSON.stringify(merged);
+        if (mergedSignature !== remoteSignature) {
+          patch[field] = merged;
+        }
+        return patch;
+      }
+
       if (!hasValue(value) || hasValue(remoteState?.[field])) {
         return patch;
       }

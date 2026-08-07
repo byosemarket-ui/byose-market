@@ -51,7 +51,20 @@
   }
 
   function normalizePhone(value) {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('250') && digits.length === 12) return `+${digits}`;
+    if (digits.startsWith('0') && digits.length === 10) return `+250${digits.slice(1)}`;
+    if (digits.length === 9 && digits.startsWith('7')) return `+250${digits}`;
     return String(value || '').replace(/\s+/g, '').trim();
+  }
+
+  function phoneVariants(value) {
+    const normalized = normalizePhone(value);
+    if (!normalized) return [];
+    const bare = normalized.startsWith('+') ? normalized.slice(1) : normalized;
+    const national = normalized.startsWith('+250') ? `0${normalized.slice(4)}` : '';
+    return Array.from(new Set([normalized, bare, national, String(value || '').replace(/\s+/g, '').trim()].filter(Boolean)));
   }
 
   function normalizeEmail(value) {
@@ -141,7 +154,14 @@
     if (normalized.includes('ship')) {
       return 'shipping';
     }
-    if (normalized.includes('confirm') || normalized.includes('process') || normalized.includes('approve') || normalized.includes('payment')) {
+    if (
+      normalized.includes('awaiting_payment')
+      || normalized.includes('awaiting_delivery_payment')
+      || normalized === 'pending'
+    ) {
+      return 'pending';
+    }
+    if (normalized.includes('confirm') || normalized.includes('process') || normalized.includes('approve')) {
       return 'confirmed';
     }
     return 'pending';
@@ -177,6 +197,9 @@
     }
     if (key === 'returned') {
       return 'returns';
+    }
+    if (key === 'cancelled') {
+      return 'cancelled';
     }
     return 'pending';
   }
@@ -280,7 +303,9 @@
 
     if (resolvedPhone) {
       const orderPhone = normalizePhone(order?.phoneNumber || order?.customerPhone || order?.customer?.phone);
-      if (orderPhone && orderPhone === resolvedPhone) {
+      const userPhones = new Set(phoneVariants(resolvedPhone));
+      const orderPhones = phoneVariants(orderPhone);
+      if (orderPhones.some((entry) => userPhones.has(entry))) {
         return true;
       }
     }
@@ -349,7 +374,8 @@
       pending: orders.filter((order) => order.groupKey === 'pending'),
       shipping: orders.filter((order) => order.groupKey === 'shipping'),
       delivered: orders.filter((order) => order.groupKey === 'delivered'),
-      returns: orders.filter((order) => order.groupKey === 'returns')
+      returns: orders.filter((order) => order.groupKey === 'returns'),
+      cancelled: orders.filter((order) => order.groupKey === 'cancelled')
     };
   }
 

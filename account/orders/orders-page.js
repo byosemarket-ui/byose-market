@@ -31,6 +31,11 @@
       label: 'Returns',
       subtitle: 'Returned or refunded orders',
       icon: 'fa-solid fa-rotate-left'
+    },
+    cancelled: {
+      label: 'Cancelled',
+      subtitle: 'Cancelled orders',
+      icon: 'fa-solid fa-ban'
     }
   };
 

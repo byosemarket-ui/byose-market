@@ -6,6 +6,7 @@ import { createProductModal } from './product-modal.js';
 import { renderProductOptionPreview } from './product-ui-renderer.js';
 
 const DIRECT_CHECKOUT_KEY = 'byose_direct_checkout';
+const CHECKOUT_ACTIVE_KEY = 'byose_checkout_active_v1';
 const CHECKOUT_DRAFT_KEY = 'byose_checkout_draft_v1';
 const CHECKOUT_CONFIRMATION_KEY = 'byose_checkout_confirmation_v1';
 
@@ -33,24 +34,33 @@ function fallbackAddItemsToCart(items) {
 function addItemsToCart(items) {
   const payloads = items.filter(Boolean);
   if (!payloads.length) {
-    return;
+    return { ok: true, added: 0 };
   }
 
-  if (window.ByoseCart && typeof window.ByoseCart.add === 'function') {
-    payloads.forEach((item) => {
-      window.ByoseCart.add(item);
-    });
-    return;
+  const cart = (window.ByoseCart && typeof window.ByoseCart.add === 'function')
+    ? window.ByoseCart
+    : (window.KCart && typeof window.KCart.add === 'function' ? window.KCart : null);
+
+  if (!cart) {
+    fallbackAddItemsToCart(payloads);
+    return { ok: false, added: 0 };
   }
 
-  if (window.KCart && typeof window.KCart.add === 'function') {
-    payloads.forEach((item) => {
-      window.KCart.add(item);
-    });
-    return;
+  let added = 0;
+  for (const item of payloads) {
+    try {
+      cart.add(item);
+      added += 1;
+    } catch (error) {
+      const message = String(error?.message || 'Unable to add item to cart.');
+      window.dispatchEvent(new CustomEvent('byose:storefront-cart-error', {
+        detail: { action: 'add', message, item }
+      }));
+      throw error;
+    }
   }
 
-  fallbackAddItemsToCart(payloads);
+  return { ok: true, added };
 }
 
 function resolveAvailableQuantity(product, attributes = {}) {
@@ -128,6 +138,8 @@ function startDirectCheckout(item) {
   }
 
   try {
+    // Buy Now must not compete with a previous cart checkout selection.
+    window.localStorage.removeItem(CHECKOUT_ACTIVE_KEY);
     window.ByoseStorefrontSync?.writeStateByKey?.(DIRECT_CHECKOUT_KEY, item);
     window.ByoseStorefrontSync?.removeStateByKey?.(CHECKOUT_DRAFT_KEY);
     window.ByoseStorefrontSync?.removeStateByKey?.(CHECKOUT_CONFIRMATION_KEY);
@@ -191,12 +203,12 @@ export function initProductActions(options) {
         return;
       }
 
-      addItemsToCart(items);
-      showToast?.(
-        action === 'buy'
-          ? 'Selection added. Redirecting to checkout.'
-          : `${product.name} added to cart`
-      );
+      try {
+        addItemsToCart(items);
+        showToast?.(`${product.name} added to cart`);
+      } catch (error) {
+        showToast?.(error?.message || 'Unable to add item to cart.');
+      }
     }
   });
 
@@ -242,12 +254,12 @@ export function initProductActions(options) {
       return;
     }
 
-    addItemsToCart([payload]);
-    showToast?.(
-      action === 'buy'
-        ? 'Selection added. Redirecting to checkout.'
-        : `${product.name} added to cart`
-    );
+    try {
+      addItemsToCart([payload]);
+      showToast?.(`${product.name} added to cart`);
+    } catch (error) {
+      showToast?.(error?.message || 'Unable to add item to cart.');
+    }
   }
 
   decreaseButton?.addEventListener('click', () => {

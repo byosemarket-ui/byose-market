@@ -177,6 +177,17 @@ function normalizeProduct(item) {
 }
 
 function loadProducts() {
+  // Explicit cart checkout selection always beats a leftover Buy Now payload.
+  const checkoutActive = readStorage(STORAGE_KEYS.checkoutActive, []);
+  if (Array.isArray(checkoutActive) && checkoutActive.length) {
+    const items = checkoutActive.map(normalizeProduct).filter(Boolean);
+    if (items.length) {
+      state.source = 'cart';
+      state.products = items;
+      return;
+    }
+  }
+
   const direct = readDirectCheckout() || readPersistedDirectCheckout();
   if (direct) {
     const item = normalizeProduct(direct);
@@ -187,7 +198,7 @@ function loadProducts() {
     }
   }
 
-  const cart = readCartItems().map(normalizeProduct).filter(Boolean);
+  const cart = readStorage(STORAGE_KEYS.cart, []).map(normalizeProduct).filter(Boolean);
   if (cart.length) {
     state.source = 'cart';
     state.products = cart;
@@ -268,7 +279,28 @@ export async function initCheckout(preferredStep) {
   // Hydrate from server in background — never block step navigation on network I/O.
   void hydrateStorefrontState().then((remote) => {
     if (!remote) return;
+
+    const checkoutActive = readStorage(STORAGE_KEYS.checkoutActive, []);
+    const hasCartCheckout = Array.isArray(checkoutActive) && checkoutActive.length > 0;
+    // Keep cart checkout selection stable if a stale remote Buy Now payload arrives.
+    if (hasCartCheckout) {
+      removeStorage(STORAGE_KEYS.directCheckout);
+    }
+
+    const previousSource = state.source;
+    const previousProducts = state.products.slice();
     loadProducts();
+
+    if (
+      hasCartCheckout
+      && previousSource === 'cart'
+      && previousProducts.length
+      && state.source === 'direct'
+    ) {
+      state.source = previousSource;
+      state.products = previousProducts;
+    }
+
     loadCustomer();
     loadShipping();
     loadPayment();
@@ -367,14 +399,24 @@ export function commitShipping(formData) {
 }
 
 export function updateProductQty(productId, variantKey, qty) {
-  const next = Math.max(0, Number(qty) || 0);
-  if (next === 0) {
+  const nextRaw = Math.max(0, Number(qty) || 0);
+  if (nextRaw === 0) {
     state.products = state.products.filter(
       (p) => !(String(p.id) === String(productId) && String(p.variantKey || '') === String(variantKey || ''))
     );
   } else {
     state.products = state.products.map((p) => {
       if (String(p.id) === String(productId) && String(p.variantKey || '') === String(variantKey || '')) {
+        const stockCandidates = [p.availableStock, p.stock, p.inventorySnapshot?.available];
+        let max = Number.POSITIVE_INFINITY;
+        for (const candidate of stockCandidates) {
+          const n = Number(candidate);
+          if (Number.isFinite(n) && n >= 0) {
+            max = n;
+            break;
+          }
+        }
+        const next = Math.min(nextRaw, Number.isFinite(max) ? Math.max(1, max) : nextRaw);
         const item = { ...p, qty: next, quantity: next, total: (Number(p.price) || 0) * next };
         return item;
       }
@@ -384,6 +426,11 @@ export function updateProductQty(productId, variantKey, qty) {
   recalcTotals();
   persistDraft();
   emit('products-changed');
+}
+
+export function setSubmitting(value) {
+  state.isSubmitting = Boolean(value);
+  emit('submitting-changed');
 }
 
 export function setPaymentMethod(method) {

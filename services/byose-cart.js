@@ -302,7 +302,12 @@ const ByoseCart = {
     if (index >= 0) {
       const existing = items[index];
       const max = getStockLimit(existing);
-      const nextQty = clampQty(existing.qty + incoming.qty, max);
+      const requestedQty = existing.qty + incoming.qty;
+      const nextQty = clampQty(requestedQty, max);
+      if (nextQty <= existing.qty && incoming.qty > 0) {
+        const limitLabel = Number.isFinite(max) ? max : MAX_QTY;
+        throw new Error(`Only ${limitLabel} available in stock for this item.`);
+      }
       items[index] = normalizeLine({ ...existing, ...incoming, qty: nextQty, selected: true });
     } else {
       items.push({ ...incoming, selected: true });
@@ -501,6 +506,16 @@ const ByoseCart = {
     }
 
     writeJson(CHECKOUT_KEY, selected);
+
+    // Cart checkout must win over any leftover Buy Now payload.
+    try {
+      window.localStorage.removeItem('byose_direct_checkout');
+      window.ByoseStorefrontSync?.removeStateByKey?.('byose_direct_checkout');
+      window.ByoseStorefrontSync?.syncPatch?.({ directCheckout: null });
+    } catch {
+      /* ignore */
+    }
+
     const prefix = window.location.pathname.includes('/details/') ? '../' : '';
     window.location.href = `${prefix}orders/shipping.html`;
   },

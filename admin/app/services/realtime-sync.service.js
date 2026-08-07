@@ -226,7 +226,10 @@ class RealtimeSyncService {
         || window.AdminSecurity?.getApiBaseUrl?.()
         || "https://byosemarket.com/api"
       ).replace(/\/+$/, "");
-      const eventSourceUrl = `${apiBase}/realtime/stream`;
+      const adminToken = String(window.localStorage.getItem("adminToken") || "").trim();
+      const eventSourceUrl = adminToken
+        ? `${apiBase}/realtime/stream?access_token=${encodeURIComponent(adminToken)}`
+        : `${apiBase}/realtime/stream`;
       this.activeTransport = "sse";
 
       this.sseConnection = new EventSource(eventSourceUrl);

@@ -37,7 +37,7 @@ a { color: var(--ck-accent); text-decoration: none; }
 .ck-shell {
   max-width: var(--ck-max);
   margin: 0 auto;
-  padding: 12px 16px 100px;
+  padding: 12px 16px 112px;
 }
 
 @media (min-width: 768px) {
@@ -514,6 +514,34 @@ a { color: var(--ck-accent); text-decoration: none; }
   margin-top: 2px;
 }
 
+.ck-payment-instructions {
+  margin-top: 12px;
+}
+
+.ck-pay-instructions {
+  border: 1px solid var(--ck-border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, #f8fffc 0%, #f3faf7 100%);
+  color: #1f3b34;
+}
+
+.ck-pay-instructions strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.95rem;
+}
+
+.ck-pay-instructions p {
+  margin: 0 0 6px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.ck-pay-instructions--cod {
+  background: linear-gradient(180deg, #fffaf2 0%, #fff6e8 100%);
+}
+
 .ck-payment-totals {
   margin-top: 2px;
 }
@@ -596,6 +624,7 @@ a { color: var(--ck-accent); text-decoration: none; }
   align-items: center;
   gap: 12px;
   padding: 10px 16px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
   background: var(--ck-surface);
   border-top: 1px solid var(--ck-border);
   box-shadow: 0 -2px 10px rgba(0,0,0,.06);

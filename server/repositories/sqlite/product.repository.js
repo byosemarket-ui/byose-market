@@ -901,6 +901,283 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         this.invalidateProductCache();
         return existing;
     }
+
+    normalizeMatchKey(value) {
+        return String(value || '')
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+    }
+
+    matchesVariantToken(candidate, target) {
+        const left = this.normalizeMatchKey(candidate);
+        const right = this.normalizeMatchKey(target);
+        return Boolean(left && right && left === right);
+    }
+
+    findColorVariant(colorVariants, colorToken) {
+        const target = String(colorToken || '').trim();
+        if (!target || !Array.isArray(colorVariants)) {
+            return null;
+        }
+
+        return colorVariants.find((entry) => (
+            this.matchesVariantToken(entry?.id, target)
+            || this.matchesVariantToken(entry?.colorName, target)
+            || this.matchesVariantToken(entry?.label, target)
+        )) || null;
+    }
+
+    findSizeRow(sizes, sizeToken) {
+        const target = String(sizeToken || '').trim();
+        if (!target || !Array.isArray(sizes)) {
+            return null;
+        }
+
+        return sizes.find((entry) => (
+            this.matchesVariantToken(entry?.size, target)
+            || this.matchesVariantToken(entry?.label, target)
+            || this.matchesVariantToken(entry?.value, target)
+        )) || null;
+    }
+
+    computeColorVariantTotal(colorVariants = []) {
+        return (Array.isArray(colorVariants) ? colorVariants : []).reduce((sum, color) => {
+            const sizes = Array.isArray(color?.sizes) ? color.sizes : [];
+            if (sizes.length) {
+                return sum + sizes.reduce((inner, size) => inner + Math.max(0, this.toNumber(size?.stock, 0)), 0);
+            }
+            return sum + Math.max(0, this.toNumber(color?.stock ?? color?.totalStock, 0));
+        }, 0);
+    }
+
+    /**
+     * Validate and decrement product stock for order line items.
+     * Must be called inside a better-sqlite3 transaction with order creation.
+     */
+    decrementStockForOrderItems(items = []) {
+        const source = Array.isArray(items) ? items : [];
+        const touched = [];
+
+        source.forEach((item) => {
+            const productId = this.normalizeText(item?.productId || item?.id);
+            const quantity = Math.max(1, this.toNumber(item?.quantity || item?.qty, 1));
+            if (!productId) {
+                const error = new Error(`Order item is missing productId (${item?.productName || 'Product'})`);
+                error.code = 'INVALID_ORDER_ITEM';
+                throw error;
+            }
+
+            const product = this.db.prepare(`
+                SELECT id, catalog_id, name, stock, variants_json, metadata_json
+                FROM products
+                WHERE catalog_id = ? OR id = ? OR CAST(catalog_id AS TEXT) = ?
+                LIMIT 1
+            `).get(Number(productId) || 0, Number(productId) || 0, productId);
+
+            if (!product) {
+                const error = new Error(`Product not found: ${productId}`);
+                error.code = 'PRODUCT_NOT_FOUND';
+                error.productId = productId;
+                throw error;
+            }
+
+            const attributes = item?.attributes && typeof item.attributes === 'object' ? item.attributes : {};
+            const colorToken = this.normalizeText(item?.colorName || item?.color || attributes.Color);
+            const sizeToken = this.normalizeText(item?.sizeLabel || item?.size || attributes.Size);
+            const variants = this.parseJson(product.variants_json, {});
+            const metadata = this.parseJson(product.metadata_json, {});
+            let colorVariants = Array.isArray(variants?.colorVariants)
+                ? variants.colorVariants
+                : (Array.isArray(metadata?.colorVariants) ? metadata.colorVariants : []);
+            colorVariants = JSON.parse(JSON.stringify(colorVariants || []));
+
+            let nextStock = Math.max(0, this.toNumber(product.stock, 0));
+            let nextVariantsJson = product.variants_json;
+            let nextMetadataJson = product.metadata_json;
+
+            if (colorVariants.length) {
+                if (!colorToken && !sizeToken) {
+                    const error = new Error(`Color/size selection required for ${product.name || productId}`);
+                    error.code = 'INVALID_ORDER_ITEM';
+                    error.productId = productId;
+                    throw error;
+                }
+
+                const color = this.findColorVariant(colorVariants, colorToken) || (
+                    colorVariants.length === 1 ? colorVariants[0] : null
+                );
+                if (!color) {
+                    const error = new Error(`Color variant unavailable for ${product.name || productId}`);
+                    error.code = 'INSUFFICIENT_STOCK';
+                    error.productId = productId;
+                    throw error;
+                }
+
+                const sizes = Array.isArray(color.sizes) ? color.sizes : [];
+                if (sizes.length) {
+                    if (!sizeToken) {
+                        const error = new Error(`Size selection required for ${product.name || productId}`);
+                        error.code = 'INVALID_ORDER_ITEM';
+                        error.productId = productId;
+                        throw error;
+                    }
+                    const sizeRow = this.findSizeRow(sizes, sizeToken);
+                    if (!sizeRow) {
+                        const error = new Error(`Size variant unavailable for ${product.name || productId}`);
+                        error.code = 'INSUFFICIENT_STOCK';
+                        error.productId = productId;
+                        throw error;
+                    }
+                    const available = Math.max(0, this.toNumber(sizeRow.stock, 0));
+                    if (available < quantity) {
+                        const error = new Error(`Insufficient stock for ${product.name || productId}`);
+                        error.code = 'INSUFFICIENT_STOCK';
+                        error.productId = productId;
+                        error.available = available;
+                        throw error;
+                    }
+                    sizeRow.stock = available - quantity;
+                } else {
+                    const available = Math.max(0, this.toNumber(color.stock ?? color.totalStock, 0));
+                    if (available < quantity) {
+                        const error = new Error(`Insufficient stock for ${product.name || productId}`);
+                        error.code = 'INSUFFICIENT_STOCK';
+                        error.productId = productId;
+                        error.available = available;
+                        throw error;
+                    }
+                    color.stock = available - quantity;
+                    color.totalStock = color.stock;
+                }
+
+                nextStock = this.computeColorVariantTotal(colorVariants);
+                if (Array.isArray(variants?.colorVariants)) {
+                    nextVariantsJson = this.stringifyJson({ ...variants, colorVariants }, {});
+                } else if (Array.isArray(metadata?.colorVariants)) {
+                    nextMetadataJson = this.stringifyJson({ ...metadata, colorVariants }, {});
+                } else {
+                    nextVariantsJson = this.stringifyJson({ ...(variants || {}), colorVariants }, {});
+                }
+            } else {
+                const available = Math.max(0, this.toNumber(product.stock, 0));
+                if (available < quantity) {
+                    const error = new Error(`Insufficient stock for ${product.name || productId}`);
+                    error.code = 'INSUFFICIENT_STOCK';
+                    error.productId = productId;
+                    error.available = available;
+                    throw error;
+                }
+                nextStock = available - quantity;
+            }
+
+            this.db.prepare(`
+                UPDATE products
+                SET stock = ?, variants_json = ?, metadata_json = ?, updated_at = ?
+                WHERE id = ?
+            `).run(
+                nextStock,
+                nextVariantsJson,
+                nextMetadataJson,
+                this.now(),
+                Number(product.id)
+            );
+            touched.push(Number(product.id));
+        });
+
+        if (touched.length) {
+            this.invalidateProductCache();
+        }
+
+        return touched;
+    }
+
+    /**
+     * Restore stock for cancelled/deleted order lines (inverse of decrement).
+     */
+    restoreStockForOrderItems(items = []) {
+        const source = Array.isArray(items) ? items : [];
+        const touched = [];
+
+        source.forEach((item) => {
+            const productId = this.normalizeText(item?.productId || item?.id);
+            const quantity = Math.max(1, this.toNumber(item?.quantity || item?.qty, 1));
+            if (!productId) {
+                return;
+            }
+
+            const product = this.db.prepare(`
+                SELECT id, catalog_id, name, stock, variants_json, metadata_json
+                FROM products
+                WHERE catalog_id = ? OR id = ? OR CAST(catalog_id AS TEXT) = ?
+                LIMIT 1
+            `).get(Number(productId) || 0, Number(productId) || 0, productId);
+
+            if (!product) {
+                return;
+            }
+
+            const attributes = item?.attributes && typeof item.attributes === 'object' ? item.attributes : {};
+            const colorToken = this.normalizeText(item?.colorName || item?.color || attributes.Color);
+            const sizeToken = this.normalizeText(item?.sizeLabel || item?.size || attributes.Size);
+            const variants = this.parseJson(product.variants_json, {});
+            const metadata = this.parseJson(product.metadata_json, {});
+            let colorVariants = Array.isArray(variants?.colorVariants)
+                ? variants.colorVariants
+                : (Array.isArray(metadata?.colorVariants) ? metadata.colorVariants : []);
+            colorVariants = JSON.parse(JSON.stringify(colorVariants || []));
+
+            let nextStock = Math.max(0, this.toNumber(product.stock, 0)) + quantity;
+            let nextVariantsJson = product.variants_json;
+            let nextMetadataJson = product.metadata_json;
+
+            if (colorVariants.length && (colorToken || sizeToken)) {
+                const color = this.findColorVariant(colorVariants, colorToken) || (
+                    colorVariants.length === 1 ? colorVariants[0] : null
+                );
+                if (color) {
+                    const sizes = Array.isArray(color.sizes) ? color.sizes : [];
+                    if (sizes.length) {
+                        const sizeRow = this.findSizeRow(sizes, sizeToken);
+                        if (sizeRow) {
+                            sizeRow.stock = Math.max(0, this.toNumber(sizeRow.stock, 0)) + quantity;
+                        }
+                    } else {
+                        color.stock = Math.max(0, this.toNumber(color.stock ?? color.totalStock, 0)) + quantity;
+                        color.totalStock = color.stock;
+                    }
+                    nextStock = this.computeColorVariantTotal(colorVariants);
+                    if (Array.isArray(variants?.colorVariants)) {
+                        nextVariantsJson = this.stringifyJson({ ...variants, colorVariants }, {});
+                    } else if (Array.isArray(metadata?.colorVariants)) {
+                        nextMetadataJson = this.stringifyJson({ ...metadata, colorVariants }, {});
+                    } else {
+                        nextVariantsJson = this.stringifyJson({ ...(variants || {}), colorVariants }, {});
+                    }
+                }
+            }
+
+            this.db.prepare(`
+                UPDATE products
+                SET stock = ?, variants_json = ?, metadata_json = ?, updated_at = ?
+                WHERE id = ?
+            `).run(
+                nextStock,
+                nextVariantsJson,
+                nextMetadataJson,
+                this.now(),
+                Number(product.id)
+            );
+            touched.push(Number(product.id));
+        });
+
+        if (touched.length) {
+            this.invalidateProductCache();
+        }
+
+        return touched;
+    }
 }
 
 module.exports = new SQLiteProductRepository();

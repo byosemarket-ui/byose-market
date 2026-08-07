@@ -178,7 +178,32 @@ const authService = (function () {
         try { localStorage.setItem(REMEMBER_KEY, remember ? '1' : '0'); } catch (e) {}
 
         _dispatch(USER_EVENT, normalizedUser);
+        void _mergeGuestCartAfterAuth();
         return normalizedUser;
+    }
+
+    async function _mergeGuestCartAfterAuth() {
+        try {
+            const cart = window.ByoseCart;
+            const sync = window.ByoseStorefrontSync;
+            if (!cart || typeof cart.getItems !== 'function') {
+                return;
+            }
+
+            const guestItems = cart.getItems();
+            if (sync && typeof sync.hydrate === 'function') {
+                await sync.hydrate(true);
+            }
+
+            if (Array.isArray(guestItems) && guestItems.length && typeof cart.mergeGuestCart === 'function') {
+                cart.mergeGuestCart(guestItems);
+                if (typeof cart.syncNow === 'function') {
+                    await cart.syncNow();
+                }
+            }
+        } catch (error) {
+            console.warn('[auth] guest cart merge skipped', error);
+        }
     }
 
     function _clearSession() {

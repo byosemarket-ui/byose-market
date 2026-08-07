@@ -76,9 +76,9 @@ function normalizeStatus(status) {
   const value = normalizeText(status, "Pending").toLowerCase();
   if (value.includes("deliver") || value.includes("complete")) return "Delivered";
   if (value.includes("ship")) return "Shipping";
-  if (value.includes("confirm") || value.includes("process") || value.includes("payment")) return "Confirmed";
   if (value.includes("cancel")) return "Cancelled";
   if (value.includes("return")) return "Returned";
+  if (value.includes("confirm") || value.includes("process")) return "Confirmed";
   return "Pending";
 }
 
@@ -352,7 +352,7 @@ function normalizeDate(value) {
 }
 
 function normalizeOrder(order) {
-  const status = normalizeStatus(order?.status || order?.orderStatus || order?.paymentStatus);
+  const status = normalizeStatus(order?.orderStatus || order?.status || "Pending");
   const total = toNumber(order?.totalAmount ?? order?.totalPrice ?? order?.total ?? order?.amount);
   const items = asArray(order?.items || order?.products).map((item) => {
     const attrs = item?.attributes && typeof item.attributes === "object" ? item.attributes : {};

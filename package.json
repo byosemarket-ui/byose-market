@@ -28,6 +28,9 @@
     "verify:hero-slider": "node scripts/verify-hero-slider-flow.js",
     "verify:modal": "node scripts/verify-modal-redesign.mjs",
     "verify:checkout": "node scripts/verify-checkout-flow.mjs",
+    "verify:shopping-flow": "node scripts/verify-shopping-flow-step1.js",
+    "verify:checkout-order": "node scripts/verify-checkout-order-step2.js",
+    "verify:order-e2e": "node scripts/verify-order-system-step3.js",
     "verify:perf": "node scripts/perf-homepage-smoke.js",
     "verify:query-cache": "node scripts/verify-query-cache.js",
     "verify:production": "node scripts/audit-smoke-local.js && node scripts/perf-homepage-smoke.js && node scripts/verify-query-cache.js && npm run verify:integration && npm run verify:hero-slider && npm run verify:upload-flow"
