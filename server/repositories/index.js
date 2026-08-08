@@ -14,6 +14,16 @@ const sqliteAdminProfileRepository = require('./sqlite/admin-profile.repository'
 const sqliteAdminSecurityRepository = require('./sqlite/admin-security.repository');
 const sqliteAdminPasswordRepository = require('./sqlite/admin-password.repository');
 const sqliteDeliveryZoneRepository = require('./sqlite/delivery-zone.repository');
+const sqliteNotificationRepository = require('./sqlite/notification.repository');
+const sqliteNotificationEmailDeliveryRepository = require('./sqlite/notification-email-delivery.repository');
+const sqliteNotificationAutomationJobRepository = require('./sqlite/notification-automation-job.repository');
+const sqliteNotificationOpsLogRepository = require('./sqlite/notification-ops-log.repository');
+const sqliteNotificationChannelDeliveryRepository = require('./sqlite/notification-channel-delivery.repository');
+const sqliteWishlistRepository = require('./sqlite/wishlist.repository');
+const sqliteRecentlyViewedRepository = require('./sqlite/recently-viewed.repository');
+const sqliteCouponRepository = require('./sqlite/coupon.repository');
+const sqliteStoreRepository = require('./sqlite/store.repository');
+const sqliteCustomerNotificationRepository = require('./sqlite/customer-notification.repository');
 
 const sqliteRepositories = {
     activity: sqliteActivityRepository,
@@ -30,7 +40,17 @@ const sqliteRepositories = {
     adminProfile: sqliteAdminProfileRepository,
     adminSecurity: sqliteAdminSecurityRepository,
     adminPassword: sqliteAdminPasswordRepository,
-    deliveryZones: sqliteDeliveryZoneRepository
+    deliveryZones: sqliteDeliveryZoneRepository,
+    notifications: sqliteNotificationRepository,
+    notificationEmailDeliveries: sqliteNotificationEmailDeliveryRepository,
+    notificationAutomationJobs: sqliteNotificationAutomationJobRepository,
+    notificationOpsLogs: sqliteNotificationOpsLogRepository,
+    notificationChannelDeliveries: sqliteNotificationChannelDeliveryRepository,
+    wishlist: sqliteWishlistRepository,
+    recentlyViewed: sqliteRecentlyViewedRepository,
+    coupons: sqliteCouponRepository,
+    stores: sqliteStoreRepository,
+    customerNotifications: sqliteCustomerNotificationRepository
 };
 
 function getRepositoryBundle() {

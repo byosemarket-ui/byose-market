@@ -7,6 +7,9 @@ export const ROUTES = {
   analytics: { key: "analytics", label: "Analytics", icon: "chart", path: "#/analytics" },
   inventory: { key: "inventory", label: "Inventory", icon: "layers", path: "#/inventory" },
   activity: { key: "activity", label: "Activity Logs", icon: "activity", path: "#/activity" },
+  notifications: { key: "notifications", label: "Notification History", icon: "messages", path: "#/notifications" },
+  notificationmonitoring: { key: "notificationmonitoring", label: "Notification Monitoring", icon: "activity", path: "#/notificationmonitoring" },
+  notificationanalytics: { key: "notificationanalytics", label: "Notification Analytics", icon: "chart", path: "#/notificationanalytics" },
   settings: { key: "settings", label: "Settings", icon: "settings", path: "#/settings" },
   heroslider: { key: "heroslider", label: "Hero Slider", icon: "website", path: "#/heroslider" }
 };
@@ -20,6 +23,9 @@ export const ROUTE_ORDER = [
   ROUTES.analytics,
   ROUTES.inventory,
   ROUTES.activity,
+  ROUTES.notifications,
+  ROUTES.notificationmonitoring,
+  ROUTES.notificationanalytics,
   ROUTES.settings,
   ROUTES.heroslider
 ];

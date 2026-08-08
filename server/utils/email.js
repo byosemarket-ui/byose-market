@@ -1,135 +1,59 @@
 // =============================================================================
-// EMAIL SERVICE
+// EMAIL SERVICE (legacy transactional helpers)
 // =============================================================================
-// Ready-to-wire email sending utility. Requires the `nodemailer` npm package
-// and the following environment variables to be configured:
-//
-//   EMAIL_HOST         SMTP host (e.g. smtp.gmail.com, smtp.sendgrid.net)
-//   EMAIL_PORT         SMTP port (465 for TLS, 587 for STARTTLS)
-//   EMAIL_SECURE       "true" for port 465, "false" for 587
-//   EMAIL_USER         SMTP username / sender address
-//   EMAIL_PASS         SMTP password or app password
-//   EMAIL_FROM_NAME    Display name (e.g. "Byose Market")
-//   EMAIL_FROM_ADDRESS Sender address (defaults to EMAIL_USER)
-//
-// When EMAIL_HOST is not configured the service logs a warning and returns
-// { success: false } without throwing — safe to call unconditionally.
-//
-// To enable: npm install nodemailer, then set the env vars above.
+// Customer-facing templates remain here. Transport is delegated to the
+// shared email provider service so SMTP credentials stay centralized.
 // =============================================================================
 
 const { appLogger } = require('./logger');
+const {
+    sendViaProvider,
+    getProviderStatus,
+    isProviderConfigured
+} = require('../services/email/email-provider.service');
 
 const EMAIL_TEMPLATES = {
-    // Sent to the customer after a successful order placement.
     ORDER_CONFIRMATION: 'order_confirmation',
-    // Sent when the order status changes (shipped, delivered, etc.).
     ORDER_STATUS_UPDATE: 'order_status_update',
-    // Password reset OTP email.
     PASSWORD_RESET: 'password_reset',
-    // Welcome email for new registrations.
     WELCOME: 'welcome',
-    // Low-stock alert for the operations team.
     LOW_STOCK_ALERT: 'low_stock_alert',
-    // Generic operational alert for the admin team.
     ADMIN_ALERT: 'admin_alert'
 };
 
 function getEmailConfig() {
+    const status = getProviderStatus();
     return {
-        host: String(process.env.EMAIL_HOST || '').trim(),
-        port: Number(process.env.EMAIL_PORT || 587),
-        secure: String(process.env.EMAIL_SECURE || 'false').toLowerCase() === 'true',
-        user: String(process.env.EMAIL_USER || '').trim(),
-        pass: String(process.env.EMAIL_PASS || '').trim(),
-        fromName: String(process.env.EMAIL_FROM_NAME || 'Byose Market').trim(),
-        fromAddress: String(process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_USER || '').trim()
+        host: status.host || '',
+        port: status.port || 587,
+        secure: Boolean(status.secure),
+        user: status.userConfigured ? 'configured' : '',
+        pass: status.passConfigured ? 'configured' : '',
+        fromName: status.fromName || 'BYOSE Market',
+        fromAddress: status.fromAddress || ''
     };
 }
 
 function isEmailConfigured() {
-    const config = getEmailConfig();
-    return Boolean(config.host && config.user && config.pass);
-}
-
-function getTransporter() {
-    if (!isEmailConfigured()) {
-        return null;
-    }
-
-    try {
-        const nodemailer = require('nodemailer');
-        const config = getEmailConfig();
-        return nodemailer.createTransport({
-            host: config.host,
-            port: config.port,
-            secure: config.secure,
-            auth: { user: config.user, pass: config.pass },
-            pool: true,
-            maxConnections: 5,
-            maxMessages: 100
-        });
-    } catch (error) {
-        appLogger.warn('email.transporter_init_failed', { error });
-        return null;
-    }
-}
-
-// Lazily created — one transporter reused across calls.
-let _transporter = null;
-
-function getOrCreateTransporter() {
-    if (!_transporter) {
-        _transporter = getTransporter();
-    }
-    return _transporter;
+    return isProviderConfigured();
 }
 
 /**
  * Sends a plain-text or HTML email.
- *
  * @param {{ to: string, subject: string, text?: string, html?: string }} options
  * @returns {Promise<{ success: boolean, error?: Error }>}
  */
 async function sendEmail(options) {
-    const to = String(options?.to || '').trim();
-    const subject = String(options?.subject || '').trim();
-    const text = String(options?.text || '').trim();
-    const html = String(options?.html || '').trim();
-
-    if (!to || !subject || (!text && !html)) {
-        appLogger.warn('email.send_skipped', { reason: 'missing_required_fields', to });
-        return { success: false, error: new Error('Missing required email fields') };
+    const result = await sendViaProvider(options);
+    if (result.success) {
+        appLogger.info('email.sent', {
+            recipient: String(options?.to || '').trim(),
+            subject: String(options?.subject || '').trim(),
+            provider: result.provider
+        });
     }
-
-    const transporter = getOrCreateTransporter();
-    if (!transporter) {
-        appLogger.warn('email.not_configured', { recipient: to });
-        return { success: false, error: new Error('Email service is not configured') };
-    }
-
-    const config = getEmailConfig();
-    const from = `"${config.fromName}" <${config.fromAddress}>`;
-
-    try {
-        await transporter.sendMail({ from, to, subject, text: text || undefined, html: html || undefined });
-        appLogger.info('email.sent', { recipient: to, subject });
-        return { success: true };
-    } catch (error) {
-        appLogger.error('email.send_failed', { recipient: to, subject, error });
-        // Reset transporter so next call retries with a fresh connection.
-        _transporter = null;
-        return { success: false, error };
-    }
+    return result;
 }
-
-// ---------------------------------------------------------------------------
-// TEMPLATE BUILDERS
-// ---------------------------------------------------------------------------
-// Each builder returns { subject, html, text } ready to pass to sendEmail().
-// Extend these to use a proper template engine (e.g. handlebars, mjml) when
-// email design maturity requires it.
-// ---------------------------------------------------------------------------
 
 function buildOrderConfirmationEmail(order) {
     const orderId = String(order?.orderId || order?.id || '-');
@@ -199,6 +123,7 @@ module.exports = {
     EMAIL_TEMPLATES,
     sendEmail,
     isEmailConfigured,
+    getEmailConfig,
     buildOrderConfirmationEmail,
     buildOrderStatusUpdateEmail,
     buildPasswordResetEmail,

@@ -150,7 +150,9 @@ export const ADMIN_NAVIGATION = [
         children: [
           externalLink("messages-customer", "Customer Messages", "messages/index.html", { description: "Inbox and customer message list." }),
           externalLink("messages-contact", "Contact Requests", "messages/details.html", { description: "Detected message detail/contact workflow." }),
-          routeLink("messages-notifications", "Notifications", "activity", { query: "?scope=messages", description: "Alert and notification trail." }),
+          routeLink("messages-notifications", "Notification History", "notifications", { description: "Search, filter, and manage the full notification history." }),
+          routeLink("messages-notification-monitoring", "Notification Monitoring", "notificationmonitoring", { description: "Health, delivery metrics, recovery, and operations logs for the notification system." }),
+          routeLink("messages-notification-analytics", "Analytics & Reports", "notificationanalytics", { description: "Notification volume, delivery performance, and exportable reports." }),
           routeLink("messages-activity", "Activity Logs", "activity", { description: "System activity and audit stream." })
         ]
       }
@@ -174,6 +176,7 @@ export const ADMIN_NAVIGATION = [
           routeLink("settings-branding", "Branding", "settings", { query: "?panel=branding", description: "Logos, colors, icons, and brand identity." }),
           routeLink("settings-delivery", "Delivery", "settings", { query: "?panel=delivery", description: "Delivery zones, fees, methods, and timing." }),
           routeLink("settings-seo", "SEO", "settings", { query: "?panel=seo", description: "Website SEO, social cards, analytics, and structured data." }),
+          routeLink("settings-notifications", "Notifications", "settings", { query: "?panel=notifications", description: "Admin alert email, email/browser/sound notification preferences." }),
           routeLink("settings-logout", "Logout & Sessions", "settings", { query: "?panel=logout", description: "Active sessions, secure logout, expiration, and audit trail." })
         ]
       }

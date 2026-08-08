@@ -153,6 +153,33 @@ class RealtimeEventService extends EventEmitter {
   }
 
   /**
+   * Emit admin notification-center events (in-app)
+   */
+  emitNotificationCreated(notification) {
+    return this.broadcast({
+      type: 'notification:created',
+      scope: 'notifications',
+      payload: {
+        notification,
+        action: 'created',
+        unreadDelta: 1
+      }
+    });
+  }
+
+  emitNotificationUpdated(notification, action = 'updated') {
+    return this.broadcast({
+      type: `notification:${action}`,
+      scope: 'notifications',
+      payload: {
+        notification,
+        action,
+        unreadDelta: 0
+      }
+    });
+  }
+
+  /**
    * Emit customer-related events
    */
   emitCustomerRegistered(customer) {

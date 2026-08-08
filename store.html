@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Store | Byose Market</title>
+  <meta name="description" content="Visit a BYOSE Market store, browse products, and follow sellers you love.">
+  <link rel="icon" href="img/logo.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"></noscript>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/home.css">
+  <link rel="stylesheet" href="css/product-card-system.css">
+  <link rel="stylesheet" href="css/storefront-footer.css">
+  <link rel="stylesheet" href="css/home-mobile.css">
+  <link rel="stylesheet" href="css/home-desktop.css">
+  <link rel="stylesheet" href="mobile-nav.css">
+  <link rel="stylesheet" href="store.css">
+  <script src="config/runtime-api-bootstrap.js"></script>
+</head>
+<body class="home-page store-page">
+  <header class="main-header" id="mainHeader" data-sticky-header>
+    <div class="container header-shell">
+      <div class="header-mobile-top">
+        <a class="brand brand-mobile" href="index.html" aria-label="Byose Market Home">
+          <img class="brand-logo" src="img/logo.png" alt="Byose Market logo" data-brand-logo="mobile">
+        </a>
+        <a href="contact.html#form-message" class="icon-btn mobile-messages-btn" aria-label="Contact support">
+          <i class="fa-regular fa-comment-dots" aria-hidden="true"></i>
+        </a>
+      </div>
+
+      <a class="brand header-desktop-brand" href="index.html" aria-label="Byose Market Home">
+        <img class="brand-logo" src="img/logo.png" alt="Byose Market logo" data-brand-logo="main">
+      </a>
+
+      <nav class="header-nav nav header-desktop-nav" aria-label="Main navigation">
+        <a href="index.html" class="nav-link" data-page="home">
+          <i class="fa-solid fa-house" aria-hidden="true"></i>
+          <span>Home</span>
+        </a>
+        <a href="shop.html" class="nav-link" data-page="shop">
+          <i class="fa-solid fa-store" aria-hidden="true"></i>
+          <span>Shop</span>
+        </a>
+        <a href="contact.html" class="nav-link" data-page="contact">
+          <i class="fa-regular fa-envelope" aria-hidden="true"></i>
+          <span>Contact</span>
+        </a>
+      </nav>
+
+      <div class="header-actions header-desktop-actions">
+        <div class="header-search-hover">
+          <a href="search.html" class="icon-btn header-search-toggle" aria-label="Open search page">
+            <i class="fa-solid fa-magnifying-glass"></i>
+          </a>
+        </div>
+        <a href="cart.html" class="icon-btn desktop-cart-btn" id="cartBtn" aria-label="Cart">
+          <i class="fa-solid fa-cart-shopping"></i>
+        </a>
+        <a href="login.html" class="icon-btn" id="accountBtn" aria-label="Account">
+          <i class="fa-regular fa-user"></i>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main class="store-main">
+    <section class="store-hero container" id="storeHero" aria-live="polite">
+      <div class="store-hero__loading" id="storeLoading">Loading store…</div>
+    </section>
+
+    <section class="store-products container">
+      <div class="store-products__header">
+        <h2>Store products</h2>
+        <a class="store-products__shop-link" href="shop.html">Browse full shop</a>
+      </div>
+      <div class="products-grid shop-product-grid" id="storeProductGrid" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-shell">
+      <section class="footer-brand" aria-labelledby="footer-brand-title">
+        <div class="footer-brand__head">
+          <a href="index.html" class="footer-logo-link" aria-label="Byose Market Home">
+            <img class="footer-logo" src="img/logo.png" alt="" width="40" height="40" data-brand-logo="footer">
+          </a>
+          <h2 id="footer-brand-title" class="footer-brand__name" data-store-setting="storeName">BYOSE MARKET</h2>
+        </div>
+        <p class="footer-brand__desc">Rwanda's trusted online marketplace for fashion, shoes, electronics and everyday essentials — fast, simple, affordable.</p>
+      </section>
+      <div class="footer-bottom">
+        <p>&copy; 2026 Byose Market. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="services/authservice.js" defer></script>
+  <script src="services/wishlist-client.js" defer></script>
+  <script src="services/favorite-stores-client.js" defer></script>
+  <script src="js/storefront-settings.js" defer></script>
+  <script src="js/utils.js" defer></script>
+  <script type="module" src="js/byose-cart-bootstrap.js"></script>
+  <script src="store.js" defer></script>
+  <script src="js/mobile-nav.js" defer></script>
+  <script src="js/header.js" defer></script>
+</body>
+</html>

@@ -227,7 +227,16 @@
     (function(){
       const KEY = 'byose_notifications';
 
-      // Helper: read from integration storage if available
+      function apiOrigin() {
+        const explicit = String(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || '').replace(/\/+$/, '');
+        if (explicit) return explicit.replace(/\/api$/i, '');
+        const hostname = String(window.location?.hostname || '');
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+          return `http://${hostname || 'localhost'}:5000`;
+        }
+        return String(window.location?.origin || '').replace(/\/+$/, '');
+      }
+
       function readStored(){
         try{
           if(window.storage && typeof window.storage.readNotifications === 'function'){
@@ -240,7 +249,6 @@
         }catch(e){return {}};
       }
 
-      // Helper: persist value
       function saveStored(value){
         try{
           if(window.storage && typeof window.storage.saveNotifications === 'function'){
@@ -251,36 +259,77 @@
         try{localStorage.setItem(KEY, JSON.stringify(value));}catch(e){}
       }
 
-      // Try to hydrate toggles from stored state
-      const stored = readStored();
+      async function syncFromServer() {
+        if (!window.authService?.isLoggedIn?.() || !window.authService.authFetch) return null;
+        try {
+          const response = await window.authService.authFetch(`${apiOrigin()}/api/customer-notifications/prefs`, {
+            headers: { Accept: 'application/json' }
+          });
+          const payload = await response.json().catch(() => null);
+          if (!response.ok || !payload?.prefs) return null;
+          return {
+            orders: Boolean(payload.prefs.orders),
+            shipping: Boolean(payload.prefs.shipping),
+            promo: Boolean(payload.prefs.promo),
+            system: Boolean(payload.prefs.system)
+          };
+        } catch (_error) {
+          return null;
+        }
+      }
+
+      async function syncToServer(state) {
+        if (!window.authService?.isLoggedIn?.() || !window.authService.authFetch) return;
+        try {
+          await window.authService.authFetch(`${apiOrigin()}/api/customer-notifications/prefs`, {
+            method: 'PUT',
+            headers: {
+              Accept: 'application/json',
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(state)
+          });
+        } catch (_error) {}
+      }
+
       const inputs = Array.from(document.querySelectorAll('.toggle-input'));
-      inputs.forEach(inp => {
-        const type = inp.dataset.type;
-        if(stored.hasOwnProperty(type)) inp.checked = !!stored[type];
+
+      function applyState(state) {
+        inputs.forEach(inp => {
+          const type = inp.dataset.type;
+          if (Object.prototype.hasOwnProperty.call(state, type)) {
+            inp.checked = !!state[type];
+          }
+        });
+      }
+
+      const stored = readStored();
+      applyState(stored);
+
+      syncFromServer().then((remote) => {
+        if (!remote) return;
+        applyState(remote);
+        saveStored(remote);
       });
 
-      // Build state object from inputs
       function buildState(){
         const s = {};
         inputs.forEach(i=> s[i.dataset.type] = !!i.checked);
         return s;
       }
 
-      // On change: autosave and fire integration hooks
       function handleChange(e){
         const state = buildState();
         saveStored(state);
+        syncToServer(state);
 
-        // Integration hook: notificationService
         try{
           if(window.notificationService && typeof window.notificationService.updatePreference === 'function'){
-            // call for the changed type only if possible
             const type = e.target.dataset.type;
             window.notificationService.updatePreference(type, !!e.target.checked);
           }
         }catch(err){/* not critical */}
 
-        // Dispatch a custom event for app-level listeners
         try{
           window.dispatchEvent(new CustomEvent('byose:notifications:changed', {detail: state}));
         }catch(err){}
@@ -288,10 +337,14 @@
 
       inputs.forEach(i=> i.addEventListener('change', handleChange, {passive:true}));
 
-      // Expose a small API for other scripts to access current settings
       window.ByoseNotifications = {
         getState: buildState,
-        save: (obj) => { saveStored(obj); window.dispatchEvent(new CustomEvent('byose:notifications:changed',{detail:obj})); }
+        save: (obj) => {
+          saveStored(obj);
+          applyState(obj);
+          syncToServer(obj);
+          window.dispatchEvent(new CustomEvent('byose:notifications:changed',{detail:obj}));
+        }
       };
 
     })();

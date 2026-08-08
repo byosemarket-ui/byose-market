@@ -165,7 +165,7 @@
               </div>
             </div>
 
-            <div class="cta-grid">
+            <div class="cta-grid cta-grid--with-wishlist">
               <button type="button" class="action-btn action-btn-primary" id="addToCartBtn">
                 <i class="fa-solid fa-cart-plus" aria-hidden="true"></i>
                 <span>Add to Cart</span>
@@ -173,6 +173,10 @@
               <button type="button" class="action-btn action-btn-secondary" id="buyNowBtn">
                 <i class="fa-solid fa-bolt" aria-hidden="true"></i>
                 <span>Buy Now</span>
+              </button>
+              <button type="button" class="action-btn action-btn-wishlist" id="wishlistBtn" aria-pressed="false" data-wishlist-id="">
+                <i class="fa-regular fa-heart wishlist-btn-icon" aria-hidden="true" data-wishlist-icon></i>
+                <span id="wishlistBtnLabel">Add to Wishlist</span>
               </button>
             </div>
 
@@ -343,6 +347,8 @@
   </footer>
 
   <script src="../services/authservice.js"></script>
+  <script src="../services/wishlist-client.js"></script>
+  <script src="../services/recently-viewed-tracker.js"></script>
   <script src="../js/storefront-settings.js"></script>
   <script src="../js/products.js"></script>
   <script src="../shared/storage.js"></script>

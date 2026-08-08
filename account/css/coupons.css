@@ -1,0 +1,214 @@
+/* My Coupons — ticket-style cards on shared account-features system */
+
+.coupons-page .af-shell {
+  width: min(960px, calc(100% - 32px));
+}
+
+.coupons-count-chip {
+  background: rgba(181, 71, 8, 0.12);
+  color: #b54708;
+}
+
+.coupons-list {
+  display: grid;
+  gap: 14px;
+}
+
+.coupon-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0;
+  min-width: 0;
+  border: 1px solid var(--af-line);
+  border-radius: var(--af-radius);
+  background: #fff;
+  overflow: hidden;
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.coupon-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(0, 184, 148, 0.22);
+  box-shadow: var(--af-shadow-hover);
+}
+
+.coupon-card__rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 72px;
+  padding: 16px 10px;
+  background: linear-gradient(180deg, rgba(0, 184, 148, 0.14), rgba(0, 184, 148, 0.04));
+  color: var(--af-accent-dark);
+  border-right: 1px dashed rgba(15, 23, 42, 0.12);
+}
+
+.coupon-card.is-used .coupon-card__rail,
+.coupon-card.is-expired .coupon-card__rail,
+.coupon-card.is-not_eligible .coupon-card__rail {
+  background: linear-gradient(180deg, #f3f5f7, #eef1f4);
+  color: var(--af-muted);
+}
+
+.coupon-card__rail i {
+  font-size: 1.35rem;
+}
+
+.coupon-card__rail-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.coupon-card__content {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  min-width: 0;
+}
+
+.coupon-card__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.coupon-card__title {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+
+.coupon-card__subtitle {
+  margin: 6px 0 0;
+  color: var(--af-muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.coupon-card__status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  background: var(--af-soft);
+  color: var(--af-muted);
+}
+
+.coupon-card__status.is-available {
+  background: var(--af-success-soft);
+  color: var(--af-success);
+}
+
+.coupon-card__status.is-used {
+  background: var(--af-info-soft);
+  color: var(--af-info);
+}
+
+.coupon-card__status.is-expired,
+.coupon-card__status.is-not_eligible {
+  background: var(--af-danger-soft);
+  color: var(--af-danger);
+}
+
+.coupon-card__code {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: var(--af-soft);
+  border: 1px dashed rgba(15, 23, 42, 0.14);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  word-break: break-all;
+}
+
+.coupon-card__meta {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.coupon-card__meta div {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 8px;
+  align-items: start;
+  font-size: 0.9rem;
+  color: var(--af-muted);
+}
+
+.coupon-card__meta strong {
+  color: var(--af-ink);
+  font-weight: 700;
+}
+
+.coupon-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.coupon-card__actions .af-button {
+  min-height: 42px;
+}
+
+.coupons-skeleton {
+  display: grid;
+  gap: 14px;
+}
+
+.coupons-skeleton__card {
+  height: 150px;
+  border-radius: var(--af-radius);
+  border: 1px solid var(--af-line);
+}
+
+@media (max-width: 640px) {
+  .coupons-page .af-shell {
+    width: min(100% - 20px, 960px);
+  }
+
+  .coupon-card {
+    grid-template-columns: 1fr;
+  }
+
+  .coupon-card__rail {
+    width: 100%;
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: 12px 14px;
+    border-right: 0;
+    border-bottom: 1px dashed rgba(15, 23, 42, 0.12);
+  }
+
+  .coupon-card__rail-label {
+    writing-mode: horizontal-tb;
+    transform: none;
+  }
+
+  .coupon-card__meta div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .coupon-card__actions .af-button {
+    flex: 1 1 140px;
+  }
+}

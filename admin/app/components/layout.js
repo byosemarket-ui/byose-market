@@ -2,33 +2,86 @@ import { ADMIN_NAVIGATION, NAVIGATION_CATEGORY_TOTAL, NAVIGATION_DESTINATION_TOT
 import { logout } from "../core/auth.js";
 import { collectActiveTrail, getNavigationLocation, persistExpandedBranchIds, readExpandedBranchIds, resolveAdminHref, resolveNavigationContext } from "../core/sidebar-navigation.js";
 import { modalTemplate } from "./ui.js";
-
-const HEADER_NOTIFICATIONS = [
-  {
-    id: "ops-sync",
-    title: "Operations sync queued",
-    detail: "Realtime admin alerts will land here once the live notifications layer is connected.",
-    tone: "info"
-  },
-  {
-    id: "support-inbox",
-    title: "Support inbox watch",
-    detail: "Customer messages and contact requests will surface in this panel for fast triage.",
-    tone: "warn"
-  },
-  {
-    id: "security-session",
-    title: "Session secured",
-    detail: "JWT-backed admin session validation remains active across the shell.",
-    tone: "success"
-  }
-];
+import { getNotificationCenter, getNotificationSettings, markAllNotificationsRead, markNotificationRead } from "../services/admin-data.service.js";
+import { startRealtimeSync, subscribeToRealtimeEvents } from "../services/realtime-sync.service.js";
+import {
+  announceIncomingNotification,
+  areNotificationPrefsReady,
+  setCachedNotificationPrefs
+} from "../utils/notification-prefs.js";
 
 const HEADER_QUICK_ACTIONS = [
   { id: "quick-orders", label: "Open Orders", href: "#/orders", detail: "Fulfillment and status operations" },
   { id: "quick-products", label: "Add Product", href: "#/products?view=create&step=info", detail: "Create a new catalog item" },
-  { id: "quick-settings", label: "Admin Settings", href: "#/settings?panel=profile", detail: "Profile and access controls" }
+  { id: "quick-settings", label: "Admin Settings", href: "#/settings?panel=notifications", detail: "Notification and access controls" }
 ];
+
+let headerNotificationsState = {
+  unreadCount: 0,
+  items: [],
+  loading: false
+};
+
+let headerNotificationsRealtimeBound = false;
+let headerNotificationsRefreshTimer = null;
+
+function scheduleHeaderNotificationsRefresh(delayMs = 180) {
+  if (headerNotificationsRefreshTimer) {
+    window.clearTimeout(headerNotificationsRefreshTimer);
+  }
+  headerNotificationsRefreshTimer = window.setTimeout(() => {
+    headerNotificationsRefreshTimer = null;
+    void refreshHeaderNotifications({ force: true });
+  }, Math.max(50, Number(delayMs) || 180));
+}
+
+function bindHeaderNotificationsRealtime() {
+  if (headerNotificationsRealtimeBound) return;
+  headerNotificationsRealtimeBound = true;
+
+  void startRealtimeSync().catch((error) => {
+    console.warn("[Notifications] Realtime sync unavailable:", error?.message || error);
+  });
+
+  subscribeToRealtimeEvents("notifications", (event) => {
+    const type = String(event?.type || "");
+    if (!type.startsWith("notification:")) return;
+
+    const payload = event?.payload || {};
+    const notification = payload.notification;
+    if (type === "notification:created" && notification && typeof notification === "object") {
+      // Silent/audit-only notifications (in-app channel disabled) stay out of the header feed.
+      if (notification?.metadata?.silent || notification?.metadata?.inAppChannelDisabled) {
+        scheduleHeaderNotificationsRefresh(1200);
+        return;
+      }
+      const nextItems = [
+        notification,
+        ...headerNotificationsState.items.filter((item) => String(item?.id) !== String(notification.id))
+      ].slice(0, 8);
+      headerNotificationsState.items = nextItems;
+      const delta = Number(payload.unreadDelta);
+      if (Number.isFinite(delta) && delta !== 0) {
+        headerNotificationsState.unreadCount = Math.max(0, Number(headerNotificationsState.unreadCount || 0) + delta);
+      } else if (String(notification.status || "").toLowerCase() === "unread") {
+        headerNotificationsState.unreadCount = Math.max(0, Number(headerNotificationsState.unreadCount || 0) + 1);
+      }
+      syncHeaderNotificationBadge();
+      const body = document.querySelector("#headerNotificationsPanel .header-panel-body");
+      if (body) {
+        body.innerHTML = renderHeaderNotificationsPanelBody();
+      }
+      if (areNotificationPrefsReady()) {
+        announceIncomingNotification(notification);
+      }
+      // Debounced soft reconcile — avoid immediate full refetch on every event.
+      scheduleHeaderNotificationsRefresh(1500);
+      return;
+    }
+
+    scheduleHeaderNotificationsRefresh(400);
+  });
+}
 
 function iconSvg(iconName) {
   const iconMap = {
@@ -188,13 +241,101 @@ function readAdminSessionProfile() {
   }
 }
 
-function notificationItemsMarkup() {
-  return HEADER_NOTIFICATIONS.map((item) => `
-    <article class="header-panel-card header-panel-card-${item.tone}">
-      <strong>${item.title}</strong>
-      <p>${item.detail}</p>
-    </article>
-  `).join("");
+function escapeHeaderText(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function formatHeaderTime(value) {
+  const date = new Date(value || Date.now());
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toLocaleString();
+}
+
+function notificationItemsMarkup(items = headerNotificationsState.items) {
+  if (!items.length) {
+    return `<div class="header-notifications-empty">No notifications yet.</div>`;
+  }
+
+  return items.map((item) => {
+    const unread = String(item.status || "").toLowerCase() === "unread";
+    const icon = String(item?.metadata?.icon || item.type || "system").toLowerCase();
+    return `
+      <button type="button" class="header-notification-item${unread ? " is-unread" : ""}" data-header-notification-id="${escapeHeaderText(item.id)}" data-notification-type="${escapeHeaderText(item.type || "system")}" data-notification-icon="${escapeHeaderText(icon)}">
+        <strong>${escapeHeaderText(item.title || "Notification")}</strong>
+        <p>${escapeHeaderText(item.message || "")}</p>
+        <small>${escapeHeaderText(item.type || "system")} · ${escapeHeaderText(formatHeaderTime(item.createdAt))}</small>
+      </button>
+    `;
+  }).join("");
+}
+
+function renderHeaderNotificationsPanelBody() {
+  return `
+    ${notificationItemsMarkup()}
+    <div class="header-notifications-footer">
+      <button type="button" class="btn btn-ghost" data-header-notifications-action="mark-all">Mark all read</button>
+      <a class="btn btn-primary" href="#/notifications">View all notifications</a>
+    </div>
+  `;
+}
+
+function syncHeaderNotificationBadge() {
+  const badge = document.querySelector('[data-header-panel-toggle="notifications"] .header-utility-badge');
+  const panelBadge = document.querySelector("#headerNotificationsPanel .header-panel-badge");
+  const count = Number(headerNotificationsState.unreadCount || 0);
+  if (badge) {
+    badge.textContent = String(count);
+    badge.hidden = count <= 0;
+  }
+  if (panelBadge) {
+    panelBadge.textContent = count ? `${count} unread` : "All caught up";
+  }
+}
+
+async function refreshHeaderNotifications(options = {}) {
+  const body = document.querySelector("#headerNotificationsPanel .header-panel-body");
+  if (headerNotificationsState.loading && !options.force) return;
+  headerNotificationsState.loading = true;
+  try {
+    const center = await getNotificationCenter({ force: true, limit: 8 });
+    headerNotificationsState.unreadCount = Number(center.unreadCount || 0);
+    headerNotificationsState.items = Array.isArray(center.notifications)
+      ? center.notifications.filter((item) => !(item?.metadata?.silent || item?.metadata?.inAppChannelDisabled))
+      : [];
+    if (center.settings && typeof center.settings === "object") {
+      setCachedNotificationPrefs(center.settings);
+    } else if (!areNotificationPrefsReady()) {
+      try {
+        const settings = await getNotificationSettings();
+        setCachedNotificationPrefs(settings);
+      } catch (_prefsError) {
+        // keep defaults until settings page loads
+      }
+    }
+    syncHeaderNotificationBadge();
+    if (body) {
+      body.innerHTML = renderHeaderNotificationsPanelBody();
+    }
+  } catch (error) {
+    console.error(error);
+    if (!areNotificationPrefsReady()) {
+      try {
+        const settings = await getNotificationSettings();
+        setCachedNotificationPrefs(settings);
+      } catch (_prefsError) {
+        // ignore
+      }
+    }
+    if (body && !headerNotificationsState.items.length) {
+      body.innerHTML = `<div class="header-notifications-empty">Unable to load notifications right now.</div>`;
+    }
+  } finally {
+    headerNotificationsState.loading = false;
+  }
 }
 
 function quickActionItemsMarkup() {
@@ -307,20 +448,20 @@ export function renderAppShell(rootElement) {
             <div class="header-actions">
               <div class="header-action-cluster">
                 <div class="header-panel-anchor">
-                  <button class="header-utility-btn" type="button" aria-label="Notifications foundation" data-header-panel-toggle="notifications" aria-expanded="false" aria-controls="headerNotificationsPanel">
+                  <button class="header-utility-btn" type="button" aria-label="Notifications" data-header-panel-toggle="notifications" aria-expanded="false" aria-controls="headerNotificationsPanel">
                     <svg viewBox="0 0 24 24"><path d="${utilityIconSvg("bell")}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
-                    <span class="header-utility-badge">${HEADER_NOTIFICATIONS.length}</span>
+                    <span class="header-utility-badge" hidden>0</span>
                   </button>
                   <section class="header-panel header-notifications-panel" id="headerNotificationsPanel" data-header-panel="notifications" hidden>
                     <div class="header-panel-header">
                       <div>
                         <p>Notifications</p>
-                        <strong>Realtime foundation</strong>
+                        <strong>Notification Center</strong>
                       </div>
-                      <span class="header-panel-badge">${HEADER_NOTIFICATIONS.length} unread</span>
+                      <span class="header-panel-badge">All caught up</span>
                     </div>
                     <div class="header-panel-body">
-                      ${notificationItemsMarkup()}
+                      ${renderHeaderNotificationsPanelBody()}
                     </div>
                   </section>
                 </div>
@@ -732,6 +873,49 @@ export function bindLayoutActions() {
   };
 
   window.addEventListener("byose:admin-profile-updated", syncHeaderProfileFromEvent);
+
+  const notificationsPanel = document.getElementById("headerNotificationsPanel");
+  notificationsPanel?.addEventListener("click", async (event) => {
+    const markAllBtn = event.target?.closest?.('[data-header-notifications-action="mark-all"]');
+    if (markAllBtn) {
+      event.preventDefault();
+      try {
+        await markAllNotificationsRead();
+        await refreshHeaderNotifications({ force: true });
+      } catch (error) {
+        console.error(error);
+      }
+      return;
+    }
+
+    const itemBtn = event.target?.closest?.("[data-header-notification-id]");
+    if (!itemBtn) return;
+    const notificationId = itemBtn.getAttribute("data-header-notification-id");
+    if (!notificationId) return;
+    try {
+      await markNotificationRead(notificationId);
+      await refreshHeaderNotifications({ force: true });
+    } catch (error) {
+      console.error(error);
+    }
+  });
+
+  headerPanelToggles.forEach((toggleButton) => {
+    if (toggleButton.dataset.headerPanelToggle !== "notifications") return;
+    toggleButton.addEventListener("click", () => {
+      void refreshHeaderNotifications({ force: true });
+    });
+  });
+
+  window.addEventListener("admin:notifications-changed", () => {
+    void refreshHeaderNotifications({ force: true });
+  });
+
+  bindHeaderNotificationsRealtime();
+  void refreshHeaderNotifications({ force: true });
+  window.setInterval(() => {
+    void refreshHeaderNotifications({ force: true });
+  }, 60000);
 }
 
 export function setRouteTitle(title) {

@@ -58,6 +58,9 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
             shippingFee,
             deliveryFee,
             codFee,
+            couponCode: this.normalizeText(row.coupon_code),
+            couponDiscount: this.toNumber(row.coupon_discount, 0),
+            couponId: row.coupon_id ? Number(row.coupon_id) : null,
             totalAmount: total,
             totalPrice: total,
             total,
@@ -117,7 +120,11 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
         const deliveryFee = Math.max(0, this.toNumber(order.deliveryFee != null ? order.deliveryFee : order.shippingFee, shippingFee));
         const codFee = Math.max(0, this.toNumber(order.codFee, FALLBACK_COD_FEE));
         const subtotal = this.toNumber(order.subtotal, 0);
-        const totalAmount = Math.max(0, this.toNumber(order.totalAmount != null ? order.totalAmount : order.total, subtotal + deliveryFee + codFee));
+        const couponDiscount = Math.max(0, this.toNumber(order.couponDiscount, 0));
+        const totalAmount = Math.max(0, this.toNumber(
+            order.totalAmount != null ? order.totalAmount : order.total,
+            Math.max(0, subtotal - couponDiscount) + deliveryFee + codFee
+        ));
         const payload = {
             orderId: this.normalizeText(order.orderId),
             legacyId: this.normalizeText(order.id || order.orderId),
@@ -136,6 +143,9 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
             shippingFee,
             deliveryFee,
             codFee,
+            couponCode: this.normalizeText(order.couponCode),
+            couponDiscount,
+            couponId: order.couponId ? Number(order.couponId) : null,
             totalAmount,
             totalPrice: totalAmount,
             status: this.normalizeText(order.status, 'Pending'),
@@ -164,10 +174,10 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
             const result = this.db.prepare(`
                 INSERT INTO orders (
                     order_id, legacy_id, user_id, user_public_id, account_id, customer_id, is_guest, user_email, customer_email, customer_phone, phone_number,
-                    customer_name, customer_image, subtotal, shipping_fee, delivery_fee, cod_fee, total_amount, total_price, status, order_status,
+                    customer_name, customer_image, subtotal, shipping_fee, delivery_fee, cod_fee, coupon_code, coupon_discount, coupon_id, total_amount, total_price, status, order_status,
                     payment_status, payment_status_label, payment_method, payment_type, note, payment_json, customer_json, shipping_address_json,
                     full_address_json, gps_location_json, delivery_method, delivery_label, status_history_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `).run(
                 payload.orderId,
                 payload.legacyId,
@@ -186,6 +196,9 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
                 payload.shippingFee,
                 payload.deliveryFee,
                 payload.codFee,
+                payload.couponCode,
+                payload.couponDiscount,
+                payload.couponId,
                 payload.totalAmount,
                 payload.totalPrice,
                 payload.status,
@@ -318,7 +331,11 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
             return null;
         }
 
-        this.db.prepare('DELETE FROM orders WHERE id = ?').run(Number(existing.recordId));
+        const txn = this.db.transaction(() => {
+            this.db.prepare('DELETE FROM order_items WHERE order_id = ?').run(Number(existing.recordId));
+            this.db.prepare('DELETE FROM orders WHERE id = ?').run(Number(existing.recordId));
+        });
+        txn();
         return existing;
     }
 }

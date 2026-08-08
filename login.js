@@ -279,6 +279,18 @@ function bindLogin() {
             try { setSession(res.user); } catch (e) { console.error(e); }
 
             try {
+                if (window.ByoseWishlist && typeof window.ByoseWishlist.mergeLocalToServer === 'function') {
+                    window.ByoseWishlist.mergeLocalToServer().catch(() => {});
+                }
+            } catch (e) { console.error(e); }
+
+            try {
+                if (window.recentlyViewedTracker && typeof window.recentlyViewedTracker.mergeLocalToServer === 'function') {
+                    window.recentlyViewedTracker.mergeLocalToServer().catch(() => {});
+                }
+            } catch (e) { console.error(e); }
+
+            try {
                 localStorage.removeItem('bm_last_identifier');
                 localStorage.removeItem('bm_last_password');
             } catch (e) { console.error(e); }

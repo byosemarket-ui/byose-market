@@ -69,6 +69,26 @@ async function startServer() {
             provider: databaseStatus.provider,
             databasePath: databaseStatus.databasePath || null
         });
+
+        try {
+            const { startNotificationAutomationWorker } = require('./services/notification-automation.service');
+            startNotificationAutomationWorker();
+        } catch (automationError) {
+            appLogger.warn('notification.automation.worker_start_failed', { error: automationError });
+            try {
+                const { startNotificationEmailRetryWorker } = require('./services/email/notification-email.service');
+                startNotificationEmailRetryWorker();
+            } catch (emailWorkerError) {
+                appLogger.warn('notification.email.retry_worker_start_failed', { error: emailWorkerError });
+            }
+        }
+
+        try {
+            const { startNotificationMonitor } = require('./services/notification-monitoring.service');
+            startNotificationMonitor();
+        } catch (monitorError) {
+            appLogger.warn('notification.monitor.start_failed', { error: monitorError });
+        }
     } catch (error) {
         app.locals.dbConnected = false;
         app.locals.database = getDatabaseStatus();
@@ -89,6 +109,27 @@ async function shutdown(signal, exitCode = 0) {
     if (startupReconnectTimer) {
         clearTimeout(startupReconnectTimer);
         startupReconnectTimer = null;
+    }
+
+    try {
+        const { stopNotificationAutomationWorker } = require('./services/notification-automation.service');
+        stopNotificationAutomationWorker();
+    } catch (_error) {
+        // non-blocking
+    }
+
+    try {
+        const { stopNotificationMonitor } = require('./services/notification-monitoring.service');
+        stopNotificationMonitor();
+    } catch (_error) {
+        // non-blocking
+    }
+
+    try {
+        const { stopNotificationEmailRetryWorker } = require('./services/email/notification-email.service');
+        stopNotificationEmailRetryWorker();
+    } catch (_error) {
+        // non-blocking
     }
 
     try {

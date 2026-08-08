@@ -43,6 +43,9 @@ export const ProductCardSystem = (() => {
   }
 
   function getWishlistIds() {
+    if (window.ByoseWishlist && typeof window.ByoseWishlist.getCachedIds === 'function') {
+      return window.ByoseWishlist.getCachedIds();
+    }
     try {
       const raw = window.localStorage.getItem(WISHLIST_KEY);
       const parsed = raw ? JSON.parse(raw) : [];
@@ -53,6 +56,9 @@ export const ProductCardSystem = (() => {
   }
 
   function isWishlisted(productId) {
+    if (window.ByoseWishlist && typeof window.ByoseWishlist.isWishlisted === 'function') {
+      return window.ByoseWishlist.isWishlisted(productId);
+    }
     return getWishlistIds().includes(String(productId || ''));
   }
 
@@ -61,6 +67,8 @@ export const ProductCardSystem = (() => {
     if (!id) {
       return false;
     }
+
+    // Synchronous local fallback for environments without the shared client.
     const ids = getWishlistIds();
     const index = ids.indexOf(id);
     if (index >= 0) {
@@ -71,6 +79,23 @@ export const ProductCardSystem = (() => {
     ids.push(id);
     window.localStorage.setItem(WISHLIST_KEY, JSON.stringify(ids));
     return true;
+  }
+
+  function applyWishlistButtonState(button, active) {
+    if (!button) {
+      return;
+    }
+    if (window.ByoseWishlist && typeof window.ByoseWishlist.updateButton === 'function') {
+      window.ByoseWishlist.updateButton(button, active);
+      return;
+    }
+    button.classList.toggle('is-active', Boolean(active));
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    button.setAttribute('aria-label', active ? 'Remove from wishlist' : 'Add to wishlist');
+    const icon = button.querySelector('.byose-product-wishlist-icon');
+    if (icon) {
+      icon.textContent = active ? '♥' : '♡';
+    }
   }
 
   function renderHighlightBadge(product) {
@@ -253,6 +278,14 @@ export const ProductCardSystem = (() => {
 
     containerElement.dataset.wishlistBound = 'true';
 
+    if (window.ByoseWishlist && typeof window.ByoseWishlist.ensureSynced === 'function') {
+      window.ByoseWishlist.ensureSynced().then(() => {
+        if (window.ByoseWishlist.refreshButtons) {
+          window.ByoseWishlist.refreshButtons(containerElement);
+        }
+      }).catch(() => {});
+    }
+
     containerElement.addEventListener('click', event => {
       const button = event.target.closest('[data-wishlist-id]');
       if (!button) {
@@ -262,15 +295,60 @@ export const ProductCardSystem = (() => {
       event.preventDefault();
       event.stopPropagation();
 
-      const productId = button.getAttribute('data-wishlist-id');
-      const active = toggleWishlist(productId);
-      button.classList.toggle('is-active', active);
-      button.setAttribute('aria-pressed', active ? 'true' : 'false');
-      button.setAttribute('aria-label', active ? 'Remove from wishlist' : 'Add to wishlist');
-      const icon = button.querySelector('.byose-product-wishlist-icon');
-      if (icon) {
-        icon.textContent = active ? '♥' : '♡';
+      if (button.dataset.wishlistBusy === 'true') {
+        return;
       }
+
+      const productId = button.getAttribute('data-wishlist-id');
+      const wasActive = isWishlisted(productId);
+
+      const finish = (active) => {
+        applyWishlistButtonState(button, active);
+        button.dataset.wishlistBusy = 'false';
+        button.disabled = false;
+      };
+
+      if (window.ByoseWishlist && typeof window.ByoseWishlist.toggle === 'function') {
+        button.dataset.wishlistBusy = 'true';
+        button.disabled = true;
+        // Optimistic UI
+        applyWishlistButtonState(button, !wasActive);
+
+        window.ByoseWishlist.toggle(productId).then((result) => {
+          if (result && result.redirected) {
+            applyWishlistButtonState(button, wasActive);
+            button.dataset.wishlistBusy = 'false';
+            button.disabled = false;
+            return;
+          }
+          finish(Boolean(result && result.active));
+        }).catch((error) => {
+          applyWishlistButtonState(button, wasActive);
+          button.dataset.wishlistBusy = 'false';
+          button.disabled = false;
+          if (window.ByoseWishlist.showToast) {
+            window.ByoseWishlist.showToast(
+              window.ByoseWishlist.friendlyError
+                ? window.ByoseWishlist.friendlyError(error)
+                : 'Unable to update wishlist.',
+              'error'
+            );
+          }
+        });
+        return;
+      }
+
+      const active = toggleWishlist(productId);
+      applyWishlistButtonState(button, active);
+      try {
+        window.dispatchEvent(new CustomEvent('byose:wishlist-updated', {
+          detail: {
+            ids: getWishlistIds(),
+            count: getWishlistIds().length,
+            source: 'product-card-local'
+          }
+        }));
+      } catch (_error) {}
     });
   }
 

@@ -1339,6 +1339,218 @@ export async function updateAdminSeo(nextSeo) {
   return seo;
 }
 
+export async function getNotificationCenter(options = {}) {
+  const force = Boolean(options.force);
+  const limit = Number(options.limit) || 8;
+  const cacheKey = "admin-notification-center";
+  const cached = getCachedScopePayload(cacheKey);
+  if (!force && cached && typeof cached === "object") {
+    return asObject(cached);
+  }
+
+  const payload = await withRetry("admin/notifications/center", () => api.get(`admin/notifications/center?limit=${encodeURIComponent(limit)}`));
+  const center = {
+    unreadCount: Number(payload?.unreadCount || 0),
+    notifications: Array.isArray(payload?.notifications) ? payload.notifications : [],
+    total: Number(payload?.total || 0),
+    settings: asObject(payload?.settings)
+  };
+  writeMemoryCache(cacheKey, center);
+  return center;
+}
+
+export async function getAdminNotifications(options = {}) {
+  const params = new URLSearchParams();
+  const setIf = (key, value) => {
+    if (value == null || value === "") return;
+    params.set(key, String(value));
+  };
+
+  setIf("status", options.status);
+  setIf("priority", options.priority);
+  setIf("type", options.type);
+  setIf("q", options.q || options.search);
+  setIf("orderId", options.orderId);
+  setIf("customer", options.customer);
+  setIf("date", options.date);
+  setIf("dateFrom", options.dateFrom);
+  setIf("dateTo", options.dateTo);
+  setIf("datePreset", options.datePreset || options.period);
+  setIf("sort", options.sort || options.sortBy);
+  if (options.includeArchived) params.set("includeArchived", "true");
+  if (options.limit != null) params.set("limit", String(options.limit));
+  if (options.offset != null) params.set("offset", String(options.offset));
+
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const payload = await withRetry("admin/notifications", () => api.get(`admin/notifications${suffix}`));
+  return {
+    notifications: Array.isArray(payload?.notifications) ? payload.notifications : [],
+    total: Number(payload?.total || 0),
+    unreadCount: Number(payload?.unreadCount || 0),
+    limit: Number(payload?.limit || 40),
+    offset: Number(payload?.offset || 0),
+    sort: String(payload?.sort || options.sort || "newest")
+  };
+}
+
+export async function getNotificationUnreadCount() {
+  const payload = await api.get("admin/notifications/unread-count");
+  return Number(payload?.unreadCount || 0);
+}
+
+export async function markNotificationRead(id) {
+  const payload = await api.put(`admin/notifications/${encodeURIComponent(id)}/read`);
+  writeMemoryCache("admin-notification-center", null);
+  return asObject(payload?.notification);
+}
+
+export async function markNotificationUnread(id) {
+  const payload = await api.put(`admin/notifications/${encodeURIComponent(id)}/unread`);
+  writeMemoryCache("admin-notification-center", null);
+  return asObject(payload?.notification);
+}
+
+export async function markAllNotificationsRead() {
+  const payload = await api.put("admin/notifications/read-all");
+  writeMemoryCache("admin-notification-center", null);
+  return { updated: Number(payload?.updated || 0) };
+}
+
+export async function archiveNotification(id) {
+  const payload = await api.put(`admin/notifications/${encodeURIComponent(id)}/archive`);
+  writeMemoryCache("admin-notification-center", null);
+  return asObject(payload?.notification);
+}
+
+export async function deleteNotification(id) {
+  const payload = await api.remove(`admin/notifications/${encodeURIComponent(id)}`);
+  writeMemoryCache("admin-notification-center", null);
+  return Boolean(payload?.deleted);
+}
+
+export async function bulkDeleteNotifications(ids = []) {
+  const payload = await api.post("admin/notifications/bulk-delete", { ids: Array.isArray(ids) ? ids : [] });
+  writeMemoryCache("admin-notification-center", null);
+  return { deleted: Number(payload?.deleted || 0) };
+}
+
+export async function bulkArchiveNotifications(ids = []) {
+  const payload = await api.post("admin/notifications/bulk-archive", { ids: Array.isArray(ids) ? ids : [] });
+  writeMemoryCache("admin-notification-center", null);
+  return { updated: Number(payload?.updated || 0) };
+}
+
+export async function bulkMarkNotificationsRead(ids = []) {
+  const payload = await api.post("admin/notifications/bulk-read", { ids: Array.isArray(ids) ? ids : [] });
+  writeMemoryCache("admin-notification-center", null);
+  return { updated: Number(payload?.updated || 0) };
+}
+
+export async function bulkMarkNotificationsUnread(ids = []) {
+  const payload = await api.post("admin/notifications/bulk-unread", { ids: Array.isArray(ids) ? ids : [] });
+  writeMemoryCache("admin-notification-center", null);
+  return { updated: Number(payload?.updated || 0) };
+}
+
+export async function clearOldNotifications(olderThanDays = 90) {
+  const payload = await api.post("admin/notifications/clear-old", { olderThanDays: Number(olderThanDays) || 90 });
+  writeMemoryCache("admin-notification-center", null);
+  return {
+    deleted: Number(payload?.deleted || 0),
+    olderThanDays: Number(payload?.olderThanDays || olderThanDays || 90),
+    cutoff: payload?.cutoff || null
+  };
+}
+
+export async function getNotificationSettings() {
+  const payload = await withRetry("admin/notifications/settings", () => api.get("admin/notifications/settings"));
+  return asObject(payload?.settings || payload);
+}
+
+export async function updateNotificationSettings(nextSettings) {
+  const payload = await api.put("admin/notifications/settings", asObject(nextSettings));
+  writeMemoryCache("admin-notification-center", null);
+  return asObject(payload?.settings || nextSettings);
+}
+
+export async function sendNotificationTestEmail(options = {}) {
+  const payload = await api.post("admin/notifications/settings/test-email", asObject(options));
+  return {
+    success: Boolean(payload?.success !== false),
+    recipient: String(payload?.recipient || ""),
+    provider: String(payload?.provider || ""),
+    messageId: payload?.messageId || null,
+    connectionStatus: String(payload?.connectionStatus || ""),
+    sentAt: payload?.sentAt || null
+  };
+}
+
+export async function getNotificationAutomationStatus() {
+  const payload = await withRetry("admin/notifications/automation/status", () => api.get("admin/notifications/automation/status"));
+  return asObject(payload?.automation || payload);
+}
+
+export async function getNotificationMonitoring() {
+  const payload = await withRetry("admin/notifications/monitoring", () => api.get("admin/notifications/monitoring"));
+  return asObject(payload?.monitoring || payload);
+}
+
+export async function getNotificationMonitoringHealth() {
+  const payload = await withRetry("admin/notifications/monitoring/health", () => api.get("admin/notifications/monitoring/health"));
+  return asObject(payload?.health || payload);
+}
+
+export async function getNotificationOpsLogs(options = {}) {
+  const params = new URLSearchParams();
+  if (options.eventType) params.set("eventType", String(options.eventType));
+  if (options.status) params.set("status", String(options.status));
+  if (options.channel) params.set("channel", String(options.channel));
+  if (options.limit != null) params.set("limit", String(options.limit));
+  if (options.offset != null) params.set("offset", String(options.offset));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const payload = await withRetry("admin/notifications/monitoring/logs", () => api.get(`admin/notifications/monitoring/logs${suffix}`));
+  return {
+    logs: Array.isArray(payload?.logs) ? payload.logs : [],
+    total: Number(payload?.total || 0),
+    limit: Number(payload?.limit || 50),
+    offset: Number(payload?.offset || 0)
+  };
+}
+
+export async function runNotificationRecovery() {
+  const payload = await api.post("admin/notifications/monitoring/recover", {});
+  return asObject(payload?.result || payload);
+}
+
+export async function getNotificationAnalytics(options = {}) {
+  const params = new URLSearchParams();
+  if (options.preset) params.set("preset", String(options.preset));
+  if (options.from) params.set("from", String(options.from));
+  if (options.to) params.set("to", String(options.to));
+  if (options.type) params.set("type", String(options.type));
+  if (options.status) params.set("status", String(options.status));
+  if (options.eventKey) params.set("eventKey", String(options.eventKey));
+  if (options.emailStatus) params.set("emailStatus", String(options.emailStatus));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const payload = await withRetry("admin/notifications/analytics", () => api.get(`admin/notifications/analytics${suffix}`));
+  return asObject(payload?.analytics || payload);
+}
+
+export async function getNotificationAnalyticsReport(options = {}) {
+  const params = new URLSearchParams();
+  if (options.preset) params.set("preset", String(options.preset));
+  if (options.from) params.set("from", String(options.from));
+  if (options.to) params.set("to", String(options.to));
+  if (options.type) params.set("type", String(options.type));
+  if (options.status) params.set("status", String(options.status));
+  if (options.eventKey) params.set("eventKey", String(options.eventKey));
+  if (options.emailStatus) params.set("emailStatus", String(options.emailStatus));
+  if (options.limit != null) params.set("limit", String(options.limit));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const payload = await withRetry("admin/notifications/analytics/report", () => api.get(`admin/notifications/analytics/report${suffix}`));
+  return asObject(payload?.report || payload);
+}
+
 export async function validateAdminSeo(nextSeo) {
   const payload = await api.post("admin/seo/validate", asObject(nextSeo));
   return {
@@ -1789,8 +2001,9 @@ export async function updateOrderStatus(orderId, status, options = {}) {
   const id = normalizeText(orderId);
   const nextStatus = normalizeText(status);
   const returnAction = normalizeText(options?.returnAction);
-  if (!id || (!nextStatus && !returnAction)) {
-    throw new Error("Order id and status (or returnAction) are required.");
+  const paymentStatus = normalizeText(options?.paymentStatus);
+  if (!id || (!nextStatus && !returnAction && !paymentStatus)) {
+    throw new Error("Order id and status (or returnAction / paymentStatus) are required.");
   }
 
   const body = {
@@ -1804,6 +2017,7 @@ export async function updateOrderStatus(orderId, status, options = {}) {
   };
   if (nextStatus) body.status = nextStatus;
   if (returnAction) body.returnAction = returnAction;
+  if (paymentStatus) body.paymentStatus = paymentStatus;
   if (options?.refundAmount != null && options?.refundAmount !== "") {
     body.refundAmount = toNumber(options.refundAmount);
   }

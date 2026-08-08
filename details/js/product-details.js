@@ -200,7 +200,78 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast
     });
 
+    const wishlistBtn = document.getElementById('wishlistBtn');
+    const wishlistLabel = document.getElementById('wishlistBtnLabel');
+    const productId = String(product.id || product.catalogId || '');
+    if (wishlistBtn && productId) {
+      wishlistBtn.setAttribute('data-wishlist-id', productId);
+
+      const syncWishlistButton = () => {
+        const active = window.ByoseWishlist?.isWishlisted?.(productId);
+        wishlistBtn.classList.toggle('is-active', Boolean(active));
+        wishlistBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        if (wishlistLabel) {
+          wishlistLabel.textContent = active ? 'Saved to Wishlist' : 'Add to Wishlist';
+        }
+        const icon = wishlistBtn.querySelector('.wishlist-btn-icon');
+        if (icon) {
+          icon.classList.toggle('fa-solid', Boolean(active));
+          icon.classList.toggle('fa-regular', !active);
+        }
+      };
+
+      if (window.ByoseWishlist?.ensureSynced) {
+        window.ByoseWishlist.ensureSynced().then(syncWishlistButton).catch(syncWishlistButton);
+      } else {
+        syncWishlistButton();
+      }
+
+      wishlistBtn.addEventListener('click', async () => {
+        if (wishlistBtn.dataset.busy === 'true') return;
+        wishlistBtn.dataset.busy = 'true';
+        wishlistBtn.disabled = true;
+        try {
+          if (!window.ByoseWishlist?.toggle) {
+            showToast('Wishlist is unavailable right now.');
+            return;
+          }
+          const result = await window.ByoseWishlist.toggle(productId, { silent: true });
+          if (result?.redirected) {
+            return;
+          }
+          const active = Boolean(result?.active);
+          syncWishlistButton();
+          showToast(active ? 'Saved to your wishlist.' : 'Removed from wishlist.');
+        } catch (error) {
+          syncWishlistButton();
+          showToast(
+            window.ByoseWishlist?.friendlyError?.(error) || 'Unable to update wishlist.'
+          );
+        } finally {
+          wishlistBtn.dataset.busy = 'false';
+          wishlistBtn.disabled = false;
+        }
+      });
+
+      window.addEventListener('byose:wishlist-updated', syncWishlistButton);
+    }
+
     const relatedProducts = await getRelatedProducts(product);
     renderRelatedProducts(document.getElementById('relatedProducts'), relatedProducts);
+
+    if (window.recentlyViewedTracker && typeof window.recentlyViewedTracker.trackProductView === 'function') {
+      void window.recentlyViewedTracker.trackProductView({
+        id: product.id || product.catalogId,
+        catalogId: product.catalogId || product.id,
+        name: product.name,
+        title: product.title || product.name,
+        price: product.price,
+        oldPrice: product.oldPrice,
+        discountPercent: product.discountPercent || product.discount,
+        image: product.mainImage || product.image,
+        mainImage: product.mainImage || product.image,
+        stock: product.stockCount ?? product.stock ?? 0
+      });
+    }
   })();
 });

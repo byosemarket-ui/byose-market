@@ -2,6 +2,7 @@ const { appLogger, monitorAsyncOperation } = require('../utils/logger');
 const config = require('../config/env');
 const productDataService = require('../services/productdataservice');
 const getRealtimeEventService = require('../services/realtimeeventservice');
+const notificationEngine = require('../services/notification-engine.service');
 const { queryCache } = require('../services/querycache.service');
 const {
     detectStorefrontVisibilityIssues,
@@ -700,6 +701,10 @@ exports.createProduct = async (req, res) => {
             logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'product.created' });
         }
 
+        void notificationEngine.notifyProductLifecycle(null, product).catch((engineError) => {
+            logger.warn('notification.engine.product_lifecycle_failed', { error: engineError, catalogId });
+        });
+
         return res.status(201).json({ success: true, product: serializeProduct(product) });
     } catch (error) {
         logger.error('inventory.product_create_failed', { error: String(error?.message || error), stack: error?.stack });
@@ -953,10 +958,23 @@ exports.updateProduct = async (req, res) => {
 
             logger.info('inventory.product_created_via_update', { adminId: req.admin?.id || '', catalogId, productName: normalized.name });
 
+            void notificationEngine.notifyProductLifecycle(null, product).catch((engineError) => {
+                logger.warn('notification.engine.product_lifecycle_failed', { error: engineError, catalogId });
+            });
+
             return res.status(201).json({ success: true, created: true, product: serializeProduct(product) });
         }
 
         const previousStock = Number(product.stock || 0);
+        const previousProduct = {
+            id: product._id || product.id,
+            catalogId: product.catalogId,
+            name: product.name || product.title,
+            title: product.title || product.name,
+            status: product.status,
+            visibility: product.visibility,
+            stock: previousStock
+        };
         product = await monitorAsyncOperation(logger, 'database.product.save_update', { catalogId: product.catalogId, adminId: req.admin?.id || '', productName: normalized.name }, () => productDataService.updateProduct(req.params.id, {
             ...product,
             ...normalized,
@@ -984,6 +1002,13 @@ exports.updateProduct = async (req, res) => {
         } catch (eventError) {
             logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'product.updated' });
         }
+
+        void notificationEngine.notifyProductLifecycle(previousProduct, product).catch((engineError) => {
+            logger.warn('notification.engine.product_lifecycle_failed', {
+                error: engineError,
+                catalogId: product.catalogId
+            });
+        });
 
         return res.json({ success: true, product: serializeProduct(product) });
     } catch (error) {

@@ -3,23 +3,52 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Recent Views | Byose Market</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 0; background: #fffaf7; color: #132033; }
-    main { max-width: 720px; margin: 0 auto; padding: 32px 20px; }
-    .card { background: #fff; border-radius: 16px; padding: 24px; box-shadow: 0 12px 32px rgba(19, 32, 51, 0.08); }
-    a { color: #1f5eff; text-decoration: none; }
-  </style>
+  <title>Recently Viewed | Byose Market</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="../css/account-features.css">
+  <link rel="stylesheet" href="../css/recent.css">
 </head>
-<body>
-  <main>
-    <div class="card">
-      <h1>Recent Views</h1>
-      <p>This page keeps the recent-items route live on GitHub Pages until dynamic data is wired in.</p>
-      <p><a href="../account.html">Back to account</a></p>
-    </div>
+<body class="account-feature-page recent-page">
+  <main class="af-shell">
+    <section class="af-card">
+      <div class="af-header">
+        <div class="af-header__brand">
+          <span class="af-header__icon is-recent" aria-hidden="true"><i class="fa-solid fa-clock-rotate-left"></i></span>
+          <div>
+            <h1>Recently Viewed</h1>
+            <p>Products you opened while shopping, newest first.</p>
+          </div>
+        </div>
+        <div class="af-actions">
+          <button type="button" class="af-button is-danger" id="clearRecent" hidden aria-label="Clear recently viewed history">Clear All</button>
+          <a class="af-back" href="../account.html"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Account</a>
+        </div>
+      </div>
+
+      <div class="af-toolbar recent-toolbar">
+        <span class="af-count-chip recent-count-chip" id="recentCountChip" hidden>
+          <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
+          <span id="recentCountLabel">0 items</span>
+        </span>
+        <a class="af-button" href="../../shop.html">Continue Shopping</a>
+      </div>
+
+      <div id="recentStatusHost" aria-live="polite"></div>
+      <div id="recentItems" class="recent-grid af-product-grid" aria-live="polite"></div>
+    </section>
   </main>
-<script src="../../services/authservice.js"></script>
-<script src="../js/auth-guard.js"></script>
+
+  <div class="recent-toast" id="recentToast" role="status" aria-live="polite"></div>
+
+  <script src="../../services/authservice.js"></script>
+  <script src="../../services/recently-viewed-tracker.js"></script>
+  <script src="../js/auth-guard.js"></script>
+  <script src="../services/account-features-api.js"></script>
+  <script src="../services/recently-viewed.service.js"></script>
+  <script type="module" src="../../js/byose-cart-bootstrap.js"></script>
+  <script src="../js/recent-page.js"></script>
 </body>
 </html>

@@ -33,7 +33,7 @@ class SQLiteSettingsRepository extends SQLiteBaseRepository {
         const normalizedKey = this.normalizeText(key, 'global');
         const now = this.now();
         const existing = await this.findByKey(normalizedKey);
-        const MODULE_KEYS = ['branding', 'delivery', 'seo', 'sessionManagement'];
+        const MODULE_KEYS = ['branding', 'delivery', 'seo', 'sessionManagement', 'notificationSettings'];
         const existingValue = existing?.value && typeof existing.value === 'object' ? existing.value : {};
         const incomingValue = payload?.value && typeof payload.value === 'object' ? payload.value : {};
         const touched = Array.isArray(payload?.touchedModules)

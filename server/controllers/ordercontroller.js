@@ -4,7 +4,8 @@ const userDataService = require('../services/userdataservice');
 const productDataService = require('../services/productdataservice');
 const getRealtimeEventService = require('../services/realtimeeventservice');
 const { getRepositoryBundle } = require('../repositories');
-const { notifyOrderConfirmed, notifyOrderStatusChanged } = require('../utils/notifications');
+const { notifyOrderConfirmed, notifyOrderStatusChanged: notifyOrderStatusEmail } = require('../utils/notifications');
+const notificationEngine = require('../services/notification-engine.service');
 const { normalizeRwandaPhone, isValidRwandaPhone: isValidSharedRwandaPhone } = require('../utils/phone');
 
 const DELIVERY_FEE = 2000;
@@ -62,6 +63,78 @@ function resolvePaymentStatusLabel(paymentState) {
     if (state === 'refunded') return 'Refunded';
     if (state === 'cancelled') return 'Cancelled';
     return 'Pending';
+}
+
+function isDeliveredLike(status) {
+    const value = normalizeText(status).toLowerCase();
+    return value.includes('deliver') || value === 'completed' || value === 'complete';
+}
+
+function isCodOrder(order) {
+    const method = normalizePaymentMethod(order?.paymentMethod || order?.payment?.method);
+    const label = normalizeText(order?.paymentMethodLabel || order?.payment?.methodLabel).toLowerCase();
+    return method === 'cod' || label.includes('cash on delivery') || label.includes('cash');
+}
+
+function isAwaitingPaymentStatus(value) {
+    const status = normalizeText(value).toLowerCase();
+    return status === 'awaiting_payment'
+        || status === 'awaiting_delivery_payment'
+        || status === 'pending'
+        || status === 'unpaid';
+}
+
+function applyPaymentStatusUpdate(order, paymentStatus) {
+    const raw = normalizeText(paymentStatus).toLowerCase();
+    const allowed = new Set([
+        'pending',
+        'authorized',
+        'paid',
+        'failed',
+        'refunded',
+        'cancelled',
+        'awaiting_delivery_payment',
+        'awaiting_payment',
+        'unpaid',
+        'refund_required'
+    ]);
+    if (!allowed.has(raw)) {
+        const error = new Error('Invalid payment status.');
+        error.code = 'INVALID_PAYMENT_STATUS';
+        throw error;
+    }
+
+    const nextStatus = raw === 'unpaid' ? 'unpaid' : (PAYMENT_STATES.has(raw) || raw === 'refund_required' || raw === 'unpaid' ? raw : 'pending');
+    const label = raw === 'unpaid'
+        ? 'Unpaid'
+        : raw === 'refund_required'
+            ? 'Refund Required'
+            : resolvePaymentStatusLabel(nextStatus);
+
+    order.paymentStatus = nextStatus;
+    order.paymentStatusLabel = label;
+    order.payment = {
+        ...(order.payment && typeof order.payment === 'object' ? order.payment : {}),
+        status: nextStatus,
+        statusLabel: label,
+        transaction: {
+            ...((order.payment && typeof order.payment === 'object' && order.payment.transaction) || {}),
+            state: nextStatus
+        }
+    };
+    return order;
+}
+
+function maybeConfirmCodPaymentOnDelivery(order, nextStatus) {
+    if (!isDeliveredLike(nextStatus) || !isCodOrder(order)) {
+        return false;
+    }
+    const current = normalizeText(order.paymentStatus || order.payment?.status).toLowerCase();
+    if (!isAwaitingPaymentStatus(current)) {
+        return false;
+    }
+    applyPaymentStatusUpdate(order, 'paid');
+    return true;
 }
 
 function validateShippingAddress(shippingAddress = {}, paymentMethod = '') {
@@ -269,6 +342,9 @@ function normalizeStorefrontOrder(payload, user) {
         deliveryFee: shippingFee,
         shippingFee,
         codFee,
+        couponCode: normalizeText(source.couponCode || source.coupon?.code).toUpperCase(),
+        couponDiscount: 0,
+        couponId: null,
         total,
         totalAmount: total,
         totalPrice: total,
@@ -594,7 +670,41 @@ exports.createOrder = async (req, res) => {
                 method: normalizedOrder.deliveryMethodKey || 'homeDelivery'
             });
             const shippingFee = Number(shippingQuote.fee) || 0;
-            const total = subtotal + shippingFee + COD_FEE;
+            let couponCode = normalizeText(normalizedOrder.couponCode).toUpperCase();
+            let couponDiscount = 0;
+            let couponId = null;
+
+            if (couponCode) {
+                if (!user?.recordId) {
+                    return res.status(401).json({
+                        success: false,
+                        code: 'COUPON_LOGIN_REQUIRED',
+                        message: 'Sign in to use a coupon.'
+                    });
+                }
+
+                const couponDataService = require('../services/coupondataservice');
+                const validation = await couponDataService.validateCouponForCheckout(user, {
+                    code: couponCode,
+                    subtotal,
+                    orderAmount: subtotal,
+                    items: pricedItems
+                });
+
+                if (validation.error) {
+                    return res.status(validation.status || 400).json({
+                        success: false,
+                        code: 'COUPON_INVALID',
+                        message: validation.error
+                    });
+                }
+
+                couponDiscount = Number(validation.data.discountAmount || 0);
+                couponId = validation.data.coupon?.id || null;
+                couponCode = validation.data.coupon?.code || couponCode;
+            }
+
+            const total = Math.max(0, subtotal - couponDiscount) + shippingFee + COD_FEE;
             normalizedOrder = {
                 ...normalizedOrder,
                 items: pricedItems,
@@ -603,6 +713,9 @@ exports.createOrder = async (req, res) => {
                 deliveryFee: shippingFee,
                 shippingFee,
                 codFee: COD_FEE,
+                couponCode,
+                couponDiscount,
+                couponId,
                 total,
                 totalAmount: total,
                 totalPrice: total,
@@ -643,6 +756,26 @@ exports.createOrder = async (req, res) => {
                 paymentMethod: normalizedOrder.paymentMethod,
                 paymentType: normalizedOrder.paymentType
             });
+
+            // Heal coupon redemption if a prior create succeeded but redeem failed.
+            if (normalizedOrder.couponCode && user?.recordId) {
+                try {
+                    const couponDataService = require('../services/coupondataservice');
+                    await couponDataService.redeemCouponForOrder(user, {
+                        code: normalizedOrder.couponCode || existingOrder.couponCode,
+                        orderId: normalizedOrder.orderId,
+                        discountAmount: Number(existingOrder.couponDiscount || normalizedOrder.couponDiscount || 0),
+                        subtotal: Number(existingOrder.subtotal || normalizedOrder.subtotal || 0),
+                        items: existingOrder.items || normalizedOrder.items
+                    });
+                } catch (couponError) {
+                    logger.warn('order.coupon_redeem_retry_failed', {
+                        error: couponError,
+                        orderId: normalizedOrder.orderId
+                    });
+                }
+            }
+
             return res.json({ success: true, existing: true, order: existingOrder });
         }
 
@@ -656,6 +789,71 @@ exports.createOrder = async (req, res) => {
             ...normalizedOrder,
             userRecordId: user?.recordId || null
         }), { slowThresholdMs: 700 });
+
+        if (normalizedOrder.couponCode && user?.recordId) {
+            const couponDataService = require('../services/coupondataservice');
+            let redemption;
+            try {
+                redemption = await couponDataService.redeemCouponForOrder(user, {
+                    code: normalizedOrder.couponCode,
+                    orderId: normalizedOrder.orderId,
+                    discountAmount: normalizedOrder.couponDiscount,
+                    subtotal: normalizedOrder.subtotal,
+                    items: normalizedOrder.items
+                });
+            } catch (couponError) {
+                logger.error('order.coupon_redeem_exception', {
+                    error: couponError,
+                    orderId: normalizedOrder.orderId,
+                    couponCode: normalizedOrder.couponCode
+                });
+                redemption = { error: 'Unable to redeem coupon for this order.', status: 500 };
+            }
+
+            if (redemption?.error) {
+                logger.warn('order.coupon_redeem_failed_rollback', {
+                    orderId: normalizedOrder.orderId,
+                    couponCode: normalizedOrder.couponCode,
+                    message: redemption.error
+                });
+
+                try {
+                    const couponDataService = require('../services/coupondataservice');
+                    await couponDataService.releaseCouponForOrder(normalizedOrder.orderId);
+                } catch (releaseError) {
+                    logger.warn('order.coupon_release_on_rollback_failed', {
+                        error: releaseError,
+                        orderId: normalizedOrder.orderId
+                    });
+                }
+
+                try {
+                    const { getRepositoryBundle } = require('../repositories');
+                    const { orders, products } = getRepositoryBundle();
+                    const created = await orderDataService.findOrderByIdentifier(normalizedOrder.orderId);
+                    const items = Array.isArray(created?.items) ? created.items : (normalizedOrder.items || []);
+
+                    // Delete order first, then restore stock — avoids orphan order with restored inventory.
+                    if (orders?.remove) {
+                        await orders.remove(normalizedOrder.orderId);
+                    }
+                    if (items.length && products?.restoreStockForOrderItems) {
+                        products.restoreStockForOrderItems(items);
+                    }
+                } catch (rollbackError) {
+                    logger.error('order.coupon_redeem_rollback_failed', {
+                        error: rollbackError,
+                        orderId: normalizedOrder.orderId
+                    });
+                }
+
+                return res.status(redemption.status || 400).json({
+                    success: false,
+                    code: 'COUPON_REDEEM_FAILED',
+                    message: redemption.error || 'Unable to apply this coupon to your order. Please try again.'
+                });
+            }
+        }
 
         const order = await orderDataService.findOrderByIdentifier(normalizedOrder.orderId);
 
@@ -676,6 +874,31 @@ exports.createOrder = async (req, res) => {
         } catch (eventError) {
           logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'order.created' });
         }
+
+        void notificationEngine.notifyOrderCreated(order).catch((engineError) => {
+          logger.warn('notification.engine.order_created_failed', { error: engineError, orderId: normalizedOrder.orderId });
+        });
+
+        // Best-effort low / out-of-stock alerts for items depleted by this order
+        void (async () => {
+          try {
+            const items = Array.isArray(order?.items) ? order.items : [];
+            const seen = new Set();
+            const products = [];
+            for (const item of items) {
+              const key = String(item?.productId || item?.catalogId || item?.id || '').trim();
+              if (!key || seen.has(key)) continue;
+              seen.add(key);
+              const product = await productDataService.findProductByIdentifier(key);
+              if (product) products.push(product);
+            }
+            if (products.length) {
+              await notificationEngine.notifyStockFromOrderItems(products, items);
+            }
+          } catch (stockNotifyError) {
+            logger.warn('notification.engine.stock_after_order_failed', { error: stockNotifyError, orderId: normalizedOrder.orderId });
+          }
+        })();
 
         void notifyOrderConfirmed(order).catch((notifyError) => {
           logger.warn('notification.order_confirmed_failed', { error: notifyError, orderId: normalizedOrder.orderId });
@@ -748,6 +971,7 @@ exports.updateOrderStatus = async (req, res) => {
             });
         }
 
+        const previousPaymentStatus = order.paymentStatus || order.payment?.status || '';
         appendStatusHistory(order, 'Cancelled', {
             actor: 'Customer',
             reason: normalizeText(req.body?.reason || req.body?.cancellationReason) || 'Cancelled by customer'
@@ -761,9 +985,34 @@ exports.updateOrderStatus = async (req, res) => {
         } catch (stockError) {
             logger.warn('order.stock_restore_failed', { error: stockError, orderId: order.orderId || order.id });
         }
+        try {
+            const couponDataService = require('../services/coupondataservice');
+            await couponDataService.releaseCouponForOrder(order.orderId || order.id);
+        } catch (couponError) {
+            logger.warn('order.coupon_release_failed', { error: couponError, orderId: order.orderId || order.id });
+        }
         await monitorAsyncOperation(logger, 'database.order.save_status_user', { orderId: order.orderId || order.id, status }, () => orderDataService.saveOrder(order), { slowThresholdMs: 700 });
         logger.info('order.status_updated_by_customer', { orderId: order.orderId || order.id, userId: user.id, status });
-        void notifyOrderStatusChanged(order, 'Cancelled').catch((notifyError) => {
+
+        try {
+          const realtimeService = getRealtimeEventService();
+          realtimeService.emitOrderStatusChanged(order._id || order.id, currentStatus, 'Cancelled');
+        } catch (eventError) {
+          logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'order.status-changed.customer' });
+        }
+
+        const refundRequested = String(order.paymentStatus || '').toLowerCase() === 'refund_required'
+            || String(order.payment?.returnWorkflow?.refundStatus || '').toLowerCase() === 'required';
+
+        void notificationEngine.notifyOrderStatusChanged(order, currentStatus, {
+          returnAction: refundRequested ? 'request_return' : '',
+          previousPaymentStatus,
+          refundRequested
+        }).catch((engineError) => {
+          logger.warn('notification.engine.order_status_failed', { error: engineError, orderId: order.orderId || order.id });
+        });
+
+        void notifyOrderStatusEmail(order, 'Cancelled').catch((notifyError) => {
             logger.warn('notification.order_status_failed', { error: notifyError, orderId: order.orderId || order.id });
         });
         return res.json({ success: true, order });
@@ -816,12 +1065,14 @@ exports.updateAdminOrderStatus = async (req, res) => {
             productCondition,
             refundAmount,
             refundMethod,
-            returnImages
+            returnImages,
+            paymentStatus
         } = req.body || {};
 
         const normalizedReturnAction = normalizeText(returnAction).toLowerCase();
-        if (!status && !normalizedReturnAction) {
-            return res.status(400).json({ success: false, message: 'status or returnAction required' });
+        const normalizedPaymentStatus = normalizeText(paymentStatus).toLowerCase();
+        if (!status && !normalizedReturnAction && !normalizedPaymentStatus) {
+            return res.status(400).json({ success: false, message: 'status, returnAction, or paymentStatus required' });
         }
 
         const order = await monitorAsyncOperation(logger, 'database.order.find_for_admin_status_update', { requestedOrderId: req.params.id }, () => orderDataService.findOrderByIdentifier(req.params.id), { slowThresholdMs: 700 });
@@ -831,6 +1082,7 @@ exports.updateAdminOrderStatus = async (req, res) => {
 
         const oldStatus = order.status || order.orderStatus || 'Pending';
         const oldStatusLower = normalizeText(oldStatus).toLowerCase();
+        const previousPaymentStatus = order.paymentStatus || order.payment?.status || '';
 
         if (normalizedReturnAction) {
             try {
@@ -854,7 +1106,7 @@ exports.updateAdminOrderStatus = async (req, res) => {
                 }
                 throw actionError;
             }
-        } else {
+        } else if (status) {
             const nextStatus = normalizeText(status);
             const cancelMeta = {
                 actor: 'Admin',
@@ -869,6 +1121,12 @@ exports.updateAdminOrderStatus = async (req, res) => {
                     restoreOrderStock(order);
                 } catch (stockError) {
                     logger.warn('admin.order_stock_restore_failed', { error: stockError, orderId: order.orderId || order.id });
+                }
+                try {
+                    const couponDataService = require('../services/coupondataservice');
+                    await couponDataService.releaseCouponForOrder(order.orderId || order.id);
+                } catch (couponError) {
+                    logger.warn('admin.order_coupon_release_failed', { error: couponError, orderId: order.orderId || order.id });
                 }
             } else if (isCancelledLike(oldStatus) && !isCancelledLike(nextStatus)) {
                 try {
@@ -893,6 +1151,22 @@ exports.updateAdminOrderStatus = async (req, res) => {
                     adminId: req.admin?.id || '',
                     reason: normalizeText(reason || note)
                 });
+                maybeConfirmCodPaymentOnDelivery(order, nextStatus);
+            }
+        }
+
+        if (normalizedPaymentStatus) {
+            try {
+                applyPaymentStatusUpdate(order, normalizedPaymentStatus);
+            } catch (paymentError) {
+                if (paymentError?.code === 'INVALID_PAYMENT_STATUS') {
+                    return res.status(400).json({
+                        success: false,
+                        message: paymentError.message,
+                        code: paymentError.code
+                    });
+                }
+                throw paymentError;
             }
         }
 
@@ -901,6 +1175,7 @@ exports.updateAdminOrderStatus = async (req, res) => {
             orderId: order.orderId || order.id,
             status: order.status,
             returnAction: normalizedReturnAction || null,
+            paymentStatus: order.paymentStatus || null,
             from: oldStatusLower,
             to: normalizeText(order.status || order.orderStatus).toLowerCase(),
             adminId: req.admin?.id || ''
@@ -913,7 +1188,18 @@ exports.updateAdminOrderStatus = async (req, res) => {
           logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'order.status-changed' });
         }
 
-        void notifyOrderStatusChanged(order, order.status).catch((notifyError) => {
+        const refundRequested = String(order.paymentStatus || '').toLowerCase() === 'refund_required'
+            || String(order.payment?.returnWorkflow?.refundStatus || '').toLowerCase() === 'required';
+
+        void notificationEngine.notifyOrderStatusChanged(order, oldStatus, {
+          returnAction: normalizedReturnAction || (refundRequested && isCancelledLike(order.status) ? 'request_return' : ''),
+          previousPaymentStatus,
+          refundRequested: Boolean(refundRequested && isCancelledLike(order.status) && !normalizedReturnAction)
+        }).catch((engineError) => {
+          logger.warn('notification.engine.order_status_failed', { error: engineError, orderId: order.orderId || order.id });
+        });
+
+        void notifyOrderStatusEmail(order, order.status).catch((notifyError) => {
           logger.warn('notification.order_status_failed', { error: notifyError, orderId: order.orderId || order.id });
         });
 

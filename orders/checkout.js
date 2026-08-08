@@ -1,8 +1,10 @@
 import {
+  applyCheckoutCoupon,
+  clearCheckoutCoupon,
   getState, guardStep, initCheckout, setStep, subscribe, updateProductQty
 } from './core/state.js';
 import {
-  renderDeliveryInfo, renderProgress, renderProductList, renderShippingSummary, renderSidebar,
+  renderCouponPanel, renderDeliveryInfo, renderProgress, renderProductList, renderShippingSummary, renderSidebar,
   renderStickyBar, renderTotals, showMessage
 } from './ui/layout.js';
 import { validateProducts } from './core/validation.js';
@@ -13,9 +15,32 @@ const stickyEl = document.getElementById('stickyBar');
 const shippingSummaryEl = document.getElementById('shippingSummary');
 const deliveryInfoEl = document.getElementById('deliveryInfo');
 const productListEl = document.getElementById('productList');
+const couponBlockEl = document.getElementById('couponBlock');
 const totalsBlockEl = document.getElementById('totalsBlock');
 const messageEl = document.getElementById('message');
 const continueBtn = document.getElementById('reviewContinueBtn');
+
+function bindCouponPanel() {
+  const applyBtn = document.getElementById('couponApplyBtn');
+  const clearBtn = document.getElementById('couponClearBtn');
+  const input = document.getElementById('couponCodeInput');
+  const message = document.getElementById('couponMessage');
+
+  applyBtn?.addEventListener('click', async () => {
+    applyBtn.disabled = true;
+    const result = await applyCheckoutCoupon(input?.value || '');
+    if (!result.ok && message) {
+      message.textContent = result.message || 'Unable to apply coupon.';
+    }
+    applyBtn.disabled = false;
+    render();
+  });
+
+  clearBtn?.addEventListener('click', () => {
+    clearCheckoutCoupon();
+    render();
+  });
+}
 
 function render() {
   const state = getState();
@@ -23,6 +48,10 @@ function render() {
   shippingSummaryEl.innerHTML = renderShippingSummary(state.shipping);
   deliveryInfoEl.innerHTML = renderDeliveryInfo();
   productListEl.innerHTML = renderProductList(state.products, { editable: true });
+  if (couponBlockEl) {
+    couponBlockEl.innerHTML = renderCouponPanel(state.coupon);
+    bindCouponPanel();
+  }
   totalsBlockEl.innerHTML = renderTotals(state.totals);
   sidebarEl.innerHTML = renderSidebar(state.products, state.totals);
   stickyEl.innerHTML = renderStickyBar('Continue to Payment', 'reviewContinueBtn');
@@ -39,6 +68,10 @@ productListEl.addEventListener('click', (e) => {
   if (!item) return;
   const delta = btn.dataset.qtyAction === 'inc' ? 1 : -1;
   updateProductQty(id, variant, (item.qty || 1) + delta);
+  const couponCode = getState().coupon?.code;
+  if (couponCode) {
+    void applyCheckoutCoupon(couponCode).then(() => render());
+  }
 });
 
 function handleContinue() {

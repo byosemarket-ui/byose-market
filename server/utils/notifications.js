@@ -154,7 +154,16 @@ async function notifyLowStock(products) {
         return;
     }
 
-    const adminEmail = String(process.env.ADMIN_ALERT_EMAIL || process.env.ADMIN_EMAIL || '').trim();
+    let adminEmail = '';
+    try {
+        const { resolveAdminNotificationEmail } = require('../config/notification-mail.config');
+        const notificationSettingsService = require('../services/notificationsettings.service');
+        const settings = await notificationSettingsService.getNotificationSettings();
+        adminEmail = resolveAdminNotificationEmail(settings);
+    } catch (_error) {
+        adminEmail = String(process.env.ADMIN_ALERT_EMAIL || process.env.ADMIN_EMAIL || '').trim();
+    }
+
     if (!adminEmail) {
         appLogger.warn('notification.low_stock_no_admin_email');
         return;
@@ -170,7 +179,15 @@ async function notifyLowStock(products) {
  * @param {string} body
  */
 async function notifyAdminAlert(subject, body) {
-    const adminEmail = String(process.env.ADMIN_ALERT_EMAIL || process.env.ADMIN_EMAIL || '').trim();
+    let adminEmail = '';
+    try {
+        const { resolveAdminNotificationEmail } = require('../config/notification-mail.config');
+        const notificationSettingsService = require('../services/notificationsettings.service');
+        const settings = await notificationSettingsService.getNotificationSettings();
+        adminEmail = resolveAdminNotificationEmail(settings);
+    } catch (_error) {
+        adminEmail = String(process.env.ADMIN_ALERT_EMAIL || process.env.ADMIN_EMAIL || '').trim();
+    }
     if (!adminEmail) {
         return;
     }

@@ -13,6 +13,7 @@ import {
   getCustomers,
   getActivityLogs,
   getAnalytics,
+  getNotificationCenter,
   refreshRealtimeIntelligence,
   ADMIN_SYNC_EVENT
 } from "./admin-data.service.js";
@@ -145,6 +146,9 @@ class LiveFeedsHandler {
           case "analytics":
             await this.processAnalyticsUpdates(updates);
             break;
+          case "notifications":
+            await this.processNotificationUpdates(updates);
+            break;
           default:
             console.log(`[LiveFeeds] Unknown scope: ${scope}`);
         }
@@ -276,6 +280,25 @@ class LiveFeedsHandler {
   }
 
   /**
+   * Process admin notification-center updates
+   */
+  async processNotificationUpdates(updates) {
+    console.log(`[LiveFeeds] Processing ${updates.length} notification updates`);
+
+    try {
+      await getNotificationCenter({ force: true, limit: 8 });
+      window.dispatchEvent(new CustomEvent("admin:notifications-changed", {
+        detail: { source: "live-feeds", updates }
+      }));
+      window.dispatchEvent(new CustomEvent(ADMIN_SYNC_EVENT, {
+        detail: { scope: "notifications", source: "live-feeds" }
+      }));
+    } catch (error) {
+      console.error("[LiveFeeds] Failed to refresh notifications:", error.message);
+    }
+  }
+
+  /**
    * Notify all listeners for a scope
    */
   notifyListeners(scope, updates) {
@@ -345,7 +368,7 @@ export function subscribeToLiveFeeds(scope, callback) {
   return handler.subscribe(scope, callback);
 }
 
-export function startLiveFeeds(scopes = ["orders", "products", "carts", "customers", "activity"]) {
+export function startLiveFeeds(scopes = ["orders", "products", "carts", "customers", "activity", "notifications"]) {
   const handler = getLiveFeedsHandler();
   scopes.forEach((scope) => {
     handler.subscribe(scope, () => {

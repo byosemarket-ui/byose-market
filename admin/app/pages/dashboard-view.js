@@ -338,6 +338,9 @@ export function buildDashboardMarkup(model) {
         <a class="enterprise-shortcut" href="#/inventory"><strong>Inventory</strong><span>Stock and replenishment</span></a>
         <a class="enterprise-shortcut" href="#/analytics"><strong>Analytics</strong><span>Revenue and conversion</span></a>
         <a class="enterprise-shortcut" href="#/activity"><strong>Activity</strong><span>Logs and diagnostics</span></a>
+        <a class="enterprise-shortcut" href="#/notifications"><strong>Notifications</strong><span>History and alert inbox</span></a>
+        <a class="enterprise-shortcut" href="#/notificationanalytics"><strong>Notification Analytics</strong><span>Volume, delivery, reports</span></a>
+        <a class="enterprise-shortcut" href="#/notificationmonitoring"><strong>Notification Ops</strong><span>Health, email, recovery</span></a>
       </div>
     </section>
   `;

@@ -117,16 +117,35 @@ export function renderPaymentMethods(methods, selectedId) {
 
 export function renderTotals(totals) {
   const discount = Number(totals.discount) || 0;
+  const couponDiscount = Number(totals.couponDiscount) || 0;
   const tax = Number(totals.tax) || 0;
   return `
     <dl class="ck-totals">
       <div><dt>Subtotal</dt><dd>${formatCurrency(totals.subtotal)}</dd></div>
-      ${discount > 0 ? `<div><dt>Discount</dt><dd>−${formatCurrency(discount)}</dd></div>` : ''}
+      ${discount > 0 ? `<div><dt>Product savings</dt><dd>−${formatCurrency(discount)}</dd></div>` : ''}
+      ${couponDiscount > 0 ? `<div><dt>Coupon${totals.couponCode ? ` (${escapeHtml(totals.couponCode)})` : ''}</dt><dd>−${formatCurrency(couponDiscount)}</dd></div>` : ''}
       <div><dt>Delivery</dt><dd>${formatCurrency(totals.deliveryFee)}</dd></div>
       ${tax > 0 ? `<div><dt>Tax</dt><dd>${formatCurrency(tax)}</dd></div>` : ''}
       ${totals.codFee > 0 ? `<div><dt>COD fee</dt><dd>${formatCurrency(totals.codFee)}</dd></div>` : ''}
       <div class="ck-totals-total"><dt>Total</dt><dd>${formatCurrency(totals.total)}</dd></div>
     </dl>
+  `;
+}
+
+export function renderCouponPanel(coupon = {}) {
+  const code = String(coupon.code || '');
+  const applied = Boolean(code && Number(coupon.discountAmount || 0) > 0);
+  return `
+    <section class="ck-coupon" id="couponPanel">
+      <h2 class="ck-pay-section__title">Coupon</h2>
+      <div class="ck-coupon__row">
+        <input type="text" id="couponCodeInput" maxlength="40" placeholder="Enter coupon code" value="${escapeHtml(code)}" ${applied ? 'readonly' : ''}>
+        ${applied
+          ? '<button type="button" class="ck-btn ck-btn--ghost" id="couponClearBtn">Remove</button>'
+          : '<button type="button" class="ck-btn ck-btn--primary" id="couponApplyBtn">Apply</button>'}
+      </div>
+      <p class="ck-coupon__message" id="couponMessage">${applied ? `Applied: ${escapeHtml(coupon.title || code)} (−${formatCurrency(coupon.discountAmount)})` : 'Have a code? Apply it before placing your order.'}</p>
+    </section>
   `;
 }
 

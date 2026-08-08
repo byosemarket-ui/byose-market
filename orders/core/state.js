@@ -54,7 +54,8 @@ const state = {
   deliveryMethodKey: 'homeDelivery',
   deliveryEstimate: '',
   payment: { method: 'mtn', phone: '' },
-  totals: { subtotal: 0, discount: 0, tax: 0, deliveryFee: DELIVERY_FEE, codFee: 0, total: DELIVERY_FEE }
+  coupon: { code: '', title: '', discountAmount: 0, status: '' },
+  totals: { subtotal: 0, discount: 0, couponDiscount: 0, tax: 0, deliveryFee: DELIVERY_FEE, codFee: 0, total: DELIVERY_FEE }
 };
 
 let runtimeDeliveryFee = DELIVERY_FEE;
@@ -73,6 +74,7 @@ function writeHandoff() {
       products: state.products,
       shipping: state.shipping,
       payment: state.payment,
+      coupon: state.coupon,
       at: Date.now()
     }));
   } catch (_) { /* sessionStorage may be unavailable */ }
@@ -120,6 +122,16 @@ function applyHandoff() {
     state.payment = { method: 'mtn', phone: '', ...handoff.payment };
   }
 
+  if (handoff.coupon && typeof handoff.coupon === 'object') {
+    state.coupon = {
+      code: '',
+      title: '',
+      discountAmount: 0,
+      status: '',
+      ...handoff.coupon
+    };
+  }
+
   if (handoff.step && STEPS.some((s) => s.id === handoff.step)) {
     state.step = handoff.step;
   }
@@ -137,7 +149,8 @@ function persistDraft() {
     source: state.source,
     products: state.products,
     shipping: state.shipping,
-    payment: state.payment
+    payment: state.payment,
+    coupon: state.coupon
   });
   writeHandoff();
 }
@@ -159,13 +172,16 @@ function recalcTotals() {
   const deliveryFee = state.deliveryMethodKey === 'storePickup' ? 0 : runtimeDeliveryFee;
   const codFee = state.payment.method === 'cod' ? COD_FEE : 0;
   const tax = 0;
+  const couponDiscount = Math.max(0, Number(state.coupon?.discountAmount || 0));
   state.totals = {
     subtotal,
     discount,
+    couponDiscount,
+    couponCode: state.coupon?.code || '',
     tax,
     deliveryFee,
     codFee,
-    total: subtotal + deliveryFee + codFee
+    total: Math.max(0, subtotal - couponDiscount) + deliveryFee + codFee
   };
 }
 
@@ -299,18 +315,149 @@ function loadPayment() {
   }
 }
 
+function readSelectedCouponFromAccount() {
+  try {
+    const raw = window.localStorage.getItem('byose_selected_coupon_v1');
+    return raw ? JSON.parse(raw) : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function loadCoupon() {
+  const draft = readActiveDraft();
+  if (draft?.coupon?.code) {
+    state.coupon = {
+      code: String(draft.coupon.code || '').toUpperCase(),
+      title: String(draft.coupon.title || ''),
+      discountAmount: Number(draft.coupon.discountAmount || 0),
+      status: String(draft.coupon.status || '')
+    };
+    return;
+  }
+
+  const selected = readSelectedCouponFromAccount();
+  if (selected?.code) {
+    state.coupon = {
+      code: String(selected.code || '').toUpperCase(),
+      title: String(selected.title || ''),
+      discountAmount: 0,
+      status: 'pending'
+    };
+  }
+}
+
+function resolveApiOrigin() {
+  const explicit = String(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || '').replace(/\/+$/, '');
+  if (explicit) return explicit.replace(/\/api$/i, '');
+  const hostname = String(window.location?.hostname || '');
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return `http://${hostname || 'localhost'}:5000`;
+  }
+  return String(window.location?.origin || '').replace(/\/+$/, '');
+}
+
+export async function applyCheckoutCoupon(code) {
+  const normalized = String(code || '').trim().toUpperCase();
+  if (!normalized) {
+    return { ok: false, message: 'Enter a coupon code.' };
+  }
+
+  const token = window.authService?.getToken?.() || window.localStorage?.getItem('bm_auth_token') || '';
+  if (!token) {
+    return { ok: false, message: 'Sign in to use a coupon.' };
+  }
+
+  recalcTotals();
+  const subtotal = Number(state.totals.subtotal || 0);
+  const items = state.products.map((product) => ({
+    productId: product.productId || product.id,
+    id: product.id,
+    category: product.category || '',
+    quantity: product.qty || product.quantity || 1,
+    price: product.price
+  }));
+
+  try {
+    const response = await (window.authService?.authFetch
+      ? window.authService.authFetch(`${resolveApiOrigin()}/api/coupons/validate`, {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ code: normalized, orderAmount: subtotal, subtotal, items })
+        })
+      : fetch(`${resolveApiOrigin()}/api/coupons/validate`, {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ code: normalized, orderAmount: subtotal, subtotal, items })
+        }));
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.success === false) {
+      return { ok: false, message: payload?.message || 'This coupon cannot be applied.' };
+    }
+
+    state.coupon = {
+      code: String(payload.coupon?.code || normalized).toUpperCase(),
+      title: String(payload.coupon?.title || ''),
+      discountAmount: Number(payload.discountAmount || 0),
+      status: 'applied'
+    };
+    try {
+      window.localStorage.setItem('byose_selected_coupon_v1', JSON.stringify({
+        code: state.coupon.code,
+        title: state.coupon.title,
+        savedAt: new Date().toISOString()
+      }));
+    } catch (_error) {}
+
+    recalcTotals();
+    persistDraft();
+    emit('coupon-changed');
+    return { ok: true, coupon: state.coupon, totals: getState().totals };
+  } catch (_error) {
+    return { ok: false, message: 'Unable to validate coupon right now.' };
+  }
+}
+
+export function clearCheckoutCoupon() {
+  state.coupon = { code: '', title: '', discountAmount: 0, status: '' };
+  try {
+    window.localStorage.removeItem('byose_selected_coupon_v1');
+  } catch (_error) {}
+  recalcTotals();
+  persistDraft();
+  emit('coupon-changed');
+}
+
 export async function initCheckout(preferredStep) {
   loadProducts();
   applyHandoff();
   loadCustomer();
   loadShipping();
   loadPayment();
+  loadCoupon();
   if (preferredStep && STEPS.some((s) => s.id === preferredStep)) {
     state.step = preferredStep;
   }
   recalcTotals();
   state.initialized = true;
   emit('init');
+
+  // Always revalidate applied/selected coupons against the current cart totals.
+  if (state.coupon?.code) {
+    void applyCheckoutCoupon(state.coupon.code).then((result) => {
+      if (!result?.ok) {
+        clearCheckoutCoupon();
+      }
+      emit('coupon-changed');
+    });
+  }
 
   // Hydrate from server in background — never block step navigation on network I/O.
   void hydrateStorefrontState().then((remote) => {
@@ -340,7 +487,14 @@ export async function initCheckout(preferredStep) {
     loadCustomer();
     loadShipping();
     loadPayment();
+    loadCoupon();
     recalcTotals();
+    if (state.coupon?.code) {
+      void applyCheckoutCoupon(state.coupon.code).then((result) => {
+        if (!result?.ok) clearCheckoutCoupon();
+        emit('coupon-changed');
+      });
+    }
     emit('hydrated');
   }).catch(() => null);
 }

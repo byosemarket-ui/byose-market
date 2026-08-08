@@ -148,6 +148,13 @@ exports.signup = async (req, res) => {
         realtimeService.emitCustomerRegistered(sanitizedUser);
         realtimeService.emitAnalyticsUpdated({ source: 'customers', action: 'registered' });
 
+        try {
+            const notificationEngine = require('../services/notification-engine.service');
+            void notificationEngine.notifyCustomerRegistered(sanitizedUser);
+        } catch (_engineError) {
+            // non-blocking
+        }
+
         const token = generateToken({ id: newUser.id, email: newUser.email, phone: newUser.phone, role: newUser.role });
 
         return res.json({ success: true, token, user: sanitizedUser });

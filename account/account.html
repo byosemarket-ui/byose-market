@@ -147,30 +147,46 @@
       <span class="section-chip">Quick access</span>
     </div>
 
-    <div class="features-grid">
+    <div class="features-grid" role="list">
 
-      <a href="pages/wishlist.html" class="feature-item">
-        <i class="fa-regular fa-heart"></i>
-        <strong>Wishlist</strong>
-        <span id="wishlistSummary">Saved products</span>
+      <a href="pages/wishlist.html" class="feature-item feature-item--wishlist" role="listitem" aria-label="Open Wishlist">
+        <div class="feature-item__top">
+          <span class="feature-item__icon" aria-hidden="true"><i class="fa-solid fa-heart"></i></span>
+          <span class="feature-item__count" id="wishlistFeatureCount" hidden>0</span>
+        </div>
+        <strong class="feature-item__title">Wishlist</strong>
+        <span class="feature-item__desc" id="wishlistSummary">Save products you love</span>
+        <span class="feature-item__cta">Open <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
       </a>
 
-      <a href="pages/recent.html" class="feature-item">
-        <i class="fa-regular fa-clock"></i>
-        <strong>Recent</strong>
-        <span>Viewed items</span>
+      <a href="pages/recent.html" class="feature-item feature-item--recent" role="listitem" aria-label="Open Recently Viewed">
+        <div class="feature-item__top">
+          <span class="feature-item__icon" aria-hidden="true"><i class="fa-solid fa-clock-rotate-left"></i></span>
+          <span class="feature-item__count" id="recentFeatureCount" hidden>0</span>
+        </div>
+        <strong class="feature-item__title">Recent</strong>
+        <span class="feature-item__desc" id="recentSummary">Pick up where you left off</span>
+        <span class="feature-item__cta">Open <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
       </a>
 
-      <a href="pages/coupons.html" class="feature-item">
-        <i class="fa-regular fa-ticket"></i>
-        <strong>Coupons</strong>
-        <span>Discount codes</span>
+      <a href="pages/coupons.html" class="feature-item feature-item--coupons" role="listitem" aria-label="Open My Coupons">
+        <div class="feature-item__top">
+          <span class="feature-item__icon" aria-hidden="true"><i class="fa-solid fa-ticket"></i></span>
+          <span class="feature-item__count" id="couponsFeatureCount" hidden>0</span>
+        </div>
+        <strong class="feature-item__title">Coupons</strong>
+        <span class="feature-item__desc" id="couponsSummary">Ready-to-use discounts</span>
+        <span class="feature-item__cta">Open <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
       </a>
 
-      <a href="pages/stores.html" class="feature-item">
-        <i class="fa-solid fa-store"></i>
-        <strong>Stores</strong>
-        <span>Favorite sellers</span>
+      <a href="pages/stores.html" class="feature-item feature-item--stores" role="listitem" aria-label="Open Favorite Stores">
+        <div class="feature-item__top">
+          <span class="feature-item__icon" aria-hidden="true"><i class="fa-solid fa-store"></i></span>
+          <span class="feature-item__count" id="storesFeatureCount" hidden>0</span>
+        </div>
+        <strong class="feature-item__title">Stores</strong>
+        <span class="feature-item__desc" id="storesSummary">Follow sellers you trust</span>
+        <span class="feature-item__cta">Open <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
       </a>
 
     </div>
@@ -243,8 +259,16 @@
 
 <!-- JS -->
 <script src="../services/authservice.js"></script>
+<script src="../services/wishlist-client.js"></script>
+<script src="../services/favorite-stores-client.js"></script>
+<script src="../services/recently-viewed-tracker.js"></script>
 <script src="js/auth-guard.js"></script>
 <script src="services/orderservice.js"></script>
+<script src="services/account-features-api.js"></script>
+<script src="services/wishlist.service.js"></script>
+<script src="services/recently-viewed.service.js"></script>
+<script src="services/coupon.service.js"></script>
+<script src="services/favorite-stores.service.js"></script>
 <script src="js/account.js"></script>
 <script src="js/dashboard-data.js"></script>
 <script src="../js/mobile-nav.js"></script>

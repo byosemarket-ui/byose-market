@@ -133,6 +133,8 @@ export function buildOrderPayload(options = {}) {
     deliveryFee: state.totals.deliveryFee,
     shippingFee: state.totals.deliveryFee,
     codFee: state.totals.codFee,
+    couponCode: state.coupon?.code || '',
+    couponDiscount: Number(state.totals.couponDiscount || 0),
     total: state.totals.total,
     totalAmount: state.totals.total,
     deliveryMethod: state.deliveryMethodKey === 'storePickup' ? 'pickup' : 'delivery',
@@ -275,6 +277,9 @@ export async function submitOrder() {
     removeStorage(STORAGE_KEYS.checkoutActive);
     removeStorage(STORAGE_KEYS.directCheckout);
     removeStorage(STORAGE_KEYS.draft);
+    try {
+      window.localStorage.removeItem('byose_selected_coupon_v1');
+    } catch (_error) {}
     clearPendingOrderSubmission();
     clearCheckoutHandoff();
     emitCartUpdated();
@@ -286,6 +291,8 @@ export async function submitOrder() {
       subtotal: Number(persisted.subtotal ?? order.subtotal) || 0,
       deliveryFee: Number(persisted.deliveryFee ?? order.deliveryFee) || 0,
       codFee: Number(persisted.codFee ?? order.codFee) || 0,
+      couponCode: persisted.couponCode || order.couponCode || '',
+      couponDiscount: Number(persisted.couponDiscount ?? order.couponDiscount) || 0,
       total: Number(persisted.totalAmount ?? persisted.total ?? order.totalAmount) || 0,
       items: Array.isArray(persisted.items) && persisted.items.length ? persisted.items : order.items,
       shippingAddress: order.shippingAddress,
@@ -302,6 +309,30 @@ export async function submitOrder() {
     saveCheckoutConfirmation(confirmation);
     succeeded = true;
 
+    // Cross-feature sync: coupons count + wishlist cleanup (best effort).
+    try {
+      window.dispatchEvent(new CustomEvent('byose:coupons-updated', {
+        detail: {
+          counts: { available: null },
+          source: 'order-success',
+          couponCode: confirmation.couponCode || ''
+        }
+      }));
+    } catch (_error) {}
+
+    try {
+      const purchasedIds = Array.from(new Set(
+        (confirmation.items || [])
+          .map((item) => String(item.productId || item.id || item.catalogId || '').trim())
+          .filter(Boolean)
+      ));
+      if (purchasedIds.length && window.ByoseWishlist?.removeItem) {
+        purchasedIds.forEach((productId) => {
+          window.ByoseWishlist.removeItem(productId, { silent: true }).catch(() => {});
+        });
+      }
+    } catch (_error) {}
+
     return { valid: true, orderId: confirmation.orderId, confirmation };
   } finally {
     // Keep the submit lock on success until the browser navigates away.
@@ -310,4 +341,4 @@ export async function submitOrder() {
     }
   }
 }
-
+
