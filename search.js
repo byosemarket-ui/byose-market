@@ -205,7 +205,7 @@
         return;
       }
 
-      const items = Array.isArray(terms) && terms.length ? terms : ['Shoes', 'Phones', 'Fashion', 'Bags', 'Electronics'];
+      const items = Array.isArray(terms) && terms.length ? terms : ['Shoes', 'Sneakers', 'Boots', 'Footwear'];
       elements.popularSearches.innerHTML = items
         .map((term) => renderSearchChip(String(term).replace(/\b\w/g, (char) => char.toUpperCase()), 'fa-solid fa-arrow-trend-up'))
         .join('');

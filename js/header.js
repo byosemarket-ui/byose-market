@@ -348,8 +348,8 @@ function setupHomeSearchRedirect() {
 
   const placeholders = [
     'Search shoes...',
-    'Search phones...',
-    'Search bags...'
+    'Search footwear...',
+    'Search products...'
   ];
 
   let activeIndex = 0;

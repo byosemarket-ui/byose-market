@@ -52,9 +52,9 @@ const DEFAULT_COLORS = Object.freeze({
 });
 
 const DEFAULT_IDENTITY = Object.freeze({
-    tagline: "Rwanda's trusted online marketplace",
+    tagline: 'Quality footwear from our own stock',
     slogan: 'Shop smart. Shop BYOSE.',
-    brandDescription: "BYOSE Market is Rwanda's trusted online marketplace for fashion, shoes, electronics and everyday essentials.",
+    brandDescription: 'BYOSE Market is a trusted Rwandan online store offering quality footwear directly from our own stock. Shop online, pay securely, and enjoy convenient delivery.',
     copyrightText: '© 2026 BYOSE Market. All rights reserved.',
     footerCopyright: '© 2026 BYOSE Market. All rights reserved.',
     businessRegistrationNumber: '',

@@ -8,19 +8,19 @@ const BRANDING_BUCKET = 'branding';
 
 const DEFAULT_SEO = Object.freeze({
     website: {
-        websiteTitle: 'BYOSE Market Rwanda | Kugura Online Byoroshye',
-        metaTitle: 'BYOSE Market Rwanda | Shop Online',
-        metaDescription: 'BYOSE Market ni online shopping platform yo mu Rwanda igufasha kubona inkweto, imyenda, electronics n\'ibindi ku giciro cyiza.',
-        metaKeywords: 'byose market, shopping rwanda, kugura online kigali, electronics, fashion',
+        websiteTitle: 'BYOSE Market Rwanda | Quality Footwear Online',
+        metaTitle: 'BYOSE Market Rwanda | Quality Footwear Online',
+        metaDescription: 'Shop quality footwear online in Rwanda with BYOSE Market. Browse products from our own stock, order online, pay securely, and enjoy convenient delivery.',
+        metaKeywords: 'byose market, footwear rwanda, shoes online kigali, quality footwear, buy shoes rwanda',
         canonicalUrl: 'https://byosemarket.com',
         robotsMeta: 'index, follow'
     },
     social: {
-        ogTitle: 'Byose Market Rwanda',
-        ogDescription: 'Shop online in Rwanda with a clean compact ecommerce experience.',
+        ogTitle: 'BYOSE Market Rwanda | Quality Footwear Online',
+        ogDescription: 'Shop quality footwear online in Rwanda with BYOSE Market. Browse products from our own stock, order online, pay securely, and enjoy convenient delivery.',
         ogImage: '',
-        twitterTitle: 'Byose Market Rwanda',
-        twitterDescription: 'Shop online in Rwanda with a clean compact ecommerce experience.',
+        twitterTitle: 'BYOSE Market Rwanda | Quality Footwear Online',
+        twitterDescription: 'Shop quality footwear online in Rwanda with BYOSE Market. Browse products from our own stock, order online, pay securely, and enjoy convenient delivery.',
         twitterImage: '',
         twitterCard: 'summary_large_image'
     },
