@@ -302,6 +302,8 @@ function paymentMarkup(payment) {
             <p class="admin-profile-help">
               Set <code>PAYMENT_ENCRYPTION_KEY</code> in the server <code>.env</code> (never commit it).
               Company Tokens are never returned by the API — only configured/hint status.
+              When you change a Company Token, enter its matching Service Type ID in the same save.
+              Keep Service Type <code>54841</code> only if it belongs to that Company Token.
             </p>
             ${!encryption.configured
               ? '<p class="admin-profile-help is-error">PAYMENT_ENCRYPTION_KEY is required before credentials can be saved.</p>'
@@ -354,6 +356,15 @@ function collectPayload(container, payment) {
         if (!field.secret && !value) return;
         credentials[credMode][field.key] = value;
       });
+
+    // Matched set: if a Company Token is being saved, always include Service Type from the form.
+    if (credentials[credMode].companyToken && !credentials[credMode].serviceType) {
+      const serviceInput = credsForm?.querySelector(`[data-payment-cred="${credMode}.serviceType"]`);
+      const serviceValue = String(serviceInput?.value || "").trim();
+      if (serviceValue) {
+        credentials[credMode].serviceType = serviceValue;
+      }
+    }
   });
 
   return {
@@ -418,7 +429,14 @@ function bindPaymentPanel(container, payment) {
     feedback.classList.remove("is-error", "is-success");
     try {
       const saved = await updateAdminPayment(collectPayload(container, current));
-      paint(saved, "Payment settings saved successfully.", "is-success");
+      const testReady = Boolean(saved?.providers?.find((entry) => entry.id === (saved.activeProvider || "dpo"))?.credentials?.test?.ready);
+      paint(
+        saved,
+        testReady
+          ? "Payment settings saved. TEST credentials are configured (secret values are not shown)."
+          : "Payment settings saved successfully.",
+        "is-success"
+      );
     } catch (error) {
       feedback.textContent = error?.message || "Unable to save payment settings.";
       feedback.classList.add("is-error");

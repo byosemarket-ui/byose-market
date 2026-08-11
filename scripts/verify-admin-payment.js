@@ -11,6 +11,16 @@ const crypto = require("crypto");
 
 require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 
+const {
+  assertNotWritingPlaceholderIntoRealStore,
+  isolateVerifyCredentialStore,
+  isRealCredentialsPath,
+  resetUndecryptableStoreIfSafe
+} = require("./lib/payment-verify-guard");
+
+// Isolate BEFORE loading secrets.store so verify never touches the real enc file.
+const verifyStore = isolateVerifyCredentialStore("verify-admin-payment");
+
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -84,19 +94,17 @@ async function verifyServiceLayer() {
 
   assert(registry.isKnownProvider("dpo"), "DPO provider missing from registry");
   assert(secretsStore.isEncryptionConfigured(), "encryption not configured");
+  assert(
+    !isRealCredentialsPath(secretsStore.getCredentialsFilePath()),
+    "verify must use an isolated credential store, not the real encrypted file"
+  );
+  assert(
+    secretsStore.getCredentialsFilePath() === verifyStore.isolatedPath
+      || path.resolve(secretsStore.getCredentialsFilePath()) === path.resolve(verifyStore.isolatedPath),
+    "verify credential path mismatch"
+  );
 
-  // If a previous verify run used a different key, reset the encrypted store for this run.
-  try {
-    secretsStore.readStore();
-  } catch (error) {
-    if (error?.code === "PAYMENT_CREDENTIALS_DECRYPT_FAILED" || error?.code === "PAYMENT_CREDENTIALS_CORRUPT") {
-      const storePath = path.resolve(__dirname, "../server/secure/payment-credentials.enc");
-      if (fs.existsSync(storePath)) fs.unlinkSync(storePath);
-      console.log("[verify-admin-payment] reset undecryptable payment-credentials.enc");
-    } else {
-      throw error;
-    }
-  }
+  resetUndecryptableStoreIfSafe(secretsStore, "verify-admin-payment");
 
   const initial = await paymentSettingsService.getAdminPaymentSettings();
   assert(initial.activeProvider === "dpo", "default provider should be dpo");
@@ -105,6 +113,7 @@ async function verifyServiceLayer() {
   assertNoSecretLeak(initial, "initial admin view");
 
   const fakeToken = `verify-token-${crypto.randomBytes(8).toString("hex")}`;
+  assertNotWritingPlaceholderIntoRealStore(fakeToken, "verify-admin-payment");
   const updated = await paymentSettingsService.updatePaymentSettings({
     enabled: false,
     activeProvider: "dpo",
@@ -120,6 +129,10 @@ async function verifyServiceLayer() {
   assert(updated.providers[0].credentials.test.fields.companyToken.configured === true, "company token not marked configured");
   assert(!JSON.stringify(updated).includes(fakeToken), "admin response exposed company token");
   assert(updated.providers[0].credentials.test.fields.companyToken.hint.endsWith(fakeToken.slice(-4)), "hint should show last 4");
+  assert(
+    /payv3\.php/i.test(String(updated.providers[0].endpoints?.test?.paymentPageUrl || "")),
+    "TEST payment page must use payv3"
+  );
 
   const runtime = await paymentSettingsService.getRuntimePaymentCredentials({ providerId: "dpo", mode: "test" });
   assert(runtime.secrets.companyToken === fakeToken, "runtime secrets should resolve stored token");

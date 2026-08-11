@@ -22,7 +22,7 @@ const CREDENTIAL_FIELDS = Object.freeze([
         required: true,
         inputType: 'text',
         autocomplete: 'off',
-        help: 'DPO Service Type / Product Service ID used when creating payment tokens.'
+        help: 'DPO Service Type / Product Service ID for this Company Token. Save it together with the Company Token. Use 54841 only if it belongs to that token.'
     }
 ]);
 
@@ -42,11 +42,17 @@ function normalizeText(value, fallback = '') {
     return text || fallback;
 }
 
-function sanitizeEndpoints(source = {}, fallback = DEFAULT_ENDPOINTS.test) {
+function sanitizeEndpoints(source = {}, fallback = DEFAULT_ENDPOINTS.test, options = {}) {
     const raw = source && typeof source === 'object' ? source : {};
+    let paymentPageUrl = normalizeText(raw.paymentPageUrl, fallback.paymentPageUrl).slice(0, 300);
+    // Option A / STEP 4: TEST hosted page must use payv3.php?ID=token.
+    // Do not rewrite LIVE endpoints here.
+    if (options.upgradeLegacyPayV2 && /payv2\.php/i.test(paymentPageUrl)) {
+        paymentPageUrl = fallback.paymentPageUrl || DEFAULT_ENDPOINTS.test.paymentPageUrl;
+    }
     return {
         apiBaseUrl: normalizeText(raw.apiBaseUrl, fallback.apiBaseUrl).slice(0, 300),
-        paymentPageUrl: normalizeText(raw.paymentPageUrl, fallback.paymentPageUrl).slice(0, 300)
+        paymentPageUrl
     };
 }
 
@@ -68,8 +74,8 @@ function sanitizeProviderConfig(raw = {}) {
         enabled: source.enabled !== false,
         label: normalizeText(source.label, 'DPO Pay').slice(0, 80),
         endpoints: {
-            test: sanitizeEndpoints(endpointsSource.test, DEFAULT_ENDPOINTS.test),
-            live: sanitizeEndpoints(endpointsSource.live, DEFAULT_ENDPOINTS.live)
+            test: sanitizeEndpoints(endpointsSource.test, DEFAULT_ENDPOINTS.test, { upgradeLegacyPayV2: true }),
+            live: sanitizeEndpoints(endpointsSource.live, DEFAULT_ENDPOINTS.live, { upgradeLegacyPayV2: false })
         }
     };
 }

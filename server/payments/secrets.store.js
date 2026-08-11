@@ -9,13 +9,32 @@ const crypto = require('crypto');
 const paths = require('../config/paths');
 
 const SECURE_DIR = path.resolve(paths.serverRoot, 'secure');
-const CREDENTIALS_FILE = path.resolve(SECURE_DIR, 'payment-credentials.enc');
+const DEFAULT_CREDENTIALS_FILE = path.resolve(SECURE_DIR, 'payment-credentials.enc');
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
 
-function ensureSecureDir() {
+/**
+ * Production/admin path is server/secure/payment-credentials.enc.
+ * Verification scripts may set PAYMENT_CREDENTIALS_PATH to an isolated temp file
+ * so they never overwrite real merchant credentials.
+ */
+function getCredentialsFilePath() {
+    const override = String(process.env.PAYMENT_CREDENTIALS_PATH || '').trim();
+    if (override) {
+        return path.resolve(override);
+    }
+    return DEFAULT_CREDENTIALS_FILE;
+}
+
+function ensureSecureDirForCredentials() {
+    const credentialsFile = getCredentialsFilePath();
+    const dir = path.dirname(credentialsFile);
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    }
+    // Keep the canonical secure directory present for production deployments.
     if (!fs.existsSync(SECURE_DIR)) {
         fs.mkdirSync(SECURE_DIR, { recursive: true, mode: 0o700 });
     }
@@ -104,12 +123,13 @@ function decryptPayload(encoded) {
 }
 
 function readStore() {
-    ensureSecureDir();
-    if (!fs.existsSync(CREDENTIALS_FILE)) {
+    ensureSecureDirForCredentials();
+    const credentialsFile = getCredentialsFilePath();
+    if (!fs.existsSync(credentialsFile)) {
         return { providers: {}, updatedAt: null };
     }
 
-    const encoded = fs.readFileSync(CREDENTIALS_FILE, 'utf8').trim();
+    const encoded = fs.readFileSync(credentialsFile, 'utf8').trim();
     if (!encoded) {
         return { providers: {}, updatedAt: null };
     }
@@ -150,17 +170,18 @@ function safeReadStore() {
 }
 
 function writeStore(store) {
-    ensureSecureDir();
+    ensureSecureDirForCredentials();
+    const credentialsFile = getCredentialsFilePath();
     const payload = {
         providers: store.providers && typeof store.providers === 'object' ? store.providers : {},
         updatedAt: new Date().toISOString()
     };
     const { encoded } = encryptPayload(payload);
-    const tempPath = `${CREDENTIALS_FILE}.${process.pid}.tmp`;
+    const tempPath = `${credentialsFile}.${process.pid}.tmp`;
     fs.writeFileSync(tempPath, encoded, { encoding: 'utf8', mode: 0o600 });
-    fs.renameSync(tempPath, CREDENTIALS_FILE);
+    fs.renameSync(tempPath, credentialsFile);
     try {
-        fs.chmodSync(CREDENTIALS_FILE, 0o600);
+        fs.chmodSync(credentialsFile, 0o600);
     } catch (_error) {
         // Windows may ignore chmod; file still exists and is gitignored.
     }
@@ -232,9 +253,11 @@ function getEncryptionStatus() {
 }
 
 module.exports = {
-    CREDENTIALS_FILE,
+    CREDENTIALS_FILE: DEFAULT_CREDENTIALS_FILE,
+    DEFAULT_CREDENTIALS_FILE,
     SECURE_DIR,
     clearProviderModeSecret,
+    getCredentialsFilePath,
     getEncryptionStatus,
     getProviderModeSecrets,
     isEncryptionConfigured,

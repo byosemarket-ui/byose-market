@@ -14,6 +14,15 @@ const crypto = require('crypto');
 
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
+const {
+    assertNotWritingPlaceholderIntoRealStore,
+    isolateVerifyCredentialStore,
+    isRealCredentialsPath,
+    resetUndecryptableStoreIfSafe
+} = require('./lib/payment-verify-guard');
+
+const verifyStore = isolateVerifyCredentialStore('verify-dpo-payment-test');
+
 let expectedCompanyToken = '';
 
 function assert(condition, message) {
@@ -87,23 +96,16 @@ async function seedTestCredentials() {
     const ephemeral = ensureEphemeralTestEnv();
 
     const secretsStore = require('../server/payments/secrets.store');
-    try {
-        secretsStore.readStore();
-    } catch (error) {
-        if (
-            error?.code === 'PAYMENT_CREDENTIALS_DECRYPT_FAILED'
-            || error?.code === 'PAYMENT_CREDENTIALS_CORRUPT'
-            || error?.code === 'PAYMENT_ENCRYPTION_KEY_MISSING'
-        ) {
-            const storePath = path.resolve(__dirname, '../server/secure/payment-credentials.enc');
-            if (fs.existsSync(storePath)) {
-                fs.unlinkSync(storePath);
-                console.log('[verify-dpo-payment-test] reset undecryptable payment-credentials.enc');
-            }
-        } else {
-            throw error;
-        }
-    }
+    assert(
+        !isRealCredentialsPath(secretsStore.getCredentialsFilePath()),
+        'verify must use an isolated credential store, not the real encrypted file'
+    );
+    assert(
+        path.resolve(secretsStore.getCredentialsFilePath()) === path.resolve(verifyStore.isolatedPath),
+        'verify credential path mismatch'
+    );
+    resetUndecryptableStoreIfSafe(secretsStore, 'verify-dpo-payment-test');
+    assertNotWritingPlaceholderIntoRealStore(ephemeral.companyToken, 'verify-dpo-payment-test');
 
     const paymentSettingsService = require('../server/services/paymentsettings.service');
     await paymentSettingsService.updatePaymentSettings({

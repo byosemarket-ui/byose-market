@@ -10,6 +10,15 @@ const crypto = require('crypto');
 
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
+const {
+    assertNotWritingPlaceholderIntoRealStore,
+    isolateVerifyCredentialStore,
+    isRealCredentialsPath,
+    resetUndecryptableStoreIfSafe
+} = require('./lib/payment-verify-guard');
+
+const verifyStore = isolateVerifyCredentialStore('verify-admin-payment-management');
+
 let expectedCompanyToken = '';
 
 function assert(condition, message) {
@@ -79,18 +88,18 @@ async function seed() {
     ensureEphemeralTestEnv();
 
     const secretsStore = require('../server/payments/secrets.store');
-    try {
-        secretsStore.readStore();
-    } catch (error) {
-        if (['PAYMENT_CREDENTIALS_DECRYPT_FAILED', 'PAYMENT_CREDENTIALS_CORRUPT', 'PAYMENT_ENCRYPTION_KEY_MISSING'].includes(error?.code)) {
-            const storePath = path.resolve(__dirname, '../server/secure/payment-credentials.enc');
-            if (fs.existsSync(storePath)) fs.unlinkSync(storePath);
-        } else {
-            throw error;
-        }
-    }
+    assert(
+        !isRealCredentialsPath(secretsStore.getCredentialsFilePath()),
+        'verify must use an isolated credential store, not the real encrypted file'
+    );
+    resetUndecryptableStoreIfSafe(secretsStore, 'verify-admin-payment-management');
 
-    const ephemeral = ensureEphemeralTestEnv();
+    const ephemeral = {
+        companyToken: expectedCompanyToken,
+        serviceType: String(process.env.DPO_TEST_SERVICE_TYPE || '54841').trim()
+    };
+    assertNotWritingPlaceholderIntoRealStore(ephemeral.companyToken, 'verify-admin-payment-management');
+
     const paymentSettingsService = require('../server/services/paymentsettings.service');
     await paymentSettingsService.updatePaymentSettings({
         enabled: true,

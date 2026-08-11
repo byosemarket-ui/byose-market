@@ -315,6 +315,15 @@ function applyCredentialUpdates(providerId, credentialsPayload = {}) {
             return;
         }
 
+        // When rotating a Company Token, require Service Type in the same save
+        // so TEST/LIVE pairs stay a matched credential set.
+        if (incoming.companyToken && !incoming.serviceType) {
+            errors[`${mode}.serviceType`] = mode === 'test'
+                ? 'Enter the TEST Service Type ID that belongs to this Company Token in the same save.'
+                : 'Enter the LIVE Service Type ID that belongs to this Company Token in the same save.';
+            return;
+        }
+
         const existing = resolveModeSecrets(providerId, mode).secrets;
         const mergedForValidation = { ...existing, ...incoming };
         const validated = provider.validateCredentials(mergedForValidation, { requireConfigured: false });
@@ -325,7 +334,11 @@ function applyCredentialUpdates(providerId, credentialsPayload = {}) {
             return;
         }
 
-        secretsStore.upsertProviderModeSecrets(providerId, mode, incoming);
+        // Persist the matched set together when both values are present in this save.
+        const toStore = incoming.companyToken && incoming.serviceType
+            ? { companyToken: incoming.companyToken, serviceType: incoming.serviceType }
+            : incoming;
+        secretsStore.upsertProviderModeSecrets(providerId, mode, toStore);
     });
 
     if (Object.keys(errors).length) {
