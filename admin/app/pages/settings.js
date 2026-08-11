@@ -5,6 +5,7 @@ import { renderAdminPasswordPanel } from "./settings-password.js";
 import { renderAdminGeneralPanel } from "./settings-general.js";
 import { renderAdminBrandingPanel } from "./settings-branding.js";
 import { renderAdminDeliveryPanel } from "./settings-delivery.js";
+import { renderAdminPaymentPanel } from "./settings-payment.js";
 import { renderAdminSeoPanel } from "./settings-seo.js";
 import { renderAdminNotificationsPanel } from "./settings-notifications.js";
 import { renderAdminLogoutPanel } from "./settings-logout.js";
@@ -49,6 +50,11 @@ export async function renderSettings(container) {
     return;
   }
 
+  if (activePanel === "payment") {
+    await renderAdminPaymentPanel(container);
+    return;
+  }
+
   if (activePanel === "seo") {
     await renderAdminSeoPanel(container);
     return;
@@ -72,6 +78,6 @@ export async function renderSettings(container) {
   container.innerHTML = panel(
     "Admin Settings",
     "Configuration modules",
-    `<p class="admin-profile-help">This settings panel is not available yet. Use General, Branding, Delivery, SEO, Notifications, Profile, Security, Password, or Logout & Sessions.</p>`
+    `<p class="admin-profile-help">This settings panel is not available yet. Use General, Branding, Delivery, Payment, SEO, Notifications, Profile, Security, Password, or Logout & Sessions.</p>`
   );
 }

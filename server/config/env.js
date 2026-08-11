@@ -93,5 +93,10 @@ module.exports = {
         adminPasswordHash: readText(process.env.ADMIN_PASSWORD_HASH),
         jwtSecret: readText(process.env.JWT_SECRET),
         jwtExpiresIn: readText(process.env.JWT_EXPIRES_IN, '7d')
+    },
+    payment: {
+        encryptionKeyConfigured: Boolean(readText(process.env.PAYMENT_ENCRYPTION_KEY))
+            || (Boolean(readText(process.env.JWT_SECRET))
+                && readText(process.env.JWT_SECRET) !== 'replace_with_a_long_random_secret')
     }
 };

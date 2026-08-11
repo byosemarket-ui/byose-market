@@ -214,6 +214,8 @@ function createApp() {
             || requestPath.endsWith('.sqlite')
             || requestPath.endsWith('.sqlite-wal')
             || requestPath.endsWith('.sqlite-shm')
+            || requestPath.endsWith('.enc')
+            || requestPath.includes('payment-credentials')
         ) {
             return res.status(404).end();
         }

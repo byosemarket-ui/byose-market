@@ -1,8 +1,9 @@
-import { submitOrder } from './core/order.js';
+import { initiateDpoPayment, submitOrder } from './core/order.js';
 import {
   applyCheckoutCoupon,
   clearCheckoutCoupon,
   getPaymentMethods, getState, guardStep, initCheckout,
+  loadGatewayPaymentConfig,
   setPaymentMethod, setPaymentPhone, subscribe
 } from './core/state.js';
 import { validatePayment } from './core/validation.js';
@@ -25,15 +26,17 @@ const messageEl = document.getElementById('message');
 const form = document.getElementById('paymentForm');
 const placeBtn = document.getElementById('placeOrderBtn');
 
-function setBusy(isBusy) {
+function setBusy(isBusy, label) {
+  const busyLabel = label || 'Placing order...';
+  const idleLabel = getState().payment.method === 'dpo' ? 'Pay with DPO' : 'Place Order';
   if (placeBtn) {
     placeBtn.disabled = isBusy;
-    placeBtn.textContent = isBusy ? 'Placing order...' : 'Place Order';
+    placeBtn.textContent = isBusy ? busyLabel : idleLabel;
   }
   const stickyBtn = document.getElementById('stickyContinueBtn');
   if (stickyBtn) {
     stickyBtn.disabled = isBusy;
-    stickyBtn.textContent = isBusy ? 'Placing order...' : 'Place Order';
+    stickyBtn.textContent = isBusy ? busyLabel : idleLabel;
   }
 }
 
@@ -65,8 +68,9 @@ function renderMethods() {
   methodsEl.innerHTML = renderPaymentMethods(methods, state.payment.method);
 
   const isCod = state.payment.method === 'cod';
-  phoneField.hidden = isCod;
-  if (!isCod && !phoneInput.value) {
+  const isDpo = state.payment.method === 'dpo';
+  phoneField.hidden = isCod || isDpo;
+  if (!isCod && !isDpo && !phoneInput.value) {
     phoneInput.value = state.payment.phone || state.shipping.phone || '';
   }
   if (instructionsEl) {
@@ -87,7 +91,8 @@ function render() {
   }
   totalsBlockEl.innerHTML = renderTotals(state.totals);
   sidebarEl.innerHTML = renderSidebar(state.products, state.totals);
-  stickyEl.innerHTML = renderStickyBar('Place Order', 'placeOrderBtn', { disabled: state.isSubmitting });
+  const cta = state.payment.method === 'dpo' ? 'Pay with DPO' : 'Place Order';
+  stickyEl.innerHTML = renderStickyBar(cta, 'placeOrderBtn', { disabled: state.isSubmitting });
   document.getElementById('stickyContinueBtn')?.addEventListener('click', (e) => {
     e.preventDefault();
     handlePlaceOrder(e);
@@ -118,7 +123,7 @@ async function handlePlaceOrder(e) {
   }
 
   const state = getState();
-  if (state.payment.method !== 'cod') {
+  if (state.payment.method !== 'cod' && state.payment.method !== 'dpo') {
     setPaymentPhone(phoneInput.value);
   }
 
@@ -132,7 +137,8 @@ async function handlePlaceOrder(e) {
     return;
   }
 
-  setBusy(true);
+  const usesDpo = getState().payment.method === 'dpo';
+  setBusy(true, usesDpo ? 'Starting secure payment...' : 'Placing order...');
 
   try {
     const result = await submitOrder();
@@ -141,6 +147,22 @@ async function handlePlaceOrder(e) {
       setBusy(false);
       return;
     }
+
+    if (usesDpo) {
+      setBusy(true, 'Redirecting to DPO Pay...');
+      const payment = await initiateDpoPayment(result.orderId);
+      if (!payment.success || (!payment.paymentUrl && !payment.redirectUrl)) {
+        showMessage(
+          messageEl,
+          payment.message || 'Order was created but DPO payment could not start. Open your orders and try again.'
+        );
+        setBusy(false);
+        return;
+      }
+      window.location.href = payment.paymentUrl || payment.redirectUrl;
+      return;
+    }
+
     window.location.href = `order-success.html?orderId=${encodeURIComponent(result.orderId)}`;
   } catch (err) {
     console.error(err);
@@ -149,13 +171,9 @@ async function handlePlaceOrder(e) {
   }
 }
 
-subscribe(() => render());
-
-await initCheckout('payment');
-const access = guardStep('payment');
-if (!access.ok) {
-  window.location.href = access.redirect;
-} else {
+guardStep('payment');
+subscribe(render);
+initCheckout('payment').then(async () => {
+  await loadGatewayPaymentConfig();
   render();
-  window.__ckStep = 'payment';
-}
+});

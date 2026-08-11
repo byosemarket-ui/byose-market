@@ -184,6 +184,17 @@ export function renderPaymentInstructions(methodId, totals = {}) {
     `;
   }
 
+  if (method === 'dpo') {
+    const total = formatCurrency(totals.total || 0);
+    return `
+      <div class="ck-pay-instructions ck-pay-instructions--dpo">
+        <strong>Pay securely with DPO Pay</strong>
+        <p>After you place the order you will be redirected to DPO Pay to complete <strong>${total}</strong>.</p>
+        <p>Card and mobile money options are shown on the secure DPO page. We confirm payment automatically when you return.</p>
+      </div>
+    `;
+  }
+
   const accounts = [
     { id: 'mtn', label: 'MTN Mobile Money', number: '0780430710', accountName: 'Vestine Uwifashije' },
     { id: 'airtel', label: 'Airtel Money', number: '0723137250', accountName: 'Kwizera Byose Market' },

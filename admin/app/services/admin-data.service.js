@@ -1294,6 +1294,70 @@ export async function updateAdminDelivery(nextDelivery) {
   return delivery;
 }
 
+export async function getAdminPayment(options = {}) {
+  const force = options?.force === true;
+  const cached = getCachedScopePayload("admin-payment");
+  if (!force && cached && typeof cached === "object" && Object.keys(cached).length) {
+    return asObject(cached);
+  }
+
+  const payload = await withRetry("admin/payment", () => api.get("admin/payment"));
+  const payment = asObject(payload?.payment || payload);
+  writeMemoryCache("admin-payment", payment);
+  writeCache("admin-payment", payment);
+  emitSync("admin-payment", payment);
+  return payment;
+}
+
+export async function updateAdminPayment(nextPayment) {
+  try {
+    const payload = await api.put("admin/payment", asObject(nextPayment));
+    const payment = asObject(payload?.payment || nextPayment);
+    writeMemoryCache("admin-payment", payment);
+    writeCache("admin-payment", payment);
+    emitSync("admin-payment", payment);
+    return payment;
+  } catch (error) {
+    if (error && error.payload?.details && !error.details) {
+      error.details = error.payload.details;
+    }
+    throw error;
+  }
+}
+
+export async function testAdminPaymentConnection(options = {}) {
+  try {
+    const payload = await api.post("admin/payment/test", {
+      providerId: options?.providerId || undefined
+    });
+    const payment = asObject(payload?.payment);
+    if (Object.keys(payment).length) {
+      writeMemoryCache("admin-payment", payment);
+      writeCache("admin-payment", payment);
+      emitSync("admin-payment", payment);
+    }
+    return {
+      test: asObject(payload?.test),
+      payment,
+      message: String(payload?.message || "")
+    };
+  } catch (error) {
+    if (error && error.payload?.details && !error.details) {
+      error.details = error.payload.details;
+    }
+    throw error;
+  }
+}
+
+export async function getAdminPaymentActivity(options = {}) {
+  const limit = Number(options?.limit || 12);
+  const payload = await api.get(`admin/payment/activity?limit=${encodeURIComponent(limit)}`);
+  return {
+    activity: Array.isArray(payload?.activity) ? payload.activity : [],
+    activityStats: asObject(payload?.activityStats)
+  };
+}
+
 export async function createAdminDeliveryZone(zone) {
   const payload = await api.post("admin/delivery/zones", asObject(zone));
   clearScopeCache("admin-delivery");

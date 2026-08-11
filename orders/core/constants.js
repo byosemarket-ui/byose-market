@@ -14,6 +14,7 @@ export const COD_PAYMENT_STATUS_LABEL = 'Awaiting Delivery Payment';
 export const COD_PAYMENT_METHOD_LABEL = 'Cash on Delivery';
 
 export const PAYMENT_METHODS = [
+  { id: 'dpo', label: 'Pay Online (DPO)', logo: '/img/VASA  MASTERCARD.jpeg', hint: 'Card & mobile money via DPO Pay', type: 'gateway', enabled: true, gateway: 'dpo' },
   { id: 'mtn', label: 'MTN MoMo', logo: '/img/MTN.jpeg', hint: 'Mobile money', type: 'pay_now', enabled: true },
   { id: 'airtel', label: 'Airtel Money', logo: '/img/airtel.jpeg', hint: 'Mobile money', type: 'pay_now', enabled: true },
   { id: 'bank', label: 'Bank Transfer', logo: '/img/BANK TRANSFER.jpeg', hint: 'Bank deposit', type: 'pay_now', enabled: true },

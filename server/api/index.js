@@ -10,6 +10,7 @@ const adminSecurityRoutes = require('../routes/adminsecurity');
 const adminPasswordRoutes = require('../routes/adminpassword');
 const adminBrandingRoutes = require('../routes/adminbranding');
 const adminDeliveryRoutes = require('../routes/admindelivery');
+const adminPaymentRoutes = require('../routes/adminpayment');
 const adminSeoRoutes = require('../routes/adminseo');
 const adminNotificationRoutes = require('../routes/adminnotifications');
 const adminMessageRoutes = require('../routes/adminmessages');
@@ -37,6 +38,7 @@ const customerNotificationRoutes = require('../routes/customernotifications');
 const uploadRoutes = require('./routes/uploads');
 const publicSettingsRoutes = require('../routes/publicsettings');
 const publicShippingRoutes = require('../routes/publicshipping');
+const dpoPaymentRoutes = require('../routes/dpopayments');
 
 const authRateLimiter = createRateLimiter({
     windowMs: 15 * 60 * 1000,
@@ -72,6 +74,7 @@ function createApiRouter() {
     router.use('/admin/password', requireDatabase, adminPasswordRoutes);
     router.use('/admin/branding', requireDatabase, adminBrandingRoutes);
     router.use('/admin/delivery', requireDatabase, adminDeliveryRoutes);
+    router.use('/admin/payment', requireDatabase, adminPaymentRoutes);
     router.use('/admin/seo', requireDatabase, adminSeoRoutes);
     router.use('/admin/notifications', requireDatabase, adminNotificationRoutes);
     router.use('/admin/messages', requireDatabase, adminMessageRoutes);
@@ -97,6 +100,7 @@ function createApiRouter() {
     router.use('/realtime', realtimeRateLimiter, realtimeRoutes);
     router.use('/settings', publicSettingsRoutes);
     router.use('/shipping', publicShippingRoutes);
+    router.use('/payments/dpo', dpoPaymentRoutes);
     router.use('/uploads', uploadRoutes);
 
     router.use((_req, res) => {

@@ -16,6 +16,7 @@ import {
   readPersistedDirectCheckout,
   readStorage,
   removeStorage,
+  resolveApiOrigin,
   saveCheckoutConfirmation,
   writeCartItems,
   writeStorage
@@ -54,6 +55,7 @@ const state = {
   deliveryMethodKey: 'homeDelivery',
   deliveryEstimate: '',
   payment: { method: 'mtn', phone: '' },
+  gateway: { dpoEnabled: false, dpoLabel: 'Pay Online (DPO)', loaded: false },
   coupon: { code: '', title: '', discountAmount: 0, status: '' },
   totals: { subtotal: 0, discount: 0, couponDiscount: 0, tax: 0, deliveryFee: DELIVERY_FEE, codFee: 0, total: DELIVERY_FEE }
 };
@@ -666,8 +668,51 @@ export function isCodAvailable() {
   return city.includes('kigali');
 }
 
+export async function loadGatewayPaymentConfig() {
+  try {
+    const base = resolveApiOrigin();
+    if (!base) {
+      state.gateway = { dpoEnabled: false, dpoLabel: 'Pay Online (DPO)', loaded: true };
+      return state.gateway;
+    }
+    const endpoint = base.endsWith('/api')
+      ? `${base}/payments/dpo/config`
+      : `${base}/api/payments/dpo/config`;
+    const response = await fetch(endpoint, { headers: { Accept: 'application/json' } });
+    const payload = await response.json().catch(() => null);
+    const enabled = Boolean(response.ok && payload?.success && payload?.dpo?.enabled);
+    state.gateway = {
+      dpoEnabled: enabled,
+      dpoLabel: String(payload?.dpo?.label || 'Pay Online (DPO)'),
+      loaded: true
+    };
+    if (!enabled && state.payment.method === 'dpo') {
+      state.payment.method = 'mtn';
+    }
+    emit('gateway-config');
+    return state.gateway;
+  } catch (_error) {
+    state.gateway = { dpoEnabled: false, dpoLabel: 'Pay Online (DPO)', loaded: true };
+    if (state.payment.method === 'dpo') {
+      state.payment.method = 'mtn';
+    }
+    return state.gateway;
+  }
+}
+
 export function getPaymentMethods() {
-  return PAYMENT_METHODS.filter((m) => m.enabled && (m.id !== 'cod' || isCodAvailable()));
+  return PAYMENT_METHODS.filter((m) => {
+    if (!m.enabled) return false;
+    if (m.id === 'cod' && !isCodAvailable()) return false;
+    if (m.id === 'dpo' && !state.gateway?.dpoEnabled) return false;
+    return true;
+  }).map((method) => {
+    if (method.id !== 'dpo') return method;
+    return {
+      ...method,
+      label: state.gateway?.dpoLabel || method.label
+    };
+  });
 }
 
 export function getConfirmation() {

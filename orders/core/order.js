@@ -104,9 +104,12 @@ export function buildOrderPayload(options = {}) {
   const payerPhone = normalizePhone(state.payment.phone || customerPhone);
   const hasAccount = Boolean(state.customer.id);
   const usesCod = state.payment.method === 'cod';
+  const usesDpo = state.payment.method === 'dpo';
   const paymentStatus = usesCod ? COD_PAYMENT_STATUS : 'awaiting_payment';
   const paymentStatusLabel = usesCod ? COD_PAYMENT_STATUS_LABEL : 'Awaiting Payment';
-  const paymentMethodLabel = usesCod ? COD_PAYMENT_METHOD_LABEL : String(state.payment.method || '').toUpperCase();
+  const paymentMethodLabel = usesCod
+    ? COD_PAYMENT_METHOD_LABEL
+    : (usesDpo ? 'DPO Pay' : String(state.payment.method || '').toUpperCase());
   const items = state.products.map(buildOrderLineItem);
 
   const order = {
@@ -188,7 +191,11 @@ export function buildOrderPayload(options = {}) {
       status: paymentStatus,
       statusLabel: paymentStatusLabel,
       payerPhone: usesCod ? customerPhone : payerPhone,
-      note: usesCod ? 'Pay on delivery' : 'Transfer payment using the instructions shown at checkout'
+      note: usesCod
+        ? 'Pay on delivery'
+        : (usesDpo
+          ? 'Complete payment on the secure DPO Pay page'
+          : 'Transfer payment using the instructions shown at checkout')
     },
     statusHistory: [{
       status: 'pending',
@@ -340,5 +347,47 @@ export async function submitOrder() {
       setSubmitting(false);
     }
   }
+}
+
+function getPaymentsApiUrl(path) {
+  const base = resolveApiOrigin();
+  if (!base) return '';
+  const root = base.endsWith('/api') ? base : `${base}/api`;
+  return `${root}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+export async function initiateDpoPayment(orderId) {
+  const endpoint = getPaymentsApiUrl('/payments/dpo/initiate');
+  if (!endpoint) {
+    return { success: false, message: 'Payment API is unavailable. Please refresh and try again.' };
+  }
+
+  const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
+  try {
+    const token = window.authService?.getToken?.() || window.localStorage?.getItem('bm_auth_token') || '';
+    if (token) headers.Authorization = `Bearer ${String(token).trim()}`;
+  } catch (_) { /* optional auth */ }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ orderId })
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.success) {
+    return {
+      success: false,
+      message: payload?.message || `Unable to start DPO payment (${response.status})`,
+      code: payload?.code || ''
+    };
+  }
+
+  return {
+    success: true,
+    paymentUrl: payload.paymentUrl || payload.redirectUrl || '',
+    alreadyPaid: Boolean(payload.alreadyPaid),
+    redirectUrl: payload.redirectUrl || payload.paymentUrl || '',
+    payment: payload.payment || null
+  };
 }
 

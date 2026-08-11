@@ -1,0 +1,4 @@
+/**
+ * Secure directory for encrypted payment credentials.
+ * Files here must never be committed or served over HTTP.
+ */

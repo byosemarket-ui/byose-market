@@ -1,6 +1,11 @@
 .env
 backend/.env
 admin/admin-login/.env
+*.enc
+server/secure/*
+!server/secure/.gitkeep
+!.env.example
+!deploy/env.production.example
 data/*
 !data/.gitkeep
 server/database/*.sqlite

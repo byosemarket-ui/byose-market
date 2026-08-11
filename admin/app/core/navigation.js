@@ -175,6 +175,7 @@ export const ADMIN_NAVIGATION = [
           routeLink("settings-general", "General", "settings", { query: "?panel=general", description: "Platform store, regional, and system configuration." }),
           routeLink("settings-branding", "Branding", "settings", { query: "?panel=branding", description: "Logos, colors, icons, and brand identity." }),
           routeLink("settings-delivery", "Delivery", "settings", { query: "?panel=delivery", description: "Delivery zones, fees, methods, and timing." }),
+          routeLink("settings-payment", "Payment", "settings", { query: "?panel=payment", description: "Payment providers, TEST/LIVE mode, and encrypted credentials." }),
           routeLink("settings-seo", "SEO", "settings", { query: "?panel=seo", description: "Website SEO, social cards, analytics, and structured data." }),
           routeLink("settings-notifications", "Notifications", "settings", { query: "?panel=notifications", description: "Admin alert email, email/browser/sound notification preferences." }),
           routeLink("settings-logout", "Logout & Sessions", "settings", { query: "?panel=logout", description: "Active sessions, secure logout, expiration, and audit trail." })

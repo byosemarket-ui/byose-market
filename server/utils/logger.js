@@ -7,7 +7,10 @@ const SENSITIVE_KEYS = [
     'set-cookie',
     'jwt',
     'credential',
-    'credentials'
+    'credentials',
+    'companytoken',
+    'apikey',
+    'api_key'
 ];
 
 function normalizeText(value) {

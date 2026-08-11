@@ -38,6 +38,11 @@ export function validatePayment(payment = {}, shippingAddress = {}) {
     return { valid: Object.keys(errors).length === 0, errors };
   }
 
+  // Gateway checkout (DPO) collects payment on the hosted page — phone optional.
+  if (method === 'dpo') {
+    return { valid: true, errors };
+  }
+
   const phone = normalizePhone(payment.phone || shippingAddress.phone);
   if (!isValidPhone(phone)) {
     errors.phone = 'Enter a valid payment phone number.';
