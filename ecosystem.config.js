@@ -68,6 +68,7 @@ module.exports = {
                 ADMIN_EMAIL: readEnv('ADMIN_EMAIL'),
                 ADMIN_PASSWORD_HASH: readEnv('ADMIN_PASSWORD_HASH'),
                 JWT_SECRET: readEnv('JWT_SECRET'),
+                PAYMENT_ENCRYPTION_KEY: readEnv('PAYMENT_ENCRYPTION_KEY'),
                 JWT_EXPIRES_IN: readEnv('JWT_EXPIRES_IN', '7d'),
                 LOG_LEVEL: readEnv('LOG_LEVEL', 'info'),
                 NODE_OPTIONS: nodeOptions
