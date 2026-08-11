@@ -234,12 +234,23 @@ async function main() {
     console.log('[verify-admin-payment-management] starting STEP 3 verification');
     [
         'admin/app/pages/settings-payment.js',
+        'admin/app/core/navigation.js',
         'server/services/paymentsettings.service.js',
         'server/controllers/adminpaymentcontroller.js',
         'server/routes/adminpayment.js'
     ].forEach((rel) => {
         assert(fs.existsSync(path.resolve(__dirname, '..', rel)), `${rel} missing`);
     });
+
+    const navigationSource = fs.readFileSync(path.resolve(__dirname, '../admin/app/core/navigation.js'), 'utf8');
+    assert(
+        /id:\s*"website-management"[\s\S]*?website-payment-management[\s\S]*?Payment Management[\s\S]*?\?panel=payment/.test(navigationSource),
+        'Website Management sidebar must include Payment Management linking to ?panel=payment'
+    );
+    assert(
+        navigationSource.includes('renderAdminPaymentPanel') === false,
+        'navigation must not embed payment panel code'
+    );
 
     const { connectDatabase } = require('../server/database');
     await connectDatabase();

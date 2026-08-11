@@ -207,6 +207,7 @@ async function main() {
 
   [
     "admin/app/pages/settings-payment.js",
+    "admin/app/core/navigation.js",
     "server/services/paymentsettings.service.js",
     "server/payments/secrets.store.js",
     "server/payments/providers/dpo.provider.js",
@@ -216,6 +217,11 @@ async function main() {
   ].forEach((rel) => {
     assert(fs.existsSync(path.resolve(__dirname, "..", rel)), `${rel} missing`);
   });
+
+  const navigationSource = fs.readFileSync(path.resolve(__dirname, "../admin/app/core/navigation.js"), "utf8");
+  assert(navigationSource.includes("website-payment-management"), "Website Management missing Payment Management nav item");
+  assert(navigationSource.includes("?panel=payment"), "Payment nav must open settings?panel=payment");
+  assert(!/companyToken\s*[:=]\s*["'][^"']{8,}/.test(navigationSource), "navigation must not hardcode company tokens");
 
   const gitignore = fs.readFileSync(path.resolve(__dirname, "../.gitignore"), "utf8");
   assert(gitignore.includes(".env"), ".gitignore must exclude .env");
