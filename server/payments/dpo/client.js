@@ -166,8 +166,8 @@ function postXmlRequest(apiBaseUrl, xmlBody, { timeoutMs = 20000 } = {}) {
             path: `${target.pathname}${target.search}` || '/',
             method: 'POST',
             headers: {
-                'Content-Type': 'application/xml',
-                Accept: 'application/xml, text/xml, */*',
+                'Content-Type': 'application/xml; charset=utf-8',
+                Accept: 'application/xml',
                 'Content-Length': payload.length
             },
             timeout: timeoutMs
@@ -295,6 +295,10 @@ async function createToken(options = {}) {
 
     const response = await httpTransport(apiBaseUrl, xml);
     const parsed = parseCreateTokenResponse(response.body || '');
+    const bodyPreview = String(response.body || '')
+        .replace(/<CompanyToken>[\s\S]*?<\/CompanyToken>/gi, '<CompanyToken>[redacted]</CompanyToken>')
+        .replace(/<Trans(?:action)?Token>[\s\S]*?<\/Trans(?:action)?Token>/gi, '<TransToken>[redacted]</TransToken>')
+        .slice(0, 400);
 
     appLogger.info('dpo.create_token.response', {
         statusCode: response.statusCode,
@@ -305,12 +309,20 @@ async function createToken(options = {}) {
     });
 
     if (parsed.result !== '000' || !parsed.transToken) {
-        const error = new Error(parsed.resultExplanation || 'Unable to create DPO payment token.');
+        const explanation = parsed.resultExplanation
+            || (!String(response.body || '').trim()
+                ? `DPO returned an empty body (HTTP ${response.statusCode || 0}).`
+                : (!parsed.result
+                    ? `DPO response was not parseable XML (HTTP ${response.statusCode || 0}).`
+                    : 'Unable to create DPO payment token.'));
+        const error = new Error(explanation);
         error.code = 'DPO_CREATE_TOKEN_FAILED';
         error.statusCode = 502;
         error.details = {
             result: parsed.result || null,
-            resultExplanation: parsed.resultExplanation || null
+            resultExplanation: parsed.resultExplanation || null,
+            httpStatus: response.statusCode || null,
+            bodyPreview: bodyPreview || null
         };
         throw error;
     }

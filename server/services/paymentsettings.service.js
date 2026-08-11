@@ -1,3 +1,4 @@
+const path = require('path');
 const settingsDataService = require('./settingsdataservice');
 const {
     getDefaultProviderId,
@@ -377,7 +378,40 @@ function sanitizeLastTest(raw = {}) {
         resultCode: normalizeText(source.resultCode),
         message: normalizeText(source.message).slice(0, 240),
         durationMs: Number.isFinite(Number(source.durationMs)) ? Number(source.durationMs) : null,
-        tokenHint: normalizeText(source.tokenHint)
+        tokenHint: normalizeText(source.tokenHint),
+        httpStatus: Number.isFinite(Number(source.httpStatus)) ? Number(source.httpStatus) : null
+    };
+}
+
+function buildTestFailureMessage(error) {
+    const result = normalizeText(error?.details?.result);
+    const explanation = normalizeText(error?.details?.resultExplanation || error?.message);
+    const httpStatus = error?.details?.httpStatus;
+    if (result && explanation) {
+        return `DPO Result ${result}: ${explanation}`;
+    }
+    if (result) {
+        return `DPO Result ${result}.`;
+    }
+    if (explanation) {
+        return explanation;
+    }
+    if (httpStatus) {
+        return `DPO connection failed (HTTP ${httpStatus}).`;
+    }
+    return 'TEST connection failed.';
+}
+
+function isPlaceholderCompanyToken(value) {
+    return /^(LOCAL-VERIFY-|verify-token-)/i.test(normalizeText(value));
+}
+
+function resolveAdminTestCallbackUrls() {
+    const env = require('../config/env');
+    const base = normalizeText(env.appBaseUrl, 'https://byosemarket.com').replace(/\/+$/, '');
+    return {
+        redirectUrl: `${base}/orders/payment-result.html?status=return&source=admin-test`,
+        backUrl: `${base}/orders/payment-result.html?status=cancelled&source=admin-test`
     };
 }
 
@@ -552,44 +586,66 @@ async function testPaymentConfiguration(admin = {}, options = {}) {
     const companyRef = `ADMIN-CFG-TEST-${Date.now().toString(36).toUpperCase()}`;
     let testResult;
 
-    try {
-        const created = await dpoClient.createToken({
-            companyToken,
-            serviceType,
-            apiBaseUrl: runtime.endpoints?.apiBaseUrl || dpoClient.DEFAULT_API_BASE,
-            paymentPageUrl: runtime.endpoints?.paymentPageUrl || dpoClient.DEFAULT_PAYMENT_PAGE,
-            amount: 100,
-            currency: 'RWF',
-            companyRef,
-            redirectUrl: 'https://localhost/admin-payment-test/return',
-            backUrl: 'https://localhost/admin-payment-test/back',
-            customerName: 'BYOSE Config Test',
-            customerEmail: normalizeEmail(admin.email, 'admin@byosemarket.com'),
-            customerPhone: '0780000000',
-            serviceDescription: 'BYOSE Market admin configuration test'
-        });
-
-        testResult = {
-            at: new Date().toISOString(),
-            providerId,
-            mode: 'test',
-            success: true,
-            resultCode: normalizeText(created.result, '000'),
-            message: normalizeText(created.resultExplanation, 'TEST credentials accepted by DPO.'),
-            durationMs: Date.now() - started,
-            tokenHint: maskSecretHint(created.transToken)
-        };
-    } catch (error) {
+    if (
+        path.resolve(secretsStore.getCredentialsFilePath()) === path.resolve(secretsStore.DEFAULT_CREDENTIALS_FILE)
+        && isPlaceholderCompanyToken(companyToken)
+    ) {
         testResult = {
             at: new Date().toISOString(),
             providerId,
             mode: 'test',
             success: false,
-            resultCode: normalizeText(error?.details?.result || error?.code, 'FAILED'),
-            message: normalizeText(error?.message, 'TEST connection failed.'),
+            resultCode: 'PLACEHOLDER_CREDENTIALS',
+            message: 'Stored TEST Company Token looks like a local verification placeholder. Re-save your real DPO TEST Company Token and its matching Service Type ID, then test again.',
             durationMs: Date.now() - started,
-            tokenHint: ''
+            tokenHint: maskSecretHint(companyToken),
+            httpStatus: null
         };
+    } else {
+        try {
+            const callbacks = resolveAdminTestCallbackUrls();
+            const created = await dpoClient.createToken({
+                companyToken,
+                serviceType,
+                apiBaseUrl: runtime.endpoints?.apiBaseUrl || dpoClient.DEFAULT_API_BASE,
+                paymentPageUrl: runtime.endpoints?.paymentPageUrl || dpoClient.DEFAULT_PAYMENT_PAGE,
+                amount: 100,
+                currency: 'RWF',
+                companyRef,
+                redirectUrl: callbacks.redirectUrl,
+                backUrl: callbacks.backUrl,
+                customerName: 'BYOSE Config Test',
+                customerEmail: normalizeEmail(admin.email, 'admin@byosemarket.com'),
+                customerPhone: '0780000000',
+                serviceDescription: 'BYOSE Market admin configuration test'
+            });
+
+            testResult = {
+                at: new Date().toISOString(),
+                providerId,
+                mode: 'test',
+                success: true,
+                resultCode: normalizeText(created.result, '000'),
+                message: normalizeText(created.resultExplanation, 'TEST credentials accepted by DPO.'),
+                durationMs: Date.now() - started,
+                tokenHint: maskSecretHint(created.transToken),
+                httpStatus: 200
+            };
+        } catch (error) {
+            testResult = {
+                at: new Date().toISOString(),
+                providerId,
+                mode: 'test',
+                success: false,
+                resultCode: normalizeText(error?.details?.result || error?.code, 'FAILED'),
+                message: buildTestFailureMessage(error),
+                durationMs: Date.now() - started,
+                tokenHint: '',
+                httpStatus: Number.isFinite(Number(error?.details?.httpStatus))
+                    ? Number(error.details.httpStatus)
+                    : null
+            };
+        }
     }
 
     const stamped = await persistPaymentConfig({

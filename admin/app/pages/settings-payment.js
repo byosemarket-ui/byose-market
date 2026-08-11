@@ -168,8 +168,11 @@ function paymentMarkup(payment) {
             ${lastTest.at ? `
               <p class="admin-profile-help">
                 Last test ${escapeHtml(new Date(lastTest.at).toLocaleString())}
+                · ${lastTest.success ? "Passed" : "Failed"}
+                ${lastTest.resultCode ? `· code ${escapeHtml(lastTest.resultCode)}` : ""}
                 · ${escapeHtml(lastTest.message || "")}
                 ${lastTest.tokenHint ? `· token ${escapeHtml(lastTest.tokenHint)}` : ""}
+                ${lastTest.httpStatus != null ? `· HTTP ${escapeHtml(lastTest.httpStatus)}` : ""}
                 ${lastTest.durationMs != null ? `· ${escapeHtml(lastTest.durationMs)}ms` : ""}
               </p>
             ` : ""}
@@ -456,7 +459,12 @@ function bindPaymentPanel(container, payment) {
         : await getAdminPayment({ force: true });
       paint(
         nextPayment,
-        result.message || (result.test?.success ? "TEST connection succeeded." : "TEST connection failed."),
+        result.message
+          || (result.test?.success
+            ? "TEST connection succeeded."
+            : (result.test?.resultCode
+              ? `TEST connection failed (${result.test.resultCode}): ${result.test.message || "Check credentials."}`
+              : "TEST connection failed.")),
         result.test?.success ? "is-success" : "is-error"
       );
     } catch (error) {

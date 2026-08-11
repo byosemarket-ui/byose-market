@@ -154,11 +154,16 @@ exports.testPayment = async (req, res) => {
         );
 
         res.setHeader('Cache-Control', 'no-store');
+        const diagnostic = result.test?.success
+            ? (result.test?.message || 'TEST connection succeeded. Credentials were accepted.')
+            : (
+                result.test?.resultCode
+                    ? `TEST connection failed (${result.test.resultCode}): ${result.test.message || 'Check credentials and try again.'}`
+                    : (result.test?.message || 'TEST connection failed. Check credentials and try again.')
+            );
         return res.status(200).json({
             success: true,
-            message: result.test?.success
-                ? 'TEST connection succeeded. Credentials were accepted.'
-                : 'TEST connection failed. Check credentials and try again.',
+            message: diagnostic,
             test: result.test,
             payment: result.payment
         });
