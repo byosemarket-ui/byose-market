@@ -107,6 +107,36 @@ function assertNotWritingPlaceholderIntoRealStore(companyToken, scriptLabel = 'v
     }
 }
 
+/**
+ * Capture payment settings flags so verify scripts can restore them.
+ * Does not snapshot secrets — credentials stay in the isolated enc store.
+ */
+async function snapshotPaymentSettingsFlags(paymentSettingsService) {
+    const current = await paymentSettingsService.getAdminPaymentSettings();
+    const active = (current.providers || []).find((entry) => entry.id === current.activeProvider) || null;
+    return {
+        enabled: Boolean(current.enabled),
+        activeProvider: String(current.activeProvider || 'dpo'),
+        mode: current.mode === 'live' ? 'live' : 'test',
+        providerEnabled: active ? active.enabled !== false : true
+    };
+}
+
+async function restorePaymentSettingsFlags(paymentSettingsService, snapshot, admin = {}) {
+    if (!snapshot || typeof snapshot !== 'object') {
+        return null;
+    }
+    return paymentSettingsService.updatePaymentSettings({
+        enabled: Boolean(snapshot.enabled),
+        activeProvider: String(snapshot.activeProvider || 'dpo'),
+        mode: snapshot.mode === 'live' ? 'live' : 'test',
+        providerEnabled: snapshot.providerEnabled !== false
+    }, {
+        id: admin.id || 'ADMIN_VERIFY_RESTORE',
+        email: admin.email || 'admin@example.com'
+    });
+}
+
 module.exports = {
     PLACEHOLDER_TOKEN_RE,
     REAL_CREDENTIALS_FILE,
@@ -115,5 +145,7 @@ module.exports = {
     isPlaceholderCompanyToken,
     isRealCredentialsPath,
     resetUndecryptableStoreIfSafe,
-    resolveRealCredentialsPath
+    resolveRealCredentialsPath,
+    restorePaymentSettingsFlags,
+    snapshotPaymentSettingsFlags
 };

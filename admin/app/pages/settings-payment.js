@@ -198,7 +198,7 @@ function paymentMarkup(payment) {
               <label class="admin-general-toggle admin-delivery-span-2">
                 <span>
                   <strong>Enable online payments</strong>
-                  <small>Master switch for checkout gateway payments.</small>
+                  <small>Master switch for checkout gateway payments. Saves immediately when toggled.</small>
                 </span>
                 <input type="checkbox" name="enabled" id="paymentEnabled" ${payment?.enabled ? "checked" : ""} />
               </label>
@@ -206,7 +206,7 @@ function paymentMarkup(payment) {
               <label class="admin-general-toggle admin-delivery-span-2">
                 <span>
                   <strong>Enable selected provider</strong>
-                  <small>Turn ${escapeHtml(active?.label || "this provider")} on or off without removing credentials.</small>
+                  <small>Turn ${escapeHtml(active?.label || "this provider")} on or off without removing credentials. Saves immediately when toggled.</small>
                 </span>
                 <input type="checkbox" name="providerEnabled" id="paymentProviderEnabled" ${active?.enabled === false ? "" : "checked"} />
               </label>
@@ -246,6 +246,9 @@ function paymentMarkup(payment) {
                 <button type="button" class="btn ${mode === "test" ? "btn-primary" : "btn-ghost"}" data-payment-mode-tab="test">TEST credentials</button>
                 <button type="button" class="btn ${mode === "live" ? "btn-primary" : "btn-ghost"}" data-payment-mode-tab="live">LIVE credentials</button>
               </div>
+              <p class="admin-profile-help admin-delivery-span-2">
+                These tabs only edit stored credentials. They do not change Operating mode above — use Operating mode to choose TEST vs LIVE checkout.
+              </p>
 
               <div class="admin-payment-cred-grid" data-payment-cred-panel="test" ${mode === "test" ? "" : "hidden"}>
                 ${(active?.credentialFields || []).map((field) => credentialFieldMarkup(active, "test", field)).join("")}
@@ -379,9 +382,22 @@ function collectPayload(container, payment) {
   };
 }
 
+function showCredentialPanels(container, nextMode) {
+  const mode = nextMode === "live" ? "live" : "test";
+  container.querySelectorAll("[data-payment-cred-panel]").forEach((panelNode) => {
+    panelNode.hidden = panelNode.getAttribute("data-payment-cred-panel") !== mode;
+  });
+  container.querySelectorAll("[data-payment-mode-tab]").forEach((tab) => {
+    const active = tab.getAttribute("data-payment-mode-tab") === mode;
+    tab.classList.toggle("btn-primary", active);
+    tab.classList.toggle("btn-ghost", !active);
+  });
+}
+
 function bindPaymentPanel(container, payment) {
   const feedback = container.querySelector("#adminPaymentFeedback");
   let current = payment;
+  let toggleSaveInFlight = false;
 
   async function reload() {
     await renderAdminPaymentPanel(container);
@@ -403,27 +419,70 @@ function bindPaymentPanel(container, payment) {
     }
   }
 
+  // Credential tabs only switch the editor panels — never the operating mode.
+  // Changing operating mode via LIVE tab previously caused enable saves to require
+  // LIVE credentials and silently fail persistence after refresh.
   container.querySelectorAll("[data-payment-mode-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       const nextMode = button.getAttribute("data-payment-mode-tab");
-      const modeSelect = container.querySelector("#paymentMode");
-      if (modeSelect && (nextMode === "test" || nextMode === "live")) {
-        modeSelect.value = nextMode;
-      }
-      container.querySelectorAll("[data-payment-cred-panel]").forEach((panelNode) => {
-        panelNode.hidden = panelNode.getAttribute("data-payment-cred-panel") !== nextMode;
-      });
-      container.querySelectorAll("[data-payment-mode-tab]").forEach((tab) => {
-        const active = tab.getAttribute("data-payment-mode-tab") === nextMode;
-        tab.classList.toggle("btn-primary", active);
-        tab.classList.toggle("btn-ghost", !active);
-      });
+      showCredentialPanels(container, nextMode);
     });
   });
 
   container.querySelector("#paymentMode")?.addEventListener("change", (event) => {
     const nextMode = String(event.target.value || "test");
-    container.querySelector(`[data-payment-mode-tab="${CSS.escape(nextMode)}"]`)?.click();
+    showCredentialPanels(container, nextMode);
+  });
+
+  async function persistMasterToggles({ enabled, providerEnabled }) {
+    if (toggleSaveInFlight) return;
+    toggleSaveInFlight = true;
+    clearFieldErrors(container);
+    feedback.textContent = "Saving payment switch…";
+    feedback.classList.remove("is-error", "is-success");
+    const enabledInput = container.querySelector("#paymentEnabled");
+    const providerInput = container.querySelector("#paymentProviderEnabled");
+    try {
+      const saved = await updateAdminPayment({
+        enabled: Boolean(enabled),
+        providerEnabled: Boolean(providerEnabled),
+        activeProvider: current.activeProvider || "dpo",
+        mode: String(container.querySelector("#paymentMode")?.value || current.mode || "test").toLowerCase()
+      });
+      paint(
+        saved,
+        saved.enabled
+          ? "Online payments enabled and saved."
+          : "Online payments disabled and saved.",
+        "is-success"
+      );
+    } catch (error) {
+      if (enabledInput) enabledInput.checked = Boolean(current.enabled);
+      if (providerInput) providerInput.checked = current?.providers?.find((entry) => entry.id === (current.activeProvider || "dpo"))?.enabled !== false;
+      feedback.textContent = error?.message || "Unable to save payment switch.";
+      feedback.classList.add("is-error");
+      showFieldErrors(container, error?.details || error?.payload?.details || {});
+    } finally {
+      toggleSaveInFlight = false;
+    }
+  }
+
+  container.querySelector("#paymentEnabled")?.addEventListener("change", (event) => {
+    const enabledInput = event.currentTarget;
+    const providerInput = container.querySelector("#paymentProviderEnabled");
+    void persistMasterToggles({
+      enabled: Boolean(enabledInput?.checked),
+      providerEnabled: Boolean(providerInput?.checked)
+    });
+  });
+
+  container.querySelector("#paymentProviderEnabled")?.addEventListener("change", (event) => {
+    const providerInput = event.currentTarget;
+    const enabledInput = container.querySelector("#paymentEnabled");
+    void persistMasterToggles({
+      enabled: Boolean(enabledInput?.checked),
+      providerEnabled: Boolean(providerInput?.checked)
+    });
   });
 
   container.querySelector("#adminPaymentSaveBtn")?.addEventListener("click", async () => {
@@ -441,6 +500,12 @@ function bindPaymentPanel(container, payment) {
         "is-success"
       );
     } catch (error) {
+      const enabledInput = container.querySelector("#paymentEnabled");
+      const providerInput = container.querySelector("#paymentProviderEnabled");
+      if (enabledInput) enabledInput.checked = Boolean(current.enabled);
+      if (providerInput) {
+        providerInput.checked = current?.providers?.find((entry) => entry.id === (current.activeProvider || "dpo"))?.enabled !== false;
+      }
       feedback.textContent = error?.message || "Unable to save payment settings.";
       feedback.classList.add("is-error");
       showFieldErrors(container, error?.details || error?.payload?.details || {});

@@ -15,7 +15,9 @@ const {
   assertNotWritingPlaceholderIntoRealStore,
   isolateVerifyCredentialStore,
   isRealCredentialsPath,
-  resetUndecryptableStoreIfSafe
+  resetUndecryptableStoreIfSafe,
+  restorePaymentSettingsFlags,
+  snapshotPaymentSettingsFlags
 } = require("./lib/payment-verify-guard");
 
 // Isolate BEFORE loading secrets.store so verify never touches the real enc file.
@@ -106,6 +108,8 @@ async function verifyServiceLayer() {
 
   resetUndecryptableStoreIfSafe(secretsStore, "verify-admin-payment");
 
+  const settingsSnapshot = await snapshotPaymentSettingsFlags(paymentSettingsService);
+
   const initial = await paymentSettingsService.getAdminPaymentSettings();
   assert(initial.activeProvider === "dpo", "default provider should be dpo");
   assert(initial.mode === "test" || initial.mode === "live", "mode missing");
@@ -134,6 +138,26 @@ async function verifyServiceLayer() {
     "TEST payment page must use payv3"
   );
 
+  // Persistence probe: ON must stick across reload when TEST credentials are ready.
+  const enabledOn = await paymentSettingsService.updatePaymentSettings({
+    enabled: true,
+    activeProvider: "dpo",
+    mode: "test",
+    providerEnabled: true
+  }, { id: "ADMIN_VERIFY", email: "admin@example.com" });
+  assert(enabledOn.enabled === true, "enable online payments must persist in API response");
+  const enabledReload = await paymentSettingsService.getAdminPaymentSettings();
+  assert(enabledReload.enabled === true, "enable online payments must persist across reload");
+
+  const enabledOff = await paymentSettingsService.updatePaymentSettings({
+    enabled: false,
+    activeProvider: "dpo",
+    mode: "test"
+  }, { id: "ADMIN_VERIFY", email: "admin@example.com" });
+  assert(enabledOff.enabled === false, "disable online payments must persist in API response");
+  const disabledReload = await paymentSettingsService.getAdminPaymentSettings();
+  assert(disabledReload.enabled === false, "disable online payments must persist across reload");
+
   const runtime = await paymentSettingsService.getRuntimePaymentCredentials({ providerId: "dpo", mode: "test" });
   assert(runtime.secrets.companyToken === fakeToken, "runtime secrets should resolve stored token");
   assert(runtime.secrets.serviceType === "54841", "runtime service type missing");
@@ -142,16 +166,15 @@ async function verifyServiceLayer() {
   assertNoSecretLeak(publicView, "public payment view");
   assert(!publicView.providers, "public view should not list credential providers");
 
-  // Keep payments disabled after verification (no accidental enable without real merchant creds).
-  await paymentSettingsService.updatePaymentSettings({
-    enabled: false,
-    activeProvider: "dpo",
-    mode: "test"
-  }, { id: "ADMIN_VERIFY", email: "admin@example.com" });
+  // Restore prior payment flags so verify does not permanently disable production/local checkout.
+  await restorePaymentSettingsFlags(paymentSettingsService, settingsSnapshot, {
+    id: "ADMIN_VERIFY",
+    email: "admin@example.com"
+  });
 
   const adminEmail = String(process.env.ADMIN_EMAIL || "admin@example.com").trim().toLowerCase();
   const adminId = `ADMIN_${Buffer.from(adminEmail).toString("hex").slice(0, 16)}`;
-  return { adminId, adminEmail, fakeToken };
+  return { adminId, adminEmail, fakeToken, settingsSnapshot };
 }
 
 async function verifyHttp(baseUrl, serviceResult) {

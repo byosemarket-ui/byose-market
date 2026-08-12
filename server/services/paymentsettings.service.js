@@ -740,15 +740,16 @@ async function updatePaymentSettings(payload = {}, admin = {}) {
         applyCredentialUpdates(validated.activeProvider, source.credentials);
     }
 
-    // If enabling payments, require credentials for the selected mode.
+    // If enabling payments, require credentials for the selected operating mode.
     if (validated.enabled) {
         const provider = getProvider(validated.activeProvider);
         const { secrets } = resolveModeSecrets(validated.activeProvider, validated.mode);
         const check = provider.validateCredentials(secrets, { requireConfigured: true });
         if (!check.valid) {
             throw ValidationError(
-                `Cannot enable payments: complete ${String(validated.mode).toUpperCase()} credentials for ${provider.label}.`,
-                check.errors
+                `Cannot enable payments: complete ${String(validated.mode).toUpperCase()} credentials for ${provider.label} while Operating mode is ${String(validated.mode).toUpperCase()}.`,
+                check.errors,
+                'PAYMENT_ENABLE_REQUIRES_CREDENTIALS'
             );
         }
         if (!secretsStore.isEncryptionConfigured()) {
@@ -761,7 +762,17 @@ async function updatePaymentSettings(payload = {}, admin = {}) {
 
     const saved = await persistPaymentConfig(validated, admin);
     void saved;
-    return getAdminPaymentSettings();
+    const confirmed = await getAdminPaymentSettings();
+    // Guard against silent persistence mismatches (cache/stale reads).
+    if (Boolean(confirmed.enabled) !== Boolean(validated.enabled)) {
+        const error = new Error(
+            `Payment enabled flag failed to persist (expected ${validated.enabled}, got ${confirmed.enabled}).`
+        );
+        error.statusCode = 500;
+        error.code = 'PAYMENT_ENABLED_PERSISTENCE_FAILED';
+        throw error;
+    }
+    return confirmed;
 }
 
 module.exports = {

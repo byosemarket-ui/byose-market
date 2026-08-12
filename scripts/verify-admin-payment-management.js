@@ -14,7 +14,9 @@ const {
     assertNotWritingPlaceholderIntoRealStore,
     isolateVerifyCredentialStore,
     isRealCredentialsPath,
-    resetUndecryptableStoreIfSafe
+    resetUndecryptableStoreIfSafe,
+    restorePaymentSettingsFlags,
+    snapshotPaymentSettingsFlags
 } = require('./lib/payment-verify-guard');
 
 const verifyStore = isolateVerifyCredentialStore('verify-admin-payment-management');
@@ -101,6 +103,7 @@ async function seed() {
     assertNotWritingPlaceholderIntoRealStore(ephemeral.companyToken, 'verify-admin-payment-management');
 
     const paymentSettingsService = require('../server/services/paymentsettings.service');
+    const settingsSnapshot = await snapshotPaymentSettingsFlags(paymentSettingsService);
     await paymentSettingsService.updatePaymentSettings({
         enabled: true,
         activeProvider: 'dpo',
@@ -113,6 +116,7 @@ async function seed() {
             }
         }
     }, { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' });
+    return settingsSnapshot;
 }
 
 async function verifyServiceLayer() {
@@ -163,6 +167,25 @@ async function verifyServiceLayer() {
         enabled: true,
         providerEnabled: true
     }, { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' });
+
+    // Explicit ON/OFF persistence across getAdminPaymentSettings reloads.
+    const turnedOff = await paymentSettingsService.updatePaymentSettings({
+        enabled: false,
+        mode: 'test',
+        providerEnabled: true,
+        activeProvider: 'dpo'
+    }, { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' });
+    assert(turnedOff.enabled === false, 'toggle OFF must return enabled=false');
+    assert((await paymentSettingsService.getAdminPaymentSettings()).enabled === false, 'toggle OFF must persist');
+
+    const turnedOn = await paymentSettingsService.updatePaymentSettings({
+        enabled: true,
+        mode: 'test',
+        providerEnabled: true,
+        activeProvider: 'dpo'
+    }, { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' });
+    assert(turnedOn.enabled === true, 'toggle ON must return enabled=true');
+    assert((await paymentSettingsService.getAdminPaymentSettings()).enabled === true, 'toggle ON must persist');
 
     dpoClient.setHttpTransportForTests(async (_url, xmlBody) => {
         assert(Boolean(expectedCompanyToken) && String(xmlBody).includes(expectedCompanyToken), 'test probe missing company token');
@@ -261,17 +284,35 @@ async function main() {
         'navigation must not embed payment panel code'
     );
 
+    const paymentPageSource = fs.readFileSync(path.resolve(__dirname, '../admin/app/pages/settings-payment.js'), 'utf8');
+    assert(
+        paymentPageSource.includes('Saving payment switch'),
+        'Payment Management must persist online-payment toggles immediately'
+    );
+    assert(
+        !/data-payment-mode-tab[\s\S]{0,400}modeSelect\.value\s*=\s*nextMode/.test(paymentPageSource),
+        'Credential tabs must not overwrite Operating mode'
+    );
+
     const { connectDatabase } = require('../server/database');
     await connectDatabase();
-    await seed();
+    const settingsSnapshot = await seed();
 
-    await verifyServiceLayer();
-    console.log('[verify-admin-payment-management] service layer OK');
+    try {
+        await verifyServiceLayer();
+        console.log('[verify-admin-payment-management] service layer OK');
 
-    await verifyHttp();
-    console.log('[verify-admin-payment-management] HTTP layer OK');
+        await verifyHttp();
+        console.log('[verify-admin-payment-management] HTTP layer OK');
 
-    console.log('[verify-admin-payment-management] PASS');
+        console.log('[verify-admin-payment-management] PASS');
+    } finally {
+        const paymentSettingsService = require('../server/services/paymentsettings.service');
+        await restorePaymentSettingsFlags(paymentSettingsService, settingsSnapshot, {
+            id: 'ADMIN_VERIFY_STEP3',
+            email: 'admin@example.com'
+        });
+    }
 }
 
 main().catch((error) => {

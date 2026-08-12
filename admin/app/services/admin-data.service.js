@@ -1312,7 +1312,13 @@ export async function getAdminPayment(options = {}) {
 export async function updateAdminPayment(nextPayment) {
   try {
     const payload = await api.put("admin/payment", asObject(nextPayment));
-    const payment = asObject(payload?.payment || nextPayment);
+    // Never fall back to the request body — that made failed/partial saves look persisted.
+    const payment = asObject(payload?.payment);
+    if (!Object.keys(payment).length) {
+      const error = new Error("Payment settings save returned an empty server response.");
+      error.code = "ADMIN_PAYMENT_EMPTY_RESPONSE";
+      throw error;
+    }
     writeMemoryCache("admin-payment", payment);
     writeCache("admin-payment", payment);
     emitSync("admin-payment", payment);
