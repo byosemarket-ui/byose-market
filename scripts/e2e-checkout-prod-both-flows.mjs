@@ -1,5 +1,6 @@
 /**
  * Production E2E: Buy Now + Add to Cart through Payment → DPO TEST → Success.
+ * Completes the real DPO sandbox hosted page with documented test cards.
  * Run: node scripts/e2e-checkout-prod-both-flows.mjs
  */
 import { chromium } from 'playwright';
@@ -21,6 +22,13 @@ const SHIPPING = {
   village: 'Test Village'
 };
 
+const DPO_TEST_CARD = {
+  number: '5436886269848367',
+  name: 'John Doe',
+  expiry: '12/30',
+  cvv: '123'
+};
+
 function absolutize(url) {
   const value = String(url || '').trim();
   if (!value) return '';
@@ -38,6 +46,17 @@ async function listInStockProducts() {
   });
 }
 
+function maxVariantStock(product) {
+  const colors = product?.variants?.colorVariants || product?.metadata?.colorVariants || [];
+  let max = 0;
+  for (const color of colors) {
+    for (const size of color.sizes || []) {
+      max = Math.max(max, Number(size.stock) || 0);
+    }
+  }
+  return max;
+}
+
 function buildPayload(product) {
   const enriched = enrichProductColorVariants(product, absolutize);
   const colors = enriched?.variants?.colorVariants || enriched?.metadata?.colorVariants || [];
@@ -51,6 +70,88 @@ function buildPayload(product) {
   return buildVariantCartPayload(enriched, 1, attributes);
 }
 
+async function completeDpoSandboxPayment(page, paymentUrl) {
+  await page.goto(paymentUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await page.waitForSelector('#cerditcarAtag, a.nav-link:has-text("DEBIT/CREDIT CARD")', { timeout: 60000 });
+
+  // DPO defaults to Mobile Money — switch to card tab.
+  const cardTab = page.locator('#cerditcarAtag, a.nav-link:has-text("DEBIT/CREDIT CARD")').first();
+  await cardTab.click({ force: true });
+  await page.waitForSelector('#TRANSCreditnum', { state: 'visible', timeout: 30000 });
+  await page.waitForTimeout(500);
+
+  await page.fill('#TRANScardholdername', '');
+  await page.locator('#TRANScardholdername').pressSequentially(DPO_TEST_CARD.name, { delay: 40 });
+  await page.fill('#TRANSCreditnum', '');
+  await page.locator('#TRANSCreditnum').pressSequentially(DPO_TEST_CARD.number, { delay: 20 });
+  await page.selectOption('#TRANSexpiryM', '12');
+  await page.selectOption('#TRANSexpiryY', '2030');
+  await page.fill('#TRANScvv', '');
+  await page.locator('#TRANScvv').pressSequentially(DPO_TEST_CARD.cvv, { delay: 30 });
+  await page.locator('#TRANScardholdername').blur();
+  await page.locator('#TRANSCreditnum').blur();
+  await page.locator('#TRANScvv').blur();
+  await page.waitForTimeout(400);
+
+  const termsVisible = page.locator('#terms-approval_creditcard').filter({ visible: true }).last();
+  if (await termsVisible.count()) {
+    await termsVisible.check({ force: true });
+  } else {
+    await page.locator('#terms-approval_creditcard').last().evaluate((el) => {
+      el.checked = true;
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      el.dispatchEvent(new Event('click', { bubbles: true }));
+    });
+  }
+
+  const continueBtn = page.locator('button:has-text("CONTINUE TO PAY")').filter({ visible: true }).last();
+  if (!(await continueBtn.count())) {
+    throw new Error('DPO CONTINUE TO PAY button not found');
+  }
+  await continueBtn.click({ force: true });
+
+  // Return URL → verify → order-success (or payment-result then success).
+  await page.waitForURL(
+    (url) => /byosemarket\.com/i.test(url.href)
+      && /(order-success|payment-result|\/api\/payments\/dpo\/(return|back))/i.test(url.href),
+    { timeout: 180000 }
+  );
+
+  // Follow any intermediate payment-result → success navigation.
+  for (let i = 0; i < 40; i += 1) {
+    const href = page.url();
+    if (/order-success\.html/i.test(href)) break;
+    if (/payment-result\.html/i.test(href)) {
+      const verifiedPaid = await page.evaluate(async () => {
+        const params = new URLSearchParams(window.location.search);
+        const orderId = params.get('orderId') || '';
+        if (!orderId) return false;
+        const res = await fetch('/api/payments/dpo/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ orderId })
+        }).then((r) => r.json()).catch(() => null);
+        return Boolean(res?.outcome === 'success' || res?.paymentStatus === 'paid');
+      }).catch(() => false);
+      if (verifiedPaid) {
+        const orderId = new URL(page.url()).searchParams.get('orderId') || '';
+        await page.goto(`${SITE}/orders/order-success.html?orderId=${encodeURIComponent(orderId)}`, {
+          waitUntil: 'domcontentloaded',
+          timeout: 60000
+        });
+        break;
+      }
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await page.waitForTimeout(1000);
+  }
+
+  if (!/order-success\.html/i.test(page.url())) {
+    const body = (await page.locator('body').innerText().catch(() => '')).slice(0, 500);
+    throw new Error(`Expected order-success after DPO, landed on ${page.url()} body=${body}`);
+  }
+}
+
 async function runFlow(browser, flow, payload) {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
@@ -62,6 +163,15 @@ async function runFlow(browser, flow, payload) {
   page.on('pageerror', (err) => errors.push(err.message));
 
   await context.addInitScript(({ flowName, item }) => {
+    // Seed once per browser context — window flags reset on every navigation,
+    // which previously wiped confirmation on DPO → Success return.
+    try {
+      if (sessionStorage.getItem('__byose_prod_e2e_seeded') === '1') return;
+      sessionStorage.setItem('__byose_prod_e2e_seeded', '1');
+    } catch {
+      if (window.__byoseProdE2eSeeded) return;
+      window.__byoseProdE2eSeeded = true;
+    }
     localStorage.removeItem('byose_checkout_draft_v1');
     localStorage.removeItem('byose_checkout_confirmation_v1');
     localStorage.removeItem('byose_market_cart_v1');
@@ -70,6 +180,7 @@ async function runFlow(browser, flow, payload) {
     try {
       sessionStorage.removeItem('byose_checkout_handoff_v1');
       sessionStorage.removeItem('byose_checkout_step1_commit_v1');
+      sessionStorage.removeItem('byose_checkout_confirmation_v1');
     } catch {}
     if (flowName === 'buyNow') {
       localStorage.setItem('byose_direct_checkout', JSON.stringify(item));
@@ -107,7 +218,9 @@ async function runFlow(browser, flow, payload) {
 
   let createdOrderId = '';
   let orderError = '';
+  let paymentUrl = '';
   let initiateOk = false;
+  let retriedInitiate = false;
 
   page.on('response', async (response) => {
     try {
@@ -121,32 +234,37 @@ async function runFlow(browser, flow, payload) {
       if (response.request().method() === 'POST' && /\/api\/payments\/dpo\/initiate/i.test(response.url())) {
         const body = await response.json().catch(() => null);
         initiateOk = Boolean(body?.success && (body.paymentUrl || body.redirectUrl));
+        paymentUrl = String(body?.paymentUrl || body?.redirectUrl || '').trim();
         createdOrderId = createdOrderId || String(body?.orderId || '').trim();
       }
     } catch {}
   });
 
-  await page.route(/3gdirectpay|payv3\.php/i, async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'text/html',
-      body: '<html><body>DPO sandbox intercepted</body></html>'
-    });
-  });
+  await page.waitForSelector('input[name="paymentMethod"]', { timeout: 60000 });
+  await page.waitForFunction(() => {
+    const methods = Array.from(document.querySelectorAll('input[name="paymentMethod"]')).map((el) => el.value);
+    return methods.includes('dpo') || methods.includes('cod') || methods.includes('mtn');
+  }, { timeout: 60000 });
+  await page.waitForTimeout(800);
 
   const dpoRadio = page.locator('input[name="paymentMethod"][value="dpo"]');
   if (await dpoRadio.count()) {
     await dpoRadio.click({ force: true });
   } else {
-    throw new Error(`${flow}: DPO payment method not available`);
+    throw new Error(`${flow}: DPO payment method not available (${await page.locator('input[name="paymentMethod"]').evaluateAll((els) => els.map((el) => el.value))})`);
   }
 
   await page.locator('#placeOrderBtn').click({ force: true, noWaitAfter: true });
 
-  for (let i = 0; i < 60; i += 1) {
-    if (createdOrderId || orderError) break;
+  for (let i = 0; i < 80; i += 1) {
+    if ((createdOrderId && paymentUrl) || orderError) break;
+    const href = page.url();
+    if (/3gdirectpay|payv3\.php/i.test(href)) {
+      paymentUrl = paymentUrl || href;
+      break;
+    }
     const message = (await page.locator('#message').innerText().catch(() => '')).trim();
-    if (message) {
+    if (message && !/redirect|secure payment|starting/i.test(message)) {
       orderError = message;
       break;
     }
@@ -155,40 +273,75 @@ async function runFlow(browser, flow, payload) {
   }
 
   if (orderError) {
-    throw new Error(`${flow}: ${orderError}`);
+    if (/timed out|timeout|ECONNRESET|503|502/i.test(orderError) && !retriedInitiate) {
+      retriedInitiate = true;
+      console.warn(`${flow}: retrying Place Order after initiate error: ${orderError}`);
+      orderError = '';
+      createdOrderId = '';
+      paymentUrl = '';
+      initiateOk = false;
+      await page.goto(`${SITE}/orders/payment.html?cb=${Date.now()}`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 120000
+      });
+      await page.waitForFunction(() => window.__ckStep === 'payment', { timeout: 60000 });
+      await page.waitForSelector('input[name="paymentMethod"][value="dpo"]', { timeout: 60000 });
+      await page.click('input[name="paymentMethod"][value="dpo"]', { force: true });
+      await page.locator('#placeOrderBtn').click({ force: true, noWaitAfter: true });
+      for (let i = 0; i < 80; i += 1) {
+        if ((createdOrderId && paymentUrl) || orderError) break;
+        const href = page.url();
+        if (/3gdirectpay|dpopayment|payv3\.php/i.test(href)) {
+          paymentUrl = paymentUrl || href;
+          break;
+        }
+        const message = (await page.locator('#message').innerText().catch(() => '')).trim();
+        if (message && !/redirect|secure payment|starting/i.test(message)) {
+          orderError = message;
+          break;
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await page.waitForTimeout(500);
+      }
+      if (orderError) throw new Error(`${flow}: ${orderError}`);
+    } else {
+      throw new Error(`${flow}: ${orderError}`);
+    }
   }
   if (!createdOrderId) {
     throw new Error(`${flow}: missing orderId after Place Order`);
   }
-
-  // Complete DPO TEST via return handler (uses stored TransToken + verifyToken).
-  await page.goto(`${SITE}/api/payments/dpo/return?orderId=${encodeURIComponent(createdOrderId)}`, {
-    waitUntil: 'domcontentloaded',
-    timeout: 120000
-  });
-
-  if (/payment-result\.html/i.test(page.url())) {
-    const verified = await fetch(`${SITE}/api/payments/dpo/verify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ orderId: createdOrderId })
-    }).then((r) => r.json()).catch(() => null);
-    if (verified?.outcome === 'success' || verified?.paymentStatus === 'paid') {
-      await page.goto(`${SITE}/orders/order-success.html?orderId=${encodeURIComponent(createdOrderId)}`, {
-        waitUntil: 'domcontentloaded',
-        timeout: 60000
-      });
+  if (!paymentUrl) {
+    // Browser may already have navigated; use current URL.
+    if (/3gdirectpay|payv3\.php/i.test(page.url())) {
+      paymentUrl = page.url();
     } else {
-      throw new Error(`${flow}: DPO verify did not pay (${verified?.outcome || verified?.message || page.url()})`);
+      throw new Error(`${flow}: missing DPO paymentUrl after initiate`);
     }
   }
 
-  await page.waitForURL(/order-success\.html/, { timeout: 120000 });
+  await completeDpoSandboxPayment(page, paymentUrl);
+
   const successText = await page.locator('body').innerText();
+  const successOk = /Order Placed!/i.test(successText) && successText.includes(createdOrderId);
+
+  // Confirm backend paid status as well.
+  const verified = await fetch(`${SITE}/api/payments/dpo/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ orderId: createdOrderId })
+  }).then((r) => r.json()).catch(() => null);
+
   await context.close();
 
   if (errors.length) {
     throw new Error(`${flow} pageerrors: ${errors.join(' | ')}`);
+  }
+  if (!successOk) {
+    throw new Error(`${flow}: success page missing Order Placed / orderId. Snippet: ${successText.slice(0, 400)}`);
+  }
+  if (!(verified?.outcome === 'success' || verified?.paymentStatus === 'paid')) {
+    throw new Error(`${flow}: backend not paid after success page (${verified?.outcome || verified?.message || 'unknown'})`);
   }
 
   return {
@@ -197,8 +350,11 @@ async function runFlow(browser, flow, payload) {
     initiateOk,
     summary: summary.slice(0, 180),
     productText: productText.slice(0, 180),
-    successHasOrder: /order/i.test(successText),
-    successSnippet: successText.slice(0, 280)
+    successHasOrder: true,
+    successSnippet: successText.slice(0, 280),
+    dpoPaid: true,
+    paymentStatus: verified.paymentStatus,
+    dpoOutcome: verified.outcome
   };
 }
 
@@ -207,21 +363,28 @@ if (inStock.length < 1) {
   throw new Error('No in-stock variant products on production');
 }
 
+inStock.sort((a, b) => maxVariantStock(b) - maxVariantStock(a));
+
 const browser = await chromium.launch({ headless: true });
 const results = [];
 
 const buyNowProduct = inStock[0];
-const addToCartProduct = inStock[1] || inStock[0];
+const addToCartProduct = inStock.find((row) => String(row.id) !== String(buyNowProduct.id) && maxVariantStock(row) > 0)
+  || inStock[1]
+  || inStock[0];
+const flowFilter = String(process.env.BYOSE_E2E_FLOW || '').trim();
 const flows = [
   { name: 'buyNow', product: buyNowProduct },
   { name: 'addToCart', product: addToCartProduct }
-];
+].filter((entry) => !flowFilter || entry.name === flowFilter);
 
 for (const entry of flows) {
   // Refresh stock snapshot before each flow.
   // eslint-disable-next-line no-await-in-loop
   const freshList = await listInStockProducts();
-  const product = freshList.find((row) => String(row.id) === String(entry.product.id)) || freshList[0];
+  freshList.sort((a, b) => maxVariantStock(b) - maxVariantStock(a));
+  const product = freshList.find((row) => String(row.id) === String(entry.product.id))
+    || freshList[0];
   if (!product) {
     throw new Error(`No stock left for ${entry.name}`);
   }

@@ -214,10 +214,10 @@ function applyRemoteStorefrontState(state) {
     }
 
     if (Object.prototype.hasOwnProperty.call(state || {}, 'checkoutConfirmation')) {
+      // Never wipe a local confirmation with a null/empty remote echo.
+      // DPO return → Success must keep the confirmation written at Place Order.
       if (state.checkoutConfirmation) {
         writeStorage(STORAGE_KEYS.confirmation, clone(state.checkoutConfirmation));
-      } else {
-        removeStorage(STORAGE_KEYS.confirmation);
       }
     }
   } finally {
@@ -352,7 +352,10 @@ export function readPersistedDirectCheckout() {
 export function writeStorage(key, value) {
   // Always keep a durable localStorage copy for checkout draft so Step 1 → Step 2
   // navigation cannot lose state when storefront sync is slow or managed in-memory only.
-  const forceLocalPersist = key === STORAGE_KEYS.draft || key === STORAGE_KEYS.checkoutActive;
+  // Confirmation must also survive DPO redirect return for Step 4 Success.
+  const forceLocalPersist = key === STORAGE_KEYS.draft
+    || key === STORAGE_KEYS.checkoutActive
+    || key === STORAGE_KEYS.confirmation;
 
   if (window.ByoseStorefrontSync?.isManagedKey?.(key)) {
     window.ByoseStorefrontSync.writeStateByKey(key, value);
@@ -363,6 +366,11 @@ export function writeStorage(key, value) {
         console.warn('Unable to persist storage key', key, error);
       }
     }
+    if (key === STORAGE_KEYS.confirmation) {
+      try {
+        window.sessionStorage.setItem(key, JSON.stringify(value));
+      } catch (_error) {}
+    }
     return;
   }
 
@@ -371,6 +379,11 @@ export function writeStorage(key, value) {
     window.localStorage.setItem(key, JSON.stringify(value));
   } catch (error) {
     console.warn('Unable to persist storage key', key, error);
+  }
+  if (key === STORAGE_KEYS.confirmation) {
+    try {
+      window.sessionStorage.setItem(key, JSON.stringify(value));
+    } catch (_error) {}
   }
   syncStorefrontStorageKey(key, value);
 }
@@ -724,7 +737,17 @@ export function saveCheckoutConfirmation(payload) {
 }
 
 export function readCheckoutConfirmation() {
-  return readStorage(STORAGE_KEYS.confirmation, null);
+  const fromManaged = readStorage(STORAGE_KEYS.confirmation, null);
+  if (fromManaged) return fromManaged;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEYS.confirmation);
+    if (raw) return JSON.parse(raw);
+  } catch (_error) {}
+  try {
+    const raw = window.sessionStorage.getItem(STORAGE_KEYS.confirmation);
+    if (raw) return JSON.parse(raw);
+  } catch (_error) {}
+  return null;
 }
 
 export function savePendingOrderSubmission(payload) {

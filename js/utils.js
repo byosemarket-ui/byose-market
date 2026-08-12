@@ -665,8 +665,12 @@ window.Util = Util;
       }
 
       if (Object.prototype.hasOwnProperty.call(state || {}, 'checkoutConfirmation')) {
-        stateByField.checkoutConfirmation = cloneValue(state.checkoutConfirmation || null);
-        changedFields.push('checkoutConfirmation');
+        // Prefer a real confirmation over a null remote default so DPO return
+        // cannot blank Step 4 success details.
+        if (state.checkoutConfirmation) {
+          stateByField.checkoutConfirmation = cloneValue(state.checkoutConfirmation);
+          changedFields.push('checkoutConfirmation');
+        }
       }
 
       if (changedFields.length) {
