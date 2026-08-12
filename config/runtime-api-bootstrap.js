@@ -30,8 +30,15 @@
     var hostname = String(global.location && global.location.hostname || "").trim().toLowerCase();
     var origin = String(global.location && global.location.origin || "").replace(/\/+$/, "");
 
-    if ((protocol === "http:" || protocol === "https:") && origin && /byosemarket\.com$/i.test(hostname)) {
-      return origin + "/api";
+    if ((protocol === "http:" || protocol === "https:") && origin) {
+      // Production host and local/dev hosts must stay same-origin so checkout
+      // posts orders to the API that owns the catalog/stock being viewed.
+      if (/byosemarket\.com$/i.test(hostname)
+        || hostname === "localhost"
+        || hostname === "127.0.0.1"
+        || hostname === "0.0.0.0") {
+        return origin + "/api";
+      }
     }
 
     return PRODUCTION_API_BASE;

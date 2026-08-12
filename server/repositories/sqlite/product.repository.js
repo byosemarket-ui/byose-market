@@ -910,10 +910,76 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             .replace(/^-+|-+$/g, '');
     }
 
+    /**
+     * Normalize size tokens so "Size 42", "size-42", and "42" all match.
+     */
+    normalizeSizeMatchKey(value) {
+        let key = this.normalizeMatchKey(value);
+        if (key.startsWith('size-')) {
+            key = key.slice(5);
+        }
+        return key;
+    }
+
     matchesVariantToken(candidate, target) {
         const left = this.normalizeMatchKey(candidate);
         const right = this.normalizeMatchKey(target);
         return Boolean(left && right && left === right);
+    }
+
+    matchesSizeToken(candidate, target) {
+        const left = this.normalizeSizeMatchKey(candidate);
+        const right = this.normalizeSizeMatchKey(target);
+        return Boolean(left && right && left === right);
+    }
+
+    parseVariantKeyTokens(variantKey) {
+        const raw = String(variantKey || '').trim();
+        if (!raw) return { color: '', size: '' };
+        const parts = Object.fromEntries(
+            raw.split('|')
+                .map((part) => part.split(':'))
+                .filter((pair) => pair.length >= 2)
+                .map(([key, ...rest]) => [String(key || '').trim().toLowerCase(), rest.join(':').trim()])
+        );
+        return {
+            color: parts.color || parts.colour || '',
+            size: parts.size || ''
+        };
+    }
+
+    collectColorTokens(item = {}) {
+        const attributes = item?.attributes && typeof item.attributes === 'object' ? item.attributes : {};
+        const fromKey = this.parseVariantKeyTokens(item?.variantKey);
+        const tokens = [
+            item?.colorId,
+            item?.colorName,
+            item?.color,
+            attributes.colorId,
+            attributes.Color,
+            attributes.color,
+            fromKey.color,
+            item?.variantSelection?.colorId,
+            item?.variantSelection?.color
+        ];
+        return [...new Set(tokens.map((value) => this.normalizeText(value)).filter(Boolean))];
+    }
+
+    collectSizeTokens(item = {}) {
+        const attributes = item?.attributes && typeof item.attributes === 'object' ? item.attributes : {};
+        const fromKey = this.parseVariantKeyTokens(item?.variantKey);
+        const tokens = [
+            item?.sizeValue,
+            item?.sizeLabel,
+            item?.size,
+            attributes.sizeValue,
+            attributes.Size,
+            attributes.size,
+            fromKey.size,
+            item?.variantSelection?.sizeValue,
+            item?.variantSelection?.size
+        ];
+        return [...new Set(tokens.map((value) => this.normalizeText(value)).filter(Boolean))];
     }
 
     findColorVariant(colorVariants, colorToken) {
@@ -929,6 +995,14 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         )) || null;
     }
 
+    findColorVariantFromTokens(colorVariants, tokens = []) {
+        for (const token of tokens) {
+            const match = this.findColorVariant(colorVariants, token);
+            if (match) return match;
+        }
+        return null;
+    }
+
     findSizeRow(sizes, sizeToken) {
         const target = String(sizeToken || '').trim();
         if (!target || !Array.isArray(sizes)) {
@@ -936,10 +1010,18 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         }
 
         return sizes.find((entry) => (
-            this.matchesVariantToken(entry?.size, target)
-            || this.matchesVariantToken(entry?.label, target)
-            || this.matchesVariantToken(entry?.value, target)
+            this.matchesSizeToken(entry?.size, target)
+            || this.matchesSizeToken(entry?.label, target)
+            || this.matchesSizeToken(entry?.value, target)
         )) || null;
+    }
+
+    findSizeRowFromTokens(sizes, tokens = []) {
+        for (const token of tokens) {
+            const match = this.findSizeRow(sizes, token);
+            if (match) return match;
+        }
+        return null;
     }
 
     computeColorVariantTotal(colorVariants = []) {
@@ -984,8 +1066,10 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             }
 
             const attributes = item?.attributes && typeof item.attributes === 'object' ? item.attributes : {};
-            const colorToken = this.normalizeText(item?.colorName || item?.color || attributes.Color);
-            const sizeToken = this.normalizeText(item?.sizeLabel || item?.size || attributes.Size);
+            const colorTokens = this.collectColorTokens(item);
+            const sizeTokens = this.collectSizeTokens(item);
+            const colorToken = colorTokens[0] || this.normalizeText(item?.colorName || item?.color || attributes.Color);
+            const sizeToken = sizeTokens[0] || this.normalizeText(item?.sizeLabel || item?.size || attributes.Size);
             const variants = this.parseJson(product.variants_json, {});
             const metadata = this.parseJson(product.metadata_json, {});
             let colorVariants = Array.isArray(variants?.colorVariants)
@@ -998,14 +1082,14 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             let nextMetadataJson = product.metadata_json;
 
             if (colorVariants.length) {
-                if (!colorToken && !sizeToken) {
+                if (!colorTokens.length && !sizeTokens.length) {
                     const error = new Error(`Color/size selection required for ${product.name || productId}`);
                     error.code = 'INVALID_ORDER_ITEM';
                     error.productId = productId;
                     throw error;
                 }
 
-                const color = this.findColorVariant(colorVariants, colorToken) || (
+                const color = this.findColorVariantFromTokens(colorVariants, colorTokens) || (
                     colorVariants.length === 1 ? colorVariants[0] : null
                 );
                 if (!color) {
@@ -1017,13 +1101,13 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
 
                 const sizes = Array.isArray(color.sizes) ? color.sizes : [];
                 if (sizes.length) {
-                    if (!sizeToken) {
+                    if (!sizeTokens.length) {
                         const error = new Error(`Size selection required for ${product.name || productId}`);
                         error.code = 'INVALID_ORDER_ITEM';
                         error.productId = productId;
                         throw error;
                     }
-                    const sizeRow = this.findSizeRow(sizes, sizeToken);
+                    const sizeRow = this.findSizeRowFromTokens(sizes, sizeTokens);
                     if (!sizeRow) {
                         const error = new Error(`Size variant unavailable for ${product.name || productId}`);
                         error.code = 'INSUFFICIENT_STOCK';
@@ -1119,8 +1203,10 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             }
 
             const attributes = item?.attributes && typeof item.attributes === 'object' ? item.attributes : {};
-            const colorToken = this.normalizeText(item?.colorName || item?.color || attributes.Color);
-            const sizeToken = this.normalizeText(item?.sizeLabel || item?.size || attributes.Size);
+            const colorTokens = this.collectColorTokens(item);
+            const sizeTokens = this.collectSizeTokens(item);
+            const colorToken = colorTokens[0] || this.normalizeText(item?.colorName || item?.color || attributes.Color);
+            const sizeToken = sizeTokens[0] || this.normalizeText(item?.sizeLabel || item?.size || attributes.Size);
             const variants = this.parseJson(product.variants_json, {});
             const metadata = this.parseJson(product.metadata_json, {});
             let colorVariants = Array.isArray(variants?.colorVariants)
@@ -1132,14 +1218,14 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             let nextVariantsJson = product.variants_json;
             let nextMetadataJson = product.metadata_json;
 
-            if (colorVariants.length && (colorToken || sizeToken)) {
-                const color = this.findColorVariant(colorVariants, colorToken) || (
+            if (colorVariants.length && (colorTokens.length || sizeTokens.length || colorToken || sizeToken)) {
+                const color = this.findColorVariantFromTokens(colorVariants, colorTokens.length ? colorTokens : [colorToken]) || (
                     colorVariants.length === 1 ? colorVariants[0] : null
                 );
                 if (color) {
                     const sizes = Array.isArray(color.sizes) ? color.sizes : [];
                     if (sizes.length) {
-                        const sizeRow = this.findSizeRow(sizes, sizeToken);
+                        const sizeRow = this.findSizeRowFromTokens(sizes, sizeTokens.length ? sizeTokens : [sizeToken]);
                         if (sizeRow) {
                             sizeRow.stock = Math.max(0, this.toNumber(sizeRow.stock, 0)) + quantity;
                         }

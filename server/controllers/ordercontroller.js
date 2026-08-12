@@ -235,8 +235,11 @@ function normalizeItems(items) {
             const productUrl = normalizeText(item?.productUrl || item?.productLink || attributes.productUrl || attributes.productLink);
             const sku = normalizeText(item?.sku || item?.variantSku || attributes.SKU || attributes.sku);
             const category = normalizeText(item?.category || attributes.Category || attributes.category);
-            const colorName = normalizeText(item?.colorName || item?.color || attributes.Color);
-            const sizeLabel = normalizeText(item?.sizeLabel || item?.size || attributes.Size);
+            const colorName = normalizeText(item?.colorName || item?.color || attributes.colorName || attributes.Color);
+            const sizeLabel = normalizeText(item?.sizeLabel || item?.size || attributes.sizeLabel || attributes.Size);
+            const colorId = normalizeText(item?.colorId || attributes.colorId || item?.variantSelection?.colorId || '');
+            const sizeValue = normalizeText(item?.sizeValue || attributes.sizeValue || item?.variantSelection?.sizeValue || '');
+            const variantKey = normalizeText(item?.variantKey || item?.variantSelection?.key || '');
 
             return {
                 productId: normalizeText(item?.productId || item?.id),
@@ -247,8 +250,11 @@ function normalizeItems(items) {
                 colorImage: normalizeText(item?.colorImage || attributes.colorImage),
                 color: colorName,
                 colorName,
+                colorId,
                 size: sizeLabel,
                 sizeLabel,
+                sizeValue,
+                variantKey,
                 sku,
                 variantSku: sku,
                 category,
@@ -258,8 +264,12 @@ function normalizeItems(items) {
                 attributeSummary: normalizeText(item?.attributeSummary),
                 attributes: {
                     ...attributes,
-                    Color: colorName || attributes.Color,
-                    Size: sizeLabel || attributes.Size,
+                    Color: colorId || attributes.Color || colorName,
+                    Size: sizeValue || attributes.Size || sizeLabel,
+                    colorId: colorId || attributes.colorId,
+                    sizeValue: sizeValue || attributes.sizeValue,
+                    colorName: colorName || attributes.colorName,
+                    sizeLabel: sizeLabel || attributes.sizeLabel,
                     SKU: sku || attributes.SKU,
                     Category: category || attributes.Category,
                     productUrl,

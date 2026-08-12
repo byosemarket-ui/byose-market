@@ -39,7 +39,13 @@ function buildOrderLineItem(product) {
   const category = String(product.category || '').trim();
   const colorName = String(product.colorName || product.color || '');
   const sizeLabel = String(product.sizeLabel || product.size || '');
+  const colorId = String(product.colorId || product.variantSelection?.colorId || product.attributes?.Color || '').trim();
+  const sizeValue = String(product.sizeValue || product.variantSelection?.sizeValue || product.attributes?.Size || '').trim();
+  const variantKey = String(product.variantKey || '').trim();
   const name = String(product.name || product.productName || 'Product');
+  const incomingAttributes = product.attributes && typeof product.attributes === 'object'
+    ? product.attributes
+    : {};
 
   return {
     productId: String(product.id || product.productId || ''),
@@ -52,9 +58,11 @@ function buildOrderLineItem(product) {
     colorImage,
     color: colorName,
     colorName,
+    colorId,
     size: sizeLabel,
     sizeLabel,
-    variantKey: String(product.variantKey || ''),
+    sizeValue,
+    variantKey,
     sku,
     variantSku: sku,
     category,
@@ -63,8 +71,14 @@ function buildOrderLineItem(product) {
     slug: String(product.slug || ''),
     attributeSummary: [colorName, sizeLabel].filter(Boolean).join(' · '),
     attributes: {
-      Color: colorName,
-      Size: sizeLabel,
+      ...incomingAttributes,
+      // Keep stable IDs for stock matching; also keep display names.
+      Color: colorId || incomingAttributes.Color || colorName,
+      Size: sizeValue || incomingAttributes.Size || sizeLabel,
+      colorId,
+      sizeValue,
+      colorName,
+      sizeLabel,
       SKU: sku,
       Category: category,
       productUrl,

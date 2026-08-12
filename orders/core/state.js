@@ -399,6 +399,13 @@ function normalizeProduct(item) {
   const qty = Math.max(1, Number(item.qty || item.quantity) || 1);
   const price = Number(item.price) || 0;
   const comparePrice = Number(item.comparePrice || item.oldPrice) || 0;
+  const colorId = String(item.colorId || item.variantSelection?.colorId || item.attributes?.Color || '').trim();
+  const sizeValue = String(item.sizeValue || item.variantSelection?.sizeValue || item.attributes?.Size || '').trim();
+  let sizeLabel = String(item.sizeLabel || item.size || item.variantSelection?.size || '').trim();
+  // Display helpers sometimes prefix "Size "; stock matching must keep the raw size.
+  if (/^size\s+/i.test(sizeLabel)) {
+    sizeLabel = sizeLabel.replace(/^size\s+/i, '').trim();
+  }
   return {
     ...item,
     id: String(item.id || item.productId || ''),
@@ -414,8 +421,10 @@ function normalizeProduct(item) {
     productImage: item.productImage || item.image || '',
     color: item.color || item.colorName || '',
     colorName: item.colorName || item.color || '',
-    size: item.size || item.sizeLabel || '',
-    sizeLabel: item.sizeLabel || item.size || '',
+    colorId,
+    size: sizeLabel || sizeValue,
+    sizeLabel: sizeLabel || sizeValue,
+    sizeValue: sizeValue || sizeLabel,
     variantKey: String(item.variantKey || ''),
     slug: String(item.slug || ''),
     category: String(item.category || ''),
