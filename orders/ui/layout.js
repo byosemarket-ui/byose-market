@@ -72,12 +72,14 @@ export function renderProductList(products, { editable = false } = {}) {
 }
 
 export function renderDeliveryInfo() {
+  const fee = Number(getState().totals?.deliveryFee);
+  const amount = Number.isFinite(fee) ? fee : DELIVERY_FEE;
   return `
-    <section class="ck-delivery-info" aria-label="Delivery method">
+    <section class="ck-delivery-info" aria-label="Delivery">
       <span class="ck-delivery-info__icon" aria-hidden="true">🚚</span>
       <div class="ck-delivery-info__body">
         <strong>Delivery</strong>
-        <p>Delivered to your address · ${formatCurrency(DELIVERY_FEE)}</p>
+        <p>Delivered to your address · ${formatCurrency(amount)}</p>
       </div>
     </section>
   `;

@@ -74,12 +74,8 @@
 
   function resolveDefaultFee() {
     var delivery = global.ByoseStoreSettings && global.ByoseStoreSettings.delivery;
-    if (!delivery) return 2000;
-    if (delivery.pricing && delivery.pricing.mode === "fixed") {
-      return Number(delivery.pricing.fixedFee) || 2000;
-    }
-    var firstZone = Array.isArray(delivery.zones) && delivery.zones[0];
-    return Number(firstZone && firstZone.fee != null ? firstZone.fee : delivery.pricing && delivery.pricing.fixedFee) || 2000;
+    var configured = delivery && delivery.pricing ? Number(delivery.pricing.fixedFee) : NaN;
+    return Number.isFinite(configured) && configured >= 0 ? configured : 2000;
   }
 
   global.ByoseShippingApi = {

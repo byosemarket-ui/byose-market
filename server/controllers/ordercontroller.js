@@ -325,7 +325,7 @@ function normalizeStorefrontOrder(payload, user) {
     const paymentTransaction = source.payment?.transaction && typeof source.payment.transaction === 'object'
         ? source.payment.transaction
         : {};
-    const deliveryMethodKey = normalizeText(source.deliveryMethodKey || source.deliveryMethod || 'homeDelivery') || 'homeDelivery';
+    const deliveryMethodKey = 'homeDelivery';
 
     return {
         id: normalizeText(source.id || source.orderId),
@@ -358,9 +358,9 @@ function normalizeStorefrontOrder(payload, user) {
         total,
         totalAmount: total,
         totalPrice: total,
-        deliveryMethod: deliveryMethodKey === 'storePickup' ? 'pickup' : 'delivery',
+        deliveryMethod: 'delivery',
         deliveryMethodKey,
-        deliveryLabel: normalizeText(source.deliveryLabel) || (deliveryMethodKey === 'storePickup' ? 'Store Pickup' : 'Delivery to address'),
+        deliveryLabel: 'Delivery to address',
         items,
         products: items,
         shippingAddress: {
@@ -677,7 +677,7 @@ exports.createOrder = async (req, res) => {
             const shippingQuote = await deliverySettingsService.calculateShipping({
                 subtotal,
                 address: normalizedOrder.shippingAddress || {},
-                method: normalizedOrder.deliveryMethodKey || 'homeDelivery'
+                method: 'homeDelivery'
             });
             const shippingFee = Number(shippingQuote.fee) || 0;
             let couponCode = normalizeText(normalizedOrder.couponCode).toUpperCase();

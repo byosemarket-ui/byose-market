@@ -57,6 +57,10 @@ function checkShippingUi() {
   assert(html.includes('id="gpsBadge"'), 'shipping HTML must include gpsBadge');
   assert(html.includes('Detecting location...'), 'shipping HTML default status must be professional');
   assert(html.includes('(optional)'), 'Device Location must be marked optional in UI');
+  assert(!/Delivery Method/i.test(html), 'shipping HTML must not include Delivery Method section');
+  assert(!/Choose delivery option/i.test(html), 'shipping HTML must not include delivery option selector');
+  assert(!/Home Delivery/i.test(html), 'shipping HTML must not include Home Delivery');
+  assert(!/deliveryMethodKey/.test(html), 'shipping HTML must not include deliveryMethodKey');
   assert(js.includes('continueToReview'), 'shipping.js must use continueToReview');
   assert(js.includes('handleContinue'), 'shipping.js must have Continue handler');
   assert(!/continueBtn\?\.addEventListener\('click'/.test(js), 'must not double-bind primary Continue click + submit');
@@ -64,12 +68,9 @@ function checkShippingUi() {
   assert(js.includes('startLocationService'), 'shipping.js must start location on open');
   assert(js.includes('GPS_UI_FAILSAFE_MS'), 'shipping.js must fail closed if Locating never settles');
   assert(js.includes('void startLocationService()'), 'GPS must start without awaiting delivery methods');
-  assert(
-    /void startLocationService\(\);[\s\S]*void loadDeliveryMethods\(/.test(js)
-      || js.indexOf('void startLocationService()') < js.indexOf('void loadDeliveryMethods()'),
-    'GPS init must not be gated behind loadDeliveryMethods await'
-  );
-  assert(js.includes('Promise.race'), 'Continue must not hang forever on shipping quote');
+  assert(!js.includes('loadDeliveryMethods'), 'shipping.js must not load delivery methods');
+  assert(!js.includes('refreshShippingQuote'), 'shipping.js must not quote zone/method shipping fees');
+  assert(js.includes('applyConfiguredDeliveryFee'), 'shipping.js must apply the configured delivery fee');
   assert(js.includes('onlyEmpty: true'), 'autofill must preserve customer edits');
   assert(js.includes('latitude:'), 'shipping.js must store latitude');
   assert(js.includes('mapLink:'), 'shipping.js must store mapLink');

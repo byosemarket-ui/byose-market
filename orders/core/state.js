@@ -262,10 +262,7 @@ function applyStep1Commit() {
 }
 
 function shippingForValidation(shipping = state.shipping) {
-  return {
-    ...shipping,
-    deliveryMethodKey: shipping.deliveryMethodKey || state.deliveryMethodKey || 'homeDelivery'
-  };
+  return { ...shipping };
 }
 
 function hasValidStep1Commit() {
@@ -367,7 +364,7 @@ function recalcTotals() {
     }
     return sum;
   }, 0);
-  const deliveryFee = state.deliveryMethodKey === 'storePickup' ? 0 : runtimeDeliveryFee;
+  const deliveryFee = Math.max(0, Number(runtimeDeliveryFee) || 0);
   const codFee = state.payment.method === 'cod' ? COD_FEE : 0;
   const tax = 0;
   const couponDiscount = Math.max(0, Number(state.coupon?.discountAmount || 0));
@@ -383,8 +380,7 @@ function recalcTotals() {
   };
 }
 
-export function setDeliveryQuote({ fee, method, estimate } = {}) {
-  if (method) state.deliveryMethodKey = String(method);
+export function setDeliveryQuote({ fee, estimate } = {}) {
   if (estimate != null) state.deliveryEstimate = String(estimate || '');
   if (fee != null && Number.isFinite(Number(fee))) {
     runtimeDeliveryFee = Math.max(0, Number(fee));
@@ -392,6 +388,23 @@ export function setDeliveryQuote({ fee, method, estimate } = {}) {
   recalcTotals();
   emit({ type: 'delivery' });
   return getState();
+}
+
+function applyConfiguredDeliveryFee() {
+  let fee = DELIVERY_FEE;
+  try {
+    const configured = Number(window.ByoseStoreSettings?.delivery?.pricing?.fixedFee);
+    if (Number.isFinite(configured) && configured >= 0) {
+      fee = configured;
+    } else if (typeof window.ByoseShippingApi?.resolveDefaultFee === 'function') {
+      const resolved = Number(window.ByoseShippingApi.resolveDefaultFee());
+      if (Number.isFinite(resolved) && resolved >= 0) fee = resolved;
+    }
+  } catch (_error) {
+    fee = DELIVERY_FEE;
+  }
+  runtimeDeliveryFee = Math.max(0, fee);
+  recalcTotals();
 }
 
 function normalizeProduct(item) {
@@ -673,11 +686,7 @@ export async function initCheckout(preferredStep) {
   if (preferredStep && STEPS.some((s) => s.id === preferredStep)) {
     state.step = preferredStep;
   }
-  // Ensure deliveryMethodKey is always present for validation.
-  if (!state.shipping.deliveryMethodKey) {
-    state.shipping.deliveryMethodKey = state.deliveryMethodKey || 'homeDelivery';
-  }
-  recalcTotals();
+  applyConfiguredDeliveryFee();
   state.initialized = true;
   emit('init');
 
@@ -816,12 +825,6 @@ export function guardStep(stepId) {
     // Never let a stale/partial draft wipe a complete handoff address.
     state.shipping = mergeShippingPreferFilled(state.shipping, fromDraft);
   }
-  if (draft?.deliveryMethodKey) {
-    state.deliveryMethodKey = String(draft.deliveryMethodKey);
-  }
-  if (!state.shipping.deliveryMethodKey) {
-    state.shipping.deliveryMethodKey = state.deliveryMethodKey || 'homeDelivery';
-  }
 
   if (hadHandoff && (state.step === 'review' || state.step === 'payment')) {
     if (stepId === 'review' || stepId === 'payment') {
@@ -867,9 +870,6 @@ export function guardStep(stepId) {
 export function updateShipping(patch) {
   state.shipping = { ...state.shipping, ...patch };
   if (patch.phone) state.shipping.phone = normalizePhone(patch.phone);
-  if (patch.deliveryMethodKey) {
-    state.deliveryMethodKey = String(patch.deliveryMethodKey);
-  }
   persistDraft();
   emit('shipping-changed');
 }
@@ -881,9 +881,6 @@ export function updateShipping(patch) {
  */
 export function continueToReview(formData = {}) {
   const data = { ...(formData || {}) };
-  if (!data.deliveryMethodKey) {
-    data.deliveryMethodKey = state.deliveryMethodKey || 'homeDelivery';
-  }
 
   const check = validateShipping(data);
   if (!check.valid) {
@@ -915,7 +912,7 @@ export function continueToReview(formData = {}) {
     locationCapturedAt: state.shipping.locationCapturedAt || ''
   };
 
-  const deliveryMethodKey = String(data.deliveryMethodKey || 'homeDelivery');
+  applyConfiguredDeliveryFee();
 
   // Latest typed values win completely (no merge with stale empties).
   state.shipping = {
@@ -928,10 +925,9 @@ export function continueToReview(formData = {}) {
     cell: String(data.cell || '').trim(),
     village: String(data.village || '').trim(),
     note: String(data.note == null ? '' : data.note).trim(),
-    deliveryMethodKey,
     ...gpsFields
   };
-  state.deliveryMethodKey = deliveryMethodKey;
+  state.deliveryMethodKey = 'homeDelivery';
   state.step = 'review';
 
   const payload = buildStep1CommitPayload();

@@ -23,7 +23,7 @@ export const PAYMENT_METHODS = [
 ];
 
 export const REQUIRED_SHIPPING_FIELDS = [
-  'fullName', 'phone', 'provinceCity', 'district', 'sector', 'cell', 'village', 'deliveryMethodKey'
+  'fullName', 'phone', 'provinceCity', 'district', 'sector', 'cell', 'village'
 ];
 
 export const FIELD_LABELS = {
@@ -34,6 +34,5 @@ export const FIELD_LABELS = {
   sector: 'Sector',
   cell: 'Cell',
   village: 'Village',
-  note: 'Landmark / Note',
-  deliveryMethodKey: 'Delivery Method'
+  note: 'Landmark / Note'
 };

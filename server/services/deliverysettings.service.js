@@ -342,14 +342,7 @@ async function calculateShipping({
     const zones = await listZones({ includeDisabled: false });
     const safeSubtotal = Math.max(0, toNumber(subtotal, 0));
     const methodKey = METHOD_KEYS.includes(method) ? method : 'homeDelivery';
-    const methodConfig = config.methods[methodKey];
-
-    if (!methodConfig?.enabled) {
-        const error = new Error('Selected delivery method is not available.');
-        error.statusCode = 400;
-        error.code = 'DELIVERY_METHOD_DISABLED';
-        throw error;
-    }
+    const methodConfig = config.methods[methodKey] || config.methods.homeDelivery || DEFAULT_METHODS.homeDelivery;
 
     if (config.pricing.minimumOrderAmount > 0 && safeSubtotal < config.pricing.minimumOrderAmount) {
         const error = new Error(`Minimum order amount is ${config.pricing.minimumOrderAmount} RWF.`);
@@ -370,24 +363,14 @@ async function calculateShipping({
         throw error;
     }
 
-    let baseFee = config.pricing.fixedFee;
     let matchedZone = null;
-
     if (config.pricing.mode === 'zone') {
         matchedZone = findBestZone(zones, address);
-        if (!matchedZone) {
-            // Fall back to fixed fee when no zone matches, keeping checkout usable.
-            baseFee = config.pricing.fixedFee;
-        } else {
-            baseFee = matchedZone.fee;
-        }
     }
 
-    if (methodKey === 'storePickup') {
-        baseFee = 0;
-    }
-
-    let fee = Math.max(0, baseFee + toNumber(methodConfig.feeModifier, 0));
+    // Checkout uses the configured delivery fee only. Zone fees and method
+    // modifiers (including the old 3,500 RWF Home Delivery quote) are not charged.
+    let fee = Math.max(0, toNumber(config.pricing.fixedFee, DEFAULT_DELIVERY.pricing.fixedFee));
     let freeDeliveryApplied = false;
 
     if (config.pricing.freeDeliveryThreshold > 0 && safeSubtotal >= config.pricing.freeDeliveryThreshold) {
@@ -395,14 +378,7 @@ async function calculateShipping({
         freeDeliveryApplied = true;
     }
 
-    if (methodKey === 'storePickup') {
-        fee = 0;
-        freeDeliveryApplied = false;
-    }
-
-    const estimatedDelivery = matchedZone
-        ? `${matchedZone.estimatedDaysMin}–${matchedZone.estimatedDaysMax} days`
-        : config.timing.estimatedDeliveryTime;
+    const estimatedDelivery = config.timing.estimatedDeliveryTime;
 
     return {
         fee,

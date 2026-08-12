@@ -77,7 +77,7 @@ async function verifyServiceLayer() {
     address: { country: "Rwanda", provinceCity: "Kigali" },
     method: "storePickup"
   });
-  assert(pickup.fee === 0, "store pickup should be free");
+  assert(pickup.fee === Number(admin.config.pricing.fixedFee || 2000), "checkout must charge the configured delivery fee, not a method surcharge or free pickup");
 
   const updated = await deliverySettingsService.updateDeliveryConfig({
     pricing: {
