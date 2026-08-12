@@ -68,6 +68,64 @@ function emit(event) {
   });
 }
 
+function shippingFieldFilled(value) {
+  return Boolean(String(value == null ? '' : value).trim());
+}
+
+function countFilledShippingFields(shipping = {}) {
+  return ['fullName', 'phone', 'provinceCity', 'district', 'sector', 'cell', 'village']
+    .reduce((count, key) => count + (shippingFieldFilled(shipping[key]) ? 1 : 0), 0);
+}
+
+function stepRank(stepId) {
+  const index = STEPS.findIndex((step) => step.id === stepId);
+  return index >= 0 ? index : -1;
+}
+
+/**
+ * Merge shipping objects without letting empty/stale values wipe completed fields.
+ * Used when handoff (session) and draft (localStorage/remote) disagree.
+ */
+function mergeShippingPreferFilled(base = {}, incoming = {}) {
+  const next = { ...clone(DEFAULT_ADDRESS), ...(base || {}) };
+  Object.entries(incoming || {}).forEach(([key, value]) => {
+    if (value == null) return;
+    if (typeof value === 'string') {
+      const text = value.trim();
+      if (!text) return;
+      next[key] = text;
+      return;
+    }
+    next[key] = value;
+  });
+  if (incoming?.phone != null || base?.phone != null) {
+    next.phone = normalizePhone(incoming?.phone || base?.phone || next.phone);
+  }
+  return next;
+}
+
+function pickFresherDraft(localDraft, remoteDraft) {
+  if (!remoteDraft || typeof remoteDraft !== 'object') return localDraft || null;
+  if (!localDraft || typeof localDraft !== 'object') return remoteDraft;
+
+  const localRank = stepRank(localDraft.step);
+  const remoteRank = stepRank(remoteDraft.step);
+  if (localRank > remoteRank) return localDraft;
+  if (remoteRank > localRank) return remoteDraft;
+
+  const localFilled = countFilledShippingFields(localDraft.shipping || localDraft.shippingAddress || {});
+  const remoteFilled = countFilledShippingFields(remoteDraft.shipping || remoteDraft.shippingAddress || {});
+  if (localFilled > remoteFilled) return localDraft;
+  if (remoteFilled > localFilled) return remoteDraft;
+
+  const localAt = Number(localDraft.updatedAt || 0);
+  const remoteAt = Number(remoteDraft.updatedAt || 0);
+  if (localAt && remoteAt) {
+    return localAt >= remoteAt ? localDraft : remoteDraft;
+  }
+  return localDraft.updatedAt ? localDraft : remoteDraft;
+}
+
 function writeHandoff() {
   try {
     sessionStorage.setItem(HANDOFF_KEY, JSON.stringify({
@@ -75,6 +133,7 @@ function writeHandoff() {
       source: state.source,
       products: state.products,
       shipping: state.shipping,
+      deliveryMethodKey: state.deliveryMethodKey,
       payment: state.payment,
       coupon: state.coupon,
       at: Date.now()
@@ -113,11 +172,11 @@ function applyHandoff() {
   }
 
   if (handoff.shipping && typeof handoff.shipping === 'object') {
-    state.shipping = {
-      ...state.shipping,
-      ...handoff.shipping,
-      phone: normalizePhone(handoff.shipping.phone || state.shipping.phone)
-    };
+    state.shipping = mergeShippingPreferFilled(state.shipping, handoff.shipping);
+  }
+
+  if (handoff.deliveryMethodKey) {
+    state.deliveryMethodKey = String(handoff.deliveryMethodKey);
   }
 
   if (handoff.payment) {
@@ -151,8 +210,10 @@ function persistDraft() {
     source: state.source,
     products: state.products,
     shipping: state.shipping,
+    deliveryMethodKey: state.deliveryMethodKey,
     payment: state.payment,
-    coupon: state.coupon
+    coupon: state.coupon,
+    updatedAt: Date.now()
   });
   writeHandoff();
 }
@@ -289,7 +350,7 @@ function loadShipping() {
   const user = readCurrentUser();
   const saved = getUserAddress(user);
   const savedFullName = [saved.firstName, saved.lastName].filter(Boolean).join(' ').trim();
-  state.shipping = {
+  const baseline = {
     ...clone(DEFAULT_ADDRESS),
     fullName: savedFullName || String(user?.name || '').trim(),
     phone: normalizePhone(saved.phone || user?.phone || ''),
@@ -298,12 +359,19 @@ function loadShipping() {
     sector: saved.sector || '',
     cell: saved.cell || '',
     village: saved.village || '',
-    note: saved.street || '',
-    ...(fromDraft || {}),
-    phone: normalizePhone(fromDraft?.phone || saved.phone || user?.phone || state.customer.phone || '')
+    note: saved.street || ''
   };
+  const current = state.shipping && typeof state.shipping === 'object' ? state.shipping : {};
+  // Prefer already-applied handoff values over stale drafts/profile defaults.
+  state.shipping = mergeShippingPreferFilled(
+    mergeShippingPreferFilled(baseline, fromDraft || {}),
+    current
+  );
   if (state.customer.name && !state.shipping.fullName) {
     state.shipping.fullName = state.customer.name;
+  }
+  if (draft?.deliveryMethodKey) {
+    state.deliveryMethodKey = String(draft.deliveryMethodKey);
   }
 }
 
@@ -528,7 +596,7 @@ export function setStep(stepId) {
 }
 
 export function guardStep(stepId) {
-  applyHandoff();
+  const hadHandoff = applyHandoff();
 
   const productsCheck = validateProducts(state.products);
   if (!productsCheck.valid) {
@@ -538,21 +606,33 @@ export function guardStep(stepId) {
   if (stepId === 'shipping') return { ok: true };
 
   const draft = readActiveDraft();
-  if (draft?.shipping || draft?.shippingAddress) {
-    const fromDraft = draft.shipping || draft.shippingAddress;
-    state.shipping = {
-      ...state.shipping,
-      ...fromDraft,
-      phone: normalizePhone(fromDraft.phone || state.shipping.phone)
-    };
+  const fromDraft = draft?.shipping || draft?.shippingAddress;
+  if (fromDraft && typeof fromDraft === 'object') {
+    // Never let a stale/partial draft wipe a complete handoff address.
+    state.shipping = mergeShippingPreferFilled(state.shipping, fromDraft);
+  }
+  if (draft?.deliveryMethodKey) {
+    state.deliveryMethodKey = String(draft.deliveryMethodKey);
+  }
+
+  if (hadHandoff && (state.step === 'review' || state.step === 'payment')) {
+    // Fresh same-tab navigation from commitShipping — trust handoff step.
+    if (stepId === 'review' || stepId === 'payment') {
+      const shippingCheck = validateShipping(state.shipping);
+      if (shippingCheck.valid) {
+        return { ok: true };
+      }
+    }
   }
 
   if (stepId === 'review' && (draft?.step === 'review' || draft?.step === 'payment')) {
-    return { ok: true };
+    const shippingCheck = validateShipping(state.shipping);
+    if (shippingCheck.valid) return { ok: true };
   }
 
   if (stepId === 'payment' && (draft?.step === 'payment' || draft?.step === 'review')) {
-    return { ok: true };
+    const shippingCheck = validateShipping(state.shipping);
+    if (shippingCheck.valid) return { ok: true };
   }
 
   if (state.step === 'review' && stepId === 'review' && validateShipping(state.shipping).valid) {
@@ -594,18 +674,21 @@ export function commitShipping(formData) {
   state.shipping = {
     ...state.shipping,
     ...formData,
+    note: String(formData.note == null ? state.shipping.note || '' : formData.note).trim(),
     ...gpsFields,
     phone: normalizePhone(formData.phone)
   };
   if (formData.deliveryMethodKey) {
     state.deliveryMethodKey = String(formData.deliveryMethodKey);
+  } else if (!state.deliveryMethodKey) {
+    state.deliveryMethodKey = 'homeDelivery';
   }
   state.step = 'review';
   persistUserAddress(state.shipping);
   persistDraft();
   writeHandoff();
   emit('shipping-changed');
-  return { valid: true };
+  return { valid: true, shipping: clone(state.shipping), step: state.step };
 }
 
 export function updateProductQty(productId, variantKey, qty) {

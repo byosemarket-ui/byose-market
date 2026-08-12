@@ -105,7 +105,9 @@ function render() {
   progressEl.innerHTML = renderProgress('shipping');
   sidebarEl.innerHTML = renderSidebar(state.products, state.totals);
   stickyEl.innerHTML = renderStickyBar('Continue to Review', 'shippingContinueBtn');
-  document.getElementById('stickyContinueBtn')?.addEventListener('click', handleContinue);
+  document.getElementById('stickyContinueBtn')?.addEventListener('click', (event) => {
+    void handleContinue(event);
+  });
   syncShippingBackLink();
 }
 
@@ -226,26 +228,55 @@ function applyPositionToState(position) {
   });
 }
 
-async function handleContinue() {
+async function handleContinue(event) {
+  event?.preventDefault?.();
+  if (handleContinue.inFlight) return;
+  handleContinue.inFlight = true;
+
+  const buttons = [
+    continueBtn,
+    document.getElementById('stickyContinueBtn')
+  ].filter(Boolean);
+  buttons.forEach((btn) => {
+    btn.disabled = true;
+  });
+
   showMessage(messageEl, '');
-  // Never block Continue on shipping quote or GPS — quote is best-effort only.
   try {
-    await Promise.race([
+    // Validate + persist first. Quote is best-effort and must never block Step 2.
+    const formData = readForm();
+    const result = commitShipping(formData);
+    if (!result.valid) {
+      showErrors(result.errors || {});
+      const missing = Object.keys(result.errors || {});
+      const label = missing[0]
+        ? `Please complete: ${missing.map((key) => key === 'phone' ? 'Phone Number' : key).join(', ')}.`
+        : 'Please complete the highlighted fields to continue.';
+      showMessage(messageEl, label);
+      return;
+    }
+    showErrors({});
+
+    // Fire-and-forget quote refresh — do not await before navigation.
+    void Promise.race([
       refreshShippingQuote(),
-      new Promise((resolve) => setTimeout(resolve, 1500))
-    ]);
-  } catch (_error) {
-    // Quote failures are surfaced in the estimate helper text.
+      new Promise((resolve) => setTimeout(resolve, 1200))
+    ]).catch(() => null);
+
+    window.__ckStep = 'review';
+    window.location.assign('./checkout.html');
+  } finally {
+    // If navigation is blocked (validation), re-enable the buttons.
+    handleContinue.inFlight = false;
+    if (window.location.pathname.includes('shipping')) {
+      buttons.forEach((btn) => {
+        btn.disabled = false;
+      });
+    }
   }
-  const result = commitShipping(readForm());
-  if (!result.valid) {
-    showErrors(result.errors || {});
-    showMessage(messageEl, 'Please complete the highlighted fields to continue.');
-    return;
-  }
-  showErrors({});
-  window.location.assign('checkout.html');
 }
+
+handleContinue.inFlight = false;
 
 const GPS_UI_FAILSAFE_MS = 8500;
 let locationRunId = 0;
@@ -367,8 +398,12 @@ deliveryMethodSelect?.addEventListener('change', () => {
   updateShipping(readForm());
   scheduleQuoteRefresh();
 });
-form?.addEventListener('submit', (e) => { e.preventDefault(); handleContinue(); });
-continueBtn?.addEventListener('click', handleContinue);
+form?.addEventListener('submit', (e) => { e.preventDefault(); void handleContinue(e); });
+continueBtn?.addEventListener('click', (e) => {
+  // Submit button already triggers form submit — avoid double-handling.
+  if (continueBtn.type === 'submit') return;
+  void handleContinue(e);
+});
 
 subscribe(() => render());
 

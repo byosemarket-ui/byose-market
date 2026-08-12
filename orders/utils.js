@@ -183,7 +183,33 @@ function applyRemoteStorefrontState(state) {
 
     if (Object.prototype.hasOwnProperty.call(state || {}, 'checkoutDraft')) {
       if (state.checkoutDraft) {
-        writeStorage(STORAGE_KEYS.draft, clone(state.checkoutDraft));
+        // Never clobber a newer/more-complete local shipping draft with a stale remote echo.
+        let localDraft = null;
+        try {
+          const raw = window.localStorage.getItem(STORAGE_KEYS.draft);
+          localDraft = raw ? JSON.parse(raw) : null;
+        } catch (_error) {
+          localDraft = null;
+        }
+        const remoteDraft = clone(state.checkoutDraft);
+        const stepOrder = { shipping: 0, review: 1, payment: 2, success: 3 };
+        const localStep = stepOrder[String(localDraft?.step || '')] ?? -1;
+        const remoteStep = stepOrder[String(remoteDraft?.step || '')] ?? -1;
+        const filled = (shipping = {}) => ['fullName', 'phone', 'provinceCity', 'district', 'sector', 'cell', 'village']
+          .filter((key) => String(shipping[key] || '').trim()).length;
+        const localFilled = filled(localDraft?.shipping || localDraft?.shippingAddress || {});
+        const remoteFilled = filled(remoteDraft?.shipping || remoteDraft?.shippingAddress || {});
+        const localAt = Number(localDraft?.updatedAt || 0);
+        const remoteAt = Number(remoteDraft?.updatedAt || 0);
+        const preferLocal = Boolean(localDraft) && (
+          localStep > remoteStep
+          || (localStep === remoteStep && localFilled > remoteFilled)
+          || (localStep === remoteStep && localFilled === remoteFilled && localAt && remoteAt && localAt >= remoteAt)
+          || (localStep === remoteStep && localFilled >= remoteFilled && localAt && !remoteAt)
+        );
+        if (!preferLocal) {
+          writeStorage(STORAGE_KEYS.draft, remoteDraft);
+        }
       }
     }
 
@@ -324,8 +350,19 @@ export function readPersistedDirectCheckout() {
 }
 
 export function writeStorage(key, value) {
+  // Always keep a durable localStorage copy for checkout draft so Step 1 → Step 2
+  // navigation cannot lose state when storefront sync is slow or managed in-memory only.
+  const forceLocalPersist = key === STORAGE_KEYS.draft || key === STORAGE_KEYS.checkoutActive;
+
   if (window.ByoseStorefrontSync?.isManagedKey?.(key)) {
     window.ByoseStorefrontSync.writeStateByKey(key, value);
+    if (forceLocalPersist) {
+      try {
+        window.localStorage.setItem(key, JSON.stringify(value));
+      } catch (error) {
+        console.warn('Unable to persist storage key', key, error);
+      }
+    }
     return;
   }
 

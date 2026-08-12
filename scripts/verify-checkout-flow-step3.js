@@ -59,21 +59,30 @@ function checkReviewPaymentUi() {
 }
 
 function checkGpsPipeline() {
-  const state = read('orders/core/state.js');
-  assert(state.includes('latitude: state.shipping.latitude'), 'commitShipping preserves GPS');
-  assert(state.includes('discount'), 'checkout totals include discount');
-  assert(state.includes('writeStorage(STORAGE_KEYS.checkoutActive, state.products)'), 'Review qty syncs checkout selection');
+  const stateSource = read('orders/core/state.js');
+  assert(stateSource.includes('latitude: state.shipping.latitude'), 'commitShipping preserves GPS');
+  assert(stateSource.includes('discount'), 'checkout totals include discount');
+  assert(stateSource.includes('writeStorage(STORAGE_KEYS.checkoutActive, state.products)'), 'Review qty syncs checkout selection');
+  assert(stateSource.includes('mergeShippingPreferFilled'), 'guard must merge shipping without wiping filled fields');
+  assert(stateSource.includes('updatedAt: Date.now()'), 'draft must include updatedAt for conflict resolution');
+  assert(stateSource.includes('hadHandoff'), 'guardStep must trust fresh handoff navigation');
 
   const order = read('orders/core/order.js');
   assert(order.includes('gpsLocation:'), 'order payload includes gpsLocation');
   assert(order.includes('succeeded = true'), 'submit lock must stay engaged after success');
   assert(order.includes('if (!succeeded)'), 'submit lock unlocks only on failure');
 
+  const utils = read('orders/utils.js');
+  assert(utils.includes('preferLocal'), 'remote draft sync must not clobber newer local draft');
+  assert(utils.includes('forceLocalPersist'), 'checkout draft must always persist to localStorage');
+
   const shipping = read('orders/shipping.js');
   assert(shipping.includes('allowReprompt'), 'shipping must support GPS retry');
   assert(shipping.includes('shippingBackLink'), 'shipping back link must adapt for Buy Now');
   assert(shipping.includes('GPS_UI_FAILSAFE_MS'), 'shipping must fail closed on Locating');
-  assert(shipping.includes('Promise.race'), 'Continue must not hang on quote');
+  assert(shipping.includes('handleContinue.inFlight'), 'Continue must prevent duplicate submits');
+  assert(shipping.includes("window.location.assign('./checkout.html')"), 'Continue must navigate to Review');
+  assert(shipping.includes('Validate + persist first'), 'Continue must not await quote before navigation');
 
   const payment = read('orders/payment.js');
   assert(payment.includes("window.__ckStep = 'payment'"), 'payment must set __ckStep');
