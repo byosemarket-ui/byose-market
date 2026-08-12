@@ -80,10 +80,21 @@ function checkGpsPipeline() {
   assert(shipping.includes('allowReprompt'), 'shipping must support GPS retry');
   assert(shipping.includes('shippingBackLink'), 'shipping back link must adapt for Buy Now');
   assert(shipping.includes('GPS_UI_FAILSAFE_MS'), 'shipping must fail closed on Locating');
-  assert(shipping.includes('handleContinue.inFlight'), 'Continue must prevent duplicate submits');
-  assert(shipping.includes("window.location.assign('./checkout.html')"), 'Continue must navigate to Review');
-  assert(shipping.includes('Validate + persist first'), 'Continue must not await quote before navigation');
+  assert(shipping.includes('continueInFlight'), 'Continue must prevent duplicate submits');
+  assert(shipping.includes('continueToReview'), 'Continue must use authoritative continueToReview');
+  assert(
+    shipping.includes('result.redirectUrl') || shipping.includes('./checkout.html?from=shipping'),
+    'Continue must navigate to Review'
+  );
+  assert(shipping.includes('never awaited') || shipping.includes('never blocks'), 'Continue must not await quote before navigation');
 
+  assert(stateSource.includes('continueToReview'), 'state must expose continueToReview');
+  assert(stateSource.includes('byose_checkout_step1_commit_v1'), 'state must write Step 1 commit payload');
+  assert(stateSource.includes('applyStep1Commit'), 'Review guard must apply Step 1 commit first');
+  assert(
+    !/function resolveApiOrigin\s*\(/.test(stateSource),
+    'state.js must not redeclare resolveApiOrigin (module load crash)'
+  );
   const payment = read('orders/payment.js');
   assert(payment.includes("window.__ckStep = 'payment'"), 'payment must set __ckStep');
   assert(/initCheckout\('payment'\)[\s\S]*guardStep\('payment'\)/.test(payment), 'payment must init before guard');

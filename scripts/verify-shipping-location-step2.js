@@ -57,7 +57,10 @@ function checkShippingUi() {
   assert(html.includes('id="gpsBadge"'), 'shipping HTML must include gpsBadge');
   assert(html.includes('Detecting location...'), 'shipping HTML default status must be professional');
   assert(html.includes('(optional)'), 'Device Location must be marked optional in UI');
-  assert(js.includes('initializeShippingLocation'), 'shipping.js must initialize location service');
+  assert(js.includes('continueToReview'), 'shipping.js must use continueToReview');
+  assert(js.includes('handleContinue'), 'shipping.js must have Continue handler');
+  assert(!/continueBtn\?\.addEventListener\('click'/.test(js), 'must not double-bind primary Continue click + submit');
+  assert(js.includes('requestSubmit') || js.includes("form?.requestSubmit"), 'sticky Continue must reuse form submit path');
   assert(js.includes('startLocationService'), 'shipping.js must start location on open');
   assert(js.includes('GPS_UI_FAILSAFE_MS'), 'shipping.js must fail closed if Locating never settles');
   assert(js.includes('void startLocationService()'), 'GPS must start without awaiting delivery methods');
@@ -96,6 +99,8 @@ function checkOrderPipeline() {
   const account = read('account/services/orderservice.js');
   const details = read('account/orders/order-details.js');
 
+  assert(state.includes('continueToReview'), 'state must expose continueToReview for Step 1');
+  assert(state.includes('byose_checkout_step1_commit_v1'), 'state must persist authoritative Step 1 commit');
   assert(state.includes('latitude: state.shipping.latitude'), 'commitShipping must preserve latitude');
   assert(state.includes('mapLink: state.shipping.mapLink'), 'commitShipping must preserve mapLink');
   assert(order.includes('gpsLocation:'), 'order payload must include gpsLocation');

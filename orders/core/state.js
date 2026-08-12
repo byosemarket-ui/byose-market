@@ -27,6 +27,9 @@ import { validateProducts, validateShipping } from './validation.js';
 const listeners = new Set();
 const HANDOFF_KEY = 'byose_checkout_handoff_v1';
 const HANDOFF_TTL_MS = 30 * 60 * 1000;
+/** Authoritative Step 1 → Step 2 payload (dual-written to session + local). */
+const STEP1_COMMIT_KEY = 'byose_checkout_step1_commit_v1';
+const STEP1_COMMIT_TTL_MS = 60 * 60 * 1000;
 
 const DEFAULT_ADDRESS = {
   fullName: '',
@@ -139,6 +142,138 @@ function writeHandoff() {
       at: Date.now()
     }));
   } catch (_) { /* sessionStorage may be unavailable */ }
+}
+
+function buildStep1CommitPayload() {
+  return {
+    version: 1,
+    committedAt: Date.now(),
+    step: 'review',
+    source: state.source,
+    products: clone(state.products),
+    shipping: clone(state.shipping),
+    deliveryMethodKey: state.deliveryMethodKey || 'homeDelivery',
+    customer: clone(state.customer),
+    payment: clone(state.payment),
+    coupon: clone(state.coupon)
+  };
+}
+
+function writeStep1Commit(payload) {
+  const raw = JSON.stringify(payload);
+  let localOk = false;
+  let sessionOk = false;
+  try {
+    window.localStorage.setItem(STEP1_COMMIT_KEY, raw);
+    localOk = true;
+  } catch (error) {
+    console.error('STATE_SAVE_FAILED', 'localStorage', error);
+  }
+  try {
+    window.sessionStorage.setItem(STEP1_COMMIT_KEY, raw);
+    sessionOk = true;
+  } catch (error) {
+    console.error('STATE_SAVE_FAILED', 'sessionStorage', error);
+  }
+  return { ok: localOk || sessionOk, localOk, sessionOk };
+}
+
+function parseStep1Commit(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    const at = Number(parsed?.committedAt || 0);
+    if (!at || Date.now() - at > STEP1_COMMIT_TTL_MS) return null;
+    if (!parsed?.shipping || typeof parsed.shipping !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function readStep1Commit() {
+  let sessionCommit = null;
+  let localCommit = null;
+  try {
+    sessionCommit = parseStep1Commit(window.sessionStorage.getItem(STEP1_COMMIT_KEY));
+  } catch {
+    sessionCommit = null;
+  }
+  try {
+    localCommit = parseStep1Commit(window.localStorage.getItem(STEP1_COMMIT_KEY));
+  } catch {
+    localCommit = null;
+  }
+  if (sessionCommit && localCommit) {
+    return Number(sessionCommit.committedAt) >= Number(localCommit.committedAt)
+      ? sessionCommit
+      : localCommit;
+  }
+  return sessionCommit || localCommit;
+}
+
+/**
+ * Apply the authoritative Step 1 commit. Replaces shipping wholesale so stale
+ * profile/draft empties cannot wipe the just-entered address.
+ */
+function applyStep1Commit() {
+  const commit = readStep1Commit();
+  if (!commit) return { applied: false, code: 'CHECKOUT_STATE_MISSING' };
+
+  if (Array.isArray(commit.products) && commit.products.length) {
+    state.source = commit.source || state.source;
+    state.products = commit.products.map(normalizeProduct).filter(Boolean);
+  }
+
+  const deliveryMethodKey = String(
+    commit.deliveryMethodKey
+    || commit.shipping?.deliveryMethodKey
+    || state.deliveryMethodKey
+    || 'homeDelivery'
+  );
+
+  state.shipping = {
+    ...clone(DEFAULT_ADDRESS),
+    ...clone(commit.shipping || {}),
+    deliveryMethodKey,
+    phone: normalizePhone(commit.shipping?.phone || ''),
+    note: String(commit.shipping?.note == null ? '' : commit.shipping.note).trim()
+  };
+  state.deliveryMethodKey = deliveryMethodKey;
+  state.step = commit.step && STEPS.some((s) => s.id === commit.step) ? commit.step : 'review';
+
+  if (commit.customer && typeof commit.customer === 'object') {
+    state.customer = { ...state.customer, ...commit.customer };
+  }
+  if (commit.payment && typeof commit.payment === 'object') {
+    state.payment = { method: 'mtn', phone: '', ...commit.payment };
+  }
+  if (commit.coupon && typeof commit.coupon === 'object') {
+    state.coupon = {
+      code: '',
+      title: '',
+      discountAmount: 0,
+      status: '',
+      ...commit.coupon
+    };
+  }
+
+  return { applied: true, code: 'OK', commit };
+}
+
+function shippingForValidation(shipping = state.shipping) {
+  return {
+    ...shipping,
+    deliveryMethodKey: shipping.deliveryMethodKey || state.deliveryMethodKey || 'homeDelivery'
+  };
+}
+
+function hasValidStep1Commit() {
+  const commit = readStep1Commit();
+  if (!commit) return false;
+  return validateShipping(shippingForValidation(commit.shipping)).valid
+    && Array.isArray(commit.products)
+    && commit.products.length > 0;
 }
 
 function readHandoff() {
@@ -373,6 +508,9 @@ function loadShipping() {
   if (draft?.deliveryMethodKey) {
     state.deliveryMethodKey = String(draft.deliveryMethodKey);
   }
+  if (!state.shipping.deliveryMethodKey) {
+    state.shipping.deliveryMethodKey = state.deliveryMethodKey || 'homeDelivery';
+  }
 }
 
 function loadPayment() {
@@ -415,16 +553,6 @@ function loadCoupon() {
       status: 'pending'
     };
   }
-}
-
-function resolveApiOrigin() {
-  const explicit = String(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || '').replace(/\/+$/, '');
-  if (explicit) return explicit.replace(/\/api$/i, '');
-  const hostname = String(window.location?.hostname || '');
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return `http://${hostname || 'localhost'}:5000`;
-  }
-  return String(window.location?.origin || '').replace(/\/+$/, '');
 }
 
 export async function applyCheckoutCoupon(code) {
@@ -506,14 +634,39 @@ export function clearCheckoutCoupon() {
 }
 
 export async function initCheckout(preferredStep) {
+  const wantsReviewOrPayment = preferredStep === 'review' || preferredStep === 'payment';
+
+  // Authoritative Step 1 payload wins before any profile/draft merges.
+  if (wantsReviewOrPayment) {
+    applyStep1Commit();
+  }
+
   loadProducts();
   applyHandoff();
+
+  // If handoff/products still empty, re-apply commit (covers session-only handoff loss).
+  if (wantsReviewOrPayment && !state.products.length) {
+    applyStep1Commit();
+  }
+
   loadCustomer();
-  loadShipping();
+
+  const commitLocked = wantsReviewOrPayment && hasValidStep1Commit();
+  if (commitLocked) {
+    // Re-apply so loadCustomer cannot leave empties that later merges misuse.
+    applyStep1Commit();
+  } else {
+    loadShipping();
+  }
+
   loadPayment();
   loadCoupon();
   if (preferredStep && STEPS.some((s) => s.id === preferredStep)) {
     state.step = preferredStep;
+  }
+  // Ensure deliveryMethodKey is always present for validation.
+  if (!state.shipping.deliveryMethodKey) {
+    state.shipping.deliveryMethodKey = state.deliveryMethodKey || 'homeDelivery';
   }
   recalcTotals();
   state.initialized = true;
@@ -530,6 +683,7 @@ export async function initCheckout(preferredStep) {
   }
 
   // Hydrate from server in background — never block step navigation on network I/O.
+  // Never let remote/draft merges wipe a valid Step 1 commit.
   void hydrateStorefrontState().then((remote) => {
     if (!remote) return;
 
@@ -542,6 +696,11 @@ export async function initCheckout(preferredStep) {
 
     const previousSource = state.source;
     const previousProducts = state.products.slice();
+    const lockedCommit = hasValidStep1Commit();
+    const lockedShipping = lockedCommit ? clone(state.shipping) : null;
+    const lockedDelivery = lockedCommit ? state.deliveryMethodKey : null;
+    const lockedStep = lockedCommit ? state.step : null;
+
     loadProducts();
 
     if (
@@ -555,7 +714,14 @@ export async function initCheckout(preferredStep) {
     }
 
     loadCustomer();
-    loadShipping();
+    if (lockedCommit) {
+      applyStep1Commit();
+      if (lockedShipping) state.shipping = lockedShipping;
+      if (lockedDelivery) state.deliveryMethodKey = lockedDelivery;
+      if (lockedStep) state.step = lockedStep;
+    } else {
+      loadShipping();
+    }
     loadPayment();
     loadCoupon();
     recalcTotals();
@@ -596,14 +762,44 @@ export function setStep(stepId) {
 }
 
 export function guardStep(stepId) {
+  // Prefer the authoritative Step 1 commit for Review/Payment — never bounce
+  // a just-validated Continue if that payload is intact.
+  if (stepId === 'review' || stepId === 'payment') {
+    const applied = applyStep1Commit();
+    if (applied.applied) {
+      const productsCheck = validateProducts(state.products);
+      if (!productsCheck.valid) {
+        console.warn('REDIRECT_REASON', 'CHECKOUT_STATE_MISSING', productsCheck.message);
+        return {
+          ok: false,
+          redirect: '../cart.html',
+          code: 'CHECKOUT_STATE_MISSING',
+          message: productsCheck.message
+        };
+      }
+      const shippingCheck = validateShipping(shippingForValidation(state.shipping));
+      if (shippingCheck.valid) {
+        state.step = stepId === 'payment' ? 'payment' : 'review';
+        return { ok: true, code: 'OK' };
+      }
+      console.warn('REDIRECT_REASON', 'VALIDATION_FAILED', shippingCheck.errors);
+    }
+  }
+
   const hadHandoff = applyHandoff();
 
   const productsCheck = validateProducts(state.products);
   if (!productsCheck.valid) {
-    return { ok: false, redirect: '../cart.html', message: productsCheck.message };
+    console.warn('REDIRECT_REASON', 'CHECKOUT_STATE_MISSING', productsCheck.message);
+    return {
+      ok: false,
+      redirect: '../cart.html',
+      code: 'CHECKOUT_STATE_MISSING',
+      message: productsCheck.message
+    };
   }
 
-  if (stepId === 'shipping') return { ok: true };
+  if (stepId === 'shipping') return { ok: true, code: 'OK' };
 
   const draft = readActiveDraft();
   const fromDraft = draft?.shipping || draft?.shippingAddress;
@@ -614,81 +810,166 @@ export function guardStep(stepId) {
   if (draft?.deliveryMethodKey) {
     state.deliveryMethodKey = String(draft.deliveryMethodKey);
   }
+  if (!state.shipping.deliveryMethodKey) {
+    state.shipping.deliveryMethodKey = state.deliveryMethodKey || 'homeDelivery';
+  }
 
   if (hadHandoff && (state.step === 'review' || state.step === 'payment')) {
-    // Fresh same-tab navigation from commitShipping — trust handoff step.
     if (stepId === 'review' || stepId === 'payment') {
-      const shippingCheck = validateShipping(state.shipping);
+      const shippingCheck = validateShipping(shippingForValidation(state.shipping));
       if (shippingCheck.valid) {
-        return { ok: true };
+        return { ok: true, code: 'OK' };
       }
     }
   }
 
   if (stepId === 'review' && (draft?.step === 'review' || draft?.step === 'payment')) {
-    const shippingCheck = validateShipping(state.shipping);
-    if (shippingCheck.valid) return { ok: true };
+    const shippingCheck = validateShipping(shippingForValidation(state.shipping));
+    if (shippingCheck.valid) return { ok: true, code: 'OK' };
   }
 
   if (stepId === 'payment' && (draft?.step === 'payment' || draft?.step === 'review')) {
-    const shippingCheck = validateShipping(state.shipping);
-    if (shippingCheck.valid) return { ok: true };
+    const shippingCheck = validateShipping(shippingForValidation(state.shipping));
+    if (shippingCheck.valid) return { ok: true, code: 'OK' };
   }
 
-  if (state.step === 'review' && stepId === 'review' && validateShipping(state.shipping).valid) {
-    return { ok: true };
+  if (state.step === 'review' && stepId === 'review' && validateShipping(shippingForValidation(state.shipping)).valid) {
+    return { ok: true, code: 'OK' };
   }
 
-  if (state.step === 'payment' && stepId === 'payment' && validateShipping(state.shipping).valid) {
-    return { ok: true };
+  if (state.step === 'payment' && stepId === 'payment' && validateShipping(shippingForValidation(state.shipping)).valid) {
+    return { ok: true, code: 'OK' };
   }
 
-  const shippingCheck = validateShipping(state.shipping);
+  const shippingCheck = validateShipping(shippingForValidation(state.shipping));
   if (!shippingCheck.valid) {
-    return { ok: false, redirect: 'shipping.html', errors: shippingCheck.errors };
+    console.warn('REDIRECT_REASON', 'VALIDATION_FAILED', shippingCheck.errors);
+    return {
+      ok: false,
+      redirect: 'shipping.html',
+      code: 'VALIDATION_FAILED',
+      errors: shippingCheck.errors
+    };
   }
 
-  return { ok: true };
+  return { ok: true, code: 'OK' };
 }
 
 export function updateShipping(patch) {
   state.shipping = { ...state.shipping, ...patch };
   if (patch.phone) state.shipping.phone = normalizePhone(patch.phone);
+  if (patch.deliveryMethodKey) {
+    state.deliveryMethodKey = String(patch.deliveryMethodKey);
+  }
   persistDraft();
   emit('shipping-changed');
 }
 
-export function commitShipping(formData) {
-  const check = validateShipping(formData);
-  if (!check.valid) return check;
-
-  // Preserve GPS metadata that is not part of the visible form controls.
-  const gpsFields = {
-    latitude: state.shipping.latitude,
-    longitude: state.shipping.longitude,
-    mapLink: state.shipping.mapLink,
-    locationAccuracy: state.shipping.locationAccuracy,
-    locationCapturedAt: state.shipping.locationCapturedAt
-  };
-
-  state.shipping = {
-    ...state.shipping,
-    ...formData,
-    note: String(formData.note == null ? state.shipping.note || '' : formData.note).trim(),
-    ...gpsFields,
-    phone: normalizePhone(formData.phone)
-  };
-  if (formData.deliveryMethodKey) {
-    state.deliveryMethodKey = String(formData.deliveryMethodKey);
-  } else if (!state.deliveryMethodKey) {
-    state.deliveryMethodKey = 'homeDelivery';
+/**
+ * Single authoritative Step 1 → Step 2 commit.
+ * Validates, persists a dual-written commit payload, verifies read-back, then
+ * returns a redirect URL. Does not navigate — caller must assign location.
+ */
+export function continueToReview(formData = {}) {
+  const data = { ...(formData || {}) };
+  if (!data.deliveryMethodKey) {
+    data.deliveryMethodKey = state.deliveryMethodKey || 'homeDelivery';
   }
+
+  const check = validateShipping(data);
+  if (!check.valid) {
+    return {
+      ok: false,
+      valid: false,
+      code: 'VALIDATION_FAILED',
+      errors: check.errors
+    };
+  }
+
+  const productsCheck = validateProducts(state.products);
+  if (!productsCheck.valid) {
+    return {
+      ok: false,
+      valid: false,
+      code: 'CHECKOUT_STATE_MISSING',
+      message: productsCheck.message || 'Your cart is empty. Add a product first.',
+      errors: {}
+    };
+  }
+
+  // Preserve optional GPS only — never required for navigation.
+  const gpsFields = {
+    latitude: state.shipping.latitude || '',
+    longitude: state.shipping.longitude || '',
+    mapLink: state.shipping.mapLink || '',
+    locationAccuracy: state.shipping.locationAccuracy || '',
+    locationCapturedAt: state.shipping.locationCapturedAt || ''
+  };
+
+  const deliveryMethodKey = String(data.deliveryMethodKey || 'homeDelivery');
+
+  // Latest typed values win completely (no merge with stale empties).
+  state.shipping = {
+    ...clone(DEFAULT_ADDRESS),
+    fullName: String(data.fullName || '').trim(),
+    phone: normalizePhone(data.phone),
+    provinceCity: String(data.provinceCity || '').trim(),
+    district: String(data.district || '').trim(),
+    sector: String(data.sector || '').trim(),
+    cell: String(data.cell || '').trim(),
+    village: String(data.village || '').trim(),
+    note: String(data.note == null ? '' : data.note).trim(),
+    deliveryMethodKey,
+    ...gpsFields
+  };
+  state.deliveryMethodKey = deliveryMethodKey;
   state.step = 'review';
+
+  const payload = buildStep1CommitPayload();
+  const saved = writeStep1Commit(payload);
+  if (!saved.ok) {
+    return {
+      ok: false,
+      valid: false,
+      code: 'STATE_SAVE_FAILED',
+      message: 'Could not save checkout state in this browser.',
+      errors: {}
+    };
+  }
+
+  const verified = readStep1Commit();
+  if (!verified || !validateShipping(shippingForValidation(verified.shipping)).valid) {
+    return {
+      ok: false,
+      valid: false,
+      code: 'STATE_SAVE_FAILED',
+      message: 'Checkout state could not be verified after save.',
+      errors: {}
+    };
+  }
+
   persistUserAddress(state.shipping);
   persistDraft();
   writeHandoff();
   emit('shipping-changed');
-  return { valid: true, shipping: clone(state.shipping), step: state.step };
+
+  return {
+    ok: true,
+    valid: true,
+    code: 'OK',
+    shipping: clone(state.shipping),
+    step: state.step,
+    redirectUrl: `./checkout.html?from=shipping&t=${Date.now()}`
+  };
+}
+
+/** @deprecated Use continueToReview — kept for callers/tests that still import commitShipping. */
+export function commitShipping(formData) {
+  const result = continueToReview(formData);
+  if (!result.ok) {
+    return { valid: false, errors: result.errors || {}, code: result.code, message: result.message };
+  }
+  return { valid: true, shipping: result.shipping, step: result.step, code: 'OK' };
 }
 
 export function updateProductQty(productId, variantKey, qty) {

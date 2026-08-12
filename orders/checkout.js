@@ -19,6 +19,7 @@ const couponBlockEl = document.getElementById('couponBlock');
 const totalsBlockEl = document.getElementById('totalsBlock');
 const messageEl = document.getElementById('message');
 const continueBtn = document.getElementById('reviewContinueBtn');
+let continueBound = false;
 
 function bindCouponPanel() {
   const applyBtn = document.getElementById('couponApplyBtn');
@@ -55,7 +56,17 @@ function render() {
   totalsBlockEl.innerHTML = renderTotals(state.totals);
   sidebarEl.innerHTML = renderSidebar(state.products, state.totals);
   stickyEl.innerHTML = renderStickyBar('Continue to Payment', 'reviewContinueBtn');
-  document.getElementById('stickyContinueBtn')?.addEventListener('click', handleContinue);
+}
+
+function handleContinue(event) {
+  event?.preventDefault?.();
+  const check = validateProducts(getState().products);
+  if (!check.valid) {
+    showMessage(messageEl, check.message);
+    return;
+  }
+  setStep('payment');
+  window.location.assign(`payment.html?from=review&t=${Date.now()}`);
 }
 
 productListEl.addEventListener('click', (e) => {
@@ -74,24 +85,25 @@ productListEl.addEventListener('click', (e) => {
   }
 });
 
-function handleContinue() {
-  const check = validateProducts(getState().products);
-  if (!check.valid) {
-    showMessage(messageEl, check.message);
-    return;
-  }
-  setStep('payment');
-  window.location.assign('payment.html');
+if (!continueBound) {
+  continueBound = true;
+  continueBtn?.addEventListener('click', handleContinue);
+  document.getElementById('reviewForm')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    handleContinue(e);
+  });
+  stickyEl?.addEventListener('click', (e) => {
+    if (!e.target?.closest?.('#stickyContinueBtn')) return;
+    handleContinue(e);
+  });
 }
-
-continueBtn?.addEventListener('click', handleContinue);
-document.getElementById('reviewForm')?.addEventListener('submit', (e) => { e.preventDefault(); handleContinue(); });
 
 subscribe(() => render());
 
 await initCheckout('review');
 const access = guardStep('review');
 if (!access.ok) {
+  console.warn('REDIRECT_REASON', access.code || 'UNKNOWN', access);
   window.location.href = access.redirect;
 } else {
   render();

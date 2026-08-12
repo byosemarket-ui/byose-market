@@ -1,4 +1,4 @@
-import { initCheckout, commitShipping, getState, guardStep, setDeliveryQuote, subscribe, updateShipping } from './core/state.js';
+import { initCheckout, continueToReview, getState, guardStep, setDeliveryQuote, subscribe, updateShipping } from './core/state.js';
 import { renderProgress, renderSidebar, renderStickyBar, showMessage } from './ui/layout.js';
 import {
   LOCATION_STATUS,
@@ -29,6 +29,18 @@ const shippingBackLink = document.getElementById('shippingBackLink');
 const deliveryMethodSelect = document.getElementById('deliveryMethodKey');
 const deliveryEstimate = document.getElementById('deliveryEstimate');
 let quoteTimer = null;
+let continueInFlight = false;
+
+const FIELD_LABELS_UI = {
+  fullName: 'Full Name',
+  phone: 'Phone Number',
+  provinceCity: 'Province / City',
+  district: 'District',
+  sector: 'Sector',
+  cell: 'Cell',
+  village: 'Village',
+  deliveryMethodKey: 'Delivery Method'
+};
 
 async function loadDeliveryMethods() {
   if (!deliveryMethodSelect || !window.ByoseShippingApi) return;
@@ -105,9 +117,6 @@ function render() {
   progressEl.innerHTML = renderProgress('shipping');
   sidebarEl.innerHTML = renderSidebar(state.products, state.totals);
   stickyEl.innerHTML = renderStickyBar('Continue to Review', 'shippingContinueBtn');
-  document.getElementById('stickyContinueBtn')?.addEventListener('click', (event) => {
-    void handleContinue(event);
-  });
   syncShippingBackLink();
 }
 
@@ -126,12 +135,18 @@ function fillForm(shipping, { onlyEmpty = false } = {}) {
     }
     input.value = String(shipping[key] || '');
   });
+  if (shipping?.deliveryMethodKey && deliveryMethodSelect) {
+    deliveryMethodSelect.value = shipping.deliveryMethodKey;
+  }
 }
 
 function readForm() {
   const data = {};
   if (!form) return data;
   new FormData(form).forEach((value, key) => { data[key] = String(value).trim(); });
+  if (!data.deliveryMethodKey) {
+    data.deliveryMethodKey = deliveryMethodSelect?.value || getState().deliveryMethodKey || 'homeDelivery';
+  }
   return data;
 }
 
@@ -179,7 +194,10 @@ function showErrors(errors = {}) {
   });
 
   if (firstInvalid && typeof firstInvalid.focus === 'function') {
-    firstInvalid.focus({ preventScroll: false });
+    try {
+      firstInvalid.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    } catch (_error) { /* ignore */ }
+    firstInvalid.focus({ preventScroll: true });
   }
 }
 
@@ -202,7 +220,6 @@ function setGpsUi(status, label, position) {
   }
 
   if (gpsRetryBtn) {
-    // Retry is available once locating settles (success, manual, or unavailable).
     gpsRetryBtn.hidden = status === LOCATION_STATUS.DETECTING || status === LOCATION_STATUS.IMPROVING;
   }
 
@@ -228,10 +245,17 @@ function applyPositionToState(position) {
   });
 }
 
-async function handleContinue(event) {
+/**
+ * ONE authoritative Continue → Review handler.
+ * Path: validate → save commit → verify → navigate.
+ * GPS / landmark / quote never block.
+ */
+function handleContinue(event) {
   event?.preventDefault?.();
-  if (handleContinue.inFlight) return;
-  handleContinue.inFlight = true;
+  event?.stopPropagation?.();
+
+  if (continueInFlight) return;
+  continueInFlight = true;
 
   const buttons = [
     continueBtn,
@@ -242,41 +266,52 @@ async function handleContinue(event) {
   });
 
   showMessage(messageEl, '');
+
   try {
-    // Validate + persist first. Quote is best-effort and must never block Step 2.
     const formData = readForm();
-    const result = commitShipping(formData);
-    if (!result.valid) {
+    const result = continueToReview(formData);
+
+    if (!result.ok) {
+      console.error(result.code || 'VALIDATION_FAILED', result);
       showErrors(result.errors || {});
       const missing = Object.keys(result.errors || {});
-      const label = missing[0]
-        ? `Please complete: ${missing.map((key) => key === 'phone' ? 'Phone Number' : key).join(', ')}.`
-        : 'Please complete the highlighted fields to continue.';
-      showMessage(messageEl, label);
+      const labels = missing.map((key) => FIELD_LABELS_UI[key] || key);
+      const detail = result.code === 'VALIDATION_FAILED' && labels.length
+        ? `Please complete: ${labels.join(', ')}.`
+        : (result.message || 'Unable to continue.');
+      showMessage(messageEl, `${result.code || 'VALIDATION_FAILED'}: ${detail}`);
       return;
     }
-    showErrors({});
 
-    // Fire-and-forget quote refresh — do not await before navigation.
+    showErrors({});
+    window.__ckStep = 'review';
+
+    // Optional quote — never awaited, never blocks navigation.
     void Promise.race([
       refreshShippingQuote(),
-      new Promise((resolve) => setTimeout(resolve, 1200))
+      new Promise((resolve) => setTimeout(resolve, 800)
+      )
     ]).catch(() => null);
 
-    window.__ckStep = 'review';
-    window.location.assign('./checkout.html');
+    const target = result.redirectUrl || `./checkout.html?from=shipping&t=${Date.now()}`;
+    try {
+      window.location.assign(target);
+    } catch (navError) {
+      console.error('REVIEW_ROUTE_FAILED', navError);
+      showMessage(messageEl, `REVIEW_ROUTE_FAILED: ${navError?.message || 'navigation failed'}`);
+    }
+  } catch (error) {
+    console.error('REVIEW_ROUTE_FAILED', error);
+    showMessage(messageEl, `REVIEW_ROUTE_FAILED: ${error?.message || 'unexpected error'}`);
   } finally {
-    // If navigation is blocked (validation), re-enable the buttons.
-    handleContinue.inFlight = false;
-    if (window.location.pathname.includes('shipping')) {
+    continueInFlight = false;
+    if (String(window.location.pathname || '').includes('shipping')) {
       buttons.forEach((btn) => {
         btn.disabled = false;
       });
     }
   }
 }
-
-handleContinue.inFlight = false;
 
 const GPS_UI_FAILSAFE_MS = 8500;
 let locationRunId = 0;
@@ -302,11 +337,10 @@ async function startLocationService({ allowReprompt = false } = {}) {
     );
   }
 
-  // Hard UI fail-safe: never leave the card stuck on Locating if GPS hangs.
   const failSafe = setTimeout(() => {
     if (runId !== locationRunId) return;
-    const state = gpsCard?.dataset.state;
-    if (state === LOCATION_STATUS.DETECTING || state === LOCATION_STATUS.IMPROVING) {
+    const status = gpsCard?.dataset.state;
+    if (status === LOCATION_STATUS.DETECTING || status === LOCATION_STATUS.IMPROVING) {
       setGpsUi(
         LOCATION_STATUS.UNAVAILABLE,
         'Location unavailable — you can continue with your typed address.'
@@ -398,11 +432,22 @@ deliveryMethodSelect?.addEventListener('change', () => {
   updateShipping(readForm());
   scheduleQuoteRefresh();
 });
-form?.addEventListener('submit', (e) => { e.preventDefault(); void handleContinue(e); });
-continueBtn?.addEventListener('click', (e) => {
-  // Submit button already triggers form submit — avoid double-handling.
-  if (continueBtn.type === 'submit') return;
-  void handleContinue(e);
+
+// ONE submit path only (primary button is type=submit).
+form?.addEventListener('submit', (event) => {
+  handleContinue(event);
+});
+
+// Sticky bar: delegate once — requestSubmit feeds the same submit handler.
+stickyEl?.addEventListener('click', (event) => {
+  const btn = event.target?.closest?.('#stickyContinueBtn');
+  if (!btn) return;
+  event.preventDefault();
+  if (typeof form?.requestSubmit === 'function') {
+    form.requestSubmit();
+    return;
+  }
+  handleContinue(event);
 });
 
 subscribe(() => render());
@@ -410,6 +455,7 @@ subscribe(() => render());
 await initCheckout('shipping');
 const access = guardStep('shipping');
 if (!access.ok) {
+  console.warn('REDIRECT_REASON', access.code || 'UNKNOWN', access);
   window.location.href = access.redirect;
 } else {
   fillForm(getState().shipping);
