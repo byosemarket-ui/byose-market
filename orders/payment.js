@@ -171,9 +171,14 @@ async function handlePlaceOrder(e) {
   }
 }
 
-guardStep('payment');
 subscribe(render);
 initCheckout('payment').then(async () => {
+  const access = guardStep('payment');
+  if (!access.ok) {
+    window.location.href = access.redirect;
+    return;
+  }
+  window.__ckStep = 'payment';
   await loadGatewayPaymentConfig();
   render();
 });

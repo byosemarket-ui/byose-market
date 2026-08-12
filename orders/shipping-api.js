@@ -4,6 +4,8 @@
 (function shippingApiBootstrap(global) {
   if (!global || global.ByoseShippingApi) return;
 
+  var DEFAULT_TIMEOUT_MS = 8000;
+
   function resolveApiBase() {
     var base = String(global.BYOSE_API_BASE_URL || "").trim().replace(/\/+$/, "");
     if (base) return base;
@@ -13,56 +15,76 @@
     return "/api";
   }
 
-  async function getDeliveryConfig() {
-    if (global.ByoseStoreSettings?.delivery) {
-      return global.ByoseStoreSettings.delivery;
+  async function fetchJson(url, options, timeoutMs) {
+    var controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timer = setTimeout(function () {
+      try {
+        controller && controller.abort();
+      } catch (_error) {
+        // ignore
+      }
+    }, Math.max(2000, Number(timeoutMs) || DEFAULT_TIMEOUT_MS));
+
+    try {
+      var response = await fetch(url, Object.assign({}, options || {}, {
+        signal: controller ? controller.signal : undefined
+      }));
+      var payload = await response.json().catch(function () { return {}; });
+      return { response: response, payload: payload };
+    } finally {
+      clearTimeout(timer);
     }
-    const response = await fetch(resolveApiBase() + "/shipping/methods", {
-      headers: { Accept: "application/json" }
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload.success) {
-      throw new Error(payload.message || "Unable to load delivery methods");
-    }
-    return payload.delivery;
   }
 
-  async function calculateShipping({ subtotal, address, method } = {}) {
-    const response = await fetch(resolveApiBase() + "/shipping/calculate", {
+  async function getDeliveryConfig() {
+    if (global.ByoseStoreSettings && global.ByoseStoreSettings.delivery) {
+      return global.ByoseStoreSettings.delivery;
+    }
+    var result = await fetchJson(resolveApiBase() + "/shipping/methods", {
+      headers: { Accept: "application/json" }
+    }, DEFAULT_TIMEOUT_MS);
+    if (!result.response.ok || !result.payload.success) {
+      throw new Error(result.payload.message || "Unable to load delivery methods");
+    }
+    return result.payload.delivery;
+  }
+
+  async function calculateShipping(input) {
+    input = input || {};
+    var result = await fetchJson(resolveApiBase() + "/shipping/calculate", {
       method: "POST",
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        subtotal: Number(subtotal) || 0,
-        address: address || {},
-        method: method || "homeDelivery"
+        subtotal: Number(input.subtotal) || 0,
+        address: input.address || {},
+        method: input.method || "homeDelivery"
       })
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload.success) {
-      const error = new Error(payload.message || "Unable to calculate shipping");
-      error.code = payload.code;
-      error.details = payload.details;
+    }, DEFAULT_TIMEOUT_MS);
+    if (!result.response.ok || !result.payload.success) {
+      var error = new Error(result.payload.message || "Unable to calculate shipping");
+      error.code = result.payload.code;
+      error.details = result.payload.details;
       throw error;
     }
-    return payload.shipping;
+    return result.payload.shipping;
   }
 
   function resolveDefaultFee() {
-    const delivery = global.ByoseStoreSettings?.delivery;
+    var delivery = global.ByoseStoreSettings && global.ByoseStoreSettings.delivery;
     if (!delivery) return 2000;
-    if (delivery.pricing?.mode === "fixed") {
+    if (delivery.pricing && delivery.pricing.mode === "fixed") {
       return Number(delivery.pricing.fixedFee) || 2000;
     }
-    const firstZone = Array.isArray(delivery.zones) && delivery.zones[0];
-    return Number(firstZone?.fee != null ? firstZone.fee : delivery.pricing?.fixedFee) || 2000;
+    var firstZone = Array.isArray(delivery.zones) && delivery.zones[0];
+    return Number(firstZone && firstZone.fee != null ? firstZone.fee : delivery.pricing && delivery.pricing.fixedFee) || 2000;
   }
 
   global.ByoseShippingApi = {
-    getDeliveryConfig,
-    calculateShipping,
-    resolveDefaultFee
+    getDeliveryConfig: getDeliveryConfig,
+    calculateShipping: calculateShipping,
+    resolveDefaultFee: resolveDefaultFee
   };
 })(typeof window !== "undefined" ? window : null);

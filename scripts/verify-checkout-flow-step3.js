@@ -72,6 +72,12 @@ function checkGpsPipeline() {
   const shipping = read('orders/shipping.js');
   assert(shipping.includes('allowReprompt'), 'shipping must support GPS retry');
   assert(shipping.includes('shippingBackLink'), 'shipping back link must adapt for Buy Now');
+  assert(shipping.includes('GPS_UI_FAILSAFE_MS'), 'shipping must fail closed on Locating');
+  assert(shipping.includes('Promise.race'), 'Continue must not hang on quote');
+
+  const payment = read('orders/payment.js');
+  assert(payment.includes("window.__ckStep = 'payment'"), 'payment must set __ckStep');
+  assert(/initCheckout\('payment'\)[\s\S]*guardStep\('payment'\)/.test(payment), 'payment must init before guard');
 
   const headers = read('server/middleware/securityheaders.js');
   assert(headers.includes('geolocation=(self)'), 'geolocation must be allowed for GPS');

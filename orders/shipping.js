@@ -200,8 +200,8 @@ function setGpsUi(status, label, position) {
   }
 
   if (gpsRetryBtn) {
-    const showRetry = status === LOCATION_STATUS.MANUAL || status === LOCATION_STATUS.UNAVAILABLE;
-    gpsRetryBtn.hidden = !showRetry;
+    // Retry is available once locating settles (success, manual, or unavailable).
+    gpsRetryBtn.hidden = status === LOCATION_STATUS.DETECTING || status === LOCATION_STATUS.IMPROVING;
   }
 
   if (position?.latitude && position?.longitude) {
@@ -228,8 +228,12 @@ function applyPositionToState(position) {
 
 async function handleContinue() {
   showMessage(messageEl, '');
+  // Never block Continue on shipping quote or GPS — quote is best-effort only.
   try {
-    await refreshShippingQuote();
+    await Promise.race([
+      refreshShippingQuote(),
+      new Promise((resolve) => setTimeout(resolve, 1500))
+    ]);
   } catch (_error) {
     // Quote failures are surfaced in the estimate helper text.
   }
@@ -243,7 +247,11 @@ async function handleContinue() {
   window.location.assign('checkout.html');
 }
 
+const GPS_UI_FAILSAFE_MS = 8500;
+let locationRunId = 0;
+
 async function startLocationService({ allowReprompt = false } = {}) {
+  const runId = ++locationRunId;
   const existing = getState().shipping || {};
   if (existing.latitude && existing.longitude) {
     setGpsUi(
@@ -257,31 +265,62 @@ async function startLocationService({ allowReprompt = false } = {}) {
       }
     );
   } else {
-    setGpsUi(LOCATION_STATUS.DETECTING, 'Detecting location...');
+    setGpsUi(
+      LOCATION_STATUS.DETECTING,
+      'Detecting location... Optional — you can continue with a typed address.'
+    );
   }
 
-  await initializeShippingLocation({
-    allowReprompt,
-    currentAddress: readAddressFields(),
-    onStatus(status, label, position) {
-      setGpsUi(status, label, position);
-    },
-    onPosition(position) {
-      applyPositionToState(position);
-      const accuracy = Number(position.accuracy);
-      const refining = Number.isFinite(accuracy) && accuracy > 45;
+  // Hard UI fail-safe: never leave the card stuck on Locating if GPS hangs.
+  const failSafe = setTimeout(() => {
+    if (runId !== locationRunId) return;
+    const state = gpsCard?.dataset.state;
+    if (state === LOCATION_STATUS.DETECTING || state === LOCATION_STATUS.IMPROVING) {
       setGpsUi(
-        refining ? LOCATION_STATUS.IMPROVING : LOCATION_STATUS.SUCCESS,
-        refining ? 'Improving GPS accuracy...' : 'Location detected successfully.',
-        position
+        LOCATION_STATUS.UNAVAILABLE,
+        'Location unavailable — you can continue with your typed address.'
       );
-    },
-    onAddress(autofill) {
-      if (!autofill || !Object.keys(autofill).length) return;
-      updateShipping(autofill);
-      fillForm(autofill, { onlyEmpty: true });
     }
-  });
+  }, GPS_UI_FAILSAFE_MS);
+
+  try {
+    await initializeShippingLocation({
+      allowReprompt,
+      currentAddress: readAddressFields(),
+      onStatus(status, label, position) {
+        if (runId !== locationRunId) return;
+        setGpsUi(status, label, position);
+      },
+      onPosition(position) {
+        if (runId !== locationRunId) return;
+        applyPositionToState(position);
+        const accuracy = Number(position.accuracy);
+        const refining = Number.isFinite(accuracy) && accuracy > 45;
+        setGpsUi(
+          refining ? LOCATION_STATUS.IMPROVING : LOCATION_STATUS.SUCCESS,
+          refining ? 'Improving GPS accuracy...' : 'Location detected successfully.',
+          position
+        );
+      },
+      onAddress(autofill) {
+        if (runId !== locationRunId) return;
+        if (!autofill || !Object.keys(autofill).length) return;
+        updateShipping(autofill);
+        fillForm(autofill, { onlyEmpty: true });
+      }
+    });
+  } catch (_error) {
+    if (runId === locationRunId) {
+      setGpsUi(
+        LOCATION_STATUS.UNAVAILABLE,
+        'Location unavailable — you can continue with your typed address.'
+      );
+    }
+  } finally {
+    clearTimeout(failSafe);
+  }
+
+  if (runId !== locationRunId) return;
 
   const shipping = getState().shipping || {};
   if (shipping.latitude && shipping.longitude) {
@@ -295,8 +334,15 @@ async function startLocationService({ allowReprompt = false } = {}) {
         mapLink: shipping.mapLink
       }
     );
-  } else if (gpsCard?.dataset.state !== LOCATION_STATUS.MANUAL) {
-    setGpsUi(LOCATION_STATUS.MANUAL, 'Using manual address.');
+  } else if (
+    gpsCard?.dataset.state === LOCATION_STATUS.DETECTING
+    || gpsCard?.dataset.state === LOCATION_STATUS.IMPROVING
+    || !gpsCard?.dataset.state
+  ) {
+    setGpsUi(
+      LOCATION_STATUS.MANUAL,
+      'Location unavailable — you can continue with your typed address.'
+    );
   }
 }
 
@@ -327,17 +373,24 @@ continueBtn?.addEventListener('click', handleContinue);
 subscribe(() => render());
 
 await initCheckout('shipping');
-await loadDeliveryMethods();
-if (typeof window.ByoseShippingApi?.resolveDefaultFee === 'function') {
-  setDeliveryQuote({ fee: window.ByoseShippingApi.resolveDefaultFee() });
-}
-scheduleQuoteRefresh();
 const access = guardStep('shipping');
 if (!access.ok) {
   window.location.href = access.redirect;
 } else {
   fillForm(getState().shipping);
   render();
-  void startLocationService();
   window.__ckStep = 'shipping';
+
+  // GPS is optional and must never wait on delivery-method network calls.
+  void startLocationService();
+
+  void loadDeliveryMethods().then(() => {
+    if (typeof window.ByoseShippingApi?.resolveDefaultFee === 'function') {
+      setDeliveryQuote({ fee: window.ByoseShippingApi.resolveDefaultFee() });
+    }
+    scheduleQuoteRefresh();
+    render();
+  }).catch(() => {
+    // Keep default delivery option; checkout remains usable.
+  });
 }

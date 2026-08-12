@@ -20,8 +20,8 @@ export const LOCATION_STATUS_LABELS = {
   [LOCATION_STATUS.DETECTING]: 'Detecting location...',
   [LOCATION_STATUS.IMPROVING]: 'Improving GPS accuracy...',
   [LOCATION_STATUS.SUCCESS]: 'Location detected successfully.',
-  [LOCATION_STATUS.MANUAL]: 'Using manual address.',
-  [LOCATION_STATUS.UNAVAILABLE]: 'Using manual address.'
+  [LOCATION_STATUS.MANUAL]: 'Location permission denied — you can continue with your typed address.',
+  [LOCATION_STATUS.UNAVAILABLE]: 'Location unavailable — you can continue with your typed address.'
 };
 
 function toNumber(value, fallback = NaN) {
@@ -132,6 +132,7 @@ export function captureBestPosition(options = {}) {
     }, timeoutMs);
 
     const handleSuccess = (position) => {
+      if (settled) return;
       const next = readPosition(position);
       if (!next) return;
       if (!best || next.accuracy < best.accuracy) {
@@ -144,6 +145,7 @@ export function captureBestPosition(options = {}) {
     };
 
     const handleError = (error) => {
+      if (settled) return;
       const code = Number(error?.code);
       const mapped = Object.assign(new Error(error?.message || 'Location error'), {
         code: code === 1 ? 'DENIED' : code === 2 ? 'UNAVAILABLE' : code === 3 ? 'TIMEOUT' : 'ERROR',
@@ -159,7 +161,7 @@ export function captureBestPosition(options = {}) {
 
     try {
       // Seed quickly, then refine with watch (helps mobile browsers feel snappy).
-      navigator.geolocation.getCurrentPosition(handleSuccess, () => {}, {
+      navigator.geolocation.getCurrentPosition(handleSuccess, handleError, {
         enableHighAccuracy: true,
         maximumAge: 0,
         timeout: Math.min(4000, timeoutMs)
@@ -298,20 +300,29 @@ export async function initializeShippingLocation(options = {}) {
     : {};
 
   if (!navigator.geolocation) {
-    onStatus(LOCATION_STATUS.UNAVAILABLE, LOCATION_STATUS_LABELS[LOCATION_STATUS.UNAVAILABLE]);
+    onStatus(
+      LOCATION_STATUS.UNAVAILABLE,
+      'Location unavailable — you can continue with your typed address.'
+    );
     return { ok: false, reason: 'unavailable', manual: true };
   }
 
   const permission = await queryGeolocationPermission();
   if (permission === 'denied') {
-    onStatus(LOCATION_STATUS.MANUAL, LOCATION_STATUS_LABELS[LOCATION_STATUS.MANUAL]);
+    onStatus(
+      LOCATION_STATUS.MANUAL,
+      'Location permission denied — you can continue with your typed address.'
+    );
     return { ok: false, reason: 'denied', manual: true, permission };
   }
 
   // Never re-prompt in the same tab session (covers Safari/iOS where Permissions API is "unknown").
   const mayPrompt = permission === 'prompt' || permission === 'unknown';
   if (mayPrompt && hasAttemptedThisSession() && options.allowReprompt !== true) {
-    onStatus(LOCATION_STATUS.MANUAL, LOCATION_STATUS_LABELS[LOCATION_STATUS.MANUAL]);
+    onStatus(
+      LOCATION_STATUS.MANUAL,
+      'Location optional — you can continue with your typed address.'
+    );
     return { ok: false, reason: 'already_attempted', manual: true, permission };
   }
 

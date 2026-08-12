@@ -41,9 +41,10 @@ function checkLocationService() {
   assert(service.includes('Detecting location...'), 'must expose detecting status label');
   assert(service.includes('Improving GPS accuracy...'), 'must expose improving status label');
   assert(service.includes('Location detected successfully.'), 'must expose success status label');
-  assert(service.includes('Using manual address.'), 'must expose manual status label');
+  assert(service.includes('you can continue with your typed address'), 'manual/unavailable must not block checkout messaging');
   assert(service.includes('already_attempted'), 'must avoid repeated permission prompts in-session');
   assert(service.includes("permission === 'unknown'"), 'must handle Safari/iOS unknown permission state');
+  assert(service.includes('if (settled) return'), 'GPS handlers must ignore events after settle');
   assert(service.includes('buildMapsUrl') || service.includes('google.com/maps'), 'must build Google Maps URL');
 }
 
@@ -55,13 +56,36 @@ function checkShippingUi() {
   assert(html.includes('id="gpsCard"'), 'shipping HTML must include gpsCard');
   assert(html.includes('id="gpsBadge"'), 'shipping HTML must include gpsBadge');
   assert(html.includes('Detecting location...'), 'shipping HTML default status must be professional');
+  assert(html.includes('(optional)'), 'Device Location must be marked optional in UI');
   assert(js.includes('initializeShippingLocation'), 'shipping.js must initialize location service');
   assert(js.includes('startLocationService'), 'shipping.js must start location on open');
+  assert(js.includes('GPS_UI_FAILSAFE_MS'), 'shipping.js must fail closed if Locating never settles');
+  assert(js.includes('void startLocationService()'), 'GPS must start without awaiting delivery methods');
+  assert(
+    /void startLocationService\(\);[\s\S]*void loadDeliveryMethods\(/.test(js)
+      || js.indexOf('void startLocationService()') < js.indexOf('void loadDeliveryMethods()'),
+    'GPS init must not be gated behind loadDeliveryMethods await'
+  );
+  assert(js.includes('Promise.race'), 'Continue must not hang forever on shipping quote');
   assert(js.includes('onlyEmpty: true'), 'autofill must preserve customer edits');
   assert(js.includes('latitude:'), 'shipping.js must store latitude');
   assert(js.includes('mapLink:'), 'shipping.js must store mapLink');
   assert(css.includes('.ck-gps-badge'), 'checkout.css must style GPS badge states');
   assert(css.includes('[data-state="success"]'), 'checkout.css must style success GPS state');
+
+  const validation = read('orders/core/validation.js');
+  const constants = read('orders/core/constants.js');
+  assert(constants.includes('REQUIRED_SHIPPING_FIELDS'), 'shipping required fields must be declared');
+  assert(!/latitude|longitude|locationDetected/.test(constants), 'required shipping fields must not include GPS');
+  assert(!/latitude|longitude|locationDetected|gpsRequired/.test(validation), 'shipping validation must not require GPS');
+
+  const api = read('orders/shipping-api.js');
+  assert(api.includes('AbortController'), 'shipping API fetch must support abort/timeout');
+  assert(api.includes('DEFAULT_TIMEOUT_MS'), 'shipping API must bound network waits');
+
+  const paymentJs = read('orders/payment.js');
+  assert(paymentJs.includes("window.__ckStep = 'payment'"), 'payment page must set __ckStep for flow tests');
+  assert(paymentJs.includes("guardStep('payment')"), 'payment page must guard checkout access');
 }
 
 function checkOrderPipeline() {
