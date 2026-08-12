@@ -1034,6 +1034,33 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         }, 0);
     }
 
+    findProductRowForOrderItem(productId) {
+        const textId = this.normalizeText(productId);
+        const numericId = Number(textId);
+        if (!textId) return null;
+
+        // Storefront order items use catalog_id. Prefer that over internal row id
+        // so "10" never decrements a different product whose primary key is 10.
+        if (Number.isFinite(numericId) && numericId > 0) {
+            const byCatalog = this.db.prepare(`
+                SELECT id, catalog_id, name, stock, variants_json, metadata_json
+                FROM products
+                WHERE catalog_id = ? OR CAST(catalog_id AS TEXT) = ?
+                LIMIT 1
+            `).get(numericId, textId);
+            if (byCatalog) return byCatalog;
+        }
+
+        return this.db.prepare(`
+            SELECT id, catalog_id, name, stock, variants_json, metadata_json
+            FROM products
+            WHERE CAST(catalog_id AS TEXT) = ?
+               OR CAST(id AS TEXT) = ?
+               OR id = ?
+            LIMIT 1
+        `).get(textId, textId, Number.isFinite(numericId) ? numericId : -1);
+    }
+
     /**
      * Validate and decrement product stock for order line items.
      * Must be called inside a better-sqlite3 transaction with order creation.
@@ -1051,12 +1078,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
                 throw error;
             }
 
-            const product = this.db.prepare(`
-                SELECT id, catalog_id, name, stock, variants_json, metadata_json
-                FROM products
-                WHERE catalog_id = ? OR id = ? OR CAST(catalog_id AS TEXT) = ?
-                LIMIT 1
-            `).get(Number(productId) || 0, Number(productId) || 0, productId);
+            const product = this.findProductRowForOrderItem(productId);
 
             if (!product) {
                 const error = new Error(`Product not found: ${productId}`);
@@ -1191,12 +1213,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
                 return;
             }
 
-            const product = this.db.prepare(`
-                SELECT id, catalog_id, name, stock, variants_json, metadata_json
-                FROM products
-                WHERE catalog_id = ? OR id = ? OR CAST(catalog_id AS TEXT) = ?
-                LIMIT 1
-            `).get(Number(productId) || 0, Number(productId) || 0, productId);
+            const product = this.findProductRowForOrderItem(productId);
 
             if (!product) {
                 return;

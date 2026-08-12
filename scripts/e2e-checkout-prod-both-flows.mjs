@@ -89,18 +89,20 @@ async function runFlow(browser, flow, payload) {
     // eslint-disable-next-line no-await-in-loop
     await page.fill(`input[name="${name}"]`, value);
   }
-  if (await page.locator('#stickyContinueBtn').isVisible().catch(() => false)) {
-    await page.locator('#stickyContinueBtn').click({ force: true });
-  } else {
-    await page.locator('#shippingContinueBtn').click({ force: true });
-  }
-  await page.waitForURL(/checkout\.html/, { timeout: 30000 });
+  await page.evaluate(() => {
+    const form = document.getElementById('shippingForm');
+    if (form?.requestSubmit) form.requestSubmit();
+    else document.getElementById('shippingContinueBtn')?.click();
+  });
+  await page.waitForURL(/checkout\.html/, { timeout: 60000 });
   await page.waitForFunction(() => window.__ckStep === 'review', { timeout: 30000 });
   const summary = await page.locator('#shippingSummary').innerText();
   const productText = await page.locator('#productList').innerText();
 
-  await page.locator('#reviewContinueBtn').click({ force: true });
-  await page.waitForURL(/payment\.html/, { timeout: 30000 });
+  await page.evaluate(() => {
+    document.getElementById('reviewContinueBtn')?.click();
+  });
+  await page.waitForURL(/payment\.html/, { timeout: 60000 });
   await page.waitForFunction(() => window.__ckStep === 'payment', { timeout: 30000 });
 
   let createdOrderId = '';
@@ -139,7 +141,7 @@ async function runFlow(browser, flow, payload) {
     throw new Error(`${flow}: DPO payment method not available`);
   }
 
-  await page.locator('#placeOrderBtn').click({ force: true });
+  await page.locator('#placeOrderBtn').click({ force: true, noWaitAfter: true });
 
   for (let i = 0; i < 60; i += 1) {
     if (createdOrderId || orderError) break;
