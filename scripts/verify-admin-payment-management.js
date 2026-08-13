@@ -128,6 +128,9 @@ async function verifyServiceLayer() {
     assert(Array.isArray(admin.activity), 'activity missing');
     assert(admin.activityStats && typeof admin.activityStats === 'object', 'activityStats missing');
     assert(admin.capabilities?.canTestConnection === true, 'TEST mode should allow connection tests');
+    assert(admin.capabilities?.liveCheckoutEnabled === false, 'LIVE checkout must remain gated off');
+    assert(admin.capabilities?.checkoutEnvironment === 'test', 'checkout environment must be TEST');
+    assert(admin.capabilities?.liveCheckoutReady === false, 'LIVE checkout must not be ready');
     assertNoSecretLeak(admin, 'admin payment view');
 
     // Disable provider
@@ -146,21 +149,27 @@ async function verifyServiceLayer() {
         mode: 'test'
     }, { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' });
 
-    // LIVE mode blocks connection test
+    // Operating mode LIVE stores future credentials; it must not become checkout LIVE.
     await paymentSettingsService.updatePaymentSettings({
         mode: 'live',
-        enabled: false
+        enabled: true
     }, { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' });
-    let blocked = false;
+    const liveOperating = await paymentSettingsService.getAdminPaymentSettings();
+    assert(liveOperating.mode === 'live', 'admin operating mode can be LIVE for credential storage');
+    assert(liveOperating.capabilities?.checkoutEnvironment === 'test', 'checkout must stay TEST while LIVE is gated');
+    assert(liveOperating.capabilities?.liveCheckoutEnabled === false, 'LIVE checkout gate must stay off');
+    assert(liveOperating.capabilities?.canTestConnection === true, 'TEST connection tests stay available');
+
+    let liveActivationBlocked = false;
     try {
-        await paymentSettingsService.testPaymentConfiguration(
-            { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' },
-            { providerId: 'dpo' }
-        );
+        await paymentSettingsService.updatePaymentSettings({
+            liveCheckoutEnabled: true,
+            mode: 'live'
+        }, { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' });
     } catch (error) {
-        blocked = error?.code === 'PAYMENT_TEST_REQUIRES_TEST_MODE';
+        liveActivationBlocked = error?.code === 'DPO_LIVE_CHECKOUT_DISABLED';
     }
-    assert(blocked, 'LIVE mode must block connection tests');
+    assert(liveActivationBlocked, 'Admin must not be able to activate LIVE checkout yet');
 
     await paymentSettingsService.updatePaymentSettings({
         mode: 'test',

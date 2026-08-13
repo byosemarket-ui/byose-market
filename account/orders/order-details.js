@@ -110,12 +110,11 @@
 
   function getPaymentLabel(order) {
     const method = String(order?.paymentMethod || '').trim().toLowerCase();
-    if (method === 'cod') return 'Pay on Delivery';
-    if (method === 'mtn') return 'MTN Mobile Money';
-    if (method === 'airtel') return 'Airtel Money';
-    if (method === 'bank') return 'Bank Transfer';
-    if (method === 'card') return 'Visa / Mastercard';
-    return 'Not set';
+    if (method === 'cod') return 'Cash on Delivery';
+    if (method === 'mtn') return 'MTN MoMo';
+    if (method === 'card') return 'Card';
+    if (method === 'dpo') return order?.paymentMethodLabel || 'Card / MTN MoMo';
+    return order?.paymentMethodLabel || 'Not set';
   }
 
   async function render() {

@@ -195,9 +195,9 @@ async function assertOrderAcceptsPayload(payload) {
       shippingFee: 2000,
       total: line.price + 2000,
       totalAmount: line.price + 2000,
-      paymentMethod: 'dpo',
+      paymentMethod: 'card',
       paymentStatus: 'awaiting_payment',
-      payment: { method: 'dpo' },
+      payment: { method: 'card' },
       deliveryMethod: 'homeDelivery'
     };
     const response = await fetch(`${SITE}/api/orders`, {
@@ -453,11 +453,11 @@ async function runBrowserFlow(browser, flow, payload) {
   });
 
   await page.waitForSelector('input[name="paymentMethod"]', { timeout: 60000 });
-  const dpoRadio = page.locator('input[name="paymentMethod"][value="dpo"]');
-  if (!(await dpoRadio.count())) {
-    throw new Error(`${flow}: DPO payment method not available`);
+  const cardRadio = page.locator('input[name="paymentMethod"][value="card"]');
+  if (!(await cardRadio.count())) {
+    throw new Error(`${flow}: Card payment method not available`);
   }
-  await dpoRadio.click({ force: true });
+  await cardRadio.click({ force: true });
   await page.locator('#placeOrderBtn').click({ force: true, noWaitAfter: true });
 
   for (let i = 0; i < 80; i += 1) {

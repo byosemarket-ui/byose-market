@@ -18,7 +18,9 @@ const {
     assertNotWritingPlaceholderIntoRealStore,
     isolateVerifyCredentialStore,
     isRealCredentialsPath,
-    resetUndecryptableStoreIfSafe
+    resetUndecryptableStoreIfSafe,
+    restorePaymentSettingsFlags,
+    snapshotPaymentSettingsFlags
 } = require('./lib/payment-verify-guard');
 
 const verifyStore = isolateVerifyCredentialStore('verify-dpo-payment-test');
@@ -108,6 +110,7 @@ async function seedTestCredentials() {
     assertNotWritingPlaceholderIntoRealStore(ephemeral.companyToken, 'verify-dpo-payment-test');
 
     const paymentSettingsService = require('../server/services/paymentsettings.service');
+    const settingsSnapshot = await snapshotPaymentSettingsFlags(paymentSettingsService);
     await paymentSettingsService.updatePaymentSettings({
         enabled: true,
         activeProvider: 'dpo',
@@ -121,16 +124,18 @@ async function seedTestCredentials() {
     }, { id: 'ADMIN_VERIFY_DPO', email: 'admin@example.com' });
 
     expectedCompanyToken = ephemeral.companyToken;
-    return ephemeral;
+    return { ephemeral, settingsSnapshot };
 }
 
 function installDpoMock(scenario = 'success') {
     const dpoClient = require('../server/payments/dpo/client');
     const transToken = `TOK-${crypto.randomBytes(8).toString('hex').toUpperCase()}`;
+    let createCount = 0;
 
     dpoClient.setHttpTransportForTests(async (_url, xmlBody) => {
         const body = String(xmlBody || '');
         if (body.includes('<Request>createToken</Request>')) {
+            createCount += 1;
             assert(Boolean(expectedCompanyToken) && body.includes(expectedCompanyToken), 'createToken missing company token in request XML');
             return {
                 statusCode: 200,
@@ -174,11 +179,18 @@ function installDpoMock(scenario = 'success') {
         throw new Error('Unexpected DPO request in mock transport');
     });
 
-    return { transToken, dpoClient };
+    return { transToken, dpoClient, getCreateCount: () => createCount };
 }
 
-async function createFixtureOrder(orderId) {
+async function createFixtureOrder(orderId, overrides = {}) {
     const orderDataService = require('../server/services/orderdataservice');
+    const paymentMethod = String(overrides.paymentMethod || 'dpo').trim().toLowerCase() || 'dpo';
+    const paymentType = String(overrides.paymentType || (paymentMethod === 'cod' ? 'cod' : 'pay_now'));
+    const paymentStatus = String(overrides.paymentStatus || (paymentMethod === 'cod' ? 'awaiting_delivery_payment' : 'awaiting_payment'));
+    const paymentMethodLabel = String(
+        overrides.paymentMethodLabel
+        || (paymentMethod === 'mtn' ? 'MTN MoMo' : paymentMethod === 'card' ? 'Card' : paymentMethod === 'cod' ? 'Cash on Delivery' : 'DPO Pay')
+    );
     // Empty items avoid stock decrement during verification fixtures.
     const order = {
         orderId,
@@ -189,11 +201,11 @@ async function createFixtureOrder(orderId) {
         isGuest: true,
         status: 'Pending',
         orderStatus: 'pending',
-        paymentStatus: 'awaiting_payment',
-        paymentStatusLabel: 'Awaiting Payment',
-        paymentMethod: 'dpo',
-        paymentMethodLabel: 'DPO Pay',
-        paymentType: 'pay_now',
+        paymentStatus,
+        paymentStatusLabel: paymentMethod === 'cod' ? 'Awaiting Delivery Payment' : 'Awaiting Payment',
+        paymentMethod,
+        paymentMethodLabel,
+        paymentType,
         currency: 'RWF',
         subtotal: 13000,
         deliveryFee: 2000,
@@ -211,11 +223,11 @@ async function createFixtureOrder(orderId) {
             village: 'Test'
         },
         payment: {
-            type: 'pay_now',
-            method: 'dpo',
-            methodLabel: 'DPO Pay',
-            status: 'awaiting_payment',
-            statusLabel: 'Awaiting Payment'
+            type: paymentType,
+            method: paymentMethod,
+            methodLabel: paymentMethodLabel,
+            status: paymentStatus,
+            statusLabel: paymentMethod === 'cod' ? 'Awaiting Delivery Payment' : 'Awaiting Payment'
         },
         statusHistory: [],
         createdAt: new Date().toISOString()
@@ -271,7 +283,7 @@ async function verifyServiceFlows() {
     const orderDataService = require('../server/services/orderdataservice');
 
     // Success path
-    const { dpoClient } = installDpoMock('success');
+    const { dpoClient, getCreateCount } = installDpoMock('success');
     const orderId = `DPO-TEST-${Date.now().toString().slice(-8)}`;
     await createFixtureOrder(orderId);
 
@@ -281,6 +293,14 @@ async function verifyServiceFlows() {
     });
     assert(initiated.paymentUrl.includes('payv3.php?ID='), 'initiate should return payv3 URL');
     assertNoSecretLeak(initiated, 'initiate result');
+
+    const reused = await dpoPaymentService.initiatePayment({
+        orderId,
+        req: { get: () => '', protocol: 'http' }
+    });
+    assert(reused.reused === true, 'awaiting_payment retry must reuse the existing DPO token');
+    assert(reused.paymentUrl === initiated.paymentUrl, 'reused initiate must keep the same payment URL');
+    assert(getCreateCount() === 1, `createToken should run once on retry, ran ${getCreateCount()}`);
 
     const verified = await dpoPaymentService.verifyAndUpdateOrder({
         orderId,
@@ -313,8 +333,8 @@ async function verifyServiceFlows() {
     const failedOrder = await orderDataService.findOrderByIdentifier(failId);
     assert(String(failedOrder.paymentStatus).toLowerCase() !== 'paid', 'failed payment must not persist as paid');
 
-    // Cancelled path (back URL)
-    installDpoMock('success');
+    // Cancelled path (back URL) — DPO still unpaid / pending
+    installDpoMock('pending');
     const cancelId = `${orderId}-C`;
     await createFixtureOrder(cancelId);
     await dpoPaymentService.initiatePayment({ orderId: cancelId, req: { get: () => '', protocol: 'http' } });
@@ -326,6 +346,21 @@ async function verifyServiceFlows() {
     assert(cancelled.outcome === 'cancelled', 'cancelled outcome expected');
     const cancelledOrder = await orderDataService.findOrderByIdentifier(cancelId);
     assert(String(cancelledOrder.paymentStatus).toLowerCase() !== 'paid', 'cancelled payment must not persist as paid');
+
+    // Back URL after DPO has already captured payment must stay PAID
+    installDpoMock('success');
+    const paidBackId = `${orderId}-PB`;
+    await createFixtureOrder(paidBackId);
+    await dpoPaymentService.initiatePayment({ orderId: paidBackId, req: { get: () => '', protocol: 'http' } });
+    const paidBack = await dpoPaymentService.verifyAndUpdateOrder({
+        orderId: paidBackId,
+        markCancelled: true,
+        req: { get: () => '', protocol: 'http' }
+    });
+    assert(paidBack.outcome === 'success' && paidBack.paymentStatus === 'paid', 'back after paid DPO result must stay paid');
+    const paidBackOrder = await orderDataService.findOrderByIdentifier(paidBackId);
+    assert(String(paidBackOrder.paymentStatus).toLowerCase() === 'paid', 'paid order must not become cancelled from back URL');
+    assert(String(paidBackOrder.orderStatus || paidBackOrder.status).toLowerCase() !== 'paid', 'fulfillment status must stay independent of payment');
 
     // Invalid token path
     installDpoMock('invalid');
@@ -364,6 +399,170 @@ async function verifyServiceFlows() {
     return { orderId };
 }
 
+async function verifyStorefrontMethodsUseDpo() {
+    const dpoPaymentService = require('../server/services/dpopayment.service');
+    const orderDataService = require('../server/services/orderdataservice');
+    const dpoClient = require('../server/payments/dpo/client');
+    const stamp = Date.now().toString().slice(-8);
+
+    installDpoMock('success');
+    const mtnId = `DPO-MTN-${stamp}`;
+    await createFixtureOrder(mtnId, { paymentMethod: 'mtn', paymentMethodLabel: 'MTN MoMo' });
+    const mtnInit = await dpoPaymentService.initiatePayment({
+        orderId: mtnId,
+        req: { get: () => '', protocol: 'http' }
+    });
+    assert(String(mtnInit.paymentUrl || '').includes('payv3.php?ID='), 'MTN MoMo must start DPO hosted payment');
+    const mtnOrder = await orderDataService.findOrderByIdentifier(mtnId);
+    assert(String(mtnOrder.paymentMethod).toLowerCase() === 'mtn', 'DPO initiate must preserve MTN MoMo method');
+
+    installDpoMock('success');
+    const cardId = `DPO-CARD-${stamp}`;
+    await createFixtureOrder(cardId, { paymentMethod: 'card', paymentMethodLabel: 'Card' });
+    const cardInit = await dpoPaymentService.initiatePayment({
+        orderId: cardId,
+        req: { get: () => '', protocol: 'http' }
+    });
+    assert(String(cardInit.paymentUrl || '').includes('payv3.php?ID='), 'Card must start DPO hosted payment');
+    const cardOrder = await orderDataService.findOrderByIdentifier(cardId);
+    assert(String(cardOrder.paymentMethod).toLowerCase() === 'card', 'DPO initiate must preserve Card method');
+
+    let dpoCalled = false;
+    dpoClient.setHttpTransportForTests(async () => {
+        dpoCalled = true;
+        throw new Error('DPO must not be called for Cash on Delivery');
+    });
+    const codId = `DPO-COD-${stamp}`;
+    await createFixtureOrder(codId, {
+        paymentMethod: 'cod',
+        paymentMethodLabel: 'Cash on Delivery',
+        paymentType: 'cod',
+        paymentStatus: 'awaiting_delivery_payment'
+    });
+    let initiateError = null;
+    try {
+        await dpoPaymentService.initiatePayment({
+            orderId: codId,
+            req: { get: () => '', protocol: 'http' }
+        });
+    } catch (error) {
+        initiateError = error;
+    }
+    assert(initiateError && initiateError.code === 'DPO_NOT_USED_FOR_COD', 'COD initiate must be rejected without DPO');
+    assert(!dpoCalled, 'COD initiate must not call DPO createToken');
+
+    let verifyError = null;
+    try {
+        await dpoPaymentService.verifyAndUpdateOrder({
+            orderId: codId,
+            req: { get: () => '', protocol: 'http' }
+        });
+    } catch (error) {
+        verifyError = error;
+    }
+    assert(verifyError && verifyError.code === 'DPO_NOT_USED_FOR_COD', 'COD verify must be rejected without DPO');
+    assert(!dpoCalled, 'COD verify must not call DPO verifyToken');
+    const codOrder = await orderDataService.findOrderByIdentifier(codId);
+    assert(String(codOrder.paymentStatus).toLowerCase() === 'awaiting_delivery_payment', 'COD must stay unpaid/pending');
+    assert(String(codOrder.paymentStatus).toLowerCase() !== 'paid', 'COD must not be marked paid');
+
+    dpoClient.resetHttpTransport();
+}
+
+async function verifyLiveUnconfiguredAndNoMix() {
+    const dpoConfig = require('../server/payments/dpo/config');
+    const paymentSettingsService = require('../server/services/paymentsettings.service');
+
+    assert(dpoConfig.LIVE_CHECKOUT_ENABLED === false, 'LIVE_CHECKOUT_ENABLED must stay false');
+    assert(dpoConfig.isLiveCheckoutGateOpen() === false, 'LIVE checkout gate must stay closed');
+    assert(dpoConfig.resolveCheckoutEnvironment().mode === 'test', 'checkout environment decision must be TEST');
+
+    const liveStatus = await dpoConfig.inspectEnvironmentStatus('live');
+    assert(liveStatus.configured === false, 'isolated verify store must not start with LIVE credentials');
+
+    let liveError = null;
+    try {
+        await dpoConfig.getEnvironmentConfiguration('live');
+    } catch (error) {
+        liveError = error;
+    }
+    assert(
+        liveError && (liveError.code === 'DPO_LIVE_NOT_CONFIGURED' || liveError.code === 'DPO_LIVE_NOT_ENABLED'),
+        `LIVE without credentials must be rejected, got ${liveError?.code || liveError?.message}`
+    );
+
+    const active = await dpoConfig.getActiveDpoConfiguration();
+    assert(active.mode === 'test', 'active checkout must be TEST');
+    assert(active.secrets.companyToken === expectedCompanyToken, 'active checkout must use TEST Company Token');
+    assert(active.secrets.companyToken !== liveError?.details?.token, 'LIVE rejection must not expose TEST token');
+
+    let copied = null;
+    try {
+        await paymentSettingsService.updatePaymentSettings({
+            credentials: {
+                live: {
+                    companyToken: expectedCompanyToken,
+                    serviceType: '12345'
+                }
+            }
+        }, { id: 'ADMIN_VERIFY_DPO', email: 'admin@example.com' });
+    } catch (error) {
+        copied = error;
+    }
+    assert(copied, 'copying TEST Company Token into LIVE must be rejected');
+
+    let liveSwitch = null;
+    try {
+        await paymentSettingsService.updatePaymentSettings({
+            liveCheckoutEnabled: true
+        }, { id: 'ADMIN_VERIFY_DPO', email: 'admin@example.com' });
+    } catch (error) {
+        liveSwitch = error;
+    }
+    assert(liveSwitch && liveSwitch.code === 'DPO_LIVE_CHECKOUT_DISABLED', 'LIVE checkout activation must be rejected');
+}
+
+async function verifyCheckoutStaysTestWhenAdminModeIsLive() {
+    const paymentSettingsService = require('../server/services/paymentsettings.service');
+    const dpoPaymentService = require('../server/services/dpopayment.service');
+    const dpoConfig = require('../server/payments/dpo/config');
+
+    try {
+        await paymentSettingsService.updatePaymentSettings({
+            enabled: true,
+            activeProvider: 'dpo',
+            mode: 'live',
+            credentials: {
+                live: {
+                    companyToken: `LIVE-UNUSED-${crypto.randomBytes(6).toString('hex')}`,
+                    serviceType: '99999'
+                }
+            }
+        }, { id: 'ADMIN_VERIFY_DPO', email: 'admin@example.com' });
+
+        const runtime = await dpoPaymentService.loadCheckoutRuntime();
+        assert(runtime.mode === 'test', 'checkout runtime must stay TEST while LIVE is gated');
+        assert(runtime.secrets.companyToken === expectedCompanyToken, 'checkout must use Admin TEST Company Token, not LIVE');
+        assert(runtime.liveCheckoutEnabled === false, 'LIVE checkout must remain gated off');
+
+        const liveRuntime = await dpoConfig.getEnvironmentConfiguration('live');
+        assert(liveRuntime.mode === 'live', 'LIVE configuration must resolve independently');
+        assert(liveRuntime.secrets.companyToken !== expectedCompanyToken, 'LIVE resolver must not use TEST Company Token');
+        assert(String(liveRuntime.secrets.companyToken).startsWith('LIVE-UNUSED-'), 'LIVE resolver must use the stored LIVE token');
+
+        const publicConfig = await dpoPaymentService.getPublicConfig();
+        assert(publicConfig.mode === 'test', 'public DPO config mode must stay test');
+        assert(publicConfig.liveAvailable === false, 'LIVE must not be advertised as available');
+        assertNoSecretLeak(publicConfig, 'public config while admin mode is live');
+        assert(dpoConfig.LIVE_CHECKOUT_ENABLED === false, 'LIVE_CHECKOUT_ENABLED must stay false');
+    } finally {
+        await paymentSettingsService.updatePaymentSettings({
+            mode: 'test',
+            enabled: true
+        }, { id: 'ADMIN_VERIFY_DPO', email: 'admin@example.com' });
+    }
+}
+
 async function verifyHttpInProcess() {
     const express = require('express');
     const createApiRouter = require('../server/api');
@@ -399,6 +598,13 @@ async function verifyHttpInProcess() {
         assert(String(initiated.json.paymentUrl || '').includes('payv3.php?ID='), 'HTTP initiate URL missing');
         assertNoSecretLeak(initiated.json, 'HTTP initiate');
 
+        const reusedInitiate = await request(baseUrl, 'POST', '/api/payments/dpo/initiate', {
+            body: { orderId }
+        });
+        assert(reusedInitiate.status === 200 && reusedInitiate.json?.success, `reused initiate HTTP failed: ${reusedInitiate.raw}`);
+        assert(reusedInitiate.json.reused === true, 'HTTP initiate retry must reuse the existing DPO token');
+        assert(reusedInitiate.json.paymentUrl === initiated.json.paymentUrl, 'reused HTTP initiate must keep the same payment URL');
+
         const verified = await request(baseUrl, 'POST', '/api/payments/dpo/verify', {
             body: { orderId }
         });
@@ -406,8 +612,14 @@ async function verifyHttpInProcess() {
         assert(verified.json.outcome === 'success', 'HTTP verify should succeed');
         assertNoSecretLeak(verified.json, 'HTTP verify');
 
-        // Cancelled / back redirect for a fresh order
-        installDpoMock('success');
+        const confirmation = await request(baseUrl, 'GET', `/api/orders/confirmation/${encodeURIComponent(orderId)}`);
+        assert(confirmation.status === 200 && confirmation.json?.success, `confirmation HTTP failed: ${confirmation.raw}`);
+        assert(confirmation.json.confirmation?.orderId === orderId, 'confirmation must return the same order');
+        assert(Number(confirmation.json.confirmation?.total) === 15000, 'confirmation total must match the order');
+        assertNoSecretLeak(confirmation.json, 'HTTP confirmation');
+
+        // Cancelled / back redirect for a still-unpaid order
+        installDpoMock('pending');
         const cancelId = `${orderId}-BACK`;
         await createFixtureOrder(cancelId);
         await request(baseUrl, 'POST', '/api/payments/dpo/initiate', { body: { orderId: cancelId } });
@@ -415,6 +627,16 @@ async function verifyHttpInProcess() {
         assert([301, 302].includes(back.status), `expected redirect from back, got ${back.status}`);
         assert(String(back.location).includes('status=cancelled'), `back redirect missing cancelled status: ${back.location}`);
         assertNoSecretLeak(back.raw, 'HTTP back');
+
+        // Back URL after DPO reports paid must go to Success, not Cancelled
+        installDpoMock('success');
+        const paidBackId = `${orderId}-PAIDBACK`;
+        await createFixtureOrder(paidBackId);
+        await request(baseUrl, 'POST', '/api/payments/dpo/initiate', { body: { orderId: paidBackId } });
+        const paidBack = await request(baseUrl, 'GET', `/api/payments/dpo/back?orderId=${encodeURIComponent(paidBackId)}`);
+        assert([301, 302].includes(paidBack.status), `expected redirect from paid back, got ${paidBack.status}`);
+        assert(String(paidBack.location).includes('order-success.html'), `paid back must go to success: ${paidBack.location}`);
+        assert(!String(paidBack.location).includes('status=cancelled'), `paid back must not be cancelled: ${paidBack.location}`);
 
         // Invalid token verify outcome
         installDpoMock('invalid');
@@ -424,6 +646,49 @@ async function verifyHttpInProcess() {
         const invalid = await request(baseUrl, 'POST', '/api/payments/dpo/verify', { body: { orderId: invalidId } });
         assert(invalid.status === 200 && invalid.json?.outcome === 'invalid_token', `invalid verify failed: ${invalid.raw}`);
         assertNoSecretLeak(invalid.json, 'HTTP invalid verify');
+
+        installDpoMock('success');
+        const callbackId = `${orderId}-CB`;
+        await createFixtureOrder(callbackId);
+        await request(baseUrl, 'POST', '/api/payments/dpo/initiate', { body: { orderId: callbackId } });
+        const callback = await request(baseUrl, 'POST', `/api/payments/dpo/callback?orderId=${encodeURIComponent(callbackId)}`);
+        assert(callback.status === 200 && callback.json?.success, `callback HTTP failed: ${callback.raw}`);
+        assert(callback.json.outcome === 'success', 'callback must verify via existing DPO verifyToken path');
+        assert(callback.json.paymentStatus === 'paid', 'callback paid status must come from verify, not from visiting the URL');
+        assertNoSecretLeak(callback.json, 'HTTP callback');
+
+        const mtnHttpId = `${orderId}-MTN`;
+        await createFixtureOrder(mtnHttpId, { paymentMethod: 'mtn', paymentMethodLabel: 'MTN MoMo' });
+        installDpoMock('success');
+        const mtnHttp = await request(baseUrl, 'POST', '/api/payments/dpo/initiate', { body: { orderId: mtnHttpId } });
+        assert(mtnHttp.status === 200 && mtnHttp.json?.success, `MTN HTTP initiate failed: ${mtnHttp.raw}`);
+        assert(String(mtnHttp.json.paymentUrl || '').includes('payv3.php?ID='), 'MTN HTTP initiate must return DPO URL');
+
+        const cardHttpId = `${orderId}-CARD`;
+        await createFixtureOrder(cardHttpId, { paymentMethod: 'card', paymentMethodLabel: 'Card' });
+        const cardHttp = await request(baseUrl, 'POST', '/api/payments/dpo/initiate', { body: { orderId: cardHttpId } });
+        assert(cardHttp.status === 200 && cardHttp.json?.success, `Card HTTP initiate failed: ${cardHttp.raw}`);
+
+        const codHttpId = `${orderId}-COD`;
+        await createFixtureOrder(codHttpId, {
+            paymentMethod: 'cod',
+            paymentMethodLabel: 'Cash on Delivery',
+            paymentType: 'cod',
+            paymentStatus: 'awaiting_delivery_payment'
+        });
+        const codHttp = await request(baseUrl, 'POST', '/api/payments/dpo/initiate', { body: { orderId: codHttpId } });
+        assert(codHttp.status === 400, `COD HTTP initiate must be rejected, got ${codHttp.status}`);
+        assert(codHttp.json?.code === 'DPO_NOT_USED_FOR_COD', `COD HTTP initiate code: ${codHttp.raw}`);
+
+        const unsupported = await request(baseUrl, 'POST', '/api/orders', { body: { paymentMethod: 'airtel' } });
+        assert(unsupported.status === 400, `unsupported method must be rejected, got ${unsupported.status}: ${unsupported.raw}`);
+        assert(unsupported.json?.code === 'UNSUPPORTED_PAYMENT_METHOD', `airtel must return UNSUPPORTED_PAYMENT_METHOD: ${unsupported.raw}`);
+
+        const bankRejected = await request(baseUrl, 'POST', '/api/orders', { body: { paymentMethod: 'bank' } });
+        assert(bankRejected.status === 400 && bankRejected.json?.code === 'UNSUPPORTED_PAYMENT_METHOD', `bank must be rejected: ${bankRejected.raw}`);
+
+        const dpoRejected = await request(baseUrl, 'POST', '/api/orders', { body: { paymentMethod: 'dpo' } });
+        assert(dpoRejected.status === 400 && dpoRejected.json?.code === 'UNSUPPORTED_PAYMENT_METHOD', `standalone DPO must be rejected: ${dpoRejected.raw}`);
 
         return true;
     } finally {
@@ -438,6 +703,8 @@ async function main() {
     [
         'server/payments/dpo/client.js',
         'server/payments/dpo/xml.js',
+        'server/payments/dpo/config.js',
+        'server/payments/dpo/endpoints.js',
         'server/services/dpopayment.service.js',
         'server/controllers/dpopaymentcontroller.js',
         'server/routes/dpopayments.js',
@@ -449,21 +716,38 @@ async function main() {
 
     const { connectDatabase } = require('../server/database');
     await connectDatabase();
-    await seedTestCredentials();
+    const { settingsSnapshot } = await seedTestCredentials();
 
-    await verifyPaidStatusMatching();
-    console.log('[verify-dpo-payment-test] paid-status matching OK');
+    try {
+        await verifyPaidStatusMatching();
+        console.log('[verify-dpo-payment-test] paid-status matching OK');
 
-    await verifyClientHelpers();
-    console.log('[verify-dpo-payment-test] client helpers OK');
+        await verifyClientHelpers();
+        console.log('[verify-dpo-payment-test] client helpers OK');
 
-    await verifyServiceFlows();
-    console.log('[verify-dpo-payment-test] service flows OK (success/failed/cancelled/invalid)');
+        await verifyServiceFlows();
+        console.log('[verify-dpo-payment-test] service flows OK (success/failed/cancelled/invalid)');
 
-    await verifyHttpInProcess();
-    console.log('[verify-dpo-payment-test] HTTP layer OK');
+        await verifyStorefrontMethodsUseDpo();
+        console.log('[verify-dpo-payment-test] MTN MoMo/Card use DPO TEST; COD does not call DPO');
 
-    console.log('[verify-dpo-payment-test] PASS');
+        await verifyLiveUnconfiguredAndNoMix();
+        console.log('[verify-dpo-payment-test] LIVE unconfigured is blocked; TEST/LIVE credentials do not mix');
+
+        await verifyCheckoutStaysTestWhenAdminModeIsLive();
+        console.log('[verify-dpo-payment-test] checkout stays TEST while LIVE is gated');
+
+        await verifyHttpInProcess();
+        console.log('[verify-dpo-payment-test] HTTP layer OK');
+
+        console.log('[verify-dpo-payment-test] PASS');
+    } finally {
+        const paymentSettingsService = require('../server/services/paymentsettings.service');
+        await restorePaymentSettingsFlags(paymentSettingsService, settingsSnapshot, {
+            id: 'ADMIN_VERIFY_DPO',
+            email: 'admin@example.com'
+        });
+    }
 }
 
 main().catch((error) => {

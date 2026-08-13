@@ -32,7 +32,15 @@ const updateOrderLimiter = createRateLimiter({
 	message: 'Too many status updates. Please try again shortly.'
 });
 
+const confirmationLimiter = createRateLimiter({
+	windowMs: 5 * 60 * 1000,
+	max: 40,
+	code: 'ORDER_CONFIRMATION_RATE_LIMITED',
+	message: 'Too many confirmation lookups. Please try again shortly.'
+});
+
 router.post('/', createOrderLimiter, optionalAuthMiddleware, validateOrderPayload, orderController.createOrder);
+router.get('/confirmation/:id', confirmationLimiter, optionalAuthMiddleware, orderController.getPublicOrderConfirmation);
 router.get('/', authMiddleware, orderController.getUserOrders);
 router.put('/:id/status', updateOrderLimiter, authMiddleware, orderController.updateOrderStatus);
 

@@ -27,7 +27,7 @@
               <h2 class="ck-pay-section__title" id="payMethodsTitle">Payment method</h2>
               <div class="ck-pay-grid" id="paymentMethods" role="radiogroup" aria-labelledby="payMethodsTitle"></div>
             </section>
-            <label class="ck-field ck-field--full ck-payment-phone" id="paymentPhoneField">
+            <label class="ck-field ck-field--full ck-payment-phone" id="paymentPhoneField" hidden>
               <span>Payment phone number</span>
               <input type="tel" name="paymentPhone" inputmode="tel" placeholder="07XXXXXXXX" autocomplete="tel">
               <small class="ck-field-error" data-error="phone"></small>
@@ -49,6 +49,6 @@
   <script src="../config/runtime-api-bootstrap.js"></script>
   <script src="../services/authservice.js"></script>
   <script src="../services/wishlist-client.js"></script>
-  <script type="module" src="payment.js?v=20260813-delivery-fee"></script>
+  <script type="module" src="payment.js?v=20260813-step5-duplicate-guard"></script>
 </body>
 </html>

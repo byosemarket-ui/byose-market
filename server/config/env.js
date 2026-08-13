@@ -97,6 +97,9 @@ module.exports = {
     payment: {
         encryptionKeyConfigured: Boolean(readText(process.env.PAYMENT_ENCRYPTION_KEY))
             || (Boolean(readText(process.env.JWT_SECRET))
-                && readText(process.env.JWT_SECRET) !== 'replace_with_a_long_random_secret')
+                && readText(process.env.JWT_SECRET) !== 'replace_with_a_long_random_secret'),
+        // LIVE checkout is not activated. Do not read DPO_LIVE_CHECKOUT_ENABLED
+        // or similar env flags — accidental LIVE activation must be impossible.
+        liveCheckoutEnabled: false
     }
 };

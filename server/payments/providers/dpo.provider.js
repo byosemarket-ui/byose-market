@@ -1,7 +1,11 @@
 /**
  * DPO Pay provider definition.
- * STEP 2: TEST createToken / verifyToken integration uses these endpoint defaults.
+ * Endpoint defaults come from the shared DPO endpoints module.
+ * LIVE uses the same documented DPO host; the Company Token selects TEST vs LIVE.
+ * LIVE checkout is gated off until a later step.
  */
+
+const { DEFAULT_API_BASE, DEFAULT_PAYMENT_PAGE } = require('../dpo/endpoints');
 
 const PROVIDER_ID = 'dpo';
 
@@ -22,18 +26,18 @@ const CREDENTIAL_FIELDS = Object.freeze([
         required: true,
         inputType: 'text',
         autocomplete: 'off',
-        help: 'DPO Service Type / Product Service ID for this Company Token. Save it together with the Company Token. Use 54841 only if it belongs to that token.'
+        help: 'DPO Service Type / Product Service ID for this Company Token. TEST and LIVE Service Types can differ — save the ID that belongs to that environment\'s Company Token. Do not copy TEST into LIVE unless DPO confirms they are the same.'
     }
 ]);
 
 const DEFAULT_ENDPOINTS = Object.freeze({
     test: {
-        apiBaseUrl: 'https://secure.3gdirectpay.com/API/v6/',
-        paymentPageUrl: 'https://secure.3gdirectpay.com/payv3.php?ID=token'
+        apiBaseUrl: DEFAULT_API_BASE,
+        paymentPageUrl: DEFAULT_PAYMENT_PAGE
     },
     live: {
-        apiBaseUrl: 'https://secure.3gdirectpay.com/API/v6/',
-        paymentPageUrl: 'https://secure.3gdirectpay.com/payv3.php?ID=token'
+        apiBaseUrl: DEFAULT_API_BASE,
+        paymentPageUrl: DEFAULT_PAYMENT_PAGE
     }
 });
 

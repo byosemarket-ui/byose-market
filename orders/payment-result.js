@@ -1,4 +1,5 @@
 import { resolveApiOrigin } from './utils.js';
+import { initiateDpoPayment } from './core/order.js';
 
 const contentEl = document.getElementById('paymentResultContent');
 
@@ -21,9 +22,12 @@ function renderResult({ title, message, orderId, tone = 'error', actions = [] })
       <h1>${escapeHtml(title)}</h1>
       <p>${escapeHtml(message)}</p>
       ${orderId ? `<p><strong>Order:</strong> ${escapeHtml(orderId)}</p>` : ''}
+      <p id="paymentResultMessage" class="ck-message" hidden></p>
       <div class="ck-actions">
         ${actions.map((action) => (
-          `<a class="ck-btn ${action.primary ? 'ck-btn--primary' : 'ck-btn--ghost'}" href="${escapeHtml(action.href)}">${escapeHtml(action.label)}</a>`
+          action.retry
+            ? `<button type="button" class="ck-btn ${action.primary ? 'ck-btn--primary' : 'ck-btn--ghost'}" id="retryPaymentBtn">${escapeHtml(action.label)}</button>`
+            : `<a class="ck-btn ${action.primary ? 'ck-btn--primary' : 'ck-btn--ghost'}" href="${escapeHtml(action.href)}">${escapeHtml(action.label)}</a>`
         )).join('')}
       </div>
     </div>
@@ -53,6 +57,37 @@ async function verifyOnLoad(orderId, statusHint) {
   }
 }
 
+async function retryExistingPayment(orderId) {
+  const messageEl = document.getElementById('paymentResultMessage');
+  const retryBtn = document.getElementById('retryPaymentBtn');
+  if (retryBtn) retryBtn.disabled = true;
+  if (messageEl) {
+    messageEl.hidden = false;
+    messageEl.textContent = 'Starting a secure payment session...';
+  }
+
+  try {
+    const payment = await initiateDpoPayment(orderId);
+    if (payment.alreadyPaid) {
+      window.location.replace(`order-success.html?orderId=${encodeURIComponent(orderId)}`);
+      return;
+    }
+    if (!payment.success || (!payment.paymentUrl && !payment.redirectUrl)) {
+      if (messageEl) {
+        messageEl.textContent = payment.message || 'Unable to restart payment. Please try again shortly.';
+      }
+      if (retryBtn) retryBtn.disabled = false;
+      return;
+    }
+    window.location.href = payment.paymentUrl || payment.redirectUrl;
+  } catch (_error) {
+    if (messageEl) {
+      messageEl.textContent = 'Payment is temporarily unavailable. Please try again shortly.';
+    }
+    if (retryBtn) retryBtn.disabled = false;
+  }
+}
+
 async function boot() {
   const query = params();
   const orderId = String(query.get('orderId') || '').trim();
@@ -79,26 +114,37 @@ async function boot() {
     },
     pending: {
       title: 'Payment still pending',
-      message: 'DPO has not confirmed payment yet. You can wait a moment and refresh, or return to checkout.',
+      message: 'DPO has not confirmed payment yet. You can wait a moment and refresh, or retry the payment.',
       tone: 'warn'
     },
     failed: {
       title: 'Payment failed',
-      message: 'The DPO payment did not complete successfully. You can retry from your order or place a new checkout.',
+      message: 'The DPO payment did not complete successfully. You can retry this same order without creating a new one.',
       tone: 'error'
     }
   };
 
   const selected = map[status] || map.failed;
+  const actions = [
+    { label: 'Back to shop', href: '../shop/shop.html' }
+  ];
+  if (orderId) {
+    actions.unshift({ label: 'Try payment again', retry: true, primary: true });
+  } else {
+    actions.unshift({ label: 'Return to checkout', href: 'payment.html', primary: true });
+  }
+
   renderResult({
     title: selected.title,
     message: selected.message,
     orderId,
     tone: selected.tone,
-    actions: [
-      { label: 'Back to shop', href: '../shop/index.html', primary: true },
-      { label: 'Try payment again', href: 'payment.html' }
-    ]
+    actions
+  });
+
+  document.getElementById('retryPaymentBtn')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    void retryExistingPayment(orderId);
   });
 }
 

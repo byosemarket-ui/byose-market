@@ -1,18 +1,22 @@
 /**
- * DPO Pay TEST checkout orchestration (STEP 2).
+ * DPO Pay checkout orchestration.
  * Flow: Create Token → Payment URL → Customer Payment → Verify Token → Order Update
- * LIVE mode is intentionally not supported yet.
+ * Configuration (Company Token, Service Type, environment) comes from the DPO
+ * config resolver. LIVE checkout is gated off until a later step.
  */
 
 const orderDataService = require('./orderdataservice');
-const paymentSettingsService = require('./paymentsettings.service');
 const dpoClient = require('../payments/dpo/client');
+const dpoConfig = require('../payments/dpo/config');
 const config = require('../config/env');
 const { appLogger } = require('../utils/logger');
 const { isSettledPaidStatus } = require('../payments/payment-status');
+const { isCodPaymentMethod, storefrontPaymentMethodLabel } = require('../payments/storefront-methods');
 
-const PROVIDER_ID = 'dpo';
-const FORCED_MODE = 'test';
+const PROVIDER_ID = dpoConfig.PROVIDER_ID;
+const CHECKOUT_MODE = dpoConfig.CHECKOUT_MODE;
+const FORCED_MODE = CHECKOUT_MODE;
+const TOKEN_REUSE_MAX_MS = 20 * 60 * 60 * 1000;
 
 function normalizeText(value, fallback = '') {
     const text = String(value == null ? '' : value).trim();
@@ -30,6 +34,30 @@ function ValidationError(message, details = {}, code = 'DPO_PAYMENT_VALIDATION_F
     error.code = code;
     error.details = details;
     return error;
+}
+
+function orderPaymentMethod(order) {
+    return normalizeText(order?.paymentMethod || order?.payment?.method).toLowerCase();
+}
+
+function assertOrderEligibleForDpo(order) {
+    const orderMethod = orderPaymentMethod(order);
+    if (isCodPaymentMethod(orderMethod) || order?.paymentType === 'cod' || order?.payment?.type === 'cod') {
+        throw ValidationError(
+            'Cash on Delivery does not use online payment.',
+            { paymentMethod: orderMethod || 'cod' },
+            'DPO_NOT_USED_FOR_COD',
+            400
+        );
+    }
+    if (orderMethod === 'airtel' || orderMethod === 'bank') {
+        throw ValidationError(
+            'That payment method is no longer available. Choose MTN MoMo, Card, or Cash on Delivery.',
+            { paymentMethod: orderMethod },
+            'UNSUPPORTED_PAYMENT_METHOD',
+            400
+        );
+    }
 }
 
 function assertVerifiedPaymentMatchesOrder(order, verified, tokenUsed) {
@@ -97,59 +125,8 @@ function buildFrontendUrl(appBase, pathWithQuery) {
     return `${base}${path}`;
 }
 
-async function loadTestRuntime() {
-    const settings = await paymentSettingsService.getPaymentConfig();
-    if (settings.mode === 'live') {
-        // STEP 2: refuse LIVE intentionally.
-        throw ValidationError(
-            'LIVE DPO payments are not enabled yet. Switch Payment Settings to TEST mode.',
-            { mode: 'LIVE is not available in STEP 2.' },
-            'DPO_LIVE_NOT_ENABLED',
-            503
-        );
-    }
-
-    const runtime = await paymentSettingsService.getRuntimePaymentCredentials({
-        providerId: PROVIDER_ID,
-        mode: FORCED_MODE
-    });
-
-    if (!runtime || !runtime.enabled) {
-        throw ValidationError(
-            'DPO Pay TEST is not enabled. Configure and enable it in Admin → Payment Settings.',
-            { enabled: false },
-            'DPO_NOT_ENABLED',
-            503
-        );
-    }
-
-    const companyToken = normalizeText(runtime.secrets?.companyToken);
-    const serviceType = normalizeText(runtime.secrets?.serviceType);
-    if (!companyToken || !serviceType) {
-        throw ValidationError(
-            'DPO TEST credentials are missing. Save Company Token and Service Type in Payment Settings.',
-            { companyToken: Boolean(companyToken), serviceType: Boolean(serviceType) },
-            'DPO_CREDENTIALS_MISSING',
-            503
-        );
-    }
-
-    return {
-        ...runtime,
-        mode: FORCED_MODE,
-        secrets: { companyToken, serviceType },
-        endpoints: {
-            apiBaseUrl: normalizeText(runtime.endpoints?.apiBaseUrl, dpoClient.DEFAULT_API_BASE),
-            // STEP 2 Option A requires payv3.php?ID=token (upgrade legacy payv2 defaults).
-            paymentPageUrl: (() => {
-                const configured = normalizeText(runtime.endpoints?.paymentPageUrl, dpoClient.DEFAULT_PAYMENT_PAGE);
-                if (/payv2\.php/i.test(configured)) {
-                    return dpoClient.DEFAULT_PAYMENT_PAGE;
-                }
-                return configured || dpoClient.DEFAULT_PAYMENT_PAGE;
-            })()
-        }
-    };
+async function loadCheckoutRuntime() {
+    return dpoConfig.getActiveDpoConfiguration();
 }
 
 function applyGatewayPaymentUpdate(order, {
@@ -169,8 +146,13 @@ function applyGatewayPaymentUpdate(order, {
 
     order.paymentStatus = nextStatus;
     order.paymentStatusLabel = label;
-    order.paymentMethod = normalizeText(order.paymentMethod, PROVIDER_ID) || PROVIDER_ID;
-    order.paymentMethodLabel = normalizeText(order.paymentMethodLabel, 'DPO Pay') || 'DPO Pay';
+    // Fulfillment status stays independent of payment settlement.
+    const existingMethod = normalizeText(order.paymentMethod || order.payment?.method).toLowerCase();
+    order.paymentMethod = existingMethod || 'card';
+    order.paymentMethodLabel = storefrontPaymentMethodLabel(
+        order.paymentMethod,
+        normalizeText(order.paymentMethodLabel) || 'Card'
+    );
     order.paymentType = 'pay_now';
 
     const previousPayment = order.payment && typeof order.payment === 'object' ? order.payment : {};
@@ -184,14 +166,14 @@ function applyGatewayPaymentUpdate(order, {
     order.payment = {
         ...previousPayment,
         type: 'pay_now',
-        method: PROVIDER_ID,
-        methodLabel: 'DPO Pay',
+        method: order.paymentMethod,
+        methodLabel: order.paymentMethodLabel,
         status: nextStatus,
         statusLabel: label,
         gateway: {
             ...previousGateway,
             provider: PROVIDER_ID,
-            mode: FORCED_MODE,
+            mode: normalizeText(gateway.mode, CHECKOUT_MODE) || CHECKOUT_MODE,
             ...gateway,
             updatedAt: new Date().toISOString()
         },
@@ -238,7 +220,7 @@ function sanitizePublicGateway(order) {
         : {};
     return {
         provider: PROVIDER_ID,
-        mode: FORCED_MODE,
+        mode: normalizeText(gateway.mode, CHECKOUT_MODE) || CHECKOUT_MODE,
         companyRef: normalizeText(gateway.companyRef || order?.orderId || order?.id),
         hasTransToken: Boolean(gateway.transToken),
         transTokenHint: gateway.transToken ? `••••${String(gateway.transToken).slice(-4)}` : '',
@@ -264,37 +246,7 @@ function toPublicPaymentView(order, extra = {}) {
 }
 
 async function getPublicConfig() {
-    const payment = await paymentSettingsService.getPublicPaymentSettings();
-    const settings = await paymentSettingsService.getPaymentConfig();
-    const runtimeReady = Boolean(
-        settings.mode !== 'live'
-        && payment.enabled
-        && payment.provider?.id === PROVIDER_ID
-    );
-
-    // Confirm TEST credentials exist without exposing them.
-    let credentialsReady = false;
-    try {
-        const runtime = await paymentSettingsService.getRuntimePaymentCredentials({
-            providerId: PROVIDER_ID,
-            mode: FORCED_MODE
-        });
-        credentialsReady = Boolean(
-            runtime?.enabled
-            && runtime.secrets?.companyToken
-            && runtime.secrets?.serviceType
-        );
-    } catch (_error) {
-        credentialsReady = false;
-    }
-
-    return {
-        provider: PROVIDER_ID,
-        mode: FORCED_MODE,
-        enabled: Boolean(runtimeReady && credentialsReady),
-        label: payment.provider?.label || 'DPO Pay',
-        liveAvailable: false
-    };
+    return dpoConfig.getPublicCheckoutConfig();
 }
 
 async function initiatePayment({ orderId, req } = {}) {
@@ -303,11 +255,14 @@ async function initiatePayment({ orderId, req } = {}) {
         throw ValidationError('Order ID is required.', { orderId: 'Required' });
     }
 
-    const runtime = await loadTestRuntime();
     const order = await orderDataService.findOrderByIdentifier(id);
     if (!order) {
         throw ValidationError('Order not found.', { orderId: id }, 'ORDER_NOT_FOUND', 404);
     }
+
+    assertOrderEligibleForDpo(order);
+
+    const runtime = await loadCheckoutRuntime();
 
     const currentStatus = normalizeText(order.paymentStatus || order.payment?.status).toLowerCase();
     if (isSettledPaidStatus(currentStatus)) {
@@ -321,9 +276,36 @@ async function initiatePayment({ orderId, req } = {}) {
         };
     }
 
+    // Amount is taken from the stored order (catalog + delivery fee), never from the browser.
     const amount = Number(order.totalAmount ?? order.total);
     if (!Number.isFinite(amount) || amount <= 0) {
         throw ValidationError('Order total is invalid for payment.', { total: amount });
+    }
+
+    const existingGateway = order.payment?.gateway && typeof order.payment.gateway === 'object'
+        ? order.payment.gateway
+        : {};
+    const existingToken = normalizeText(existingGateway.transToken);
+    const existingUrl = normalizeText(existingGateway.paymentUrl);
+    const initiatedAtMs = Date.parse(existingGateway.initiatedAt || 0);
+    const awaitingReuse = currentStatus === 'awaiting_payment'
+        || currentStatus === 'pending'
+        || currentStatus === '';
+    const tokenFresh = Number.isFinite(initiatedAtMs) && (Date.now() - initiatedAtMs) < TOKEN_REUSE_MAX_MS;
+
+    if (awaitingReuse && existingToken && existingUrl && tokenFresh) {
+        appLogger.info('dpo.payment.initiate_reused', {
+            orderId: id,
+            mode: runtime.mode || CHECKOUT_MODE
+        });
+        return {
+            alreadyPaid: false,
+            reused: true,
+            orderId: id,
+            paymentUrl: existingUrl,
+            redirectUrl: existingUrl,
+            payment: toPublicPaymentView(order, { outcome: 'redirect', reused: true })
+        };
     }
 
     const appBase = resolveAppBaseUrl(req);
@@ -334,6 +316,10 @@ async function initiatePayment({ orderId, req } = {}) {
     const backUrl = buildFrontendUrl(
         appBase,
         `/api/payments/dpo/back?orderId=${encodeURIComponent(id)}`
+    );
+    const callbackUrl = buildFrontendUrl(
+        appBase,
+        `/api/payments/dpo/callback?orderId=${encodeURIComponent(id)}`
     );
 
     const created = await dpoClient.createToken({
@@ -363,8 +349,10 @@ async function initiatePayment({ orderId, req } = {}) {
             paymentUrl: created.paymentUrl,
             redirectUrl,
             backUrl,
+            callbackUrl,
             lastResult: created.result,
             lastOutcome: 'redirect',
+            mode: runtime.mode,
             initiatedAt: new Date().toISOString()
         }
     });
@@ -373,7 +361,7 @@ async function initiatePayment({ orderId, req } = {}) {
 
     appLogger.info('dpo.payment.initiated', {
         orderId: id,
-        mode: FORCED_MODE,
+        mode: runtime.mode || CHECKOUT_MODE,
         previousPaymentStatus,
         hasPaymentUrl: Boolean(created.paymentUrl)
     });
@@ -384,6 +372,59 @@ async function initiatePayment({ orderId, req } = {}) {
         paymentUrl: created.paymentUrl,
         redirectUrl: created.paymentUrl,
         payment: toPublicPaymentView(updated, { outcome: 'redirect' })
+    };
+}
+
+async function persistVerifiedPayment(order, verified, token, req) {
+    const id = normalizeText(order?.orderId || order?.id);
+    const storedToken = normalizeText(order.payment?.gateway?.transToken);
+    const { order: updated, previousPaymentStatus } = applyGatewayPaymentUpdate(order, {
+        paymentStatus: verified.paymentStatus,
+        paymentStatusLabel: verified.label,
+        historyLabel: `DPO verify: ${verified.resultExplanation || verified.label}`,
+        gateway: {
+            companyRef: id,
+            transToken: token || verified.transToken || storedToken,
+            transRef: verified.transRef || order.payment?.gateway?.transRef || '',
+            lastResult: verified.result,
+            lastOutcome: verified.outcome,
+            lastExplanation: verified.resultExplanation || '',
+            transactionAmount: verified.transactionAmount || '',
+            transactionCurrency: verified.transactionCurrency || '',
+            transactionApproval: verified.transactionApproval || '',
+            verifiedAt: new Date().toISOString()
+        }
+    });
+
+    if (verified.outcome === 'pending' && updated.paymentStatus !== 'paid') {
+        updated.paymentStatus = 'awaiting_payment';
+        updated.paymentStatusLabel = 'Awaiting Payment';
+        updated.payment.status = 'awaiting_payment';
+        updated.payment.statusLabel = 'Awaiting Payment';
+    }
+
+    await orderDataService.saveOrder(updated);
+    await notifyPaymentChange(updated, previousPaymentStatus);
+
+    const appBase = resolveAppBaseUrl(req);
+    let redirectPath = `/orders/payment-result.html?status=failed&orderId=${encodeURIComponent(id)}`;
+    if (verified.outcome === 'success') {
+        redirectPath = `/orders/order-success.html?orderId=${encodeURIComponent(id)}`;
+    } else if (verified.outcome === 'cancelled') {
+        redirectPath = `/orders/payment-result.html?status=cancelled&orderId=${encodeURIComponent(id)}`;
+    } else if (verified.outcome === 'invalid_token') {
+        redirectPath = `/orders/payment-result.html?status=invalid&orderId=${encodeURIComponent(id)}`;
+    } else if (verified.outcome === 'pending') {
+        redirectPath = `/orders/payment-result.html?status=pending&orderId=${encodeURIComponent(id)}`;
+    }
+
+    return {
+        outcome: verified.outcome,
+        paymentStatus: updated.paymentStatus,
+        result: verified.result,
+        resultExplanation: verified.resultExplanation,
+        payment: toPublicPaymentView(updated, { outcome: verified.outcome }),
+        redirectUrl: buildFrontendUrl(appBase, redirectPath)
     };
 }
 
@@ -403,6 +444,8 @@ async function verifyAndUpdateOrder({
         throw ValidationError('Order not found.', { orderId: id }, 'ORDER_NOT_FOUND', 404);
     }
 
+    assertOrderEligibleForDpo(order);
+
     const existingStatus = normalizeText(order.paymentStatus || order.payment?.status).toLowerCase();
     if (isSettledPaidStatus(existingStatus)) {
         return {
@@ -417,6 +460,47 @@ async function verifyAndUpdateOrder({
     }
 
     if (markCancelled) {
+        const storedCancelToken = normalizeText(order.payment?.gateway?.transToken);
+        if (storedCancelToken) {
+            try {
+                const runtime = await loadCheckoutRuntime();
+                const verifiedOnBack = await dpoClient.verifyToken({
+                    companyToken: runtime.secrets.companyToken,
+                    apiBaseUrl: runtime.endpoints.apiBaseUrl,
+                    transactionToken: storedCancelToken,
+                    companyRef: id
+                });
+
+                if (verifiedOnBack.outcome === 'success') {
+                    const binding = assertVerifiedPaymentMatchesOrder(order, verifiedOnBack, storedCancelToken);
+                    if (binding.ok) {
+                        return persistVerifiedPayment(order, verifiedOnBack, storedCancelToken, req);
+                    }
+                }
+
+                if (verifiedOnBack.outcome === 'failed') {
+                    return persistVerifiedPayment(order, verifiedOnBack, storedCancelToken, req);
+                }
+            } catch (error) {
+                if (error?.code !== 'DPO_VERIFY_INPUT_MISSING') {
+                    appLogger.warn('dpo.payment.cancel_verify_unavailable', {
+                        orderId: id,
+                        code: error?.code || '',
+                        message: error?.message || ''
+                    });
+                    return {
+                        outcome: 'pending',
+                        paymentStatus: normalizeText(order.paymentStatus, 'awaiting_payment') || 'awaiting_payment',
+                        payment: toPublicPaymentView(order, { outcome: 'pending' }),
+                        redirectUrl: buildFrontendUrl(
+                            resolveAppBaseUrl(req),
+                            `/orders/payment-result.html?status=pending&orderId=${encodeURIComponent(id)}`
+                        )
+                    };
+                }
+            }
+        }
+
         const { order: cancelled, previousPaymentStatus } = applyGatewayPaymentUpdate(order, {
             paymentStatus: 'cancelled',
             paymentStatusLabel: 'Cancelled',
@@ -440,7 +524,7 @@ async function verifyAndUpdateOrder({
         };
     }
 
-    const runtime = await loadTestRuntime();
+    const runtime = await loadCheckoutRuntime();
     const storedToken = normalizeText(order.payment?.gateway?.transToken);
     const token = normalizeText(transactionToken) || storedToken;
 
@@ -505,55 +589,7 @@ async function verifyAndUpdateOrder({
         }
     }
 
-    const { order: updated, previousPaymentStatus } = applyGatewayPaymentUpdate(order, {
-        paymentStatus: verified.paymentStatus,
-        paymentStatusLabel: verified.label,
-        historyLabel: `DPO verify: ${verified.resultExplanation || verified.label}`,
-        gateway: {
-            companyRef: id,
-            transToken: token || verified.transToken || storedToken,
-            transRef: verified.transRef || order.payment?.gateway?.transRef || '',
-            lastResult: verified.result,
-            lastOutcome: verified.outcome,
-            lastExplanation: verified.resultExplanation || '',
-            transactionAmount: verified.transactionAmount || '',
-            transactionCurrency: verified.transactionCurrency || '',
-            transactionApproval: verified.transactionApproval || '',
-            verifiedAt: new Date().toISOString()
-        }
-    });
-
-    // If still pending (not paid yet), keep awaiting_payment for customer retry.
-    if (verified.outcome === 'pending' && updated.paymentStatus !== 'paid') {
-        updated.paymentStatus = 'awaiting_payment';
-        updated.paymentStatusLabel = 'Awaiting Payment';
-        updated.payment.status = 'awaiting_payment';
-        updated.payment.statusLabel = 'Awaiting Payment';
-    }
-
-    await orderDataService.saveOrder(updated);
-    await notifyPaymentChange(updated, previousPaymentStatus);
-
-    const appBase = resolveAppBaseUrl(req);
-    let redirectPath = `/orders/payment-result.html?status=failed&orderId=${encodeURIComponent(id)}`;
-    if (verified.outcome === 'success') {
-        redirectPath = `/orders/order-success.html?orderId=${encodeURIComponent(id)}`;
-    } else if (verified.outcome === 'cancelled') {
-        redirectPath = `/orders/payment-result.html?status=cancelled&orderId=${encodeURIComponent(id)}`;
-    } else if (verified.outcome === 'invalid_token') {
-        redirectPath = `/orders/payment-result.html?status=invalid&orderId=${encodeURIComponent(id)}`;
-    } else if (verified.outcome === 'pending') {
-        redirectPath = `/orders/payment-result.html?status=pending&orderId=${encodeURIComponent(id)}`;
-    }
-
-    return {
-        outcome: verified.outcome,
-        paymentStatus: updated.paymentStatus,
-        result: verified.result,
-        resultExplanation: verified.resultExplanation,
-        payment: toPublicPaymentView(updated, { outcome: verified.outcome }),
-        redirectUrl: buildFrontendUrl(appBase, redirectPath)
-    };
+    return persistVerifiedPayment(order, verified, token, req);
 }
 
 async function notifyPaymentChange(order, previousPaymentStatus) {
@@ -571,11 +607,13 @@ async function notifyPaymentChange(order, previousPaymentStatus) {
 }
 
 module.exports = {
+    CHECKOUT_MODE,
     FORCED_MODE,
     PROVIDER_ID,
     getPublicConfig,
     initiatePayment,
-    loadTestRuntime,
+    loadCheckoutRuntime,
+    loadTestRuntime: loadCheckoutRuntime,
     toPublicPaymentView,
     verifyAndUpdateOrder
 };

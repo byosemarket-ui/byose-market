@@ -29,6 +29,7 @@
     "verify:admin-payment": "node scripts/verify-admin-payment.js",
     "verify:admin-payment-management": "node scripts/verify-admin-payment-management.js",
     "verify:dpo-payment-test": "node scripts/verify-dpo-payment-test.js",
+    "verify:dpo-environment-config": "node scripts/verify-dpo-environment-config.js",
     "verify:payment-credential-guard": "node scripts/verify-payment-credential-guard.js",
     "verify:admin-seo": "node scripts/verify-admin-seo.js",
     "verify:admin-logout": "node scripts/verify-admin-logout.js",

@@ -314,15 +314,15 @@ async function runFlow(browser, flow, payload) {
   await page.waitForSelector('input[name="paymentMethod"]', { timeout: 60000 });
   await page.waitForFunction(() => {
     const methods = Array.from(document.querySelectorAll('input[name="paymentMethod"]')).map((el) => el.value);
-    return methods.includes('dpo') || methods.includes('cod') || methods.includes('mtn');
+    return methods.includes('card') || methods.includes('cod') || methods.includes('mtn');
   }, { timeout: 60000 });
   await page.waitForTimeout(800);
 
-  const dpoRadio = page.locator('input[name="paymentMethod"][value="dpo"]');
-  if (await dpoRadio.count()) {
-    await dpoRadio.click({ force: true });
+  const cardRadio = page.locator('input[name="paymentMethod"][value="card"]');
+  if (await cardRadio.count()) {
+    await cardRadio.click({ force: true });
   } else {
-    throw new Error(`${flow}: DPO payment method not available (${await page.locator('input[name="paymentMethod"]').evaluateAll((els) => els.map((el) => el.value))})`);
+    throw new Error(`${flow}: Card payment method not available (${await page.locator('input[name="paymentMethod"]').evaluateAll((els) => els.map((el) => el.value))})`);
   }
 
   await page.locator('#placeOrderBtn').click({ force: true, noWaitAfter: true });
@@ -356,8 +356,8 @@ async function runFlow(browser, flow, payload) {
         timeout: 120000
       });
       await page.waitForFunction(() => window.__ckStep === 'payment', { timeout: 60000 });
-      await page.waitForSelector('input[name="paymentMethod"][value="dpo"]', { timeout: 60000 });
-      await page.click('input[name="paymentMethod"][value="dpo"]', { force: true });
+      await page.waitForSelector('input[name="paymentMethod"][value="card"]', { timeout: 60000 });
+      await page.click('input[name="paymentMethod"][value="card"]', { force: true });
       await page.locator('#placeOrderBtn').click({ force: true, noWaitAfter: true });
       for (let i = 0; i < 80; i += 1) {
         if ((createdOrderId && paymentUrl) || orderError) break;
@@ -393,8 +393,13 @@ async function runFlow(browser, flow, payload) {
 
   await completeDpoSandboxPayment(page, paymentUrl);
 
+  await page.waitForFunction(() => {
+    const text = document.body?.innerText || '';
+    return /Payment Successful!/i.test(text) && /Payment confirmed/i.test(text);
+  }, undefined, { timeout: 30000 });
+
   const successText = await page.locator('body').innerText();
-  const successOk = /Order Placed!|Payment Successful!/i.test(successText) && successText.includes(createdOrderId);
+  const successOk = /Payment Successful!/i.test(successText) && successText.includes(createdOrderId);
 
   // Confirm backend paid status as well.
   const verified = await fetch(`${SITE}/api/payments/dpo/verify`, {
@@ -402,6 +407,16 @@ async function runFlow(browser, flow, payload) {
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ orderId: createdOrderId })
   }).then((r) => r.json()).catch(() => null);
+  const cartAfter = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('byose_market_cart_v1') || '[]');
+    } catch {
+      return [];
+    }
+  });
+  const purchasedStillInCart = (cartAfter || []).some((item) => (
+    String(item.productId || item.id) === String(payload.id)
+  ));
 
   await context.close();
 
@@ -409,10 +424,16 @@ async function runFlow(browser, flow, payload) {
     throw new Error(`${flow} pageerrors: ${errors.join(' | ')}`);
   }
   if (!successOk) {
-    throw new Error(`${flow}: success page missing Order Placed / orderId. Snippet: ${successText.slice(0, 400)}`);
+    throw new Error(`${flow}: success page missing Payment Successful / orderId. Snippet: ${successText.slice(0, 400)}`);
   }
   if (!(verified?.outcome === 'success' || verified?.paymentStatus === 'paid')) {
     throw new Error(`${flow}: backend not paid after success page (${verified?.outcome || verified?.message || 'unknown'})`);
+  }
+  if (flow === 'addToCart' && purchasedStillInCart) {
+    throw new Error(`${flow}: purchased item still in Cart after paid success`);
+  }
+  if (flow === 'buyNow' && purchasedStillInCart) {
+    throw new Error(`${flow}: Buy Now item appeared in Cart after success`);
   }
 
   return {
@@ -426,7 +447,8 @@ async function runFlow(browser, flow, payload) {
     successSnippet: successText.slice(0, 280),
     dpoPaid: true,
     paymentStatus: verified.paymentStatus,
-    dpoOutcome: verified.outcome
+    dpoOutcome: verified.outcome,
+    cartCleanAfterPaid: !purchasedStillInCart
   };
 }
 

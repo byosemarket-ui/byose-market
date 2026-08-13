@@ -478,7 +478,10 @@ function statusTone(status) {
 }
 
 function paymentLabel(order) {
-  if (order?.paymentMethod === "cod" || String(order?.paymentMethodLabel || "").toLowerCase().includes("cash")) {
+  const method = String(order?.paymentMethod || "").toLowerCase();
+  if (method === "mtn") return "MTN MoMo";
+  if (method === "card") return "Card";
+  if (method === "cod" || String(order?.paymentMethodLabel || "").toLowerCase().includes("cash")) {
     return "Cash on Delivery";
   }
   return order?.paymentMethodLabel || order?.paymentMethod || "—";
@@ -1259,6 +1262,18 @@ const ALL_ORDERS_PROGRESS = [
   { key: "delivered", label: "Delivered" }
 ];
 
+function resolveDpoTransactionReference(order) {
+  const payment = order?.payment && typeof order.payment === "object" ? order.payment : {};
+  const gateway = payment.gateway && typeof payment.gateway === "object" ? payment.gateway : {};
+  return String(gateway.transRef || order?.transactionReference || order?.paymentReference || "").trim() || "—";
+}
+
+function resolvePaymentTimestamp(order) {
+  const payment = order?.payment && typeof order.payment === "object" ? order.payment : {};
+  const gateway = payment.gateway && typeof payment.gateway === "object" ? payment.gateway : {};
+  return gateway.verifiedAt || gateway.updatedAt || gateway.initiatedAt || order?.updatedAt || order?.createdAt || order?.date || "";
+}
+
 function resolveTransactionReference(order) {
   const payment = order?.payment && typeof order.payment === "object" ? order.payment : {};
   const gateway = payment.gateway && typeof payment.gateway === "object" ? payment.gateway : {};
@@ -1547,10 +1562,13 @@ function renderAllOrdersDetails(order) {
           ${renderInfoGrid([
             ["Payment Method", paymentLabel(order)],
             ["Payment Status", { html: badge(String(paymentStatus), statusTone(paymentStatus)) }],
-            ["Transaction Reference", resolveTransactionReference(order)],
+            ["Payment Reference", resolveTransactionReference(order)],
+            ["DPO Transaction Reference", resolveDpoTransactionReference(order)],
             ["Payment Type", order.paymentType || (order.paymentMethod === "cod" ? "cod" : "pay_now")],
+            ["Amount", formatCurrency(order.grandTotal || order.total || 0)],
+            ["Currency", order.currency || "RWF"],
+            ["Date / Time", formatDate(resolvePaymentTimestamp(order))],
             ["Payer Phone", order.payerPhone || order.customerPhone || "—"],
-            ["Total Amount", formatCurrency(order.grandTotal || order.total || 0)],
             ["Note", order.paymentNote || ""]
           ])}
           ${renderPaymentStatusActions(order)}
@@ -2554,15 +2572,14 @@ export async function renderOrders(container, options = {}) {
               <option value="pending" ${state.paymentStatusFilter === "pending" ? "selected" : ""}>Pending</option>
               <option value="paid" ${state.paymentStatusFilter === "paid" ? "selected" : ""}>Paid</option>
               <option value="failed" ${state.paymentStatusFilter === "failed" ? "selected" : ""}>Failed</option>
+              <option value="cancelled" ${state.paymentStatusFilter === "cancelled" ? "selected" : ""}>Cancelled</option>
               <option value="refunded" ${state.paymentStatusFilter === "refunded" ? "selected" : ""}>Refunded</option>
             </select>
             <select id="ordersPaymentFilter" class="input orders-filter-control" aria-label="Filter by payment method" ${disabled}>
               <option value="" ${!state.paymentFilter ? "selected" : ""}>Payment method</option>
-              <option value="mtn" ${state.paymentFilter === "mtn" ? "selected" : ""}>MTN</option>
-              <option value="airtel" ${state.paymentFilter === "airtel" ? "selected" : ""}>Airtel</option>
-              <option value="cod" ${state.paymentFilter === "cod" ? "selected" : ""}>Cash on Delivery</option>
-              <option value="bank" ${state.paymentFilter === "bank" ? "selected" : ""}>Bank</option>
+              <option value="mtn" ${state.paymentFilter === "mtn" ? "selected" : ""}>MTN MoMo</option>
               <option value="card" ${state.paymentFilter === "card" ? "selected" : ""}>Card</option>
+              <option value="cod" ${state.paymentFilter === "cod" ? "selected" : ""}>Cash on Delivery</option>
             </select>
             <select id="ordersDateRangeFilter" class="input orders-filter-control" aria-label="Filter by date range" ${disabled}>
               <option value="" ${!state.dateRangeFilter ? "selected" : ""}>Date range</option>
@@ -2641,11 +2658,9 @@ export async function renderOrders(container, options = {}) {
           ${meta.mode === "completed" || meta.mode === "cancelled" || meta.mode === "returns" ? `
             <select id="ordersPaymentFilter" class="input" aria-label="Filter by payment method" ${state.loading ? "disabled" : ""}>
               <option value="" ${!state.paymentFilter ? "selected" : ""}>All payment methods</option>
-              <option value="mtn" ${state.paymentFilter === "mtn" ? "selected" : ""}>MTN</option>
-              <option value="airtel" ${state.paymentFilter === "airtel" ? "selected" : ""}>Airtel</option>
-              <option value="cod" ${state.paymentFilter === "cod" ? "selected" : ""}>Cash on Delivery</option>
-              <option value="bank" ${state.paymentFilter === "bank" ? "selected" : ""}>Bank</option>
+              <option value="mtn" ${state.paymentFilter === "mtn" ? "selected" : ""}>MTN MoMo</option>
               <option value="card" ${state.paymentFilter === "card" ? "selected" : ""}>Card</option>
+              <option value="cod" ${state.paymentFilter === "cod" ? "selected" : ""}>Cash on Delivery</option>
             </select>
           ` : ""}
           ${meta.mode === "returns" ? `

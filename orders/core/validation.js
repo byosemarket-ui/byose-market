@@ -1,4 +1,4 @@
-import { REQUIRED_SHIPPING_FIELDS, FIELD_LABELS } from './constants.js';
+import { REQUIRED_SHIPPING_FIELDS, FIELD_LABELS, isCodPaymentMethod, isGatewayPaymentMethod } from './constants.js';
 import { isValidPhone, normalizePhone } from '../utils.js';
 
 export function validateShipping(address = {}) {
@@ -30,7 +30,12 @@ export function validatePayment(payment = {}, shippingAddress = {}) {
     return { valid: false, errors };
   }
 
-  if (method === 'cod') {
+  if (!isCodPaymentMethod(method) && !isGatewayPaymentMethod(method)) {
+    errors.method = 'Select MTN MoMo, Card, or Cash on Delivery.';
+    return { valid: false, errors };
+  }
+
+  if (isCodPaymentMethod(method)) {
     const city = String(shippingAddress.provinceCity || shippingAddress.city || '').toLowerCase();
     if (!city.includes('kigali')) {
       errors.method = 'Cash on Delivery is only available in Kigali.';
@@ -38,14 +43,11 @@ export function validatePayment(payment = {}, shippingAddress = {}) {
     return { valid: Object.keys(errors).length === 0, errors };
   }
 
-  // Gateway checkout (DPO) collects payment on the hosted page — phone optional.
-  if (method === 'dpo') {
-    return { valid: true, errors };
-  }
-
-  const phone = normalizePhone(payment.phone || shippingAddress.phone);
+  // MTN MoMo and Card are paid on the DPO hosted page.
+  // Contact phone comes from Shipping — do not require a second payment number.
+  const phone = normalizePhone(shippingAddress.phone || payment.phone);
   if (!isValidPhone(phone)) {
-    errors.phone = 'Enter a valid payment phone number.';
+    errors.phone = 'A valid shipping phone number is required for payment.';
   }
 
   return { valid: Object.keys(errors).length === 0, errors };
@@ -54,6 +56,13 @@ export function validatePayment(payment = {}, shippingAddress = {}) {
 export function validateProducts(products = []) {
   if (!Array.isArray(products) || products.length === 0) {
     return { valid: false, message: 'Your cart is empty. Add a product first.' };
+  }
+  const invalidQty = products.find((product) => {
+    const qty = Number(product?.qty ?? product?.quantity);
+    return !Number.isFinite(qty) || qty < 1;
+  });
+  if (invalidQty) {
+    return { valid: false, message: 'Quantity must be at least 1.' };
   }
   return { valid: true };
 }

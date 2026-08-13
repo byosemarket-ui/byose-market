@@ -1,17 +1,14 @@
 /**
- * DPO Pay API client (Option A — createToken + verifyToken).
- * TEST integration uses https://secure.3gdirectpay.com/API/v6/
- * Credentials must come from Payment Settings — never hard-code.
+ * DPO Pay API client (createToken + verifyToken).
+ * Credentials and environment come from the DPO config resolver — never hard-code secrets.
  */
 
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
 const { escapeXml, extractTag, redactXmlSecrets } = require('./xml');
+const { DEFAULT_API_BASE, DEFAULT_PAYMENT_PAGE } = require('./endpoints');
 const { appLogger } = require('../../utils/logger');
-
-const DEFAULT_API_BASE = 'https://secure.3gdirectpay.com/API/v6/';
-const DEFAULT_PAYMENT_PAGE = 'https://secure.3gdirectpay.com/payv3.php?ID=token';
 
 let httpTransport = postXmlRequest;
 
@@ -266,7 +263,7 @@ async function createToken(options = {}) {
     const apiBaseUrl = normalizeText(options.apiBaseUrl, DEFAULT_API_BASE);
 
     if (!companyToken || !serviceType) {
-        const error = new Error('DPO TEST credentials are not configured.');
+        const error = new Error('DPO credentials are not configured for this payment environment.');
         error.code = 'DPO_CREDENTIALS_MISSING';
         error.statusCode = 503;
         throw error;

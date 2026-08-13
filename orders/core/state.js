@@ -18,7 +18,7 @@ import {
   saveCheckoutConfirmation,
   writeStorage
 } from '../utils.js';
-import { COD_FEE, DELIVERY_FEE, PAYMENT_METHODS, STEPS } from './constants.js';
+import { COD_FEE, DELIVERY_FEE, PAYMENT_METHODS, STEPS, DEFAULT_PAYMENT_METHOD, isCodPaymentMethod, isGatewayPaymentMethod, normalizeCheckoutPaymentMethod } from './constants.js';
 import { validateProducts, validateShipping } from './validation.js';
 import {
   intentMatchesProducts,
@@ -60,8 +60,8 @@ const state = {
   shipping: clone(DEFAULT_ADDRESS),
   deliveryMethodKey: 'homeDelivery',
   deliveryEstimate: '',
-  payment: { method: 'dpo', phone: '' },
-  gateway: { dpoEnabled: false, dpoLabel: 'Pay Online (DPO)', loaded: false },
+  payment: { method: DEFAULT_PAYMENT_METHOD, phone: '' },
+  gateway: { dpoEnabled: false, dpoLabel: 'Pay Online', loaded: false },
   coupon: { code: '', title: '', discountAmount: 0, status: '' },
   totals: { subtotal: 0, discount: 0, couponDiscount: 0, tax: 0, deliveryFee: DELIVERY_FEE, codFee: 0, total: DELIVERY_FEE }
 };
@@ -259,7 +259,12 @@ function applyStep1Commit() {
     state.customer = { ...state.customer, ...commit.customer };
   }
   if (commit.payment && typeof commit.payment === 'object') {
-    state.payment = { method: 'dpo', phone: '', ...commit.payment };
+    state.payment = {
+      method: normalizeCheckoutPaymentMethod(commit.payment?.method, DEFAULT_PAYMENT_METHOD),
+      phone: '',
+      ...commit.payment,
+      method: normalizeCheckoutPaymentMethod(commit.payment?.method, DEFAULT_PAYMENT_METHOD)
+    };
   }
   if (commit.coupon && typeof commit.coupon === 'object') {
     state.coupon = {
@@ -367,7 +372,12 @@ function applyHandoff() {
   }
 
   if (handoff.payment) {
-    state.payment = { method: 'dpo', phone: '', ...handoff.payment };
+    state.payment = {
+      method: normalizeCheckoutPaymentMethod(handoff.payment?.method, DEFAULT_PAYMENT_METHOD),
+      phone: '',
+      ...handoff.payment,
+      method: normalizeCheckoutPaymentMethod(handoff.payment?.method, DEFAULT_PAYMENT_METHOD)
+    };
   }
 
   if (handoff.coupon && typeof handoff.coupon === 'object') {
@@ -420,7 +430,7 @@ function recalcTotals() {
     return sum;
   }, 0);
   const deliveryFee = Math.max(0, Number(runtimeDeliveryFee) || 0);
-  const codFee = state.payment.method === 'cod' ? COD_FEE : 0;
+  const codFee = isCodPaymentMethod(state.payment.method) ? COD_FEE : 0;
   const tax = 0;
   const couponDiscount = Math.max(0, Number(state.coupon?.discountAmount || 0));
   state.totals = {
@@ -460,6 +470,57 @@ function applyConfiguredDeliveryFee() {
   }
   runtimeDeliveryFee = Math.max(0, fee);
   recalcTotals();
+}
+
+export async function refreshBackendDeliveryQuote() {
+  const subtotal = Math.max(0, Number(state.totals?.subtotal) || 0);
+  const address = state.shipping || {};
+  try {
+    if (typeof window.ByoseShippingApi?.calculateShipping === 'function') {
+      const quote = await window.ByoseShippingApi.calculateShipping({
+        subtotal,
+        address,
+        method: 'homeDelivery'
+      });
+      const fee = Number(quote?.fee);
+      if (Number.isFinite(fee) && fee >= 0) {
+        setDeliveryQuote({
+          fee,
+          estimate: quote?.estimatedDelivery || state.deliveryEstimate
+        });
+        return getState();
+      }
+    }
+
+    const base = resolveApiOrigin();
+    if (base) {
+      const endpoint = base.endsWith('/api')
+        ? `${base}/shipping/calculate`
+        : `${base}/api/shipping/calculate`;
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subtotal,
+          address,
+          method: 'homeDelivery'
+        })
+      });
+      const payload = await response.json().catch(() => null);
+      const fee = Number(payload?.shipping?.fee);
+      if (response.ok && payload?.success && Number.isFinite(fee) && fee >= 0) {
+        setDeliveryQuote({
+          fee,
+          estimate: payload.shipping?.estimatedDelivery || state.deliveryEstimate
+        });
+        return getState();
+      }
+    }
+  } catch (_error) {
+    /* keep configured fallback */
+  }
+  applyConfiguredDeliveryFee();
+  return getState();
 }
 
 function normalizeProduct(item) {
@@ -576,7 +637,12 @@ function draftMatchesCurrentPurchase(draft) {
 function loadPayment() {
   const draft = readActiveDraft();
   if (draftMatchesCurrentPurchase(draft) && draft?.payment) {
-    state.payment = { method: 'dpo', phone: '', ...draft.payment };
+    state.payment = {
+      method: normalizeCheckoutPaymentMethod(draft.payment?.method, DEFAULT_PAYMENT_METHOD),
+      phone: '',
+      ...draft.payment,
+      method: normalizeCheckoutPaymentMethod(draft.payment?.method, DEFAULT_PAYMENT_METHOD)
+    };
   }
   if (!state.payment.phone) {
     state.payment.phone = state.shipping.phone || state.customer.phone;
@@ -727,6 +793,7 @@ export async function initCheckout(preferredStep) {
   applyConfiguredDeliveryFee();
   state.initialized = true;
   emit('init');
+  void refreshBackendDeliveryQuote();
 
   // Always revalidate applied/selected coupons against the current cart totals.
   if (state.coupon?.code) {
@@ -785,6 +852,7 @@ export async function initCheckout(preferredStep) {
     loadPayment();
     loadCoupon();
     recalcTotals();
+    void refreshBackendDeliveryQuote();
     if (state.coupon?.code) {
       void applyCheckoutCoupon(state.coupon.code).then((result) => {
         if (!result?.ok) clearCheckoutCoupon();
@@ -1062,7 +1130,7 @@ export function setSubmitting(value) {
 }
 
 export function setPaymentMethod(method) {
-  state.payment.method = String(method || '').toLowerCase();
+  state.payment.method = normalizeCheckoutPaymentMethod(method, DEFAULT_PAYMENT_METHOD);
   recalcTotals();
   persistDraft();
   emit('payment-changed');
@@ -1080,10 +1148,18 @@ export function isCodAvailable() {
 }
 
 export async function loadGatewayPaymentConfig() {
+  function applyGatewayAvailability(enabled) {
+    if (enabled) return;
+    if (isGatewayPaymentMethod(state.payment.method)) {
+      state.payment.method = isCodAvailable() ? 'cod' : '';
+    }
+  }
+
   try {
     const base = resolveApiOrigin();
     if (!base) {
-      state.gateway = { dpoEnabled: false, dpoLabel: 'Pay Online (DPO)', loaded: true };
+      state.gateway = { dpoEnabled: false, dpoLabel: 'Pay Online', loaded: true };
+      applyGatewayAvailability(false);
       return state.gateway;
     }
     const endpoint = base.endsWith('/api')
@@ -1094,19 +1170,15 @@ export async function loadGatewayPaymentConfig() {
     const enabled = Boolean(response.ok && payload?.success && payload?.dpo?.enabled);
     state.gateway = {
       dpoEnabled: enabled,
-      dpoLabel: String(payload?.dpo?.label || 'Pay Online (DPO)'),
+      dpoLabel: 'Pay Online',
       loaded: true
     };
-    if (!enabled && state.payment.method === 'dpo') {
-      state.payment.method = 'mtn';
-    }
+    applyGatewayAvailability(enabled);
     emit('gateway-config');
     return state.gateway;
   } catch (_error) {
-    state.gateway = { dpoEnabled: false, dpoLabel: 'Pay Online (DPO)', loaded: true };
-    if (state.payment.method === 'dpo') {
-      state.payment.method = 'mtn';
-    }
+    state.gateway = { dpoEnabled: false, dpoLabel: 'Pay Online', loaded: true };
+    applyGatewayAvailability(false);
     return state.gateway;
   }
 }
@@ -1114,15 +1186,10 @@ export async function loadGatewayPaymentConfig() {
 export function getPaymentMethods() {
   return PAYMENT_METHODS.filter((m) => {
     if (!m.enabled) return false;
-    if (m.id === 'cod' && !isCodAvailable()) return false;
-    if (m.id === 'dpo' && !state.gateway?.dpoEnabled) return false;
+    if (isCodPaymentMethod(m.id) && !isCodAvailable()) return false;
+    // Keep MTN MoMo / Card visible until DPO config finishes loading.
+    if (m.gateway === 'dpo' && state.gateway?.loaded && !state.gateway?.dpoEnabled) return false;
     return true;
-  }).map((method) => {
-    if (method.id !== 'dpo') return method;
-    return {
-      ...method,
-      label: state.gateway?.dpoLabel || method.label
-    };
   });
 }
 

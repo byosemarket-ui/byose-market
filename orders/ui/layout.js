@@ -102,29 +102,31 @@ export function renderDeliveryInfo() {
 
 export function renderPaymentMethods(methods, selectedId) {
   if (!Array.isArray(methods) || !methods.length) {
-    return '<p class="ck-empty">No payment methods available.</p>';
+    return '<p class="ck-empty">No payment methods available right now. Please try again shortly.</p>';
   }
 
   return methods.map((method) => {
     const checked = method.id === selectedId;
     const logo = resolveCheckoutAsset(method.logo);
-    const codClass = method.id === 'cod' ? ' ck-pay-card--cod' : '';
+    const selectedClass = checked ? ' is-selected' : '';
 
     return `
-      <label class="ck-pay-card${codClass}${checked ? ' is-selected' : ''}">
+      <label class="ck-pay-card${selectedClass}">
         <input
           type="radio"
           class="ck-pay-card__input"
           name="paymentMethod"
           value="${escapeHtml(method.id)}"
           ${checked ? 'checked' : ''}
+          aria-describedby="pay-hint-${escapeHtml(method.id)}"
         >
         <span class="ck-pay-card__logo">
-          <img src="${escapeHtml(logo)}" alt="${escapeHtml(method.label)} logo" width="40" height="40" loading="lazy" decoding="async">
+          <img src="${escapeHtml(logo)}" alt="" width="40" height="40" loading="lazy" decoding="async">
         </span>
         <span class="ck-pay-card__body">
           <span class="ck-pay-card__name">${escapeHtml(method.label)}</span>
-          ${method.hint ? `<span class="ck-pay-card__hint${method.id === 'cod' ? ' ck-pay-card__hint--rw' : ''}">${escapeHtml(method.hint)}</span>` : ''}
+          ${method.subtitle ? `<span class="ck-pay-card__subtitle">${escapeHtml(method.subtitle)}</span>` : ''}
+          ${method.hint ? `<span class="ck-pay-card__hint" id="pay-hint-${escapeHtml(method.id)}">${escapeHtml(method.hint)}</span>` : ''}
         </span>
         <span class="ck-pay-card__radio" aria-hidden="true"></span>
       </label>
@@ -192,54 +194,51 @@ export function renderStickyBar(label, buttonId, options = {}) {
 
 export function renderPaymentInstructions(methodId, totals = {}) {
   const method = String(methodId || '').toLowerCase();
-  if (!method || method === 'cod') {
+  const total = formatCurrency(totals.total || 0);
+
+  if (method === 'cod') {
     return `
       <div class="ck-pay-instructions ck-pay-instructions--cod">
         <strong>Cash on Delivery</strong>
-        <p>Pay when your order arrives. Available in Kigali only.</p>
+        <p>Pay <strong>${total}</strong> when your order is delivered. Available in Kigali only. No online payment is taken now.</p>
       </div>
     `;
   }
 
-  if (method === 'dpo') {
-    const total = formatCurrency(totals.total || 0);
+  if (method === 'mtn') {
     return `
-      <div class="ck-pay-instructions ck-pay-instructions--dpo">
-        <strong>Pay securely with DPO Pay</strong>
-        <p>After you place the order you will be redirected to DPO Pay to complete <strong>${total}</strong>.</p>
-        <p>Card and mobile money options are shown on the secure DPO page. We confirm payment automatically when you return.</p>
+      <div class="ck-pay-instructions">
+        <strong>MTN MoMo</strong>
+        <p>You will be redirected to a secure payment page to pay <strong>${total}</strong> with MTN Mobile Money.</p>
+        <p>We will use the phone number from your shipping details. Payment is confirmed automatically after you finish.</p>
       </div>
     `;
   }
 
-  const accounts = [
-    { id: 'mtn', label: 'MTN Mobile Money', number: '0780430710', accountName: 'Vestine Uwifashije' },
-    { id: 'airtel', label: 'Airtel Money', number: '0723137250', accountName: 'Kwizera Byose Market' },
-    { id: 'bank', label: 'Bank Transfer', number: 'Contact support after placing the order', accountName: 'Byose Market' },
-    { id: 'card', label: 'Card Payment', number: 'We will confirm card payment manually', accountName: 'Byose Market' }
-  ];
-  const account = accounts.find((entry) => entry.id === method) || accounts[0];
-  const total = formatCurrency(totals.total || 0);
+  if (method === 'card') {
+    return `
+      <div class="ck-pay-instructions">
+        <strong>Card — Visa / Mastercard</strong>
+        <p>You will be redirected to a secure payment page to pay <strong>${total}</strong> with your Visa or Mastercard.</p>
+        <p>Payment is confirmed automatically after you finish.</p>
+      </div>
+    `;
+  }
 
-  return `
-    <div class="ck-pay-instructions">
-      <strong>Payment instructions</strong>
-      <p>After placing your order, send <strong>${total}</strong> via ${escapeHtml(account.label)}.</p>
-      <p><strong>Account:</strong> ${escapeHtml(account.accountName)}</p>
-      <p><strong>Number:</strong> ${escapeHtml(account.number)}</p>
-      <p>Use your order ID as the payment reference. Your order stays <em>Awaiting Payment</em> until we confirm.</p>
-    </div>
-  `;
+  return '';
 }
 
 export function renderShippingSummary(shipping) {
-  const lines = [
-    shipping.fullName,
-    shipping.phone,
-    [shipping.provinceCity, shipping.district].filter(Boolean).join(', '),
-    [shipping.sector, shipping.cell, shipping.village].filter(Boolean).join(', '),
-    shipping.note
-  ].filter(Boolean);
+  const customer = String(shipping.fullName || '').trim();
+  const phone = String(shipping.phone || '').trim();
+  const address = [
+    shipping.provinceCity,
+    shipping.district,
+    shipping.sector,
+    shipping.cell,
+    shipping.village
+  ].filter(Boolean).join(', ');
+  const note = String(shipping.note || '').trim();
 
   const mapLink = String(shipping.mapLink || shipping.googleMapsLink || '').trim()
     || (shipping.latitude && shipping.longitude
@@ -249,7 +248,10 @@ export function renderShippingSummary(shipping) {
   return `
     <section class="ck-card">
       <h3>Delivery Address</h3>
-      <p>${lines.map((l) => escapeHtml(l)).join('<br>')}</p>
+      ${customer ? `<p><strong>Customer:</strong> ${escapeHtml(customer)}</p>` : ''}
+      ${phone ? `<p><strong>Phone:</strong> ${escapeHtml(phone)}</p>` : ''}
+      ${address ? `<p><strong>Address:</strong> ${escapeHtml(address)}</p>` : ''}
+      ${note ? `<p><strong>Landmark / Note:</strong> ${escapeHtml(note)}</p>` : ''}
       ${shipping.latitude && shipping.longitude ? `<p class="ck-gps">GPS: ${escapeHtml(shipping.latitude)}, ${escapeHtml(shipping.longitude)}</p>` : ''}
       ${mapLink ? `<p class="ck-gps"><a class="ck-map-link" href="${escapeHtml(mapLink)}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a></p>` : ''}
     </section>

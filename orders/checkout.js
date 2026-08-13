@@ -1,7 +1,7 @@
 import {
   applyCheckoutCoupon,
   clearCheckoutCoupon,
-  getState, guardStep, initCheckout, setStep, subscribe, updateProductQty
+  getState, guardStep, initCheckout, refreshBackendDeliveryQuote, setStep, subscribe, updateProductQty
 } from './core/state.js';
 import {
   renderCouponPanel, renderDeliveryInfo, renderProgress, renderProductList, renderShippingSummary, renderSidebar,
@@ -108,4 +108,5 @@ if (!access.ok) {
 } else {
   render();
   window.__ckStep = 'review';
+  void refreshBackendDeliveryQuote();
 }

@@ -15,9 +15,17 @@ import {
 import {
   COD_PAYMENT_METHOD_LABEL,
   COD_PAYMENT_STATUS,
-  COD_PAYMENT_STATUS_LABEL
+  COD_PAYMENT_STATUS_LABEL,
+  isCodPaymentMethod,
+  isGatewayPaymentMethod,
+  paymentMethodLabel
 } from './constants.js';
-import { clearActiveCheckoutKeys, purchasedLineKeys } from '../checkout-session.js';
+import {
+  clearActiveCheckoutKeys,
+  purchasedLineKeys,
+  removePurchasedItemsFromCart,
+  shouldRemoveCartAfterPurchase
+} from '../checkout-session.js';
 import { clearCheckoutHandoff, getState, setSubmitting } from './state.js';
 import { validatePayment, validateProducts, validateShipping } from './validation.js';
 
@@ -113,15 +121,14 @@ export function buildOrderPayload(options = {}) {
   const createdAt = new Date().toISOString();
   const customerName = String(state.shipping.fullName || state.customer.name || 'Guest Customer').trim();
   const customerPhone = normalizePhone(state.shipping.phone || state.customer.phone);
-  const payerPhone = normalizePhone(state.payment.phone || customerPhone);
   const hasAccount = Boolean(state.customer.id);
-  const usesCod = state.payment.method === 'cod';
-  const usesDpo = state.payment.method === 'dpo';
+  const usesCod = isCodPaymentMethod(state.payment.method);
+  const usesGateway = isGatewayPaymentMethod(state.payment.method);
   const paymentStatus = usesCod ? COD_PAYMENT_STATUS : 'awaiting_payment';
   const paymentStatusLabel = usesCod ? COD_PAYMENT_STATUS_LABEL : 'Awaiting Payment';
-  const paymentMethodLabel = usesCod
+  const paymentMethodLabelText = usesCod
     ? COD_PAYMENT_METHOD_LABEL
-    : (usesDpo ? 'DPO Pay' : String(state.payment.method || '').toUpperCase());
+    : (paymentMethodLabel(state.payment.method) || 'Card');
   const items = state.products.map(buildOrderLineItem);
 
   const order = {
@@ -142,7 +149,7 @@ export function buildOrderPayload(options = {}) {
     paymentStatus,
     paymentStatusLabel,
     paymentMethod: usesCod ? 'cod' : state.payment.method,
-    paymentMethodLabel,
+    paymentMethodLabel: paymentMethodLabelText,
     paymentType: usesCod ? 'cod' : 'pay_now',
     subtotal: state.totals.subtotal,
     deliveryFee: state.totals.deliveryFee,
@@ -199,15 +206,17 @@ export function buildOrderPayload(options = {}) {
     payment: {
       type: usesCod ? 'cod' : 'pay_now',
       method: usesCod ? 'cod' : state.payment.method,
-      methodLabel: paymentMethodLabel,
+      methodLabel: paymentMethodLabelText,
       status: paymentStatus,
       statusLabel: paymentStatusLabel,
-      payerPhone: usesCod ? customerPhone : payerPhone,
+      payerPhone: customerPhone,
       note: usesCod
-        ? 'Pay on delivery'
-        : (usesDpo
-          ? 'Complete payment on the secure DPO Pay page'
-          : 'Transfer payment using the instructions shown at checkout')
+        ? 'Pay when the order is delivered'
+        : (usesGateway
+          ? (state.payment.method === 'mtn'
+            ? 'Complete MTN MoMo payment on the secure payment page'
+            : 'Complete card payment on the secure payment page')
+          : 'Complete payment using the selected method')
     },
     statusHistory: [{
       status: 'pending',
@@ -272,16 +281,7 @@ export async function submitOrder() {
     const state = getState();
     const persisted = result.order || order;
     const purchasedCartKeys = Array.from(purchasedLineKeys(state.products || []));
-
-    removeStorage(STORAGE_KEYS.checkoutActive);
-    removeStorage(STORAGE_KEYS.directCheckout);
-    removeStorage(STORAGE_KEYS.draft);
-    try {
-      window.localStorage.removeItem('byose_selected_coupon_v1');
-    } catch (_error) {}
-    clearPendingOrderSubmission();
-    clearCheckoutHandoff();
-    clearActiveCheckoutKeys();
+    const usesGatewayOrder = isGatewayPaymentMethod(order.paymentMethod);
 
     const confirmation = {
       orderId: persisted.orderId || persisted.id || order.orderId,
@@ -309,6 +309,25 @@ export async function submitOrder() {
     };
     saveCheckoutConfirmation(confirmation);
     succeeded = true;
+
+    if (!usesGatewayOrder) {
+      removeStorage(STORAGE_KEYS.checkoutActive);
+      removeStorage(STORAGE_KEYS.directCheckout);
+      removeStorage(STORAGE_KEYS.draft);
+      try {
+        window.localStorage.removeItem('byose_selected_coupon_v1');
+      } catch (_error) {}
+      clearPendingOrderSubmission();
+      clearCheckoutHandoff();
+      clearActiveCheckoutKeys();
+    }
+
+    if (shouldRemoveCartAfterPurchase(confirmation)) {
+      removePurchasedItemsFromCart(
+        confirmation.items || confirmation.products || [],
+        confirmation.purchasedCartKeys || []
+      );
+    }
 
     // Cross-feature sync: coupons count + wishlist cleanup (best effort).
     try {

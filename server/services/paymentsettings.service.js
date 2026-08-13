@@ -7,6 +7,7 @@ const {
     listProviders
 } = require('../payments/providers/registry');
 const secretsStore = require('../payments/secrets.store');
+const envConfig = require('../config/env');
 
 const MODULE_KEY = 'payment';
 const MODES = Object.freeze(['test', 'live']);
@@ -20,6 +21,10 @@ const DEFAULT_PAYMENT = Object.freeze({
     updatedByAdminId: '',
     updatedByAdminEmail: ''
 });
+
+function getCheckoutEnvironmentMode() {
+    return envConfig.payment?.liveCheckoutEnabled === true ? 'live' : 'test';
+}
 
 function normalizeText(value, fallback = '') {
     const text = String(value == null ? '' : value).trim();
@@ -116,12 +121,13 @@ function resolveModeSecrets(providerId, mode) {
     (provider.credentialFields || []).forEach((field) => {
         const envValue = normalizeText(envOverrides[field.key]);
         const storedValue = normalizeText(stored[field.key]);
-        if (envValue) {
-            secrets[field.key] = envValue;
-            sources[field.key] = 'environment';
-        } else if (storedValue) {
+        // Admin encrypted store is authoritative. Environment variables are fallback only.
+        if (storedValue) {
             secrets[field.key] = storedValue;
             sources[field.key] = 'encrypted_store';
+        } else if (envValue) {
+            secrets[field.key] = envValue;
+            sources[field.key] = 'environment';
         } else {
             secrets[field.key] = '';
             sources[field.key] = null;
@@ -224,11 +230,12 @@ function toAdminPaymentView(config) {
 function toPublicPaymentView(config) {
     const active = getProvider(config.activeProvider);
     const providerConfig = config.providers[config.activeProvider] || active?.createDefaultConfig?.() || {};
-    const modeStatus = active ? buildCredentialStatus(active, config.mode) : { ready: false };
+    const checkoutMode = getCheckoutEnvironmentMode();
+    const modeStatus = active ? buildCredentialStatus(active, checkoutMode) : { ready: false };
 
     return {
         enabled: Boolean(config.enabled && providerConfig.enabled !== false && modeStatus.ready),
-        mode: config.mode,
+        mode: checkoutMode,
         provider: active
             ? {
                 id: active.id,
@@ -339,6 +346,15 @@ function applyCredentialUpdates(providerId, credentialsPayload = {}) {
         const toStore = incoming.companyToken && incoming.serviceType
             ? { companyToken: incoming.companyToken, serviceType: incoming.serviceType }
             : incoming;
+
+        if (mode === 'live' && toStore.companyToken) {
+            const testToken = normalizeText(resolveModeSecrets(providerId, 'test').secrets.companyToken);
+            if (testToken && toStore.companyToken === testToken) {
+                errors[`${mode}.companyToken`] = 'LIVE Company Token must be the official DPO LIVE value. Do not copy the TEST Company Token into LIVE.';
+                return;
+            }
+        }
+
         secretsStore.upsertProviderModeSecrets(providerId, mode, toStore);
     });
 
@@ -361,8 +377,13 @@ async function getAdminPaymentSettings() {
         activityStats: stats,
         lastTest: sanitizeLastTest(config.lastTest),
         capabilities: {
-            canTestConnection: view.mode === 'test',
+            canTestConnection: Boolean(view.providers?.find((entry) => entry.id === view.activeProvider)?.credentials?.test?.ready),
             supportsLiveMode: true,
+            liveCheckoutEnabled: false,
+            checkoutEnvironment: getCheckoutEnvironmentMode(),
+            liveCredentialsConfigured: Boolean(view.providers?.find((entry) => entry.id === view.activeProvider)?.credentials?.live?.ready),
+            liveCheckoutReady: false,
+            liveActivationBlockedReason: 'LIVE checkout is not activated. Official DPO LIVE credentials have not been enabled for customer payments.',
             providerExtensible: true
         }
     };
@@ -471,7 +492,10 @@ function isGatewayOrder(order) {
         ? order.payment.gateway
         : {};
     const provider = normalizeText(gateway.provider || order?.payment?.transaction?.provider).toLowerCase();
-    return method === 'dpo' || provider === 'dpo' || Boolean(gateway.transToken) || Boolean(gateway.companyRef && provider);
+    return method === 'dpo' || method === 'mtn' || method === 'card'
+        || provider === 'dpo'
+        || Boolean(gateway.transToken)
+        || Boolean(gateway.companyRef && provider);
 }
 
 function summarizePaymentActivityRow(order) {
@@ -547,13 +571,7 @@ async function testPaymentConfiguration(admin = {}, options = {}) {
     if (!provider) {
         throw ValidationError('Unknown payment provider.', { providerId: 'Unsupported provider.' });
     }
-    if (config.mode !== 'test') {
-        throw ValidationError(
-            'Connection tests are only allowed while Payment Settings are in TEST mode.',
-            { mode: 'Switch to TEST mode before testing.' },
-            'PAYMENT_TEST_REQUIRES_TEST_MODE'
-        );
-    }
+    // Connection tests always probe TEST credentials. They never use LIVE.
     if (!secretsStore.isEncryptionConfigured()) {
         const error = new Error('PAYMENT_ENCRYPTION_KEY must be set before testing payment credentials.');
         error.statusCode = 503;
@@ -666,15 +684,24 @@ async function getPublicPaymentSettings() {
 }
 
 /**
- * Server-only accessor for future gateway integration.
+ * Server-only accessor for one DPO environment.
+ * Callers must pass mode explicitly so TEST and LIVE secrets cannot mix.
  * Never expose return value over HTTP.
  */
 async function getRuntimePaymentCredentials({ providerId, mode } = {}) {
     const config = await getPaymentConfig();
     const id = normalizeText(providerId, config.activeProvider).toLowerCase();
-    const resolvedMode = normalizeText(mode, config.mode).toLowerCase();
+    const resolvedMode = normalizeText(mode).toLowerCase();
+    if (!MODES.includes(resolvedMode)) {
+        throw ValidationError(
+            'Payment environment must be specified as test or live.',
+            { mode: 'Required' },
+            'DPO_ENVIRONMENT_REQUIRED',
+            500
+        );
+    }
     const provider = getProvider(id);
-    if (!provider || !MODES.includes(resolvedMode)) {
+    if (!provider) {
         return null;
     }
     const { secrets, sources } = resolveModeSecrets(id, resolvedMode);
@@ -736,18 +763,28 @@ async function updatePaymentSettings(payload = {}, admin = {}) {
 
     const validated = validatePaymentConfig(merged);
 
+    if (source.liveCheckoutEnabled === true || String(source.checkoutEnvironment || '').toLowerCase() === 'live') {
+        throw ValidationError(
+            'LIVE checkout is not activated. Official DPO LIVE credentials have not been enabled for customer payments.',
+            { liveCheckoutEnabled: 'LIVE checkout cannot be turned on yet.' },
+            'DPO_LIVE_CHECKOUT_DISABLED'
+        );
+    }
+
     if (source.credentials && typeof source.credentials === 'object') {
         applyCredentialUpdates(validated.activeProvider, source.credentials);
     }
 
-    // If enabling payments, require credentials for the selected operating mode.
+    // Checkout stays TEST until LIVE is explicitly activated. Require TEST
+    // credentials to enable online payments — not the Admin operating mode.
     if (validated.enabled) {
         const provider = getProvider(validated.activeProvider);
-        const { secrets } = resolveModeSecrets(validated.activeProvider, validated.mode);
+        const checkoutMode = getCheckoutEnvironmentMode();
+        const { secrets } = resolveModeSecrets(validated.activeProvider, checkoutMode);
         const check = provider.validateCredentials(secrets, { requireConfigured: true });
         if (!check.valid) {
             throw ValidationError(
-                `Cannot enable payments: complete ${String(validated.mode).toUpperCase()} credentials for ${provider.label} while Operating mode is ${String(validated.mode).toUpperCase()}.`,
+                `Cannot enable payments: complete ${String(checkoutMode).toUpperCase()} credentials for ${provider.label} first. Customer checkout still uses TEST.`,
                 check.errors,
                 'PAYMENT_ENABLE_REQUIRES_CREDENTIALS'
             );
@@ -781,6 +818,7 @@ module.exports = {
     MODES,
     buildConnectionStatus,
     getAdminPaymentSettings,
+    getCheckoutEnvironmentMode,
     getPaymentActivityStats,
     getPaymentConfig,
     getPublicPaymentSettings,

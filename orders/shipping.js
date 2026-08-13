@@ -1,4 +1,4 @@
-import { initCheckout, continueToReview, getState, guardStep, setDeliveryQuote, subscribe, updateShipping } from './core/state.js';
+import { initCheckout, continueToReview, getState, guardStep, refreshBackendDeliveryQuote, setDeliveryQuote, subscribe, updateShipping } from './core/state.js';
 import { renderProgress, renderSidebar, renderStickyBar, showMessage } from './ui/layout.js';
 import {
   LOCATION_STATUS,
@@ -390,5 +390,6 @@ if (!access.ok) {
   // GPS is optional and must never block Continue.
   void startLocationService();
   applyConfiguredDeliveryFee();
+  void refreshBackendDeliveryQuote();
   render();
 }

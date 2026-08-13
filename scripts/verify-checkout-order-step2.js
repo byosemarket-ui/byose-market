@@ -21,11 +21,16 @@ function read(rel) {
 function checkSourceGuards() {
   const orderController = read('server/controllers/ordercontroller.js');
   assert(orderController.includes('applyCatalogPricing'), 'server must price from catalog');
+  assert(orderController.includes('isProductPublished'), 'server must reject unpublished products');
+  assert(orderController.includes('VARIANT_NOT_FOUND'), 'server must validate variant belongs to product');
+  assert(orderController.includes('INVALID_QUANTITY'), 'server must reject invalid quantity');
   assert(orderController.includes('validateShippingAddress'), 'server must validate shipping');
   assert(orderController.includes('restoreOrderStock'), 'server must restore stock on cancel/delete');
   assert(orderController.includes("customerId = user?.id"), 'server must force authenticated customerId');
   assert(orderController.includes('awaiting_payment'), 'server must track awaiting payment');
-  assert(orderController.includes("paymentMethod === 'cod' ? 'awaiting_delivery_payment' : 'awaiting_payment'"), 'storefront create must ignore client paid status');
+  assert(orderController.includes("isCodPaymentMethod(paymentMethod) ? 'awaiting_delivery_payment' : 'awaiting_payment'"), 'storefront create must ignore client paid status');
+  assert(orderController.includes('UNSUPPORTED_PAYMENT_METHOD'), 'storefront must reject unsupported payment methods');
+  assert(orderController.includes('resolveStorefrontPaymentMethod'), 'storefront must resolve allowed payment methods');
   assert(!orderController.includes("if (defaultPaymentStatus === 'paid')"), 'defaultPaymentStatus must not mark new orders paid');
 
   const productRepo = read('server/repositories/sqlite/product.repository.js');
@@ -41,6 +46,17 @@ function checkSourceGuards() {
   const paymentJs = read('orders/payment.js');
   assert(paymentJs.includes('renderPaymentInstructions'), 'payment page shows instructions');
   assert(paymentJs.includes('getState().isSubmitting'), 'payment page guards double submit');
+  assert(paymentJs.includes('isGatewayPaymentMethod'), 'MTN MoMo and Card must use DPO gateway');
+  assert(paymentJs.includes('Pay with MTN MoMo') || paymentJs.includes('paymentCtaLabel'), 'MTN CTA comes from selected method');
+  assert(!paymentJs.includes("method === 'dpo'"), 'standalone DPO must not be a customer method');
+
+  const constants = read('orders/core/constants.js');
+  assert(constants.includes("id: 'mtn'"), 'MTN MoMo must be a customer method');
+  assert(constants.includes("id: 'card'"), 'Card must be a customer method');
+  assert(constants.includes("id: 'cod'"), 'Cash on Delivery must be a customer method');
+  assert(!constants.includes("id: 'airtel'"), 'Airtel must not be a customer method');
+  assert(!constants.includes("id: 'bank'"), 'Bank Transfer must not be a customer method');
+  assert(!/id:\s*'dpo'/.test(constants), 'DPO must not be a standalone customer method');
 
   const layout = read('orders/ui/layout.js');
   assert(layout.includes('product.name || product.productName'), 'success/summary must render productName');

@@ -27,21 +27,6 @@ let pendingStorefrontPatch = null;
 const STOREFRONT_REQUEST_TIMEOUT_MS = 10000;
 const transientStore = new Map();
 
-export const PAYMENT_ACCOUNTS = [
-  {
-    id: 'mtn',
-    label: 'MTN Mobile Money',
-    number: '0780430710',
-    accountName: 'Vestine Uwifashije'
-  },
-  {
-    id: 'airtel',
-    label: 'Airtel Money',
-    number: '0723137250',
-    accountName: 'Kwizera Byose Market'
-  }
-];
-
 export function clone(value) {
   if (value === undefined) {
     return undefined;

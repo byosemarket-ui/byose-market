@@ -4,8 +4,16 @@ import {
   clearCheckoutCoupon,
   getPaymentMethods, getState, guardStep, initCheckout,
   loadGatewayPaymentConfig,
-  setPaymentMethod, setPaymentPhone, subscribe
+  refreshBackendDeliveryQuote,
+  setPaymentMethod,
+  setSubmitting,
+  subscribe
 } from './core/state.js';
+import { isCodPaymentMethod, isGatewayPaymentMethod, paymentCtaLabel } from './core/constants.js';
+import {
+  readAwaitingGatewayOrderId,
+  writeAwaitingGatewayOrderId
+} from './checkout-session.js';
 import { validatePayment } from './core/validation.js';
 import {
   renderCouponPanel, renderPaymentInstructions, renderPaymentMethods, renderProgress, renderShippingSummary,
@@ -21,22 +29,35 @@ const totalsBlockEl = document.getElementById('totalsBlock');
 const shippingSummaryEl = document.getElementById('paymentShippingSummary');
 const instructionsEl = document.getElementById('paymentInstructions');
 const phoneField = document.getElementById('paymentPhoneField');
-const phoneInput = document.querySelector('input[name="paymentPhone"]');
 const messageEl = document.getElementById('message');
 const form = document.getElementById('paymentForm');
 const placeBtn = document.getElementById('placeOrderBtn');
+let createdGatewayOrderId = readAwaitingGatewayOrderId();
+
+function rememberGatewayOrder(orderId) {
+  createdGatewayOrderId = String(orderId || '').trim();
+  if (createdGatewayOrderId) writeAwaitingGatewayOrderId(createdGatewayOrderId);
+}
+
+function selectedMethod() {
+  return String(getState().payment.method || '').toLowerCase();
+}
+
+function idleCta() {
+  return paymentCtaLabel(selectedMethod());
+}
 
 function setBusy(isBusy, label) {
   const busyLabel = label || 'Placing order...';
-  const idleLabel = getState().payment.method === 'dpo' ? 'Pay with DPO' : 'Place Order';
+  const nextLabel = isBusy ? busyLabel : idleCta();
   if (placeBtn) {
     placeBtn.disabled = isBusy;
-    placeBtn.textContent = isBusy ? busyLabel : idleLabel;
+    placeBtn.textContent = nextLabel;
   }
   const stickyBtn = document.getElementById('stickyContinueBtn');
   if (stickyBtn) {
     stickyBtn.disabled = isBusy;
-    stickyBtn.textContent = isBusy ? busyLabel : idleLabel;
+    stickyBtn.textContent = nextLabel;
   }
 }
 
@@ -66,13 +87,7 @@ function renderMethods() {
   const state = getState();
   const methods = getPaymentMethods();
   methodsEl.innerHTML = renderPaymentMethods(methods, state.payment.method);
-
-  const isCod = state.payment.method === 'cod';
-  const isDpo = state.payment.method === 'dpo';
-  phoneField.hidden = isCod || isDpo;
-  if (!isCod && !isDpo && !phoneInput.value) {
-    phoneInput.value = state.payment.phone || state.shipping.phone || '';
-  }
+  if (phoneField) phoneField.hidden = true;
   if (instructionsEl) {
     instructionsEl.innerHTML = renderPaymentInstructions(state.payment.method, state.totals);
   }
@@ -91,8 +106,7 @@ function render() {
   }
   totalsBlockEl.innerHTML = renderTotals(state.totals);
   sidebarEl.innerHTML = renderSidebar(state.products, state.totals);
-  const cta = state.payment.method === 'dpo' ? 'Pay with DPO' : 'Place Order';
-  stickyEl.innerHTML = renderStickyBar(cta, 'placeOrderBtn', { disabled: state.isSubmitting });
+  stickyEl.innerHTML = renderStickyBar(idleCta(), 'placeOrderBtn', { disabled: state.isSubmitting });
   document.getElementById('stickyContinueBtn')?.addEventListener('click', (e) => {
     e.preventDefault();
     handlePlaceOrder(e);
@@ -107,66 +121,90 @@ methodsEl?.addEventListener('change', (e) => {
   }
 });
 
-phoneInput?.addEventListener('input', () => {
-  setPaymentPhone(phoneInput.value);
-});
-
 form?.addEventListener('submit', handlePlaceOrder);
 placeBtn?.addEventListener('click', (e) => { e.preventDefault(); handlePlaceOrder(e); });
+
+async function startGatewayPayment(orderId, method) {
+  setBusy(true, method === 'mtn' ? 'Redirecting to MTN MoMo...' : 'Redirecting to card payment...');
+  const payment = await initiateDpoPayment(orderId);
+  if (payment.alreadyPaid) {
+    window.location.href = `order-success.html?orderId=${encodeURIComponent(orderId)}`;
+    return true;
+  }
+  if (!payment.success || (!payment.paymentUrl && !payment.redirectUrl)) {
+    showMessage(
+      messageEl,
+      payment.message || 'Order was created but online payment could not start. You can try again without placing a new order.'
+    );
+    setSubmitting(false);
+    setBusy(false);
+    return false;
+  }
+  window.location.href = payment.paymentUrl || payment.redirectUrl;
+  return true;
+}
 
 async function handlePlaceOrder(e) {
   e?.preventDefault?.();
   showMessage(messageEl, '');
 
+  const method = selectedMethod();
+  const usesGateway = isGatewayPaymentMethod(method);
+  const usesCod = isCodPaymentMethod(method);
+
   if (getState().isSubmitting) {
     return;
-  }
-
-  const state = getState();
-  if (state.payment.method !== 'cod' && state.payment.method !== 'dpo') {
-    setPaymentPhone(phoneInput.value);
   }
 
   const check = validatePayment(getState().payment, getState().shipping);
   if (!check.valid) {
     const msg = check.errors.method || check.errors.phone || 'Please complete payment details.';
     showMessage(messageEl, msg);
-    if (check.errors.phone) {
-      document.querySelector('[data-error="phone"]').textContent = check.errors.phone;
-    }
     return;
   }
 
-  const usesDpo = getState().payment.method === 'dpo';
-  setBusy(true, usesDpo ? 'Starting secure payment...' : 'Placing order...');
+  setBusy(true, usesGateway ? 'Starting secure payment...' : 'Placing order...');
 
   try {
-    const result = await submitOrder();
-    if (!result.valid) {
-      showMessage(messageEl, result.message || result.errors?.method || 'Unable to place order.');
+    if (createdGatewayOrderId) {
+      if (usesGateway) {
+        await startGatewayPayment(createdGatewayOrderId, method);
+        return;
+      }
+      showMessage(
+        messageEl,
+        'This order is already created for online payment. Complete MTN MoMo or Card for the same order. Cash on Delivery cannot replace a started online payment.'
+      );
+      setSubmitting(false);
       setBusy(false);
       return;
     }
 
-    if (usesDpo) {
-      setBusy(true, 'Redirecting to DPO Pay...');
-      const payment = await initiateDpoPayment(result.orderId);
-      if (!payment.success || (!payment.paymentUrl && !payment.redirectUrl)) {
-        showMessage(
-          messageEl,
-          payment.message || 'Order was created but DPO payment could not start. Open your orders and try again.'
-        );
-        setBusy(false);
-        return;
-      }
-      window.location.href = payment.paymentUrl || payment.redirectUrl;
+    const result = await submitOrder();
+    if (!result.valid) {
+      showMessage(messageEl, result.message || result.errors?.method || 'Unable to place order.');
+      setSubmitting(false);
+      setBusy(false);
+      return;
+    }
+
+    if (usesGateway) {
+      rememberGatewayOrder(result.orderId);
+      await startGatewayPayment(result.orderId, method);
+      return;
+    }
+
+    if (!usesCod && !usesGateway) {
+      showMessage(messageEl, 'Select MTN MoMo, Card, or Cash on Delivery.');
+      setSubmitting(false);
+      setBusy(false);
       return;
     }
 
     window.location.href = `order-success.html?orderId=${encodeURIComponent(result.orderId)}`;
-  } catch (err) {
-    console.error(err);
+  } catch (_error) {
     showMessage(messageEl, 'Something went wrong. Please try again.');
+    setSubmitting(false);
     setBusy(false);
   }
 }
@@ -180,5 +218,6 @@ initCheckout('payment').then(async () => {
   }
   window.__ckStep = 'payment';
   await loadGatewayPaymentConfig();
+  void refreshBackendDeliveryQuote();
   render();
 });

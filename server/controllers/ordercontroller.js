@@ -8,6 +8,12 @@ const { notifyOrderConfirmed, notifyOrderStatusChanged: notifyOrderStatusEmail }
 const notificationEngine = require('../services/notification-engine.service');
 const { normalizeRwandaPhone, isValidRwandaPhone: isValidSharedRwandaPhone } = require('../utils/phone');
 const { isSettledPaidStatus } = require('../payments/payment-status');
+const { isProductPublished } = require('../utils/product-visibility');
+const {
+    isCodPaymentMethod,
+    resolveStorefrontPaymentMethod,
+    storefrontPaymentMethodLabel
+} = require('../payments/storefront-methods');
 
 const DELIVERY_FEE = 2000;
 const COD_FEE = 0;
@@ -151,7 +157,7 @@ function validateShippingAddress(shippingAddress = {}, paymentMethod = '') {
         errors.push('Enter a valid Rwanda phone number');
     }
 
-    if (paymentMethod === 'cod') {
+    if (isCodPaymentMethod(paymentMethod)) {
         const city = normalizeText(shippingAddress.provinceCity || shippingAddress.city).toLowerCase();
         if (!city.includes('kigali')) {
             errors.push('Cash on Delivery is only available in Kigali');
@@ -161,10 +167,49 @@ function validateShippingAddress(shippingAddress = {}, paymentMethod = '') {
     return errors;
 }
 
+function createItemError(message, code, productId, extra = {}) {
+    const error = new Error(message);
+    error.code = code;
+    error.productId = productId || null;
+    error.statusCode = extra.statusCode || 409;
+    Object.assign(error, extra);
+    return error;
+}
+
+function extractColorVariants(product) {
+    const variants = product?.variants && typeof product.variants === 'object' ? product.variants : {};
+    const metadata = product?.metadata && typeof product.metadata === 'object' ? product.metadata : {};
+    if (Array.isArray(variants.colorVariants)) return variants.colorVariants;
+    if (Array.isArray(metadata.colorVariants)) return metadata.colorVariants;
+    return [];
+}
+
+function firstPositivePrice(...values) {
+    for (const value of values) {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+    return 0;
+}
+
+function resolveCatalogUnitPrice(product, color, sizeRow) {
+    return firstPositivePrice(
+        sizeRow?.price,
+        sizeRow?.unitPrice,
+        sizeRow?.salePrice,
+        color?.price,
+        color?.unitPrice,
+        product?.price,
+        product?.discountPrice,
+        product?.salePrice
+    );
+}
+
 async function applyCatalogPricing(items = []) {
     const source = Array.isArray(items) ? items : [];
     const uniqueIds = Array.from(new Set(source.map((item) => normalizeText(item.productId)).filter(Boolean)));
     const catalogById = new Map();
+    const { products: productRepo } = getRepositoryBundle();
 
     await Promise.all(uniqueIds.map(async (productId) => {
         const product = await productDataService.findProductByIdentifier(productId);
@@ -180,33 +225,143 @@ async function applyCatalogPricing(items = []) {
     return source.map((item) => {
         const productId = normalizeText(item.productId);
         if (!productId) {
-            const error = new Error('Order item is missing productId');
-            error.code = 'INVALID_ORDER_ITEM';
-            throw error;
+            throw createItemError('Order item is missing productId', 'INVALID_ORDER_ITEM');
+        }
+
+        const quantity = Number(item.quantity);
+        if (!Number.isFinite(quantity) || quantity < 1 || Math.floor(quantity) !== quantity) {
+            throw createItemError(
+                `Quantity must be a whole number greater than zero for ${item.productName || productId}`,
+                'INVALID_QUANTITY',
+                productId
+            );
         }
 
         const product = catalogById.get(productId);
         if (!product) {
-            const error = new Error(`Product not found: ${productId}`);
-            error.code = 'PRODUCT_NOT_FOUND';
-            error.productId = productId;
-            throw error;
+            throw createItemError(`Product not found: ${productId}`, 'PRODUCT_NOT_FOUND', productId);
         }
 
-        const unitPrice = Number(product.price ?? product.discountPrice ?? 0) || 0;
-        if (unitPrice <= 0) {
-            const error = new Error(`Product has invalid catalog price: ${productId}`);
-            error.code = 'INVALID_ORDER_ITEM';
-            error.productId = productId;
-            throw error;
+        if (!isProductPublished(product)) {
+            throw createItemError(
+                `Product is not available: ${product.name || productId}`,
+                'PRODUCT_UNAVAILABLE',
+                productId
+            );
         }
+
+        const colorVariants = extractColorVariants(product);
+        let matchedColor = null;
+        let matchedSize = null;
+
+        if (colorVariants.length) {
+            const colorTokens = productRepo.collectColorTokens(item);
+            const sizeTokens = productRepo.collectSizeTokens(item);
+            if (!colorTokens.length && !sizeTokens.length) {
+                throw createItemError(
+                    `Color/size selection required for ${product.name || productId}`,
+                    'INVALID_ORDER_ITEM',
+                    productId
+                );
+            }
+
+            matchedColor = productRepo.findColorVariantFromTokens(colorVariants, colorTokens) || (
+                colorVariants.length === 1 ? colorVariants[0] : null
+            );
+            if (!matchedColor) {
+                throw createItemError(
+                    `Color variant unavailable for ${product.name || productId}`,
+                    'VARIANT_NOT_FOUND',
+                    productId
+                );
+            }
+
+            const sizes = Array.isArray(matchedColor.sizes) ? matchedColor.sizes : [];
+            if (sizes.length) {
+                if (!sizeTokens.length) {
+                    throw createItemError(
+                        `Size selection required for ${product.name || productId}`,
+                        'INVALID_ORDER_ITEM',
+                        productId
+                    );
+                }
+                matchedSize = productRepo.findSizeRowFromTokens(sizes, sizeTokens);
+                if (!matchedSize) {
+                    throw createItemError(
+                        `Size variant unavailable for ${product.name || productId}`,
+                        'VARIANT_NOT_FOUND',
+                        productId
+                    );
+                }
+                const available = Math.max(0, Number(matchedSize.stock) || 0);
+                if (available < quantity) {
+                    throw createItemError(
+                        `Insufficient stock for ${product.name || productId}`,
+                        'INSUFFICIENT_STOCK',
+                        productId,
+                        { available }
+                    );
+                }
+            } else {
+                const available = Math.max(0, Number(matchedColor.stock ?? matchedColor.totalStock ?? product.stock) || 0);
+                if (available < quantity) {
+                    throw createItemError(
+                        `Insufficient stock for ${product.name || productId}`,
+                        'INSUFFICIENT_STOCK',
+                        productId,
+                        { available }
+                    );
+                }
+            }
+        } else {
+            const available = Math.max(0, Number(product.stock) || 0);
+            if (available < quantity) {
+                throw createItemError(
+                    `Insufficient stock for ${product.name || productId}`,
+                    'INSUFFICIENT_STOCK',
+                    productId,
+                    { available }
+                );
+            }
+        }
+
+        const unitPrice = resolveCatalogUnitPrice(product, matchedColor, matchedSize);
+        if (unitPrice <= 0) {
+            throw createItemError(
+                `Product has invalid catalog price: ${productId}`,
+                'INVALID_ORDER_ITEM',
+                productId
+            );
+        }
+
+        const sku = normalizeText(
+            item.sku
+            || item.variantSku
+            || matchedSize?.sku
+            || matchedColor?.sku
+            || product.sku
+            || product.metadata?.sku
+        );
+        const variantId = normalizeText(
+            item.variantId
+            || matchedSize?.id
+            || matchedColor?.id
+            || item.variantKey
+        );
+        const colorImage = normalizeText(item.colorImage || matchedColor?.image);
+        const image = normalizeText(item.image || colorImage || product.mainImage || product.image);
 
         return {
             ...item,
             productId,
+            variantId,
+            variantKey: normalizeText(item.variantKey || variantId),
             productName: normalizeText(product.name || product.title) || item.productName || 'Product',
             price: unitPrice,
-            image: normalizeText(item.image || product.mainImage || product.image),
+            sku,
+            variantSku: sku,
+            image,
+            colorImage,
             slug: normalizeText(item.slug || product.slug || product.metadata?.slug),
             category: normalizeText(item.category || product.category)
         };
@@ -245,7 +400,9 @@ function normalizeItems(items) {
             return {
                 productId: normalizeText(item?.productId || item?.id),
                 productName: normalizeText(item?.productName || item?.name) || 'Product',
-                quantity: Math.max(1, Number(item?.quantity || item?.qty || 1) || 1),
+                quantity: Number.isFinite(Number(item?.quantity ?? item?.qty))
+                    ? Number(item?.quantity ?? item?.qty)
+                    : 0,
                 price: Number(item?.price || 0) || 0,
                 image,
                 colorImage: normalizeText(item?.colorImage || attributes.colorImage),
@@ -313,11 +470,17 @@ function normalizeStorefrontOrder(payload, user) {
     const shippingFee = DELIVERY_FEE;
     const codFee = COD_FEE;
     const total = subtotal + shippingFee + codFee;
-    const paymentMethod = normalizePaymentMethod(source.paymentMethod || source.payment?.method);
+    const paymentMethodRaw = normalizePaymentMethod(source.paymentMethod || source.payment?.method);
+    const resolvedPayment = resolveStorefrontPaymentMethod(paymentMethodRaw);
+    const paymentMethod = resolvedPayment.ok ? resolvedPayment.id : paymentMethodRaw;
+    const paymentMethodLabel = resolvedPayment.ok
+        ? resolvedPayment.label
+        : storefrontPaymentMethodLabel(paymentMethodRaw, paymentMethodRaw);
+    const paymentType = resolvedPayment.ok ? resolvedPayment.paymentType : (isCodPaymentMethod(paymentMethod) ? 'cod' : 'pay_now');
     // Storefront create must never trust client-supplied payment settlement.
     // Gateway orders start awaiting payment; COD starts awaiting delivery payment.
-    const paymentStatus = paymentMethod === 'cod' ? 'awaiting_delivery_payment' : 'awaiting_payment';
-    const paymentStatusLabel = paymentMethod === 'cod' ? 'Awaiting Delivery Payment' : 'Awaiting Payment';
+    const paymentStatus = isCodPaymentMethod(paymentMethod) ? 'awaiting_delivery_payment' : 'awaiting_payment';
+    const paymentStatusLabel = isCodPaymentMethod(paymentMethod) ? 'Awaiting Delivery Payment' : 'Awaiting Payment';
     const deliveryMethodKey = 'homeDelivery';
 
     return {
@@ -339,7 +502,8 @@ function normalizeStorefrontOrder(payload, user) {
         paymentStatus,
         paymentStatusLabel,
         paymentMethod,
-        paymentType: paymentMethod === 'cod' ? 'cod' : 'pay_now',
+        paymentMethodLabel,
+        paymentType,
         note: normalizeText(source.note || source.payment?.note),
         subtotal,
         deliveryFee: shippingFee,
@@ -379,9 +543,9 @@ function normalizeStorefrontOrder(payload, user) {
         },
         gpsLocation: source.gpsLocation && typeof source.gpsLocation === 'object' ? source.gpsLocation : {},
         payment: {
-            type: paymentMethod === 'cod' ? 'cod' : 'pay_now',
+            type: paymentType,
             method: paymentMethod,
-            methodLabel: paymentMethod === 'cod' ? 'Cash on Delivery' : (paymentMethod === 'dpo' ? 'DPO Pay' : paymentMethod),
+            methodLabel: paymentMethodLabel,
             status: paymentStatus,
             statusLabel: paymentStatusLabel,
             transaction: { state: paymentStatus }
@@ -603,6 +767,30 @@ exports.createOrder = async (req, res) => {
         const user = await monitorAsyncOperation(logger, 'database.user.resolve_for_order', {}, () => resolveUser(req), { slowThresholdMs: 500 });
         let normalizedOrder = normalizeStorefrontOrder(req.body, user);
 
+        const resolvedPayment = resolveStorefrontPaymentMethod(normalizedOrder.paymentMethod);
+        if (!normalizedOrder.paymentMethod) {
+            return res.status(400).json({
+                success: false,
+                code: 'PAYMENT_METHOD_REQUIRED',
+                message: 'Select a payment method.'
+            });
+        }
+        if (!resolvedPayment.ok) {
+            return res.status(400).json({
+                success: false,
+                code: resolvedPayment.code || 'UNSUPPORTED_PAYMENT_METHOD',
+                message: resolvedPayment.message || 'That payment method is not supported.'
+            });
+        }
+        normalizedOrder.paymentMethod = resolvedPayment.id;
+        normalizedOrder.paymentMethodLabel = resolvedPayment.label;
+        normalizedOrder.paymentType = resolvedPayment.paymentType;
+        if (normalizedOrder.payment && typeof normalizedOrder.payment === 'object') {
+            normalizedOrder.payment.method = resolvedPayment.id;
+            normalizedOrder.payment.methodLabel = resolvedPayment.label;
+            normalizedOrder.payment.type = resolvedPayment.paymentType;
+        }
+
         if (!normalizedOrder.customerId && !platformSettings.allowGuestCheckout) {
             return res.status(403).json({
                 success: false,
@@ -641,7 +829,7 @@ exports.createOrder = async (req, res) => {
         }
 
         if (!normalizedOrder.paymentMethod) {
-            return res.status(400).json({ success: false, message: 'payment method required' });
+            return res.status(400).json({ success: false, code: 'PAYMENT_METHOD_REQUIRED', message: 'Select a payment method.' });
         }
 
         try {
@@ -721,12 +909,18 @@ exports.createOrder = async (req, res) => {
                     details: pricingError.details || undefined
                 });
             }
-            if (pricingError?.code === 'PRODUCT_NOT_FOUND' || pricingError?.code === 'INVALID_ORDER_ITEM') {
+            if (pricingError?.code === 'PRODUCT_NOT_FOUND'
+                || pricingError?.code === 'INVALID_ORDER_ITEM'
+                || pricingError?.code === 'INSUFFICIENT_STOCK'
+                || pricingError?.code === 'PRODUCT_UNAVAILABLE'
+                || pricingError?.code === 'VARIANT_NOT_FOUND'
+                || pricingError?.code === 'INVALID_QUANTITY') {
                 return res.status(409).json({
                     success: false,
                     message: pricingError.message,
                     code: pricingError.code,
-                    productId: pricingError.productId || null
+                    productId: pricingError.productId || null,
+                    available: Number.isFinite(pricingError.available) ? pricingError.available : undefined
                 });
             }
             throw pricingError;
@@ -891,7 +1085,12 @@ exports.createOrder = async (req, res) => {
         return res.json({ success: true, order });
     } catch (err) {
         logger.error('order.create_failed', { error: err });
-        if (err?.code === 'INSUFFICIENT_STOCK' || err?.code === 'PRODUCT_NOT_FOUND' || err?.code === 'INVALID_ORDER_ITEM') {
+        if (err?.code === 'INSUFFICIENT_STOCK'
+            || err?.code === 'PRODUCT_NOT_FOUND'
+            || err?.code === 'INVALID_ORDER_ITEM'
+            || err?.code === 'PRODUCT_UNAVAILABLE'
+            || err?.code === 'VARIANT_NOT_FOUND'
+            || err?.code === 'INVALID_QUANTITY') {
             return res.status(409).json({
                 success: false,
                 message: err.message || 'Unable to place order due to stock availability.',
@@ -901,6 +1100,100 @@ exports.createOrder = async (req, res) => {
             });
         }
         return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+function toPublicOrderConfirmation(order) {
+    const items = (Array.isArray(order?.items) ? order.items : (Array.isArray(order?.products) ? order.products : []))
+        .map((item) => ({
+            productId: normalizeText(item.productId || item.id),
+            variantId: normalizeText(item.variantId || item.variantKey),
+            variantKey: normalizeText(item.variantKey),
+            productName: normalizeText(item.productName || item.name) || 'Product',
+            name: normalizeText(item.productName || item.name) || 'Product',
+            quantity: Number(item.quantity || item.qty) || 0,
+            qty: Number(item.quantity || item.qty) || 0,
+            price: Number(item.price) || 0,
+            image: normalizeText(item.image),
+            colorImage: normalizeText(item.colorImage),
+            color: normalizeText(item.color || item.colorName),
+            colorName: normalizeText(item.colorName || item.color),
+            size: normalizeText(item.size || item.sizeLabel),
+            sizeLabel: normalizeText(item.sizeLabel || item.size),
+            sku: normalizeText(item.sku || item.variantSku),
+            variantSku: normalizeText(item.variantSku || item.sku)
+        }));
+    const shipping = order?.shippingAddress && typeof order.shippingAddress === 'object' ? order.shippingAddress : {};
+    const gps = order?.gpsLocation && typeof order.gpsLocation === 'object' ? order.gpsLocation : {};
+    const method = normalizeText(order.paymentMethod || order.payment?.method);
+    const status = normalizeText(order.paymentStatus || order.payment?.status);
+    return {
+        orderId: normalizeText(order.orderId || order.id),
+        customerName: normalizeText(order.customerName || shipping.fullName),
+        customerPhone: normalizeText(order.customerPhone || shipping.phone),
+        items,
+        subtotal: Number(order.subtotal) || 0,
+        deliveryFee: Number(order.deliveryFee ?? order.shippingFee) || 0,
+        codFee: Number(order.codFee) || 0,
+        couponCode: normalizeText(order.couponCode),
+        couponDiscount: Number(order.couponDiscount) || 0,
+        total: Number(order.totalAmount ?? order.total) || 0,
+        currency: normalizeText(order.currency, 'RWF') || 'RWF',
+        paymentMethod: method,
+        paymentMethodLabel: normalizeText(order.paymentMethodLabel || order.payment?.methodLabel) || storefrontPaymentMethodLabel(method, method),
+        paymentStatus: status,
+        paymentStatusLabel: normalizeText(order.paymentStatusLabel || order.payment?.statusLabel),
+        payment: {
+            method,
+            methodLabel: normalizeText(order.paymentMethodLabel || order.payment?.methodLabel) || storefrontPaymentMethodLabel(method, method),
+            status,
+            statusLabel: normalizeText(order.paymentStatusLabel || order.payment?.statusLabel),
+            type: normalizeText(order.paymentType || order.payment?.type)
+        },
+        shippingAddress: {
+            fullName: normalizeText(shipping.fullName || order.customerName),
+            phone: normalizeText(shipping.phone || order.customerPhone),
+            provinceCity: normalizeText(shipping.provinceCity || shipping.city),
+            district: normalizeText(shipping.district),
+            sector: normalizeText(shipping.sector),
+            cell: normalizeText(shipping.cell),
+            village: normalizeText(shipping.village),
+            note: normalizeText(shipping.note)
+        },
+        gpsLocation: {
+            latitude: gps.latitude || '',
+            longitude: gps.longitude || '',
+            googleMapsLink: gps.googleMapsLink || gps.mapLink || ''
+        },
+        createdAt: order.createdAt || null,
+        updatedAt: order.updatedAt || null
+    };
+}
+
+// Sanitized Success-page lookup. Does not expose DPO credentials or raw tokens.
+exports.getPublicOrderConfirmation = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'orders' });
+    try {
+        const orderId = normalizeText(req.params.id);
+        if (!orderId) {
+            return res.status(400).json({ success: false, message: 'orderId required' });
+        }
+
+        const order = await monitorAsyncOperation(
+            logger,
+            'database.order.find_confirmation',
+            { orderId },
+            () => orderDataService.findOrderByIdentifier(orderId),
+            { slowThresholdMs: 700 }
+        );
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+
+        return res.json({ success: true, confirmation: toPublicOrderConfirmation(order) });
+    } catch (err) {
+        logger.error('order.confirmation_failed', { error: err });
+        return res.status(500).json({ success: false, message: 'Unable to load order confirmation.' });
     }
 };
 
@@ -1246,3 +1539,5 @@ exports.deleteAdminOrder = async (req, res) => {
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
+
+exports.applyCatalogPricing = applyCatalogPricing;

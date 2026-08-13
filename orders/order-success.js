@@ -1,8 +1,13 @@
 import { getConfirmation, initCheckout } from './core/state.js';
 import { DELIVERY_FEE } from './core/constants.js';
 import { renderProductList, renderShippingSummary, renderTotals } from './ui/layout.js';
-import { escapeHtml, resolveApiOrigin, saveCheckoutConfirmation } from './utils.js';
-import { removePurchasedItemsFromCart, shouldRemoveCartAfterPurchase } from './checkout-session.js';
+import { escapeHtml, resolveApiOrigin, saveCheckoutConfirmation, clearPendingOrderSubmission } from './utils.js';
+import {
+  clearActiveCheckoutKeys,
+  clearAwaitingGatewayOrderId,
+  removePurchasedItemsFromCart,
+  shouldRemoveCartAfterPurchase
+} from './checkout-session.js';
 
 const container = document.getElementById('successContent');
 const params = new URLSearchParams(window.location.search);
@@ -32,6 +37,39 @@ function isPaidStatus(value) {
     || status === 'authorized';
 }
 
+function getAuthHeaders() {
+  const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
+  try {
+    const token = window.authService?.getToken?.() || window.localStorage?.getItem('bm_auth_token') || '';
+    if (token) headers.Authorization = `Bearer ${String(token).trim()}`;
+  } catch (_error) { /* optional auth */ }
+  return headers;
+}
+
+async function fetchServerConfirmation(id) {
+  const base = resolveApiOrigin();
+  if (!base || !id) return null;
+  const endpoint = base.endsWith('/api')
+    ? `${base}/orders/confirmation/${encodeURIComponent(id)}`
+    : `${base}/api/orders/confirmation/${encodeURIComponent(id)}`;
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = controller ? window.setTimeout(() => controller.abort(), 8000) : 0;
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: getAuthHeaders(),
+      ...(controller ? { signal: controller.signal } : {})
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.success || !payload.confirmation) return null;
+    return payload.confirmation;
+  } catch (_error) {
+    return null;
+  } finally {
+    if (timer) window.clearTimeout(timer);
+  }
+}
+
 async function verifyPaidStatus(id) {
   const base = resolveApiOrigin();
   if (!base || !id) return null;
@@ -43,7 +81,7 @@ async function verifyPaidStatus(id) {
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ orderId: id }),
       ...(controller ? { signal: controller.signal } : {})
     });
@@ -90,9 +128,12 @@ function renderSuccess(confirmation, resolvedId) {
 
   const isCod = confirmation?.payment?.method === 'cod' || confirmation?.paymentMethod === 'cod';
   const paid = isPaidStatus(confirmation?.paymentStatus || confirmation?.payment?.status);
+  const methodKey = String(confirmation?.paymentMethod || confirmation?.payment?.method || '').toLowerCase();
   const paymentLabel = isCod
     ? (confirmation?.paymentMethodLabel || confirmation?.payment?.methodLabel || 'Cash on Delivery')
-    : (confirmation?.paymentMethodLabel || confirmation?.payment?.methodLabel || confirmation?.payment?.method || 'DPO Pay');
+    : (confirmation?.paymentMethodLabel
+      || confirmation?.payment?.methodLabel
+      || (methodKey === 'mtn' ? 'MTN MoMo' : methodKey === 'card' ? 'Card' : 'Card'));
   const paymentStatus = confirmation?.paymentStatusLabel
     || confirmation?.payment?.statusLabel
     || (paid ? 'Paid' : (isCod ? 'Awaiting Delivery Payment' : 'Awaiting Payment'));
@@ -108,10 +149,10 @@ function renderSuccess(confirmation, resolvedId) {
   };
 
   const paymentNote = isCod
-    ? 'Kwishyura ibyo watumye bikugezeho — pay when your order arrives.'
+    ? 'Pay when your order arrives. This order is not paid online.'
     : (paid
       ? 'Payment confirmed. Thank you — your order is paid.'
-      : 'Complete the payment using the instructions from checkout. Your order stays awaiting payment until confirmed.');
+      : 'Complete the payment on the secure payment page. Your order stays awaiting payment until confirmed.');
 
   container.innerHTML = `
     <div class="ck-success-icon">✓</div>
@@ -148,17 +189,40 @@ await initCheckout('success');
 
 let confirmation = getConfirmation();
 const resolvedId = orderId || confirmation?.orderId || '';
-const confirmationMatches = confirmation
+let confirmationMatches = confirmation
   && (!orderId || String(confirmation.orderId || '') === String(orderId));
 
-if (!confirmationMatches) {
-  renderUnavailable(resolvedId);
-} else {
+if (confirmationMatches) {
   renderSuccess(confirmation, resolvedId);
   maybeRemovePurchasedCartItems(confirmation);
 }
 
-if (confirmationMatches && resolvedId) {
+if (resolvedId) {
+  const remote = await fetchServerConfirmation(resolvedId);
+  if (remote) {
+    confirmation = {
+      ...(confirmation && confirmationMatches ? confirmation : {}),
+      ...remote,
+      checkoutSource: remote.checkoutSource || confirmation?.checkoutSource || 'unknown'
+    };
+    saveCheckoutConfirmation(confirmation);
+    confirmationMatches = true;
+    renderSuccess(confirmation, resolvedId);
+    maybeRemovePurchasedCartItems(confirmation);
+  }
+}
+
+if (!confirmationMatches) {
+  renderUnavailable(resolvedId);
+}
+
+const confirmationIsCod = confirmationMatches
+  && (
+    String(confirmation?.payment?.method || confirmation?.paymentMethod || '').toLowerCase() === 'cod'
+    || String(confirmation?.payment?.type || confirmation?.paymentType || '').toLowerCase() === 'cod'
+  );
+
+if (confirmationMatches && resolvedId && !confirmationIsCod) {
   const verified = await verifyPaidStatus(resolvedId);
   if (verified && (verified.outcome === 'success' || isPaidStatus(verified.paymentStatus))) {
     confirmation = {
@@ -169,12 +233,15 @@ if (confirmationMatches && resolvedId) {
         ...(confirmation.payment || {}),
         status: 'paid',
         statusLabel: 'Paid',
-        method: confirmation.payment?.method || 'dpo',
-        methodLabel: confirmation.payment?.methodLabel || confirmation.paymentMethodLabel || 'DPO Pay'
+        method: confirmation.payment?.method || confirmation.paymentMethod || 'card',
+        methodLabel: confirmation.payment?.methodLabel || confirmation.paymentMethodLabel || 'Card'
       }
     };
     saveCheckoutConfirmation(confirmation);
     renderSuccess(confirmation, resolvedId);
     maybeRemovePurchasedCartItems(confirmation);
+    clearPendingOrderSubmission();
+    clearAwaitingGatewayOrderId();
+    clearActiveCheckoutKeys();
   }
 }

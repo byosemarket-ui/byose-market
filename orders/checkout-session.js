@@ -21,6 +21,7 @@ export const CHECKOUT_INTENT_KEY = STORAGE_KEYS.checkoutIntent;
 export const STEP1_COMMIT_KEY = 'byose_checkout_step1_commit_v1';
 export const HANDOFF_KEY = 'byose_checkout_handoff_v1';
 export const SELECTED_COUPON_KEY = 'byose_selected_coupon_v1';
+export const AWAITING_GATEWAY_ORDER_KEY = 'byose_awaiting_gateway_order_v1';
 const INTENT_TTL_MS = 30 * 60 * 1000;
 
 function removeBrowserKey(key) {
@@ -117,6 +118,28 @@ export function clearCheckoutIntent() {
   removeBrowserKey(CHECKOUT_INTENT_KEY);
 }
 
+export function readAwaitingGatewayOrderId() {
+  try {
+    return String(window.sessionStorage.getItem(AWAITING_GATEWAY_ORDER_KEY) || '').trim();
+  } catch (_error) {
+    return '';
+  }
+}
+
+export function writeAwaitingGatewayOrderId(orderId) {
+  const id = String(orderId || '').trim();
+  if (!id) return;
+  try {
+    window.sessionStorage.setItem(AWAITING_GATEWAY_ORDER_KEY, id);
+  } catch (_error) { /* ignore */ }
+}
+
+export function clearAwaitingGatewayOrderId() {
+  try {
+    window.sessionStorage.removeItem(AWAITING_GATEWAY_ORDER_KEY);
+  } catch (_error) { /* ignore */ }
+}
+
 export function readDirectCheckoutItems() {
   const raw = readStorage(STORAGE_KEYS.directCheckout, null);
   if (!raw) {
@@ -169,6 +192,7 @@ export function clearAbandonedCheckoutSession() {
   removeBrowserKey(STEP1_COMMIT_KEY);
   removeBrowserKey(HANDOFF_KEY);
   removeBrowserKey(SELECTED_COUPON_KEY);
+  clearAwaitingGatewayOrderId();
   syncRemove(STORAGE_KEYS.draft, 'checkoutDraft');
   syncRemove(STORAGE_KEYS.confirmation, 'checkoutConfirmation');
   try {
@@ -213,6 +237,7 @@ export function clearActiveCheckoutKeys() {
   removeBrowserKey(STEP1_COMMIT_KEY);
   removeBrowserKey(HANDOFF_KEY);
   clearCheckoutIntent();
+  clearAwaitingGatewayOrderId();
   syncRemove(STORAGE_KEYS.directCheckout, 'directCheckout');
   syncRemove(STORAGE_KEYS.draft, 'checkoutDraft');
 }
@@ -256,6 +281,11 @@ export function removePurchasedItemsFromCart(products = [], extraKeys = []) {
 }
 
 export function shouldRemoveCartAfterPurchase(confirmation = {}) {
+  const source = String(confirmation?.checkoutSource || confirmation?.source || '').trim().toLowerCase();
+  if (source === 'direct') {
+    return false;
+  }
+
   const method = String(
     confirmation?.payment?.method
     || confirmation?.paymentMethod
