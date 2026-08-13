@@ -77,9 +77,23 @@ async function completeDpoSandboxPayment(page, paymentUrl) {
   await page.goto(paymentUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
   await page.waitForSelector('#cerditcarAtag, a.nav-link:has-text("DEBIT/CREDIT CARD")', { timeout: 60000 });
 
-  const cardTab = page.locator('#cerditcarAtag, a.nav-link:has-text("DEBIT/CREDIT CARD")').first();
-  await cardTab.click({ force: true });
-  await page.evaluate(() => document.getElementById('cerditcarAtag')?.click());
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const cardTab = page.locator('#cerditcarAtag, a.nav-link:has-text("DEBIT/CREDIT CARD")').first();
+    await cardTab.click({ force: true });
+    await page.evaluate(() => {
+      document.getElementById('cerditcarAtag')?.click();
+      document.querySelector('a[href="#creditcard"]')?.click();
+      const pane = document.querySelector('#creditcard, #creditCard, .tab-pane#creditcard');
+      if (pane) {
+        pane.classList.add('active', 'show');
+        pane.style.display = 'block';
+      }
+    });
+    const visible = await page.locator('#TRANSCreditnum').isVisible().catch(() => false);
+    if (visible) break;
+    await page.waitForTimeout(700);
+  }
+
   await page.waitForSelector('#TRANSCreditnum', { state: 'visible', timeout: 30000 });
   await page.waitForTimeout(400);
 
@@ -315,14 +329,44 @@ async function runFlow(browser, flow, payload) {
   await page.waitForFunction(() => {
     const methods = Array.from(document.querySelectorAll('input[name="paymentMethod"]')).map((el) => el.value);
     return methods.includes('card') || methods.includes('cod') || methods.includes('mtn');
-  }, { timeout: 60000 });
+  }, undefined, { timeout: 60000 });
   await page.waitForTimeout(800);
 
-  const cardRadio = page.locator('input[name="paymentMethod"][value="card"]');
-  if (await cardRadio.count()) {
-    await cardRadio.click({ force: true });
-  } else {
-    throw new Error(`${flow}: Card payment method not available (${await page.locator('input[name="paymentMethod"]').evaluateAll((els) => els.map((el) => el.value))})`);
+  const method = String(process.env.BYOSE_E2E_METHOD || 'card').trim().toLowerCase();
+  const methodRadio = page.locator(`input[name="paymentMethod"][value="${method}"]`);
+  if (!(await methodRadio.count())) {
+    throw new Error(`${flow}: ${method} payment method not available (${await page.locator('input[name="paymentMethod"]').evaluateAll((els) => els.map((el) => el.value))})`);
+  }
+  await methodRadio.click({ force: true });
+
+  if (method === 'cod') {
+    await page.locator('#placeOrderBtn').click({ force: true });
+    await page.waitForURL(/order-success\.html/, { timeout: 60000 });
+    createdOrderId = createdOrderId || new URL(page.url()).searchParams.get('orderId') || '';
+    const successText = await page.locator('body').innerText();
+    if (/Payment Successful!/i.test(successText)) {
+      throw new Error(`${flow}: COD success claimed online payment`);
+    }
+    if (!/Awaiting Delivery Payment|not paid online/i.test(successText)) {
+      throw new Error(`${flow}: COD missing unpaid state: ${successText.slice(0, 400)}`);
+    }
+    if (!createdOrderId) {
+      throw new Error(`${flow}: COD missing orderId`);
+    }
+    const confirmation = await fetch(`${SITE}/api/orders/confirmation/${encodeURIComponent(createdOrderId)}`)
+      .then((r) => r.json())
+      .catch(() => null);
+    const paymentStatus = confirmation?.confirmation?.paymentStatus || '';
+    await context.close();
+    return {
+      flow,
+      method,
+      orderId: createdOrderId,
+      dpoPaid: false,
+      paymentStatus,
+      successHasOrder: successText.includes(createdOrderId),
+      successSnippet: successText.slice(0, 280)
+    };
   }
 
   await page.locator('#placeOrderBtn').click({ force: true, noWaitAfter: true });
