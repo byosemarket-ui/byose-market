@@ -98,8 +98,8 @@ module.exports = {
         encryptionKeyConfigured: Boolean(readText(process.env.PAYMENT_ENCRYPTION_KEY))
             || (Boolean(readText(process.env.JWT_SECRET))
                 && readText(process.env.JWT_SECRET) !== 'replace_with_a_long_random_secret'),
-        // LIVE checkout is not activated. Do not read DPO_LIVE_CHECKOUT_ENABLED
-        // or similar env flags — accidental LIVE activation must be impossible.
-        liveCheckoutEnabled: false
+        // LIVE checkout is activated by Admin Operating Mode, not an env flag.
+        // Do not read DPO_LIVE_CHECKOUT_ENABLED — Admin Payment Management is
+        // the source of truth.
     }
 };

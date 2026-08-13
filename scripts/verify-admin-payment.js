@@ -114,8 +114,8 @@ async function verifyServiceLayer() {
   assert(initial.activeProvider === "dpo", "default provider should be dpo");
   assert(initial.mode === "test" || initial.mode === "live", "mode missing");
   assert(Array.isArray(initial.providers) && initial.providers.length >= 1, "providers missing");
-  assert(initial.capabilities?.liveCheckoutEnabled === false, "LIVE checkout must not be activated");
-  assert(initial.capabilities?.checkoutEnvironment === "test", "checkout environment must be TEST");
+  assert(initial.capabilities?.liveCheckoutEnabled === (String(initial.mode).toLowerCase() === 'live'), "LIVE checkout must follow Operating Mode");
+  assert(initial.capabilities?.checkoutEnvironment === (String(initial.mode).toLowerCase() === 'live' ? 'live' : 'test'), "checkout environment must match Operating Mode");
 
   const fakeToken = `verify-token-${crypto.randomBytes(8).toString("hex")}`;
   assertNotWritingPlaceholderIntoRealStore(fakeToken, "verify-admin-payment");

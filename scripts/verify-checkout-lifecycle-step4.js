@@ -42,7 +42,8 @@ function checkSource() {
   assert(dpoService.includes("paymentStatus: 'awaiting_payment'"), 'initiate must not mark paid');
 
   const dpoConfig = read('server/payments/dpo/config.js');
-  assert(dpoConfig.includes('LIVE_CHECKOUT_ENABLED = false'), 'LIVE checkout must stay gated off');
+  assert(dpoConfig.includes('OPERATING_MODE_LIVE'), 'LIVE operating mode must activate LIVE checkout');
+  assert(!dpoConfig.includes('LIVE_CHECKOUT_ENABLED = false'), 'hard LIVE gate must be removed');
 
   const session = read('orders/checkout-session.js');
   assert(session.includes("writeCheckoutIntent('direct'"), 'Buy Now must write a direct intent');

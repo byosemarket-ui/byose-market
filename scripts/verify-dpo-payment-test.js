@@ -473,9 +473,7 @@ async function verifyLiveUnconfiguredAndNoMix() {
     const dpoConfig = require('../server/payments/dpo/config');
     const paymentSettingsService = require('../server/services/paymentsettings.service');
 
-    assert(dpoConfig.LIVE_CHECKOUT_ENABLED === false, 'LIVE_CHECKOUT_ENABLED must stay false');
-    assert(dpoConfig.isLiveCheckoutGateOpen() === false, 'LIVE checkout gate must stay closed');
-    assert(dpoConfig.resolveCheckoutEnvironment().mode === 'test', 'checkout environment decision must be TEST');
+    assert(dpoConfig.resolveCheckoutEnvironment().mode === 'test', 'checkout environment decision must be TEST by default');
 
     const liveStatus = await dpoConfig.inspectEnvironmentStatus('live');
     assert(liveStatus.configured === false, 'isolated verify store must not start with LIVE credentials');
@@ -511,21 +509,16 @@ async function verifyLiveUnconfiguredAndNoMix() {
     }
     assert(copied, 'copying TEST Company Token into LIVE must be rejected');
 
-    let liveSwitch = null;
-    try {
-        await paymentSettingsService.updatePaymentSettings({
-            liveCheckoutEnabled: true
-        }, { id: 'ADMIN_VERIFY_DPO', email: 'admin@example.com' });
-    } catch (error) {
-        liveSwitch = error;
-    }
-    assert(liveSwitch && liveSwitch.code === 'DPO_LIVE_CHECKOUT_DISABLED', 'LIVE checkout activation must be rejected');
+    await paymentSettingsService.updatePaymentSettings({
+        liveCheckoutEnabled: true
+    }, { id: 'ADMIN_VERIFY_DPO', email: 'admin@example.com' });
+    const stillTest = await dpoConfig.getActiveDpoConfiguration();
+    assert(stillTest.mode === 'test', 'liveCheckoutEnabled payload must not switch Operating Mode to LIVE');
 }
 
-async function verifyCheckoutStaysTestWhenAdminModeIsLive() {
+async function verifyCheckoutUsesLiveWhenAdminModeIsLive() {
     const paymentSettingsService = require('../server/services/paymentsettings.service');
     const dpoPaymentService = require('../server/services/dpopayment.service');
-    const dpoConfig = require('../server/payments/dpo/config');
 
     try {
         await paymentSettingsService.updatePaymentSettings({
@@ -540,19 +533,8 @@ async function verifyCheckoutStaysTestWhenAdminModeIsLive() {
             }
         }, { id: 'ADMIN_VERIFY_DPO', email: 'admin@example.com' });
 
-        let liveCheckoutError = null;
-        try {
-            await dpoPaymentService.loadCheckoutRuntime();
-        } catch (error) {
-            liveCheckoutError = error;
-        }
-        assert(
-            liveCheckoutError && liveCheckoutError.code === 'DPO_LIVE_NOT_ENABLED',
-            `LIVE operating mode must not fall back to TEST while the gate is closed, got ${liveCheckoutError?.code || 'no error'}`
-        );
-
-        const liveRuntime = await dpoConfig.getEnvironmentConfiguration('live');
-        assert(liveRuntime.mode === 'live', 'LIVE configuration must resolve independently');
+        const liveRuntime = await dpoPaymentService.loadCheckoutRuntime();
+        assert(liveRuntime.mode === 'live', 'LIVE operating mode must activate LIVE checkout');
         assert(liveRuntime.secrets.companyToken !== expectedCompanyToken, 'LIVE resolver must not use TEST Company Token');
         assert(String(liveRuntime.secrets.companyToken).startsWith('LIVE-UNUSED-'), 'LIVE resolver must use the stored LIVE token');
         assert(liveRuntime.secrets.serviceType === '112815', 'LIVE resolver must use Service Type 112815');
@@ -561,11 +543,10 @@ async function verifyCheckoutStaysTestWhenAdminModeIsLive() {
 
         const publicConfig = await dpoPaymentService.getPublicConfig();
         assert(publicConfig.mode === 'live', 'public config reports the selected LIVE operating mode');
-        assert(publicConfig.enabled === false, 'customer checkout must stay disabled while LIVE is gated');
-        assert(publicConfig.liveAvailable === false, 'LIVE must not be advertised as available');
-        assert(publicConfig.liveCheckoutEnabled === false, 'LIVE checkout must remain gated off');
+        assert(publicConfig.enabled === true, 'customer checkout must be enabled when LIVE is complete');
+        assert(publicConfig.liveAvailable === true, 'LIVE must be available when configured');
+        assert(publicConfig.liveCheckoutEnabled === true, 'LIVE checkout must be enabled when Operating Mode is LIVE');
         assertNoSecretLeak(publicConfig, 'public config while admin mode is live');
-        assert(dpoConfig.LIVE_CHECKOUT_ENABLED === false, 'LIVE_CHECKOUT_ENABLED must stay false');
     } finally {
         await paymentSettingsService.updatePaymentSettings({
             mode: 'test',
@@ -745,8 +726,8 @@ async function main() {
         await verifyLiveUnconfiguredAndNoMix();
         console.log('[verify-dpo-payment-test] LIVE unconfigured is blocked; TEST/LIVE credentials do not mix');
 
-        await verifyCheckoutStaysTestWhenAdminModeIsLive();
-        console.log('[verify-dpo-payment-test] LIVE operating mode does not fall back to TEST; LIVE checkout stays gated');
+        await verifyCheckoutUsesLiveWhenAdminModeIsLive();
+        console.log('[verify-dpo-payment-test] LIVE operating mode uses LIVE configuration; no TEST fallback');
 
         await verifyHttpInProcess();
         console.log('[verify-dpo-payment-test] HTTP layer OK');

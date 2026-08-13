@@ -2,7 +2,7 @@
  * DPO Pay provider definition.
  * Endpoint defaults come from the shared DPO endpoints module.
  * LIVE uses the official DPO API v6 host; Company Token + Service Type select TEST vs LIVE.
- * LIVE checkout is gated off until a later step.
+ * Customer checkout uses LIVE when Admin Operating Mode is LIVE.
  */
 
 const { DEFAULT_API_BASE, DEFAULT_PAYMENT_PAGE } = require('../dpo/endpoints');

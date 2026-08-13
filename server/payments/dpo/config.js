@@ -6,22 +6,18 @@
  * secrets store holds each environment separately. This module is the only
  * place checkout decides which environment to use.
  *
- * Saving LIVE credentials does not activate customer LIVE checkout.
- * LIVE_CHECKOUT_ENABLED stays off until a later step. When Operating Mode is
- * LIVE and the gate is closed, customer checkout fails safely — it does not
- * fall back to TEST.
+ * Operating Mode = LIVE activates customer LIVE checkout when LIVE credentials
+ * are complete. Missing or invalid LIVE configuration fails safely. It never
+ * falls back to TEST.
  */
 
 const paymentSettingsService = require('../../services/paymentsettings.service');
-const envConfig = require('../../config/env');
 const { DEFAULT_API_BASE, DEFAULT_PAYMENT_PAGE } = require('./endpoints');
 const { TEST_SERVICE_TYPE_ID, LIVE_SERVICE_TYPE_ID } = require('../providers/dpo.provider');
 const { appLogger } = require('../../utils/logger');
 
 const PROVIDER_ID = 'dpo';
 const CHECKOUT_MODE = 'test';
-/** Hard gate. Saving LIVE credentials must not flip this on. */
-const LIVE_CHECKOUT_ENABLED = false;
 
 function normalizeText(value, fallback = '') {
     const text = String(value == null ? '' : value).trim();
@@ -34,11 +30,6 @@ function ValidationError(message, details = {}, code = 'DPO_PAYMENT_VALIDATION_F
     error.code = code;
     error.details = details;
     return error;
-}
-
-function isLiveCheckoutGateOpen() {
-    return LIVE_CHECKOUT_ENABLED === true
-        && envConfig.payment?.liveCheckoutEnabled === true;
 }
 
 function resolvePaymentPageUrl(configured) {
@@ -58,31 +49,21 @@ function customerSafeMessage(mode) {
 
 /**
  * Server-side checkout environment decision.
- * Admin operating mode selects TEST vs LIVE configuration.
- * The LIVE checkout gate is a separate activation switch.
+ * Admin operating mode selects the complete TEST or LIVE configuration.
+ * LIVE never substitutes TEST credentials, endpoints, or Service Type.
  */
 function resolveCheckoutEnvironment({ operatingMode = CHECKOUT_MODE, liveConfigured = false } = {}) {
     const selected = normalizeText(operatingMode).toLowerCase() === 'live' ? 'live' : 'test';
-
-    if (selected === 'live' && !isLiveCheckoutGateOpen()) {
-        return {
-            mode: 'live',
-            liveCheckoutEnabled: false,
-            liveAvailable: false,
-            liveConfigured: Boolean(liveConfigured),
-            customerCheckoutAllowed: false,
-            reason: 'LIVE_CHECKOUT_DISABLED'
-        };
-    }
+    const configured = Boolean(liveConfigured);
 
     if (selected === 'live') {
         return {
             mode: 'live',
             liveCheckoutEnabled: true,
-            liveAvailable: true,
-            liveConfigured: Boolean(liveConfigured),
-            customerCheckoutAllowed: true,
-            reason: 'LIVE_CHECKOUT_ENABLED'
+            liveAvailable: configured,
+            liveConfigured: configured,
+            customerCheckoutAllowed: configured,
+            reason: configured ? 'OPERATING_MODE_LIVE' : 'LIVE_NOT_CONFIGURED'
         };
     }
 
@@ -90,7 +71,7 @@ function resolveCheckoutEnvironment({ operatingMode = CHECKOUT_MODE, liveConfigu
         mode: 'test',
         liveCheckoutEnabled: false,
         liveAvailable: false,
-        liveConfigured: Boolean(liveConfigured),
+        liveConfigured: configured,
         customerCheckoutAllowed: true,
         reason: 'OPERATING_MODE_TEST'
     };
@@ -210,7 +191,7 @@ async function getEnvironmentConfiguration(mode) {
         providerId: PROVIDER_ID,
         mode: resolvedMode,
         enabled: true,
-        liveCheckoutEnabled: isLiveCheckoutGateOpen(),
+        liveCheckoutEnabled: resolvedMode === 'live',
         secrets: { companyToken, serviceType },
         sources: runtime.sources || {},
         endpoints: {
@@ -262,7 +243,7 @@ async function getActiveDpoConfiguration() {
         throw ValidationError(
             customerSafeMessage('live'),
             { reason: environment.reason, liveConfigured: liveStatus.configured },
-            'DPO_LIVE_NOT_ENABLED',
+            'DPO_LIVE_NOT_CONFIGURED',
             503
         );
     }
@@ -324,7 +305,6 @@ async function getPublicCheckoutConfig() {
 
 module.exports = {
     CHECKOUT_MODE,
-    LIVE_CHECKOUT_ENABLED,
     PROVIDER_ID,
     getActiveDpoConfiguration,
     getCheckoutEnvironment,
@@ -332,6 +312,5 @@ module.exports = {
     getEnvironmentConfiguration,
     getPublicCheckoutConfig,
     inspectEnvironmentStatus,
-    isLiveCheckoutGateOpen,
     resolveCheckoutEnvironment
 };

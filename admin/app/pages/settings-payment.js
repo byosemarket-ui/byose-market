@@ -203,7 +203,7 @@ function paymentMarkup(payment) {
               <div class="admin-profile-meta-item"><span>LIVE checkout</span><strong>${liveCheckoutActive ? "Active" : "Inactive"}</strong></div>
               <div class="admin-profile-meta-item"><span>Encryption</span><strong>${encryption.configured ? "Ready" : "Missing"}</strong></div>
               <div class="admin-profile-meta-item"><span>TEST credentials</span><strong>${active?.credentials?.test?.ready ? "Complete" : "Incomplete"}</strong></div>
-              ${mode === "test" ? `<div class="admin-profile-meta-item"><span>TEST checkout ready</span><strong>${connection.checkoutReady ? "Yes" : "No"}</strong></div>` : ""}
+              ${mode === "test" ? `<div class="admin-profile-meta-item"><span>TEST checkout ready</span><strong>${connection.checkoutReady ? "Yes" : "No"}</strong></div>` : `<div class="admin-profile-meta-item"><span>LIVE checkout ready</span><strong>${liveCheckoutActive ? "Yes" : "No"}</strong></div>`}
               <div class="admin-profile-meta-item"><span>Last TEST probe</span><strong>${lastTest.at ? (lastTest.success ? "Passed" : "Failed") : "Not run"}</strong></div>
             </div>
             ${lastTest.at ? `
@@ -272,7 +272,7 @@ function paymentMarkup(payment) {
               <p class="admin-profile-help admin-delivery-span-2">
                 Operating mode selects the complete TEST or LIVE configuration for the backend:
                 Company Token, Service Type, API endpoint, and payment URL.
-                Saving LIVE credentials does not activate customer LIVE checkout.
+                LIVE sends customer MTN MoMo and Card payments to DPO LIVE. TEST will not be used as a fallback.
                 Do not paste TEST Company Token or Service Type 54841 into LIVE fields.
                 Secrets stay encrypted on the server. Leave password fields blank to keep existing Company Tokens.
               </p>
@@ -291,7 +291,7 @@ function paymentMarkup(payment) {
                 <button type="button" class="btn ${mode === "live" ? "btn-primary" : "btn-ghost"}" data-payment-mode-tab="live">LIVE credentials</button>
               </div>
               <p class="admin-profile-help admin-delivery-span-2">
-                These tabs only edit stored credentials. They do not activate LIVE checkout.
+                These tabs only edit stored credentials. Operating Mode above selects which set checkout uses.
                 LIVE Service Type ID is 112815. TEST Service Type 54841 must not be saved here.
               </p>
 
@@ -483,7 +483,7 @@ function bindPaymentPanel(container, payment) {
     const nextMode = String(select.value || "test");
     if (nextMode === "live") {
       const confirmed = window.confirm(
-        "Operating Mode LIVE selects the LIVE Company Token, Service Type 112815, and LIVE endpoints for the backend.\n\nCustomer LIVE checkout stays inactive until a later activation step. TEST will not be used as a fallback.\n\nContinue? Do not copy TEST values into LIVE."
+        "Operating Mode LIVE sends customer MTN MoMo and Card payments to DPO LIVE using Service Type 112815.\n\nThis can charge real money. TEST will not be used as a fallback if LIVE configuration is incomplete.\n\nContinue only if the official LIVE Company Token and Service Type 112815 are saved."
       );
       if (!confirmed) {
         select.value = "test";
@@ -553,7 +553,7 @@ function bindPaymentPanel(container, payment) {
       const payload = collectPayload(container, current);
       if (payload.credentials?.live?.companyToken) {
         const confirmed = window.confirm(
-          "Save a LIVE Company Token?\n\nThis must be the official DPO LIVE token, not the TEST token.\nLIVE checkout is not activated and will not charge real customers yet."
+          "Save a LIVE Company Token?\n\nThis must be the official DPO LIVE token, not the TEST token.\nIf Operating Mode is LIVE, customer MTN MoMo and Card payments will use this token."
         );
         if (!confirmed) {
           feedback.textContent = "LIVE credentials were not saved.";
@@ -563,11 +563,14 @@ function bindPaymentPanel(container, payment) {
       const saved = await updateAdminPayment(payload);
       const liveReady = Boolean(saved?.providers?.find((entry) => entry.id === (saved.activeProvider || "dpo"))?.credentials?.live?.ready);
       const liveType = String(saved?.capabilities?.liveServiceType || saved?.providers?.find((entry) => entry.id === (saved.activeProvider || "dpo"))?.credentials?.live?.fields?.serviceType?.value || "").trim();
+      const liveActive = Boolean(saved?.capabilities?.liveCheckoutActive);
       paint(
         saved,
-        liveReady
-          ? `Payment settings saved. LIVE credentials are stored${liveType ? ` (Service Type ${liveType})` : ""}. Secret values are not shown. LIVE checkout is not activated.`
-          : "Payment settings saved successfully.",
+        liveActive
+          ? `Payment settings saved. LIVE checkout is active${liveType ? ` (Service Type ${liveType})` : ""}. Secret values are not shown. Customer MTN MoMo and Card payments use DPO LIVE.`
+          : (liveReady
+            ? `Payment settings saved. LIVE credentials are stored${liveType ? ` (Service Type ${liveType})` : ""}. Secret values are not shown. Customer checkout still uses TEST until Operating Mode is LIVE.`
+            : "Payment settings saved successfully."),
         "is-success"
       );
     } catch (error) {

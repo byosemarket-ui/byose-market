@@ -128,7 +128,7 @@ async function verifyServiceLayer() {
     assert(Array.isArray(admin.activity), 'activity missing');
     assert(admin.activityStats && typeof admin.activityStats === 'object', 'activityStats missing');
     assert(admin.capabilities?.canTestConnection === true, 'TEST mode should allow connection tests');
-    assert(admin.capabilities?.liveCheckoutEnabled === false, 'LIVE checkout must remain gated off');
+    assert(admin.capabilities?.liveCheckoutEnabled === false, 'LIVE checkout must stay off while Operating Mode is TEST');
     assert(admin.capabilities?.checkoutEnvironment === 'test', 'checkout environment must be TEST');
     assert(admin.capabilities?.liveCheckoutReady === false, 'LIVE checkout must not be ready');
     assertNoSecretLeak(admin, 'admin payment view');
@@ -149,7 +149,7 @@ async function verifyServiceLayer() {
         mode: 'test'
     }, { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' });
 
-    // Operating mode LIVE selects LIVE configuration; customer checkout stays gated.
+    // Operating mode LIVE selects LIVE configuration and activates LIVE checkout.
     const liveToken = `LIVE-STEP3-${crypto.randomBytes(6).toString('hex')}`;
     await paymentSettingsService.updatePaymentSettings({
         mode: 'test',
@@ -168,23 +168,19 @@ async function verifyServiceLayer() {
     const liveOperating = await paymentSettingsService.getAdminPaymentSettings();
     assert(liveOperating.mode === 'live', 'admin operating mode can be LIVE');
     assert(liveOperating.capabilities?.checkoutEnvironment === 'live', 'operating mode selects the LIVE environment');
-    assert(liveOperating.capabilities?.liveCheckoutEnabled === false, 'LIVE checkout gate must stay off');
-    assert(liveOperating.capabilities?.liveCheckoutActive === false, 'LIVE checkout must not be marked active');
+    assert(liveOperating.capabilities?.liveCheckoutEnabled === true, 'LIVE checkout must be enabled when Operating Mode is LIVE');
+    assert(liveOperating.capabilities?.liveCheckoutActive === true, 'LIVE checkout must be active when LIVE credentials are complete');
     assert(liveOperating.capabilities?.liveConnectionVerified === false, 'LIVE connection must not be marked verified');
     assert(liveOperating.capabilities?.liveServiceType === '112815', 'LIVE Service Type must persist as 112815');
     assert(liveOperating.capabilities?.canTestConnection === true, 'TEST connection tests stay available');
     assert(!JSON.stringify(liveOperating).includes(liveToken), 'admin view must not return the LIVE Company Token');
 
-    let liveActivationBlocked = false;
-    try {
-        await paymentSettingsService.updatePaymentSettings({
-            liveCheckoutEnabled: true,
-            mode: 'live'
-        }, { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' });
-    } catch (error) {
-        liveActivationBlocked = error?.code === 'DPO_LIVE_CHECKOUT_DISABLED';
-    }
-    assert(liveActivationBlocked, 'Admin must not be able to activate LIVE checkout yet');
+    const liveToggle = await paymentSettingsService.updatePaymentSettings({
+        liveCheckoutEnabled: true,
+        mode: 'live'
+    }, { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' });
+    assert(liveToggle.mode === 'live', 'liveCheckoutEnabled payload must not replace Operating Mode');
+    assert(liveToggle.capabilities?.liveCheckoutEnabled === true, 'Operating Mode LIVE must keep LIVE checkout enabled');
 
     await paymentSettingsService.updatePaymentSettings({
         mode: 'test',

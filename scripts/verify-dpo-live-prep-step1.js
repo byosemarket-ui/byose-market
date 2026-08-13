@@ -74,14 +74,14 @@ function checkArchitecturePreserved() {
     assert(client.includes('DPO credentials are not configured for this payment environment'), 'missing credentials must fail for the selected environment');
 
     const config = read('server/payments/dpo/config.js');
-    assert(config.includes('LIVE_CHECKOUT_ENABLED = false'), 'LIVE checkout must stay gated off');
-    assert(!/LIVE_CHECKOUT_ENABLED\s*=\s*true/.test(config), 'LIVE must not be hard-enabled');
+    assert(config.includes('OPERATING_MODE_LIVE'), 'LIVE operating mode must activate LIVE checkout');
+    assert(!config.includes('LIVE_CHECKOUT_ENABLED = false'), 'hard LIVE gate must be removed');
     assert(config.includes('getEnvironmentConfiguration'), 'TEST and LIVE config must load separately');
     assert(config.includes('DPO_LIVE_CREDENTIAL_MIX'), 'copied TEST tokens must not be used as LIVE');
     assert(config.includes("label: 'Pay Online'"), 'public checkout config must not expose DPO Pay as a customer label');
 
     const settings = read('server/services/paymentsettings.service.js');
-    assert(settings.includes('DPO_LIVE_CHECKOUT_DISABLED'), 'Admin must not activate LIVE checkout yet');
+    assert(!settings.includes('DPO_LIVE_CHECKOUT_DISABLED'), 'Admin Operating Mode must be allowed to activate LIVE checkout');
     assert(settings.includes("mode: resolvedMode"), 'runtime credentials must stay on the requested mode');
     assert(!/If LIVE credentials are missing, use TEST/i.test(settings), 'must not silently fall back from LIVE to TEST');
 
@@ -134,19 +134,27 @@ async function checkRuntimeGate() {
     await connectDatabase();
 
     const dpoConfig = require('../server/payments/dpo/config');
-    assert(dpoConfig.LIVE_CHECKOUT_ENABLED === false, 'LIVE_CHECKOUT_ENABLED export must be false');
-    assert(dpoConfig.isLiveCheckoutGateOpen() === false, 'LIVE gate must stay closed');
+    assert(dpoConfig.LIVE_CHECKOUT_ENABLED === undefined, 'LIVE_CHECKOUT_ENABLED hard gate must be removed');
     const decision = dpoConfig.resolveCheckoutEnvironment();
-    assert(decision.mode === 'test', 'checkout must stay on the TEST environment until a later step');
-    assert(decision.liveCheckoutEnabled === false, 'LIVE checkout flag must be false');
-    assert(decision.liveAvailable === false, 'LIVE must not be available to customers yet');
+    assert(decision.mode === 'test', 'default checkout environment must resolve to TEST');
+    assert(decision.liveCheckoutEnabled === false, 'LIVE checkout flag must be false until Operating Mode is LIVE');
+    assert(decision.liveAvailable === false, 'LIVE must not be available while Operating Mode is TEST');
+
+    const liveOn = dpoConfig.resolveCheckoutEnvironment({ operatingMode: 'live', liveConfigured: true });
+    assert(liveOn.mode === 'live', 'Operating Mode LIVE must select LIVE checkout');
+    assert(liveOn.customerCheckoutAllowed === true, 'complete LIVE configuration must allow customer checkout');
+    assert(liveOn.liveCheckoutEnabled === true, 'Operating Mode LIVE must enable LIVE checkout');
 
     const publicConfig = await dpoConfig.getPublicCheckoutConfig();
     const serialized = JSON.stringify(publicConfig);
     assert(!/"companyToken"\s*:\s*"[^"]+"/.test(serialized), 'public DPO config must not include companyToken');
     assert(!/"serviceType"\s*:\s*"/.test(serialized), 'public DPO config must not include serviceType value');
     assert(publicConfig.label === 'Pay Online', 'public checkout label must stay customer-safe');
-    assert(publicConfig.liveCheckoutEnabled === false, 'public config must report LIVE gated off');
+    if (publicConfig.mode === 'test') {
+        assert(publicConfig.liveCheckoutEnabled === false, 'TEST operating mode must not report LIVE checkout enabled');
+    } else {
+        assert(publicConfig.liveCheckoutEnabled === true, 'LIVE operating mode must report LIVE checkout enabled');
+    }
 }
 
 async function main() {
@@ -166,9 +174,9 @@ async function main() {
     console.log('[verify-dpo-live-prep-step1] PASS');
     console.log(' Customer methods: MTN MoMo, Card, Cash on Delivery');
     console.log(' TEST-only customer payment labels: removed');
-    console.log(' Payment architecture: LIVE-ready, still gated');
-    console.log(' LIVE credentials: not entered');
-    console.log(' LIVE checkout: not activated');
+    console.log(' Payment architecture: LIVE checkout follows Admin Operating Mode');
+    console.log(' LIVE credentials: not entered in source');
+    console.log(' LIVE checkout: activated when Operating Mode is LIVE');
 }
 
 main().catch((error) => {

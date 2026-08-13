@@ -7,7 +7,6 @@ const {
     listProviders
 } = require('../payments/providers/registry');
 const secretsStore = require('../payments/secrets.store');
-const envConfig = require('../config/env');
 
 const MODULE_KEY = 'payment';
 const MODES = Object.freeze(['test', 'live']);
@@ -26,12 +25,13 @@ function getSelectedOperatingMode(config = {}) {
     return normalizeText(config.mode).toLowerCase() === 'live' ? 'live' : 'test';
 }
 
-function isLiveCheckoutActivated() {
-    return envConfig.payment?.liveCheckoutEnabled === true;
+function isLiveCheckoutActivated(config = {}) {
+    return getSelectedOperatingMode(config) === 'live';
 }
 
 /**
- * Selected Admin operating mode. Customer LIVE checkout stays gated separately.
+ * Selected Admin operating mode is the customer checkout environment.
+ * LIVE never falls back to TEST.
  */
 function getCheckoutEnvironmentMode(config = {}) {
     return getSelectedOperatingMode(config);
@@ -242,7 +242,7 @@ function toPublicPaymentView(config) {
     const active = getProvider(config.activeProvider);
     const providerConfig = config.providers[config.activeProvider] || active?.createDefaultConfig?.() || {};
     const selectedMode = getSelectedOperatingMode(config);
-    const liveActivated = isLiveCheckoutActivated();
+    const liveActivated = isLiveCheckoutActivated(config);
     const customerMayCheckout = selectedMode === 'test' || liveActivated;
     const modeStatus = active ? buildCredentialStatus(active, selectedMode) : { ready: false };
 
@@ -404,7 +404,13 @@ async function getAdminPaymentSettings() {
     const liveEndpoints = liveProvider?.endpoints?.live || {};
     const liveServiceType = normalizeText(liveCreds.fields?.serviceType?.value);
     const selectedMode = getSelectedOperatingMode(config);
-    const liveActivated = isLiveCheckoutActivated();
+    const liveConfigured = Boolean(
+        liveCreds.ready
+        && liveEndpoints.apiBaseUrl
+        && liveEndpoints.paymentPageUrl
+    );
+    const liveActivated = isLiveCheckoutActivated(config);
+    const liveCheckoutActive = Boolean(liveActivated && liveConfigured && config.enabled);
 
     return {
         ...view,
@@ -419,19 +425,19 @@ async function getAdminPaymentSettings() {
             liveCheckoutEnabled: liveActivated,
             checkoutEnvironment: selectedMode,
             liveCredentialsConfigured: Boolean(liveCreds.ready),
-            liveConfigurationComplete: Boolean(
-                liveCreds.ready
-                && liveEndpoints.apiBaseUrl
-                && liveEndpoints.paymentPageUrl
-            ),
+            liveConfigurationComplete: liveConfigured,
             liveServiceType: liveServiceType,
             liveApiEndpointConfigured: Boolean(liveEndpoints.apiBaseUrl),
             liveApiEndpoint: normalizeText(liveEndpoints.apiBaseUrl),
             livePaymentPageUrl: normalizeText(liveEndpoints.paymentPageUrl),
             liveConnectionVerified: false,
-            liveCheckoutReady: false,
-            liveCheckoutActive: false,
-            liveActivationBlockedReason: 'LIVE checkout is not activated. Saving LIVE credentials does not enable customer LIVE payments.',
+            liveCheckoutReady: liveCheckoutActive,
+            liveCheckoutActive,
+            liveActivationBlockedReason: liveCheckoutActive
+                ? ''
+                : (liveActivated
+                    ? 'LIVE Operating Mode is selected, but LIVE credentials or online payments are not complete.'
+                    : 'Set Operating Mode to LIVE after saving complete LIVE credentials to activate customer LIVE checkout.'),
             providerExtensible: true
         }
     };
@@ -513,10 +519,6 @@ function buildConnectionStatus(adminView) {
         code = 'configured_disabled';
         label = 'Configured · payments off';
         detail = 'Credentials look complete. Enable online payments to offer checkout.';
-    } else if (mode === 'live' && !isLiveCheckoutActivated()) {
-        code = 'live_stored_inactive';
-        label = 'LIVE stored · checkout inactive';
-        detail = 'LIVE credentials are stored. Customer LIVE checkout is not activated. TEST will not be used as a fallback.';
     } else {
         code = 'connected';
         label = `${String(mode).toUpperCase()} ready`;
@@ -536,7 +538,7 @@ function buildConnectionStatus(adminView) {
         onlineEnabled,
         checkoutReady: code === 'connected',
         liveConnectionVerified: false,
-        liveCheckoutActive: false
+        liveCheckoutActive: mode === 'live' && credentialsReady && onlineEnabled
     };
 }
 
@@ -817,20 +819,12 @@ async function updatePaymentSettings(payload = {}, admin = {}) {
 
     const validated = validatePaymentConfig(merged);
 
-    if (source.liveCheckoutEnabled === true || String(source.checkoutEnvironment || '').toLowerCase() === 'live') {
-        throw ValidationError(
-            'LIVE checkout is not activated. Official DPO LIVE credentials have not been enabled for customer payments.',
-            { liveCheckoutEnabled: 'LIVE checkout cannot be turned on yet.' },
-            'DPO_LIVE_CHECKOUT_DISABLED'
-        );
-    }
-
     if (source.credentials && typeof source.credentials === 'object') {
         applyCredentialUpdates(validated.activeProvider, source.credentials);
     }
 
-    // Operating mode selects the credential set. LIVE customer checkout stays
-    // gated until a later step explicitly activates it.
+    // Operating mode selects the complete credential set used by checkout.
+    // LIVE never falls back to TEST.
     if (validated.enabled) {
         const provider = getProvider(validated.activeProvider);
         const checkoutMode = getSelectedOperatingMode(validated);

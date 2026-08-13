@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * STEP 3 — DPO TEST/LIVE configuration architecture.
- * Confirms TEST remains the active checkout environment, LIVE stays
- * unconfigured/inactive, and TEST/LIVE credentials cannot mix.
+ * DPO TEST/LIVE configuration architecture.
+ * Confirms Operating Mode selects the complete environment, LIVE never falls
+ * back to TEST, and LIVE checkout is activated only when Admin selects LIVE
+ * with complete LIVE credentials.
  *
  * Run: node scripts/verify-dpo-environment-config.js
  */
@@ -25,13 +26,14 @@ function checkSources() {
     const config = read('server/payments/dpo/config.js');
     assert(config.includes('getActiveDpoConfiguration'), 'resolver must expose getActiveDpoConfiguration');
     assert(config.includes('getEnvironmentConfiguration'), 'resolver must load one environment at a time');
-    assert(config.includes('LIVE_CHECKOUT_ENABLED = false'), 'LIVE checkout must stay gated off');
+    assert(config.includes('OPERATING_MODE_LIVE'), 'LIVE operating mode must activate LIVE checkout');
     assert(config.includes('DPO_LIVE_NOT_CONFIGURED'), 'missing LIVE credentials must have a dedicated error');
     assert(config.includes('DPO_LIVE_CREDENTIAL_MIX'), 'TEST/LIVE Company Token mix must be rejected');
-    assert(!/LIVE_CHECKOUT_ENABLED\s*=\s*true/.test(config), 'LIVE must not be hard-enabled');
+    assert(!config.includes('LIVE_CHECKOUT_ENABLED = false'), 'hard LIVE checkout gate must be removed');
+    assert(!/LIVE_CHECKOUT_ENABLED\s*=\s*true/.test(config), 'LIVE must not be hard-enabled regardless of Admin mode');
 
     const settings = read('server/services/paymentsettings.service.js');
-    assert(settings.includes('DPO_LIVE_CHECKOUT_DISABLED'), 'Admin must not activate LIVE checkout yet');
+    assert(!settings.includes('DPO_LIVE_CHECKOUT_DISABLED'), 'Admin Operating Mode must be allowed to activate LIVE checkout');
     assert(settings.includes('Do not copy the TEST Company Token into LIVE'), 'saving TEST token as LIVE must be rejected');
     assert(settings.includes('getCheckoutEnvironmentMode'), 'checkout environment must be server-decided');
 
@@ -56,25 +58,30 @@ function checkSources() {
     assert(!/id:\s*'dpo'/.test(constants), 'DPO must not return as a customer method');
 
     const env = read('server/config/env.js');
-    assert(env.includes('liveCheckoutEnabled: false'), 'env must not activate LIVE checkout');
+    assert(!env.includes('liveCheckoutEnabled: false'), 'env must not hard-block LIVE checkout');
+    assert(!env.includes('liveCheckoutEnabled: true'), 'env must not hard-enable LIVE checkout');
 }
 
 function main() {
-    console.log('[verify-dpo-environment-config] starting STEP 3 source checks');
+    console.log('[verify-dpo-environment-config] starting LIVE activation architecture checks');
     checkSources();
 
     const dpoConfig = require('../server/payments/dpo/config');
-    assert(dpoConfig.LIVE_CHECKOUT_ENABLED === false, 'LIVE_CHECKOUT_ENABLED export must be false');
-    assert(dpoConfig.isLiveCheckoutGateOpen() === false, 'LIVE gate must be closed');
+    assert(dpoConfig.LIVE_CHECKOUT_ENABLED === undefined, 'LIVE_CHECKOUT_ENABLED hard gate must be removed');
     const decision = dpoConfig.resolveCheckoutEnvironment();
     assert(decision.mode === 'test', 'default checkout environment must resolve to TEST');
-    assert(decision.liveCheckoutEnabled === false, 'LIVE checkout flag must be false');
-    assert(decision.liveAvailable === false, 'LIVE must not be available to customers');
+    assert(decision.liveCheckoutEnabled === false, 'LIVE checkout flag must be false until Operating Mode is LIVE');
+    assert(decision.liveAvailable === false, 'LIVE must not be available while Operating Mode is TEST');
 
     const liveDecision = dpoConfig.resolveCheckoutEnvironment({ operatingMode: 'live', liveConfigured: true });
     assert(liveDecision.mode === 'live', 'operating mode LIVE must select LIVE configuration');
-    assert(liveDecision.customerCheckoutAllowed === false, 'LIVE operating mode must not activate customer checkout yet');
-    assert(liveDecision.liveCheckoutEnabled === false, 'LIVE checkout gate must stay closed');
+    assert(liveDecision.customerCheckoutAllowed === true, 'complete LIVE configuration must allow customer checkout');
+    assert(liveDecision.liveCheckoutEnabled === true, 'Operating Mode LIVE must enable LIVE checkout');
+
+    const liveIncomplete = dpoConfig.resolveCheckoutEnvironment({ operatingMode: 'live', liveConfigured: false });
+    assert(liveIncomplete.mode === 'live', 'incomplete LIVE must still select LIVE, not TEST');
+    assert(liveIncomplete.customerCheckoutAllowed === false, 'incomplete LIVE must fail safely');
+    assert(liveIncomplete.reason === 'LIVE_NOT_CONFIGURED', 'incomplete LIVE must not fall back to TEST');
 
     if (failures.length) {
         console.error('[verify-dpo-environment-config] FAIL:');
@@ -83,8 +90,9 @@ function main() {
     }
 
     console.log('[verify-dpo-environment-config] PASS');
-    console.log(' Checkout environment: TEST');
-    console.log(' LIVE checkout: inactive / not configured');
+    console.log(' Default checkout environment: TEST');
+    console.log(' Operating Mode LIVE + complete credentials: LIVE checkout');
+    console.log(' Incomplete LIVE: fail safely, no TEST fallback');
     console.log(' Customer methods unchanged: MTN MoMo, Card, Cash on Delivery');
 }
 

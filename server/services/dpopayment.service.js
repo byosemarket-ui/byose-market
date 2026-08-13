@@ -3,7 +3,7 @@
  * Flow: Create Token → Payment URL → Customer Payment → Verify Token → Order Update
  * Configuration (Company Token, Service Type, environment) comes from the DPO
  * config resolver. The same service can run TEST or LIVE; the resolver selects
- * the active environment. LIVE checkout stays gated off until a later step.
+ * the active environment from Admin Operating Mode. LIVE never falls back to TEST.
  */
 
 const orderDataService = require('./orderdataservice');

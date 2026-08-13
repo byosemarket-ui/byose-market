@@ -39,7 +39,8 @@ function checkSource() {
   assert(state.includes('state.gateway?.loaded'), 'DPO methods must stay visible until config loads');
 
   const dpoConfig = read('server/payments/dpo/config.js');
-  assert(dpoConfig.includes('LIVE_CHECKOUT_ENABLED = false'), 'LIVE checkout must stay gated off');
+  assert(dpoConfig.includes('OPERATING_MODE_LIVE'), 'LIVE operating mode must activate LIVE checkout');
+  assert(!dpoConfig.includes('LIVE_CHECKOUT_ENABLED = false'), 'hard LIVE gate must be removed');
   assert(dpoConfig.includes('customerSafeMessage'), 'DPO config errors must be customer-safe');
   assert(!dpoConfig.includes('Save Company Token and Service Type in Payment Settings'), 'customer errors must not mention Admin credential fields');
 
@@ -82,9 +83,12 @@ async function checkPublicConfigHasNoSecrets() {
   const serialized = JSON.stringify(publicConfig);
   assert(!/"companyToken"\s*:\s*"[^"]+"/.test(serialized), 'public DPO config must not include companyToken');
   assert(!/"serviceType"\s*:\s*"/.test(serialized), 'public DPO config must not include serviceType value');
-  assert(publicConfig.mode === 'test', `public checkout mode must be test, got ${publicConfig.mode}`);
-  assert(publicConfig.liveCheckoutEnabled === false, 'LIVE checkout must remain disabled');
-  assert(dpoConfig.LIVE_CHECKOUT_ENABLED === false, 'LIVE_CHECKOUT_ENABLED must stay false');
+  assert(['test', 'live'].includes(publicConfig.mode), `public checkout mode must be test or live, got ${publicConfig.mode}`);
+  if (publicConfig.mode === 'test') {
+    assert(publicConfig.liveCheckoutEnabled === false, 'TEST operating mode must not report LIVE checkout enabled');
+  } else {
+    assert(publicConfig.liveCheckoutEnabled === true, 'LIVE operating mode must report LIVE checkout enabled');
+  }
 }
 
 async function checkCatalogAmount() {

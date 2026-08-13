@@ -2,7 +2,8 @@
 /**
  * STEP 2 — Admin is the source of truth for DPO LIVE configuration.
  * Saves LIVE Service Type 112815 into the isolated encrypted store, confirms
- * operating mode selects TEST vs LIVE without mixing, and keeps LIVE checkout gated.
+ * operating mode selects TEST vs LIVE without mixing. Operating Mode LIVE
+ * activates customer LIVE checkout when LIVE credentials are complete.
  *
  * Run: node scripts/verify-dpo-live-admin-step2.js
  */
@@ -45,9 +46,10 @@ function checkSources() {
     assert(!/DEFAULT_PAYMENT_PAGE\s*=\s*'[^']*dpopayment\.php/.test(endpoints), 'must not set dpopayment.php as the default payment URL');
 
     const config = read('server/payments/dpo/config.js');
-    assert(config.includes('LIVE_CHECKOUT_ENABLED = false'), 'LIVE checkout must stay gated');
+    assert(config.includes('OPERATING_MODE_LIVE'), 'LIVE operating mode must activate LIVE checkout');
     assert(config.includes('operatingMode'), 'resolver must honor Admin operating mode');
-    assert(config.includes('customerCheckoutAllowed'), 'LIVE mode must not auto-activate checkout');
+    assert(config.includes('customerCheckoutAllowed'), 'incomplete LIVE must fail safely without TEST fallback');
+    assert(!config.includes('LIVE_CHECKOUT_ENABLED = false'), 'hard LIVE gate must be removed');
 
     const admin = read('admin/app/pages/settings-payment.js');
     assert(admin.includes('data-payment-cred-panel="live"'), 'Admin LIVE credential panel must remain');
@@ -135,8 +137,8 @@ async function checkAdminSaveReload() {
         assert(/API\/v6/i.test(saved.capabilities.liveApiEndpoint || ''), 'LIVE API endpoint must be API v6');
         assert(/payv3\.php/i.test(saved.capabilities.livePaymentPageUrl || ''), 'LIVE payment URL must be payv3.php');
         assert(saved.capabilities.liveConnectionVerified === false, 'LIVE connection must not be marked verified');
-        assert(saved.capabilities.liveCheckoutActive === false, 'LIVE checkout must not be marked active');
-        assert(saved.capabilities.liveCheckoutEnabled === false, 'LIVE checkout gate must stay off');
+        assert(saved.capabilities.liveCheckoutActive === false, 'LIVE checkout must stay inactive while Operating Mode is TEST');
+        assert(saved.capabilities.liveCheckoutEnabled === false, 'LIVE checkout must stay off while Operating Mode is TEST');
 
         const reloaded = await paymentSettingsService.getAdminPaymentSettings();
         assert(reloaded.providers[0].credentials.live.fields.companyToken.configured === true, 'reload must keep LIVE token configured');
@@ -164,29 +166,24 @@ async function checkAdminSaveReload() {
             enabled: true
         }, { id: 'ADMIN_VERIFY_STEP2', email: 'admin@example.com' });
 
-        let liveGate = null;
-        try {
-            await dpoConfig.getActiveDpoConfiguration();
-        } catch (error) {
-            liveGate = error;
-        }
-        assert(liveGate && liveGate.code === 'DPO_LIVE_NOT_ENABLED', 'LIVE operating mode must not fall back to TEST or activate checkout');
+        const activeLive = await dpoConfig.getActiveDpoConfiguration();
+        assert(activeLive.mode === 'live', 'Operating Mode LIVE must activate LIVE checkout');
+        assert(activeLive.secrets.companyToken === liveToken, 'LIVE checkout must use the Admin-saved LIVE token');
+        assert(activeLive.secrets.serviceType === '112815', 'LIVE checkout must use Service Type 112815');
+        assert(activeLive.secrets.companyToken !== testToken, 'LIVE checkout must not fall back to TEST');
 
         const publicConfig = await dpoConfig.getPublicCheckoutConfig();
-        assert(publicConfig.enabled === false, 'customer checkout must stay off while LIVE is gated');
-        assert(publicConfig.liveCheckoutEnabled === false, 'public config must report LIVE gated off');
+        assert(publicConfig.enabled === true, 'customer checkout must be on when LIVE is complete');
+        assert(publicConfig.mode === 'live', 'public config must report LIVE');
+        assert(publicConfig.liveCheckoutEnabled === true, 'public config must report LIVE checkout enabled');
         assert(!JSON.stringify(publicConfig).includes(liveToken), 'public config must not include LIVE Company Token');
         assert(!/"serviceType"\s*:\s*"/.test(JSON.stringify(publicConfig)), 'public config must not include Service Type');
 
-        let activation = null;
-        try {
-            await paymentSettingsService.updatePaymentSettings({
-                liveCheckoutEnabled: true
-            }, { id: 'ADMIN_VERIFY_STEP2', email: 'admin@example.com' });
-        } catch (error) {
-            activation = error;
-        }
-        assert(activation && activation.code === 'DPO_LIVE_CHECKOUT_DISABLED', 'saving LIVE credentials must not activate LIVE checkout');
+        await paymentSettingsService.updatePaymentSettings({
+            liveCheckoutEnabled: true
+        }, { id: 'ADMIN_VERIFY_STEP2', email: 'admin@example.com' });
+        const stillLive = await dpoConfig.getActiveDpoConfiguration();
+        assert(stillLive.mode === 'live', 'liveCheckoutEnabled payload must not replace Operating Mode');
     } finally {
         await paymentSettingsService.updatePaymentSettings({
             mode: 'test',
@@ -214,7 +211,7 @@ async function main() {
     console.log(' LIVE Service Type: 112815');
     console.log(' LIVE API: https://secure.3gdirectpay.com/API/v6/');
     console.log(' LIVE payment URL: payv3.php (official DPO LIVE email / API v6)');
-    console.log(' LIVE checkout: not activated');
+    console.log(' LIVE checkout: activated by Operating Mode LIVE');
 }
 
 main().catch((error) => {
