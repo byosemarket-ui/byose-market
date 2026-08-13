@@ -154,6 +154,20 @@ function applyGatewayPaymentUpdate(order, {
         }
     };
 
+    const paymentReference = normalizeText(
+        gateway.transRef
+        || order.payment.transaction.reference
+        || order.paymentReference
+        || order.transactionReference
+        || order.transactionId
+    );
+    if (paymentReference) {
+        order.paymentReference = paymentReference;
+        order.transactionReference = paymentReference;
+        order.transactionId = paymentReference;
+        order.payment.reference = paymentReference;
+    }
+
     const history = Array.isArray(order.statusHistory) ? order.statusHistory.slice() : [];
     history.push({
         status: nextStatus,

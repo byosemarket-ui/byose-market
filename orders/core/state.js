@@ -57,7 +57,7 @@ const state = {
   shipping: clone(DEFAULT_ADDRESS),
   deliveryMethodKey: 'homeDelivery',
   deliveryEstimate: '',
-  payment: { method: 'mtn', phone: '' },
+  payment: { method: 'dpo', phone: '' },
   gateway: { dpoEnabled: false, dpoLabel: 'Pay Online (DPO)', loaded: false },
   coupon: { code: '', title: '', discountAmount: 0, status: '' },
   totals: { subtotal: 0, discount: 0, couponDiscount: 0, tax: 0, deliveryFee: DELIVERY_FEE, codFee: 0, total: DELIVERY_FEE }
@@ -246,7 +246,7 @@ function applyStep1Commit() {
     state.customer = { ...state.customer, ...commit.customer };
   }
   if (commit.payment && typeof commit.payment === 'object') {
-    state.payment = { method: 'mtn', phone: '', ...commit.payment };
+    state.payment = { method: 'dpo', phone: '', ...commit.payment };
   }
   if (commit.coupon && typeof commit.coupon === 'object') {
     state.coupon = {
@@ -312,7 +312,7 @@ function applyHandoff() {
   }
 
   if (handoff.payment) {
-    state.payment = { method: 'mtn', phone: '', ...handoff.payment };
+    state.payment = { method: 'dpo', phone: '', ...handoff.payment };
   }
 
   if (handoff.coupon && typeof handoff.coupon === 'object') {
@@ -538,7 +538,7 @@ function loadShipping() {
 function loadPayment() {
   const draft = readActiveDraft();
   if (draft?.payment) {
-    state.payment = { method: 'mtn', phone: '', ...draft.payment };
+    state.payment = { method: 'dpo', phone: '', ...draft.payment };
   }
   if (!state.payment.phone) {
     state.payment.phone = state.shipping.phone || state.customer.phone;

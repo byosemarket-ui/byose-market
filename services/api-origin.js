@@ -9,7 +9,8 @@ const STORAGE_KEYS = {
   adminValidatedApiBaseUrl: "adminValidatedApiBaseUrl"
 };
 
-const LEGACY_API_HOST_PATTERN = /(?:onrender\.com|localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i;
+const LEGACY_REMOTE_API_HOST_PATTERN = /onrender\.com/i;
+const LOCAL_HOST_PATTERN = /^(localhost|127\.0\.0\.1|0\.0\.0\.0)$/i;
 
 let activeApiBaseUrl = "";
 let ensureUploadApiBasePromise = null;
@@ -43,13 +44,35 @@ function readStorage(key) {
   }
 }
 
+function getPageHostname() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  return String(window.location?.hostname || "").trim().toLowerCase();
+}
+
+function isLocalDevHost(hostname = getPageHostname()) {
+  return LOCAL_HOST_PATTERN.test(String(hostname || "").trim().toLowerCase());
+}
+
 export function isLegacyApiBase(value) {
   const normalized = normalizeApiBaseUrl(value);
   if (!normalized) {
     return true;
   }
 
-  return LEGACY_API_HOST_PATTERN.test(normalized);
+  // Render.com leftovers always migrate. Localhost is only "legacy" when the
+  // page itself is not a local/dev host — otherwise checkout/PDP must stay
+  // same-origin so seeded local catalog/stock is the source of truth.
+  if (LEGACY_REMOTE_API_HOST_PATTERN.test(normalized)) {
+    return true;
+  }
+
+  if (/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i.test(normalized)) {
+    return !isLocalDevHost();
+  }
+
+  return false;
 }
 
 export function isProductionApiBase(value) {
@@ -99,14 +122,16 @@ export function collectApiBaseCandidates() {
   addCandidate(window.AdminSecurity?.getApiBaseUrl?.());
   addCandidate(window.AdminConfig?.apiBaseUrl);
 
-  const hostname = String(window.location?.hostname || "").trim().toLowerCase();
+  const hostname = getPageHostname();
   const sameOriginApi = resolveSameOriginApiBaseUrl();
 
-  if (sameOriginApi && /byosemarket\.com$/i.test(hostname)) {
+  if (sameOriginApi && (/byosemarket\.com$/i.test(hostname) || isLocalDevHost(hostname))) {
     addCandidate(sameOriginApi);
   }
 
-  addCandidate(PRODUCTION_API_BASE_URL);
+  if (!isLocalDevHost(hostname)) {
+    addCandidate(PRODUCTION_API_BASE_URL);
+  }
 
   const storedValidated = readStorage(STORAGE_KEYS.adminValidatedApiBaseUrl);
   const storedApi = readStorage(STORAGE_KEYS.adminApiBaseUrl);
@@ -127,6 +152,12 @@ export function collectApiBaseCandidates() {
 export function migrateLegacyStoredApiBase() {
   if (typeof window === "undefined") {
     return PRODUCTION_API_BASE_URL;
+  }
+
+  if (isLocalDevHost()) {
+    const sameOriginApi = resolveSameOriginApiBaseUrl() || "http://127.0.0.1:5000/api";
+    window.BYOSE_API_BASE_URL = sameOriginApi;
+    return persistResolvedApiBaseUrl(sameOriginApi);
   }
 
   const targets = [
@@ -224,6 +255,15 @@ export async function ensureUploadCapableApiBaseUrl(options = {}) {
 }
 
 export function resolveApiBaseUrl() {
+  if (isLocalDevHost()) {
+    const sameOriginApi = resolveSameOriginApiBaseUrl() || "http://127.0.0.1:5000/api";
+    activeApiBaseUrl = sameOriginApi;
+    if (typeof window !== "undefined") {
+      window.BYOSE_API_BASE_URL = sameOriginApi;
+    }
+    return sameOriginApi;
+  }
+
   migrateLegacyStoredApiBase();
 
   if (activeApiBaseUrl && isProductionApiBase(activeApiBaseUrl)) {
@@ -264,8 +304,8 @@ export function persistResolvedApiBaseUrl(value) {
   }
 
   const normalized = isLegacyApiBase(value)
-    ? PRODUCTION_API_BASE_URL
-    : normalizeApiBaseUrl(value) || PRODUCTION_API_BASE_URL;
+    ? (isLocalDevHost() ? (resolveSameOriginApiBaseUrl() || "http://127.0.0.1:5000/api") : PRODUCTION_API_BASE_URL)
+    : normalizeApiBaseUrl(value) || (isLocalDevHost() ? (resolveSameOriginApiBaseUrl() || "http://127.0.0.1:5000/api") : PRODUCTION_API_BASE_URL);
 
   activeApiBaseUrl = normalized;
 

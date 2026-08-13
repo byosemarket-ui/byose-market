@@ -53,6 +53,8 @@ function checkReviewPaymentUi() {
 
   const success = read('orders/order-success.js');
   assert(success.includes('renderShippingSummary'), 'Success page must reuse shipping summary with Maps');
+  assert(success.includes('verifyPaidStatus'), 'Success page must verify DPO payment status');
+  assert(success.includes('Payment Successful'), 'Success page must show paid confirmation after DPO');
 
   const account = read('account/orders/order-details.js');
   assert(account.includes('gps.googleMapsLink || gps.mapLink'), 'Account Maps link must fall back to mapLink');

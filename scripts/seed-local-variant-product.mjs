@@ -18,8 +18,11 @@ const variants = {
       id: 'white-with-grey-details-black',
       colorName: 'White with Grey Details & Black',
       image: '/img/logo.png',
-      sizes: [{ size: '42', value: '42', stock: 5, label: '42' }],
-      totalStock: 5
+      sizes: [
+        { size: '42', value: '42', stock: 5, label: '42' },
+        { size: '43', value: '43', stock: 5, label: '43' }
+      ],
+      totalStock: 10
     }
   ]
 };
@@ -29,8 +32,8 @@ const now = new Date().toISOString();
 if (existing) {
   db.prepare(`
     UPDATE products
-    SET name = ?, title = ?, stock = 5, price = 25000, old_price = 30000,
-        variants_json = ?, metadata_json = ?, visibility = 'published', status = 'active',
+    SET name = ?, title = ?, stock = 10, price = 25000, old_price = 30000,
+        variants_json = ?, metadata_json = ?, visibility = 'both', status = 'active',
         updated_at = ?
     WHERE catalog_id = ?
   `).run(name, name, JSON.stringify(variants), JSON.stringify({ colorVariants: variants.colorVariants }), now, catalogId);
@@ -41,7 +44,7 @@ if (existing) {
       catalog_id, category_id, category_slug, name, title, description, short_description,
       price, old_price, stock, image, main_image, variants_json, metadata_json,
       visibility, status, created_at, updated_at
-    ) VALUES (?, NULL, 'sneakers', ?, ?, '', '', 25000, 30000, 5, '/img/logo.png', '/img/logo.png', ?, ?, 'published', 'active', ?, ?)
+    ) VALUES (?, NULL, 'sneakers', ?, ?, '', '', 25000, 30000, 10, '/img/logo.png', '/img/logo.png', ?, ?, 'both', 'active', ?, ?)
   `).run(
     catalogId,
     name,
@@ -55,4 +58,4 @@ if (existing) {
 }
 
 db.close();
-console.log(JSON.stringify({ catalogId, name, colorId: 'white-with-grey-details-black', size: '42', stock: 5 }, null, 2));
+console.log(JSON.stringify({ catalogId, name, colorId: 'white-with-grey-details-black', size: '42', extraSize: '43', stock: 5 }, null, 2));

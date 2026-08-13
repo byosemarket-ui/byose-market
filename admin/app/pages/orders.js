@@ -261,15 +261,39 @@ function computeAllOrdersStats(orders = []) {
   return stats;
 }
 
+function isSettledPaidStatus(value) {
+  const status = String(value || "").trim().toLowerCase();
+  if (!status) return false;
+  if (
+    status.includes("unpaid")
+    || status.includes("awaiting")
+    || status.includes("pending")
+    || status.includes("fail")
+    || status.includes("cancel")
+    || status.includes("unsuccess")
+    || status.includes("invalid")
+    || status.includes("refund")
+  ) {
+    return false;
+  }
+  return status === "paid"
+    || status === "success"
+    || status === "successful"
+    || status === "completed"
+    || status === "complete"
+    || status === "payment_successful"
+    || status === "authorized";
+}
+
 function matchesPaymentStatusFilter(order, filter) {
   const raw = String(filter || "").trim().toLowerCase();
   if (!raw) return true;
   const value = String(order?.paymentStatusLabel || order?.paymentStatus || "").toLowerCase();
   if (raw === "paid") {
-    return value.includes("paid") || value.includes("success") || value.includes("complete") || value === "ok";
+    return isSettledPaidStatus(value);
   }
   if (raw === "pending") {
-    return value.includes("pending") || value.includes("awaiting") || value.includes("unpaid") || !value;
+    return !isSettledPaidStatus(value) && (value.includes("pending") || value.includes("awaiting") || value.includes("unpaid") || !value);
   }
   if (raw === "failed") {
     return value.includes("fail") || value.includes("decline") || value.includes("error");
@@ -445,7 +469,9 @@ function renderPriorityBadge(priority) {
 
 function statusTone(status) {
   const value = String(status || "").toLowerCase();
-  if (value.includes("deliver") || value.includes("complete") || value.includes("paid")) return "success";
+  if (value.includes("unpaid") || value.includes("awaiting") || value.includes("pending")) return "warn";
+  if (value.includes("fail") || value.includes("decline") || value.includes("error")) return "danger";
+  if (value.includes("deliver") || value.includes("complete") || isSettledPaidStatus(value)) return "success";
   if (value.includes("cancel") || value.includes("return") || value.includes("refund")) return "danger";
   if (value.includes("ship") || value.includes("confirm") || value.includes("pack") || value.includes("process")) return "warn";
   return "neutral";
@@ -1235,6 +1261,8 @@ const ALL_ORDERS_PROGRESS = [
 
 function resolveTransactionReference(order) {
   const payment = order?.payment && typeof order.payment === "object" ? order.payment : {};
+  const gateway = payment.gateway && typeof payment.gateway === "object" ? payment.gateway : {};
+  const transaction = payment.transaction && typeof payment.transaction === "object" ? payment.transaction : {};
   return String(
     order?.transactionId
     || order?.transactionReference
@@ -1245,6 +1273,9 @@ function resolveTransactionReference(order) {
     || payment.transactionId
     || payment.reference
     || payment.txRef
+    || transaction.reference
+    || gateway.transRef
+    || gateway.companyRef
     || ""
   ).trim() || "—";
 }
@@ -1322,9 +1353,7 @@ function resolveAllOrdersProgress(order) {
   const payment = String(order?.paymentStatusLabel || order?.paymentStatus || "").toLowerCase();
   const method = String(order?.paymentMethod || order?.paymentMethodLabel || "").toLowerCase();
   const cancelled = status.includes("cancel");
-  const paymentDone = payment.includes("paid")
-    || payment.includes("success")
-    || payment.includes("complete")
+  const paymentDone = isSettledPaidStatus(payment)
     || ((method.includes("cod") || method.includes("cash")) && (
       status.includes("confirm")
       || status.includes("process")

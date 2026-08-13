@@ -168,6 +168,7 @@ function postXmlRequest(apiBaseUrl, xmlBody, { timeoutMs = 20000 } = {}) {
             headers: {
                 'Content-Type': 'application/xml; charset=utf-8',
                 Accept: 'application/xml',
+                'User-Agent': 'BYOSE-Market/1.0 (DPO-TEST; +https://byosemarket.com)',
                 'Content-Length': payload.length
             },
             timeout: timeoutMs

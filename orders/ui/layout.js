@@ -18,9 +18,21 @@ function resolveProductImageSrc(product) {
   return resolveCheckoutAsset(resolveOrderItemImage(product));
 }
 
+function productIdentityLine(product) {
+  const productId = String(product.productId || product.id || '').trim();
+  const sku = String(product.variantSku || product.sku || '').trim();
+  const variantKey = String(product.variantKey || product.colorId || '').trim();
+  const parts = [];
+  if (productId) parts.push(`ID ${productId}`);
+  if (sku) parts.push(`SKU ${sku}`);
+  else if (variantKey) parts.push(variantKey);
+  return parts.join(' · ');
+}
+
 export function renderProductLine(product) {
   const img = resolveProductImageSrc(product);
   const meta = [product.colorName || product.color, product.sizeLabel || product.size].filter(Boolean).join(' · ');
+  const identity = productIdentityLine(product);
   const qty = Math.max(1, Number(product.qty || product.quantity) || 1);
   const price = Number(product.price) || 0;
   const name = product.name || product.productName || 'Product';
@@ -31,6 +43,7 @@ export function renderProductLine(product) {
       <div class="ck-product-body">
         <h3>${escapeHtml(name)}</h3>
         ${meta ? `<p class="ck-product-meta">${escapeHtml(meta)}</p>` : ''}
+        ${identity ? `<p class="ck-product-ids">${escapeHtml(identity)}</p>` : ''}
         <p class="ck-product-qty">Qty: ${qty} · ${formatCurrency(price)} each</p>
       </div>
       <div class="ck-product-price">${formatCurrency(price * qty)}</div>
@@ -50,6 +63,7 @@ export function renderProductList(products, { editable = false } = {}) {
     const qty = Math.max(1, Number(product.qty || product.quantity) || 1);
     const img = resolveProductImageSrc(product);
     const meta = [product.colorName || product.color, product.sizeLabel || product.size].filter(Boolean).join(' · ');
+    const identity = productIdentityLine(product);
     const name = product.name || product.productName || 'Product';
 
     return `
@@ -58,6 +72,7 @@ export function renderProductList(products, { editable = false } = {}) {
         <div class="ck-product-body">
           <h3>${escapeHtml(name)}</h3>
           ${meta ? `<p class="ck-product-meta">${escapeHtml(meta)}</p>` : ''}
+          ${identity ? `<p class="ck-product-ids">${escapeHtml(identity)}</p>` : ''}
           <p class="ck-product-unit">${formatCurrency((Number(product.price) || 0))} each</p>
           <div class="ck-qty-controls">
             <button type="button" class="ck-qty-btn" data-qty-action="dec" data-id="${escapeHtml(product.id)}" data-variant="${escapeHtml(product.variantKey || '')}">−</button>

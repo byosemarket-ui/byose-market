@@ -41,6 +41,10 @@ a { color: var(--ck-accent); text-decoration: none; }
 }
 
 @media (min-width: 768px) {
+  .ck-shell { padding: 24px 24px 112px; }
+}
+
+@media (min-width: 900px) {
   .ck-shell { padding: 24px 24px 40px; }
 }
 
@@ -503,10 +507,15 @@ a { color: var(--ck-accent); text-decoration: none; }
 }
 
 .ck-product-meta,
+.ck-product-ids,
 .ck-product-qty {
   margin: 2px 0 0;
   font-size: 12px;
   color: var(--ck-muted);
+}
+
+.ck-product-ids {
+  color: #8a9399;
 }
 
 .ck-product-price {

@@ -102,7 +102,13 @@ function activityRows(activity = []) {
               <td>${escapeHtml(row.customerName || "—")}</td>
               <td>${money(row.amount, row.currency)}</td>
               <td>
-                <span class="admin-profile-chip admin-profile-chip-${String(row.paymentStatus || "").includes("paid") ? "success" : (String(row.paymentStatus || "").includes("fail") || String(row.paymentStatus || "").includes("cancel") ? "danger" : "warn")}">
+                <span class="admin-profile-chip admin-profile-chip-${(() => {
+                  const status = String(row.paymentStatus || "").toLowerCase();
+                  if (status.includes("unpaid") || status.includes("awaiting") || status.includes("pending")) return "warn";
+                  if (status === "paid" || status === "success" || status === "successful") return "success";
+                  if (status.includes("fail") || status.includes("cancel") || status.includes("decline")) return "danger";
+                  return "warn";
+                })()}">
                   ${escapeHtml(row.paymentStatusLabel || row.paymentStatus || "—")}
                 </span>
               </td>

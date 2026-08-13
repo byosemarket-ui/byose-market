@@ -27,6 +27,8 @@ function checkSourceGuards() {
   const cart = read('services/byose-cart.js');
   assert(cart.includes("syncPatch?.({ directCheckout: null })"), 'proceedToCheckout must clear directCheckout');
   assert(cart.includes('Only ${limitLabel} available in stock'), 'add() must reject silent stock clamps');
+  assert(cart.includes('resolveLineStockFromCatalog'), 'catalog sync must use variant stock, not product-level stock');
+  assert(cart.includes('Incomplete catalog snapshots must not wipe'), 'missing catalog rows must not mark cart unavailable');
 
   const order = read('orders/core/order.js');
   assert(order.includes('STORAGE_KEYS.checkoutActive'), 'submitOrder must clear checkoutActive');

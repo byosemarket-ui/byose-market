@@ -187,7 +187,7 @@ function applyPositionToState(position) {
 /**
  * ONE authoritative Continue → Review handler.
  * Path: validate → save commit → verify → navigate.
- * GPS / landmark / quote never block.
+ * GPS / landmark / quote never blocks. Continue is never awaited on GPS or shipping quotes.
  */
 function handleContinue(event) {
   event?.preventDefault?.();

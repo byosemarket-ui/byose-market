@@ -1,6 +1,7 @@
 .env
 backend/.env
 admin/admin-login/.env
+.env.dpo.local
 *.enc
 server/secure/*
 !server/secure/.gitkeep

@@ -228,6 +228,15 @@ async function createFixtureOrder(orderId) {
     return orderId;
 }
 
+async function verifyPaidStatusMatching() {
+    const { isSettledPaidStatus } = require('../server/payments/payment-status');
+    assert(isSettledPaidStatus('paid') === true, 'paid should be settled');
+    assert(isSettledPaidStatus('unpaid') === false, 'unpaid must not match paid');
+    assert(isSettledPaidStatus('awaiting_payment') === false, 'awaiting_payment must not match paid');
+    assert(isSettledPaidStatus('failed') === false, 'failed must not match paid');
+    assert(isSettledPaidStatus('cancelled') === false, 'cancelled must not match paid');
+}
+
 async function verifyClientHelpers() {
     const dpoClient = require('../server/payments/dpo/client');
     const { extractTag, redactXmlSecrets } = require('../server/payments/dpo/xml');
@@ -277,6 +286,13 @@ async function verifyServiceFlows() {
     assert(String(paidOrder.paymentStatus).toLowerCase() === 'paid', 'persisted paymentStatus paid');
     assert(paidOrder.payment?.gateway?.provider === 'dpo', 'gateway provider missing');
     assert(paidOrder.payment?.gateway?.mode === 'test', 'gateway mode should be test');
+    assert(
+        paidOrder.payment?.gateway?.transRef === 'REF123'
+        || paidOrder.payment?.transaction?.reference === 'REF123'
+        || paidOrder.paymentReference === 'REF123'
+        || paidOrder.transactionReference === 'REF123',
+        'paid order must store DPO transRef for Admin'
+    );
     assertNoSecretLeak(paidOrder.payment, 'saved order payment');
 
     // Failed path
@@ -286,6 +302,8 @@ async function verifyServiceFlows() {
     await dpoPaymentService.initiatePayment({ orderId: failId, req: { get: () => '', protocol: 'http' } });
     const failed = await dpoPaymentService.verifyAndUpdateOrder({ orderId: failId, req: { get: () => '', protocol: 'http' } });
     assert(failed.outcome === 'failed', 'failed outcome expected');
+    const failedOrder = await orderDataService.findOrderByIdentifier(failId);
+    assert(String(failedOrder.paymentStatus).toLowerCase() !== 'paid', 'failed payment must not persist as paid');
 
     // Cancelled path (back URL)
     installDpoMock('success');
@@ -298,6 +316,8 @@ async function verifyServiceFlows() {
         req: { get: () => '', protocol: 'http' }
     });
     assert(cancelled.outcome === 'cancelled', 'cancelled outcome expected');
+    const cancelledOrder = await orderDataService.findOrderByIdentifier(cancelId);
+    assert(String(cancelledOrder.paymentStatus).toLowerCase() !== 'paid', 'cancelled payment must not persist as paid');
 
     // Invalid token path
     installDpoMock('invalid');
@@ -397,6 +417,9 @@ async function main() {
     const { connectDatabase } = require('../server/database');
     await connectDatabase();
     await seedTestCredentials();
+
+    await verifyPaidStatusMatching();
+    console.log('[verify-dpo-payment-test] paid-status matching OK');
 
     await verifyClientHelpers();
     console.log('[verify-dpo-payment-test] client helpers OK');

@@ -3,6 +3,8 @@
  * Guest: localStorage | Logged-in: storefront state sync
  */
 
+import { getStockForColorSize, isColorSizeInventory } from '../js/color-variant-inventory.js';
+
 const CART_KEY = 'byose_market_cart_v1';
 const SAVED_KEY = 'byose_market_saved_v1';
 const CHECKOUT_KEY = 'byose_checkout_active_v1';
@@ -111,6 +113,34 @@ function getStockLimit(item) {
     if (Number.isFinite(n) && n >= 0) return n;
   }
   return Number.POSITIVE_INFINITY;
+}
+
+function findCatalogProduct(catalogMap, item) {
+  const keys = [
+    String(item?.productId || '').trim(),
+    String(item?.id || '').trim(),
+    String(item?.catalogId || '').trim()
+  ].filter(Boolean);
+  for (const key of keys) {
+    if (catalogMap.has(key)) return catalogMap.get(key);
+  }
+  return null;
+}
+
+function resolveLineStockFromCatalog(product, item) {
+  if (product && isColorSizeInventory(product)) {
+    const colorId = String(item?.colorId || item?.variantSelection?.colorId || item?.attributes?.Color || '').trim();
+    const sizeValue = String(item?.sizeValue || item?.variantSelection?.sizeValue || item?.attributes?.Size || '').trim();
+    const variantStock = getStockForColorSize(product, colorId, sizeValue);
+    if (Number.isFinite(variantStock)) {
+      return variantStock;
+    }
+  }
+  const productStock = getStockLimit(product);
+  if (Number.isFinite(productStock) && productStock !== Number.POSITIVE_INFINITY) {
+    return productStock;
+  }
+  return getStockLimit(item);
 }
 
 function normalizeAvailability(status, stock) {
@@ -474,20 +504,34 @@ const ByoseCart = {
   applyCatalogUpdates(products = []) {
     if (!Array.isArray(products) || !products.length) return this.getItems();
 
-    const catalogMap = new Map(
-      products.map((p) => [String(p.id || p.catalogId || p._id), p])
-    );
+    const catalogMap = new Map();
+    products.forEach((p) => {
+      ['id', 'catalogId', '_id'].forEach((key) => {
+        const value = String(p?.[key] || '').trim();
+        if (value && !catalogMap.has(value)) catalogMap.set(value, p);
+      });
+    });
 
     const items = this.getItems().map((item) => {
-      const product = catalogMap.get(String(item.productId));
+      const product = findCatalogProduct(catalogMap, item);
+      // Incomplete catalog snapshots must not wipe a valid selected variant.
       if (!product) {
-        return normalizeLine({ ...item, unavailable: true, availability: 'unavailable' });
+        return item;
       }
 
-      const price = Number(product.price ?? product.discountPrice ?? item.price) || item.price;
+      const catalogPrice = Number(product.price ?? product.discountPrice);
+      const selectedPrice = Number(item.price);
+      // Keep the selected variant price. Product-level catalog price must not
+      // overwrite a valid line the customer already chose.
+      const price = Number.isFinite(selectedPrice) && selectedPrice > 0
+        ? selectedPrice
+        : (Number.isFinite(catalogPrice) && catalogPrice > 0 ? catalogPrice : selectedPrice || 0);
       const comparePrice = Number(product.comparePrice ?? product.oldPrice ?? 0) || 0;
-      const stock = getStockLimit(product);
-      const availability = normalizeAvailability(product.availability, stock);
+      const stock = resolveLineStockFromCatalog(product, item);
+      const availability = normalizeAvailability(
+        Number.isFinite(stock) ? '' : product.availability,
+        stock
+      );
       const priceChanged = Math.round(price) !== Math.round(item.price);
 
       const colorImage = item.colorImage || item.variantSelection?.colorImage || '';

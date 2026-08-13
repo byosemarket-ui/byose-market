@@ -7,6 +7,7 @@ const { getRepositoryBundle } = require('../repositories');
 const { notifyOrderConfirmed, notifyOrderStatusChanged: notifyOrderStatusEmail } = require('../utils/notifications');
 const notificationEngine = require('../services/notification-engine.service');
 const { normalizeRwandaPhone, isValidRwandaPhone: isValidSharedRwandaPhone } = require('../utils/phone');
+const { isSettledPaidStatus } = require('../payments/payment-status');
 
 const DELIVERY_FEE = 2000;
 const COD_FEE = 0;
@@ -445,10 +446,7 @@ function applyCancellationMetadata(order, meta = {}) {
     const reason = normalizeText(meta.reason || meta.cancellationReason || meta.note)
         || (actor.toLowerCase() === 'customer' ? 'Cancelled by customer' : 'Cancelled by administrator');
     const paymentStatus = normalizeText(order.paymentStatus || order.payment?.status).toLowerCase();
-    const wasPaid = paymentStatus.includes('paid')
-        || paymentStatus.includes('confirm')
-        || paymentStatus.includes('complete')
-        || paymentStatus.includes('success');
+    const wasPaid = isSettledPaidStatus(paymentStatus);
 
     order.cancelledAt = timestamp;
     order.cancelledBy = actor;

@@ -77,20 +77,18 @@ async function completeDpoSandboxPayment(page, paymentUrl) {
   // DPO defaults to Mobile Money — switch to card tab.
   const cardTab = page.locator('#cerditcarAtag, a.nav-link:has-text("DEBIT/CREDIT CARD")').first();
   await cardTab.click({ force: true });
-  await page.waitForSelector('#TRANSCreditnum', { state: 'visible', timeout: 30000 });
+  await page.evaluate(() => {
+    const tab = document.getElementById('cerditcarAtag');
+    if (tab) tab.click();
+  });
+  await page.waitForSelector('#TRANSCreditnum', { state: 'attached', timeout: 30000 });
   await page.waitForTimeout(500);
 
-  await page.fill('#TRANScardholdername', '');
-  await page.locator('#TRANScardholdername').pressSequentially(DPO_TEST_CARD.name, { delay: 40 });
-  await page.fill('#TRANSCreditnum', '');
-  await page.locator('#TRANSCreditnum').pressSequentially(DPO_TEST_CARD.number, { delay: 20 });
+  await page.locator('#TRANScardholdername').fill(DPO_TEST_CARD.name, { force: true });
+  await page.locator('#TRANSCreditnum').fill(DPO_TEST_CARD.number, { force: true });
   await page.selectOption('#TRANSexpiryM', '12');
   await page.selectOption('#TRANSexpiryY', '2030');
-  await page.fill('#TRANScvv', '');
-  await page.locator('#TRANScvv').pressSequentially(DPO_TEST_CARD.cvv, { delay: 30 });
-  await page.locator('#TRANScardholdername').blur();
-  await page.locator('#TRANSCreditnum').blur();
-  await page.locator('#TRANScvv').blur();
+  await page.locator('#TRANScvv').fill(DPO_TEST_CARD.cvv, { force: true });
   await page.waitForTimeout(400);
 
   const termsVisible = page.locator('#terms-approval_creditcard').filter({ visible: true }).last();
@@ -152,26 +150,86 @@ async function completeDpoSandboxPayment(page, paymentUrl) {
   }
 }
 
+const VIEWPORTS = {
+  buyNow: { width: 390, height: 844, isMobile: true, hasTouch: true },
+  addToCart: { width: 768, height: 1024, isMobile: true, hasTouch: true },
+  desktop: { width: 1280, height: 800, isMobile: false, hasTouch: false }
+};
+
+async function selectVariantInModal(page) {
+  await page.waitForSelector('.product-config-modal.is-open, [data-config-submit-action]', { timeout: 30000 });
+  const color = page.locator('.pcm-color-tile:not(.is-disabled)').first();
+  if (await color.count()) {
+    await color.click({ force: true });
+  }
+  const size = page.locator('.pcm-size-chip:not(.is-disabled)').first();
+  if (await size.count()) {
+    await size.click({ force: true });
+  }
+}
+
+async function startFromProductDetails(page, flow, payload) {
+  await page.goto(`${SITE}/details/product-details1.html?id=${encodeURIComponent(payload.id)}&cb=${Date.now()}`, {
+    waitUntil: 'domcontentloaded',
+    timeout: 120000
+  });
+  await page.waitForFunction(() => {
+    const title = document.getElementById('productName')?.textContent || '';
+    const missing = /product not found/i.test(document.body?.innerText || '');
+    return missing || (title.trim() && title.trim() !== 'Product Name');
+  }, { timeout: 60000 });
+  const bodyText = await page.locator('body').innerText();
+  if (/product not found/i.test(bodyText)) {
+    throw new Error(`${flow}: product ${payload.id} not found on Product Details`);
+  }
+
+  const sticky = flow === 'buyNow' ? page.locator('#stickyBuyNowBtn') : page.locator('#stickyAddToCartBtn');
+  const primary = flow === 'buyNow' ? page.locator('#buyNowBtn') : page.locator('#addToCartBtn');
+  if (await sticky.isVisible().catch(() => false)) {
+    await sticky.click({ force: true });
+  } else {
+    await primary.click({ force: true });
+  }
+
+  if (await page.locator('[data-config-submit-action]').count()) {
+    await selectVariantInModal(page);
+    const submit = page.locator(`[data-config-submit-action="${flow === 'buyNow' ? 'buy' : 'add'}"]`).first();
+    await submit.click({ force: true });
+  }
+
+  if (flow === 'buyNow') {
+    await page.waitForURL(/orders\/shipping\.html/i, { timeout: 60000 });
+    return;
+  }
+
+  await page.waitForTimeout(800);
+  await page.goto(`${SITE}/cart.html?cb=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  const cartText = await page.locator('#cartItems').innerText();
+  const sizeHint = String(payload.sizeLabel || payload.sizeValue || '');
+  if (sizeHint && !cartText.includes(sizeHint) && !/Size/i.test(cartText)) {
+    throw new Error(`${flow}: cart missing size ${sizeHint}: ${cartText.slice(0, 300)}`);
+  }
+  const checkoutBtn = page.locator('#checkoutBtn, #stickyCheckoutBtn').first();
+  await checkoutBtn.click({ force: true });
+  await page.waitForURL(/orders\/shipping\.html/i, { timeout: 60000 });
+}
+
 async function runFlow(browser, flow, payload) {
+  const viewport = VIEWPORTS[flow] || VIEWPORTS.desktop;
   const context = await browser.newContext({
-    viewport: { width: 390, height: 844 },
-    isMobile: true,
-    hasTouch: true
+    viewport: { width: viewport.width, height: viewport.height },
+    isMobile: viewport.isMobile,
+    hasTouch: viewport.hasTouch
   });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (err) => errors.push(err.message));
 
-  await context.addInitScript(({ flowName, item }) => {
-    // Seed once per browser context — window flags reset on every navigation,
-    // which previously wiped confirmation on DPO → Success return.
+  await context.addInitScript(() => {
     try {
       if (sessionStorage.getItem('__byose_prod_e2e_seeded') === '1') return;
       sessionStorage.setItem('__byose_prod_e2e_seeded', '1');
-    } catch {
-      if (window.__byoseProdE2eSeeded) return;
-      window.__byoseProdE2eSeeded = true;
-    }
+    } catch {}
     localStorage.removeItem('byose_checkout_draft_v1');
     localStorage.removeItem('byose_checkout_confirmation_v1');
     localStorage.removeItem('byose_market_cart_v1');
@@ -182,20 +240,20 @@ async function runFlow(browser, flow, payload) {
       sessionStorage.removeItem('byose_checkout_step1_commit_v1');
       sessionStorage.removeItem('byose_checkout_confirmation_v1');
     } catch {}
-    if (flowName === 'buyNow') {
-      localStorage.setItem('byose_direct_checkout', JSON.stringify(item));
-    } else {
-      const cartItem = { ...item, lineId: `${item.id}::${item.variantKey || 'default'}`, selected: true };
-      localStorage.setItem('byose_market_cart_v1', JSON.stringify([cartItem]));
-      localStorage.setItem('byose_checkout_active_v1', JSON.stringify([cartItem]));
-    }
-  }, { flowName: flow, item: payload });
-
-  await page.goto(`${SITE}/orders/shipping.html?cb=${Date.now()}`, {
-    waitUntil: 'domcontentloaded',
-    timeout: 120000
   });
+
+  await startFromProductDetails(page, flow, payload);
+  if (!/shipping\.html/i.test(page.url())) {
+    throw new Error(`${flow}: expected shipping after product action, landed on ${page.url()}`);
+  }
   await page.waitForFunction(() => window.__ckStep === 'shipping', { timeout: 60000 });
+  const shippingHtml = await page.content();
+  if (/Delivery Method|Home Delivery|Choose delivery option/i.test(shippingHtml)) {
+    throw new Error(`${flow}: Delivery Method section still present on shipping`);
+  }
+  if (!/Landmark \/ Note/i.test(shippingHtml) || !/\(optional\)/i.test(shippingHtml)) {
+    throw new Error(`${flow}: Landmark/GPS optional labeling missing`);
+  }
   for (const [name, value] of Object.entries(SHIPPING)) {
     // eslint-disable-next-line no-await-in-loop
     await page.fill(`input[name="${name}"]`, value);
@@ -209,12 +267,23 @@ async function runFlow(browser, flow, payload) {
   await page.waitForFunction(() => window.__ckStep === 'review', { timeout: 30000 });
   const summary = await page.locator('#shippingSummary').innerText();
   const productText = await page.locator('#productList').innerText();
+  const reviewTotals = await page.locator('#totalsBlock .ck-totals').innerText();
+  if (/3,?500/.test(reviewTotals)) {
+    throw new Error(`${flow}: Review still includes 3,500 RWF: ${reviewTotals}`);
+  }
+  if (!/2,?000/.test(reviewTotals)) {
+    throw new Error(`${flow}: Review missing 2,000 RWF delivery fee: ${reviewTotals}`);
+  }
 
   await page.evaluate(() => {
     document.getElementById('reviewContinueBtn')?.click();
   });
   await page.waitForURL(/payment\.html/, { timeout: 60000 });
   await page.waitForFunction(() => window.__ckStep === 'payment', { timeout: 30000 });
+  const paymentTotals = await page.locator('#totalsBlock .ck-totals, .ck-payment-totals .ck-totals, .ck-totals').first().innerText().catch(() => '');
+  if (/3,?500/.test(paymentTotals)) {
+    throw new Error(`${flow}: Payment still includes 3,500 RWF: ${paymentTotals}`);
+  }
 
   let createdOrderId = '';
   let orderError = '';
@@ -323,7 +392,7 @@ async function runFlow(browser, flow, payload) {
   await completeDpoSandboxPayment(page, paymentUrl);
 
   const successText = await page.locator('body').innerText();
-  const successOk = /Order Placed!/i.test(successText) && successText.includes(createdOrderId);
+  const successOk = /Order Placed!|Payment Successful!/i.test(successText) && successText.includes(createdOrderId);
 
   // Confirm backend paid status as well.
   const verified = await fetch(`${SITE}/api/payments/dpo/verify`, {
@@ -346,6 +415,7 @@ async function runFlow(browser, flow, payload) {
 
   return {
     flow,
+    viewport: `${viewport.width}x${viewport.height}`,
     orderId: createdOrderId,
     initiateOk,
     summary: summary.slice(0, 180),
@@ -364,14 +434,20 @@ if (inStock.length < 1) {
 }
 
 inStock.sort((a, b) => maxVariantStock(b) - maxVariantStock(a));
+const auditProduct = inStock.find((row) => (
+  /PRECIOUS|Breathable Sports Walking Sneakers/i.test(String(row.name || ''))
+  || String(row.id) === '12012'
+  || String(row.catalogId) === '12012'
+)) || inStock[0];
 
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  channel: process.env.BYOSE_PW_CHANNEL || 'chrome'
+});
 const results = [];
 
-const buyNowProduct = inStock[0];
-const addToCartProduct = inStock.find((row) => String(row.id) !== String(buyNowProduct.id) && maxVariantStock(row) > 0)
-  || inStock[1]
-  || inStock[0];
+const buyNowProduct = auditProduct;
+const addToCartProduct = auditProduct;
 const flowFilter = String(process.env.BYOSE_E2E_FLOW || '').trim();
 const flows = [
   { name: 'buyNow', product: buyNowProduct },
