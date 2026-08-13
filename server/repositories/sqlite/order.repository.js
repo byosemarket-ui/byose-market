@@ -338,6 +338,21 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
         txn();
         return existing;
     }
+
+    async listForAdminPaymentActivity({ mode = 'live', limit = 12 } = {}) {
+        const resolvedMode = this.normalizeText(mode, 'live').toLowerCase() === 'test' ? 'test' : 'live';
+        const cap = Math.max(1, Math.min(200, Number(limit) || 12));
+        const rows = this.db.prepare(`
+            SELECT *
+            FROM orders
+            WHERE lower(coalesce(json_extract(payment_json, '$.gateway.mode'), '')) = ?
+               OR json_extract(payment_json, '$.gateway.serviceType') = ?
+            ORDER BY datetime(coalesce(updated_at, created_at)) DESC
+            LIMIT ?
+        `).all(resolvedMode, resolvedMode === 'live' ? '112815' : '54841', cap);
+        const itemLookup = this.loadItems(rows.map((row) => Number(row.id)));
+        return rows.map((row) => this.mapOrderRow(row, itemLookup.get(Number(row.id)) || []));
+    }
 }
 
 module.exports = new SQLiteOrderRepository();

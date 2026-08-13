@@ -95,9 +95,10 @@ function officialLiveEndpointsOk(liveEndpoints = {}) {
 
 function areLivePaymentRoutesReady() {
     try {
-        const dpoPaymentService = require('./dpopayment.service');
-        return typeof dpoPaymentService.initiatePayment === 'function'
-            && typeof dpoPaymentService.verifyAndUpdateOrder === 'function';
+        const fs = require('fs');
+        const path = require('path');
+        return fs.existsSync(path.join(__dirname, '../routes/dpopayments.js'))
+            && fs.existsSync(path.join(__dirname, './dpopayment.service.js'));
     } catch (_error) {
         return false;
     }
@@ -577,7 +578,6 @@ async function getAdminPaymentSettings() {
         connection: buildConnectionStatus(view),
         activity,
         activityStats: stats,
-        lastTest: sanitizeLastTest(config.lastTest),
         capabilities: {
             canTestConnection: Boolean(liveProvider?.credentials?.test?.ready),
             supportsLiveMode: true,
@@ -721,6 +721,10 @@ function summarizePaymentActivityRow(order) {
     const status = normalizeText(order.paymentStatus || order.payment?.status, 'pending').toLowerCase();
     const method = normalizeText(order.paymentMethod || order.payment?.method);
     const storedMode = normalizeText(gateway.mode).toLowerCase();
+    const serviceType = normalizeText(gateway.serviceType);
+    const resolvedMode = storedMode === 'live' || serviceType === '112815'
+        ? 'live'
+        : (storedMode === 'test' || serviceType === '54841' ? 'test' : 'live');
     const paymentReference = normalizeText(
         order.paymentReference
         || order.payment?.reference
@@ -740,7 +744,7 @@ function summarizePaymentActivityRow(order) {
         paymentStatusLabel: normalizeText(order.paymentStatusLabel || order.payment?.statusLabel, status),
         orderStatus: normalizeText(order.status || order.orderStatus),
         provider: normalizeText(gateway.provider || (isCodPaymentMethod(method) ? 'cod' : 'dpo')) || 'dpo',
-        mode: storedMode === 'live' || storedMode === 'test' ? storedMode : 'test',
+        mode: resolvedMode,
         paymentReference,
         transRef: normalizeText(gateway.transRef || order.transactionReference),
         outcome: normalizeText(gateway.lastOutcome),
@@ -755,11 +759,15 @@ function summarizePaymentActivityRow(order) {
 
 async function getRecentPaymentActivity({ limit = 12 } = {}) {
     try {
+        const { isLiveGatewayActivity } = require('../payments/dpo/test-history.classifier');
         const orderDataService = require('./orderdataservice');
-        const rows = await orderDataService.listAdminOrders({ limit: Math.max(40, limit * 3), page: 1 });
+        const rows = await orderDataService.listAdminPaymentActivity({
+            mode: 'live',
+            limit: Math.max(12, Math.min(200, Number(limit) || 12))
+        });
         const list = Array.isArray(rows) ? rows : [];
         return list
-            .filter((order) => isGatewayOrder(order))
+            .filter((order) => isLiveGatewayActivity(order) && isGatewayOrder(order))
             .slice(0, Math.max(1, Math.min(50, Number(limit) || 12)))
             .map(summarizePaymentActivityRow);
     } catch (_error) {
@@ -769,7 +777,7 @@ async function getRecentPaymentActivity({ limit = 12 } = {}) {
 
 async function getPaymentActivityStats() {
     try {
-        const activity = await getRecentPaymentActivity({ limit: 50 });
+        const activity = await getRecentPaymentActivity({ limit: 200 });
         const stats = {
             total: activity.length,
             paid: 0,

@@ -51,11 +51,15 @@ function checkSources() {
     assert(!admin.includes('testAdminPaymentConnection'), 'Admin page must not call the TEST probe from the UI');
     assert(admin.includes('window.confirm'), 'saving a LIVE Company Token needs confirmation');
     assert(admin.includes('mode: "live"'), 'Admin save must persist LIVE operating mode');
+    assert(admin.includes('No LIVE gateway payment activity yet'), 'Admin activity empty state must be LIVE-only');
+    assert(!admin.includes('Last TEST Probe'), 'Admin must not display Last TEST Probe');
 
     const settings = read('server/services/paymentsettings.service.js');
     assert(settings.includes("checkoutEnvironment: 'live'"), 'Admin capabilities must report LIVE checkout');
     assert(settings.includes("operatingMode: 'live'"), 'Admin capabilities must report LIVE operating mode');
     assert(settings.includes('LIVE Company Token is not configured'), 'incomplete LIVE must explain the missing token');
+    assert(settings.includes("mode: 'live'"), 'payment activity query must request LIVE records');
+    assert(settings.includes('listAdminPaymentActivity'), 'payment activity must use a dedicated LIVE query');
     assert(!/If LIVE credentials are missing, use TEST/i.test(settings), 'must not silently fall back from LIVE to TEST');
 
     const config = read('server/payments/dpo/config.js');
@@ -151,7 +155,7 @@ async function checkLiveOnlyControlFlow() {
         assert(String(saved.providers[0].credentials.live.fields.companyToken.hint).includes(liveToken.slice(-4)), 'LIVE token must be masked');
         assert(saved.capabilities.liveServiceType === '112815', 'LIVE Service Type must persist as 112815');
         assert(saved.capabilities.liveConfigurationComplete === true, 'LIVE configuration must be ready');
-        assert(saved.capabilities.liveCheckoutActive === true, 'LIVE checkout must activate when configuration is complete');
+        assert(saved.capabilities.liveCheckoutActive === true, `LIVE checkout must activate when configuration is complete (${saved.capabilities.liveActivationBlockedReason || 'no reason'})`);
         assert(/API\/v6/i.test(saved.capabilities.liveApiEndpoint || ''), 'LIVE API must be API v6');
         assert(/payv3\.php/i.test(saved.capabilities.livePaymentPageUrl || ''), 'LIVE payment URL must be payv3.php');
 
@@ -183,11 +187,12 @@ async function checkLiveOnlyControlFlow() {
         assert(disabled.capabilities.liveCheckoutActive === false, 'LIVE checkout must go inactive when online payments are off');
         const publicDisabled = await dpoConfig.getPublicCheckoutConfig();
         assert(publicDisabled.enabled === false, 'customer online checkout must be unavailable when payments are off');
+        assert(disabled.lastTest == null, 'Admin LIVE view must not include Last TEST Probe data');
 
         const activity = await paymentSettingsService.getRecentPaymentActivity({ limit: 5 });
         assert(Array.isArray(activity), 'historical payment activity must remain available');
         activity.forEach((row) => {
-            assert(row.mode === 'test' || row.mode === 'live', 'activity mode may still include historical TEST rows');
+            assert(row.mode === 'live', 'production payment activity must be LIVE-only');
             assert(!Object.prototype.hasOwnProperty.call(row, 'companyToken'), 'activity must not include Company Token');
         });
     } finally {

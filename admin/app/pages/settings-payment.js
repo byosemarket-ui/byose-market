@@ -96,7 +96,7 @@ function providerOptions(payment) {
 
 function activityRows(activity = []) {
   if (!activity.length) {
-    return emptyState("No gateway payment activity yet. Completed DPO checkouts will appear here.");
+                return emptyState("No LIVE gateway payment activity yet. Completed DPO LIVE checkouts will appear here.");
   }
 
   return `
@@ -302,7 +302,7 @@ function paymentMarkup(payment) {
 
         ${sectionCard(
           "Recent payment activity",
-          "Latest gateway payment attempts. Historical rows may still show earlier environments. New production transactions are recorded as LIVE.",
+          "Latest LIVE gateway payment attempts. TEST sandbox history is excluded from this production dataset.",
           `
             <div class="admin-delivery-coverage">
               <div class="admin-profile-meta-item"><span>Tracked</span><strong>${escapeHtml(stats.total || 0)}</strong></div>

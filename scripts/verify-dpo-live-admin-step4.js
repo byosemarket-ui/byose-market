@@ -215,7 +215,7 @@ async function checkAdminControlFlow() {
         const activity = await paymentSettingsService.getRecentPaymentActivity({ limit: 5 });
         assert(Array.isArray(activity), 'payment activity must remain available');
         activity.forEach((row) => {
-            assert(row.mode === 'test' || row.mode === 'live', 'activity mode must stay TEST or LIVE');
+            assert(row.mode === 'live', 'production payment activity must be LIVE-only');
             assert(!Object.prototype.hasOwnProperty.call(row, 'companyToken'), 'activity must not include Company Token');
         });
     } finally {
