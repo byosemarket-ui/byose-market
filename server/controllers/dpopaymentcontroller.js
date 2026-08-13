@@ -16,6 +16,9 @@ function customerSafePaymentMessage(error, statusCode) {
     if (code === 'DPO_PAYMENT_RATE_LIMITED' || code === 'RATE_LIMITED') {
         return error?.message || 'Too many payment attempts. Please retry shortly.';
     }
+    if (code === 'DPO_LIVE_NOT_CONFIGURED' || code === 'DPO_LIVE_NOT_ENABLED' || code === 'DPO_LIVE_CREDENTIAL_MIX') {
+        return 'Online payment is temporarily unavailable. Please try again or choose Cash on Delivery.';
+    }
     if (statusCode >= 500 || /^DPO_/.test(code)) {
         return 'Online payment is not available right now. Please try again shortly.';
     }

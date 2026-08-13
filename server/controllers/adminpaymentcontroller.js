@@ -120,8 +120,20 @@ exports.updatePayment = async (req, res) => {
             id: req.admin?.id,
             email: req.admin?.email
         });
-
-        await recordAudit(req, 'Payment settings updated', sanitizeAuditMeta(payment));
+        const auditEvents = Array.isArray(payment?.auditEvents) ? payment.auditEvents : [];
+        delete payment.auditEvents;
+        if (auditEvents.length) {
+            for (const event of auditEvents) {
+                await recordAudit(
+                    req,
+                    event.summary || 'Payment settings updated',
+                    event.meta && typeof event.meta === 'object' ? event.meta : sanitizeAuditMeta(payment),
+                    event.eventType || 'payment_settings_updated'
+                );
+            }
+        } else {
+            await recordAudit(req, 'Payment settings updated', sanitizeAuditMeta(payment));
+        }
         res.setHeader('Cache-Control', 'no-store');
         return res.status(200).json({
             success: true,

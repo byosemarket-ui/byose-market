@@ -1695,6 +1695,7 @@
 
 .admin-payment-activity-table {
   width: 100%;
+  min-width: 52rem;
   border-collapse: collapse;
   font-size: 0.86rem;
 }

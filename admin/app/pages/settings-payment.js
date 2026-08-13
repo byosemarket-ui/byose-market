@@ -99,33 +99,45 @@ function activityRows(activity = []) {
           <tr>
             <th>Order</th>
             <th>Customer</th>
+            <th>Method</th>
             <th>Amount</th>
-            <th>Status</th>
+            <th>Payment status</th>
             <th>Mode</th>
+            <th>Reference</th>
             <th>Updated</th>
           </tr>
         </thead>
         <tbody>
-          ${activity.map((row) => `
+          ${activity.map((row) => {
+            const status = String(row.paymentStatus || "").toLowerCase();
+            const statusTone = status.includes("unpaid") || status.includes("awaiting") || status.includes("pending")
+              ? "warn"
+              : (status === "paid" || status === "success" || status === "successful"
+                ? "success"
+                : (status.includes("fail") || status.includes("cancel") || status.includes("decline") ? "danger" : "warn"));
+            const mode = String(row.mode || "test").toLowerCase() === "live" ? "live" : "test";
+            const methodLabel = row.paymentMethodLabel || row.paymentMethod || "—";
+            const reference = row.transRef || row.paymentReference || "—";
+            return `
             <tr>
               <td><strong>${escapeHtml(row.orderId || "—")}</strong></td>
               <td>${escapeHtml(row.customerName || "—")}</td>
+              <td>${escapeHtml(methodLabel)}</td>
               <td>${money(row.amount, row.currency)}</td>
               <td>
-                <span class="admin-profile-chip admin-profile-chip-${(() => {
-                  const status = String(row.paymentStatus || "").toLowerCase();
-                  if (status.includes("unpaid") || status.includes("awaiting") || status.includes("pending")) return "warn";
-                  if (status === "paid" || status === "success" || status === "successful") return "success";
-                  if (status.includes("fail") || status.includes("cancel") || status.includes("decline")) return "danger";
-                  return "warn";
-                })()}">
+                <span class="admin-profile-chip admin-profile-chip-${statusTone}">
                   ${escapeHtml(row.paymentStatusLabel || row.paymentStatus || "—")}
                 </span>
               </td>
-              <td>${escapeHtml(String(row.mode || "test").toUpperCase())}</td>
+              <td>
+                <span class="admin-profile-chip ${mode === "live" ? "admin-profile-chip-success" : ""}">
+                  ${escapeHtml(mode.toUpperCase())}
+                </span>
+              </td>
+              <td>${escapeHtml(reference)}</td>
               <td>${escapeHtml(row.updatedAt ? new Date(row.updatedAt).toLocaleString() : "—")}</td>
-            </tr>
-          `).join("")}
+            </tr>`;
+          }).join("")}
         </tbody>
       </table>
     </div>
@@ -139,21 +151,27 @@ function paymentMarkup(payment) {
   const mode = payment?.mode === "live" ? "live" : "test";
   const encryption = payment?.encryption || {};
   const connection = payment?.connection || {};
-  const endpoints = active?.endpoints?.[mode] || {};
   const stats = payment?.activityStats || {};
   const lastTest = payment?.lastTest || {};
-  const checkoutEnvironment = String(payment?.capabilities?.checkoutEnvironment || "test").toLowerCase() === "live"
+  const checkoutEnvironment = String(payment?.capabilities?.checkoutEnvironment || mode).toLowerCase() === "live"
     ? "live"
     : "test";
-  const liveConfigured = Boolean(payment?.capabilities?.liveCredentialsConfigured);
-  const liveServiceType = String(payment?.capabilities?.liveServiceType || active?.credentials?.live?.fields?.serviceType?.value || "").trim();
+  const liveConfigured = Boolean(payment?.capabilities?.liveCredentialsStored || payment?.capabilities?.liveCredentialsConfigured);
+  const liveConfigurationComplete = Boolean(payment?.capabilities?.liveConfigurationComplete);
+  const liveServiceType = String(payment?.capabilities?.liveServiceType || "").trim();
   const liveApiEndpoint = String(payment?.capabilities?.liveApiEndpoint || active?.endpoints?.live?.apiBaseUrl || "").trim();
+  const livePaymentPageUrl = String(payment?.capabilities?.livePaymentPageUrl || active?.endpoints?.live?.paymentPageUrl || "").trim();
   const liveCheckoutActive = Boolean(payment?.capabilities?.liveCheckoutActive);
   const liveConnectionVerified = Boolean(payment?.capabilities?.liveConnectionVerified);
+  const liveBlockedReason = String(payment?.capabilities?.liveActivationBlockedReason || "").trim();
   const canTest = payment?.capabilities?.canTestConnection !== false;
-  const checkoutChipClass = checkoutEnvironment === "live" && !liveCheckoutActive
-    ? "admin-profile-chip-warn"
-    : "admin-profile-chip-success";
+  const liveTokenHint = active?.credentials?.live?.fields?.companyToken?.hint || "";
+  const checkoutChipClass = checkoutEnvironment === "live" && liveCheckoutActive
+    ? "admin-profile-chip-success"
+    : (checkoutEnvironment === "live" ? "admin-profile-chip-warn" : "");
+  const modeChipClass = mode === "live" ? "admin-profile-chip-success" : "";
+  const activeEndpointLabel = connection.activeEndpointLabel
+    || (mode === "live" ? "LIVE endpoint" : "TEST endpoint");
 
   return `
     <div class="admin-profile-page admin-payment-page" id="adminPaymentPage">
@@ -162,15 +180,21 @@ function paymentMarkup(payment) {
           <div class="admin-profile-hero-copy">
             <p class="admin-profile-kicker">Payment management</p>
             <h3>Payment Settings</h3>
-            <p class="admin-profile-username">Provider controls, secure credentials, connection health, and recent gateway activity</p>
+            <p class="admin-profile-username">LIVE payment control center for provider state, encrypted credentials, and production checkout</p>
             <div class="admin-profile-chip-row">
               ${statusChip(payment)}
-              <span class="admin-profile-chip">${escapeHtml(String(mode).toUpperCase())} operating</span>
+              <span class="admin-profile-chip ${modeChipClass}">${escapeHtml(String(mode).toUpperCase())} operating</span>
               <span class="admin-profile-chip ${checkoutChipClass}">
                 Checkout ${escapeHtml(checkoutEnvironment.toUpperCase())}${checkoutEnvironment === "live" && !liveCheckoutActive ? " inactive" : ""}
               </span>
-              <span class="admin-profile-chip ${liveConfigured ? "" : "admin-profile-chip-warn"}">
+              <span class="admin-profile-chip ${liveConfigured ? "admin-profile-chip-success" : "admin-profile-chip-warn"}">
                 LIVE credentials ${liveConfigured ? "stored" : "not configured"}
+              </span>
+              <span class="admin-profile-chip ${liveConfigurationComplete ? "admin-profile-chip-success" : "admin-profile-chip-warn"}">
+                LIVE configuration ${liveConfigurationComplete ? "ready" : "incomplete"}
+              </span>
+              <span class="admin-profile-chip ${liveCheckoutActive ? "admin-profile-chip-success" : "admin-profile-chip-warn"}">
+                LIVE checkout ${liveCheckoutActive ? "active" : "inactive"}
               </span>
               <span class="admin-profile-chip">${escapeHtml(active?.label || payment?.activeProvider || "No provider")}</span>
               <span class="admin-profile-chip ${active?.enabled === false ? "admin-profile-chip-danger" : "admin-profile-chip-success"}">
@@ -182,8 +206,9 @@ function paymentMarkup(payment) {
         <div class="admin-profile-hero-meta">
           <div class="admin-profile-meta-item"><span>Gateway</span><strong>${escapeHtml(active?.label || "—")}</strong></div>
           <div class="admin-profile-meta-item"><span>Operating mode</span><strong>${escapeHtml(String(mode).toUpperCase())}</strong></div>
-          <div class="admin-profile-meta-item"><span>Selected environment</span><strong>${escapeHtml(checkoutEnvironment.toUpperCase())}</strong></div>
-          <div class="admin-profile-meta-item"><span>LIVE credentials</span><strong>${liveConfigured ? "Stored" : "Not configured"}</strong></div>
+          <div class="admin-profile-meta-item"><span>Checkout environment</span><strong>${escapeHtml(checkoutEnvironment.toUpperCase())}</strong></div>
+          <div class="admin-profile-meta-item"><span>LIVE credentials</span><strong>${liveConfigured ? `Stored${liveTokenHint ? ` ${liveTokenHint}` : ""}` : "Not configured"}</strong></div>
+          <div class="admin-profile-meta-item"><span>LIVE configuration</span><strong>${liveConfigurationComplete ? "Ready" : "Incomplete"}</strong></div>
           <div class="admin-profile-meta-item"><span>LIVE checkout</span><strong>${liveCheckoutActive ? "Active" : "Inactive"}</strong></div>
           <div class="admin-profile-meta-item"><span>Online Payments</span><strong>${payment?.enabled ? "Enabled" : "Disabled"}</strong></div>
         </div>
@@ -196,16 +221,23 @@ function paymentMarkup(payment) {
           `
             <div class="admin-delivery-coverage">
               <div class="admin-profile-meta-item"><span>Operating mode</span><strong>${escapeHtml(String(mode).toUpperCase())}</strong></div>
-              <div class="admin-profile-meta-item"><span>LIVE credentials</span><strong>${liveConfigured ? "Stored" : "Not configured"}</strong></div>
+              <div class="admin-profile-meta-item"><span>LIVE credentials</span><strong>${liveConfigured ? `Stored${liveTokenHint ? ` ${liveTokenHint}` : ""}` : "Not configured"}</strong></div>
+              <div class="admin-profile-meta-item"><span>LIVE configuration</span><strong>${liveConfigurationComplete ? "Ready" : "Incomplete"}</strong></div>
               <div class="admin-profile-meta-item"><span>LIVE Service Type</span><strong>${escapeHtml(liveServiceType || "Not set")}</strong></div>
-              <div class="admin-profile-meta-item"><span>LIVE API endpoint</span><strong>${liveApiEndpoint ? "Configured" : "Not set"}</strong></div>
+              <div class="admin-profile-meta-item"><span>LIVE API endpoint</span><strong>${liveApiEndpoint ? escapeHtml(liveApiEndpoint) : "Not set"}</strong></div>
+              <div class="admin-profile-meta-item"><span>LIVE payment URL</span><strong>${livePaymentPageUrl ? escapeHtml(livePaymentPageUrl) : "Not set"}</strong></div>
               <div class="admin-profile-meta-item"><span>LIVE connection</span><strong>${liveConnectionVerified ? "Verified" : "Not yet verified"}</strong></div>
               <div class="admin-profile-meta-item"><span>LIVE checkout</span><strong>${liveCheckoutActive ? "Active" : "Inactive"}</strong></div>
               <div class="admin-profile-meta-item"><span>Encryption</span><strong>${encryption.configured ? "Ready" : "Missing"}</strong></div>
               <div class="admin-profile-meta-item"><span>TEST credentials</span><strong>${active?.credentials?.test?.ready ? "Complete" : "Incomplete"}</strong></div>
-              ${mode === "test" ? `<div class="admin-profile-meta-item"><span>TEST checkout ready</span><strong>${connection.checkoutReady ? "Yes" : "No"}</strong></div>` : `<div class="admin-profile-meta-item"><span>LIVE checkout ready</span><strong>${liveCheckoutActive ? "Yes" : "No"}</strong></div>`}
+              ${mode === "test"
+                ? `<div class="admin-profile-meta-item"><span>TEST checkout ready</span><strong>${connection.checkoutReady ? "Yes" : "No"}</strong></div>`
+                : `<div class="admin-profile-meta-item"><span>LIVE checkout ready</span><strong>${liveCheckoutActive ? "Yes" : "No"}</strong></div>`}
               <div class="admin-profile-meta-item"><span>Last TEST probe</span><strong>${lastTest.at ? (lastTest.success ? "Passed" : "Failed") : "Not run"}</strong></div>
             </div>
+            ${mode === "live" && !liveCheckoutActive && liveBlockedReason
+              ? `<p class="admin-profile-help is-error">${escapeHtml(liveBlockedReason)}</p>`
+              : ""}
             ${lastTest.at ? `
               <p class="admin-profile-help">
                 Last test ${escapeHtml(new Date(lastTest.at).toLocaleString())}
@@ -341,24 +373,25 @@ function paymentMarkup(payment) {
           `
             <div class="admin-delivery-coverage">
               <div class="admin-profile-meta-item">
-                <span>Encryption key</span>
-                <strong>${encryption.configured ? escapeHtml(encryption.source || "configured") : "Missing"}</strong>
+                <span>Encryption</span>
+                <strong>${encryption.configured ? "Ready" : "Missing"}</strong>
               </div>
               <div class="admin-profile-meta-item">
                 <span>Secret store</span>
-                <strong>${escapeHtml(encryption.storePath || "server/secure/payment-credentials.enc")}</strong>
+                <strong>${encryption.storeConfigured || encryption.configured ? "Configured" : "Not configured"}</strong>
               </div>
               <div class="admin-profile-meta-item">
                 <span>Active endpoint</span>
-                <strong>${escapeHtml(endpoints.apiBaseUrl || "—")}</strong>
+                <strong>${escapeHtml(activeEndpointLabel)}</strong>
               </div>
             </div>
             <p class="admin-profile-help">
-              Set <code>PAYMENT_ENCRYPTION_KEY</code> in the server <code>.env</code> (never commit it).
+              Set <code>PAYMENT_ENCRYPTION_KEY</code> in the server <code>.env</code> (never commit it). The key value is never displayed.
               Company Tokens are never returned by the API — only configured/hint status.
               When you change a Company Token, enter its matching Service Type ID in the same save.
               Keep TEST Service Type <code>54841</code> only on the TEST tab.
               LIVE Service Type must be <code>112815</code>.
+              Official LIVE payment URL is <code>payv3.php</code>.
             </p>
             ${!encryption.configured
               ? '<p class="admin-profile-help is-error">PAYMENT_ENCRYPTION_KEY is required before credentials can be saved.</p>'

@@ -542,10 +542,10 @@ async function verifyCheckoutUsesLiveWhenAdminModeIsLive() {
         assert(/payv3\.php/i.test(String(liveRuntime.endpoints.paymentPageUrl || '')), 'LIVE payment URL must be official payv3.php');
 
         const publicConfig = await dpoPaymentService.getPublicConfig();
-        assert(publicConfig.mode === 'live', 'public config reports the selected LIVE operating mode');
         assert(publicConfig.enabled === true, 'customer checkout must be enabled when LIVE is complete');
-        assert(publicConfig.liveAvailable === true, 'LIVE must be available when configured');
-        assert(publicConfig.liveCheckoutEnabled === true, 'LIVE checkout must be enabled when Operating Mode is LIVE');
+        assert(publicConfig.label === 'Pay Online', 'public checkout label must stay customer-safe');
+        assert(publicConfig.mode == null, 'public checkout must not expose Operating Mode');
+        assert(publicConfig.liveCheckoutEnabled == null, 'public checkout must not expose LIVE checkout flags');
         assertNoSecretLeak(publicConfig, 'public config while admin mode is live');
     } finally {
         await paymentSettingsService.updatePaymentSettings({
@@ -577,8 +577,10 @@ async function verifyHttpInProcess() {
         const configRes = await request(baseUrl, 'GET', '/api/payments/dpo/config');
         assert(configRes.status === 200 && configRes.json?.success, `config failed: ${configRes.raw}`);
         assertNoSecretLeak(configRes.json, 'public config');
-        assert(configRes.json.dpo?.mode === 'test', 'public config mode should be test');
-        assert(configRes.json.dpo?.liveAvailable === false, 'live should not be available');
+        assert(configRes.json.dpo?.label === 'Pay Online', 'public checkout label must stay customer-safe');
+        assert(configRes.json.dpo?.mode == null, 'public config must not expose Operating Mode');
+        assert(configRes.json.dpo?.liveAvailable == null, 'public config must not expose LIVE availability');
+        assert(configRes.json.dpo?.liveCheckoutEnabled == null, 'public config must not expose LIVE checkout flags');
 
         const orderId = `DPO-HTTP-${Date.now().toString().slice(-8)}`;
         await createFixtureOrder(orderId);

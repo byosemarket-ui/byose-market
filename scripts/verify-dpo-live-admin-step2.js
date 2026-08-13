@@ -174,8 +174,9 @@ async function checkAdminSaveReload() {
 
         const publicConfig = await dpoConfig.getPublicCheckoutConfig();
         assert(publicConfig.enabled === true, 'customer checkout must be on when LIVE is complete');
-        assert(publicConfig.mode === 'live', 'public config must report LIVE');
-        assert(publicConfig.liveCheckoutEnabled === true, 'public config must report LIVE checkout enabled');
+        assert(publicConfig.label === 'Pay Online', 'public checkout label must stay customer-safe');
+        assert(publicConfig.mode == null, 'public checkout must not expose Operating Mode');
+        assert(publicConfig.liveCheckoutEnabled == null, 'public checkout must not expose LIVE checkout flags');
         assert(!JSON.stringify(publicConfig).includes(liveToken), 'public config must not include LIVE Company Token');
         assert(!/"serviceType"\s*:\s*"/.test(JSON.stringify(publicConfig)), 'public config must not include Service Type');
 

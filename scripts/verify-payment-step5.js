@@ -83,12 +83,9 @@ async function checkPublicConfigHasNoSecrets() {
   const serialized = JSON.stringify(publicConfig);
   assert(!/"companyToken"\s*:\s*"[^"]+"/.test(serialized), 'public DPO config must not include companyToken');
   assert(!/"serviceType"\s*:\s*"/.test(serialized), 'public DPO config must not include serviceType value');
-  assert(['test', 'live'].includes(publicConfig.mode), `public checkout mode must be test or live, got ${publicConfig.mode}`);
-  if (publicConfig.mode === 'test') {
-    assert(publicConfig.liveCheckoutEnabled === false, 'TEST operating mode must not report LIVE checkout enabled');
-  } else {
-    assert(publicConfig.liveCheckoutEnabled === true, 'LIVE operating mode must report LIVE checkout enabled');
-  }
+  assert(publicConfig.label === 'Pay Online', 'public checkout label must stay customer-safe');
+  assert(publicConfig.mode == null, 'public checkout must not expose Operating Mode');
+  assert(publicConfig.liveCheckoutEnabled == null, 'public checkout must not expose LIVE checkout flags');
 }
 
 async function checkCatalogAmount() {

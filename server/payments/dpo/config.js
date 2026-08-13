@@ -42,7 +42,7 @@ function resolvePaymentPageUrl(configured) {
 
 function customerSafeMessage(mode) {
     if (mode === 'live') {
-        return 'Online payment is temporarily unavailable. Please try again shortly.';
+        return 'Online payment is temporarily unavailable. Please try again or choose Cash on Delivery.';
     }
     return 'Online payment is not available right now. Please try again shortly.';
 }
@@ -208,13 +208,16 @@ async function inspectEnvironmentStatus(mode) {
             mode
         });
         const companyToken = Boolean(normalizeText(runtime?.secrets?.companyToken));
-        const serviceType = Boolean(normalizeText(runtime?.secrets?.serviceType));
+        const serviceType = normalizeText(runtime?.secrets?.serviceType);
+        const serviceTypeOk = mode === 'live'
+            ? serviceType === LIVE_SERVICE_TYPE_ID
+            : Boolean(serviceType) && serviceType !== LIVE_SERVICE_TYPE_ID;
         return {
             mode,
             enabled: Boolean(runtime?.enabled),
-            configured: Boolean(companyToken && serviceType),
+            configured: Boolean(companyToken && serviceTypeOk),
             companyTokenConfigured: companyToken,
-            serviceTypeConfigured: serviceType
+            serviceTypeConfigured: Boolean(serviceType)
         };
     } catch (_error) {
         return {
@@ -293,13 +296,8 @@ async function getPublicCheckoutConfig() {
     }
 
     return {
-        provider: PROVIDER_ID,
-        mode: environment.mode,
         enabled,
-        label: 'Pay Online',
-        liveAvailable: environment.liveAvailable,
-        liveCheckoutEnabled: environment.liveCheckoutEnabled,
-        liveConfigured: liveStatus.configured
+        label: 'Pay Online'
     };
 }
 

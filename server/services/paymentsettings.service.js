@@ -7,6 +7,8 @@ const {
     listProviders
 } = require('../payments/providers/registry');
 const secretsStore = require('../payments/secrets.store');
+const { LIVE_SERVICE_TYPE_ID } = require('../payments/providers/dpo.provider');
+const { storefrontPaymentMethodLabel, isCodPaymentMethod } = require('../payments/storefront-methods');
 
 const MODULE_KEY = 'payment';
 const MODES = Object.freeze(['test', 'live']);
@@ -68,6 +70,147 @@ function maskSecretHint(value) {
     if (!text) return '';
     if (text.length <= 4) return '••••';
     return `••••${text.slice(-4)}`;
+}
+
+function sanitizeEncryptionStatus(raw = {}) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    return {
+        configured: Boolean(source.configured),
+        storeConfigured: Boolean(source.configured && source.storeReadable !== false),
+        keyName: source.configured ? 'PAYMENT_ENCRYPTION_KEY' : ''
+    };
+}
+
+function officialLiveEndpointsOk(liveEndpoints = {}) {
+    const api = normalizeText(liveEndpoints.apiBaseUrl);
+    const paymentPageUrl = normalizeText(liveEndpoints.paymentPageUrl);
+    return {
+        api,
+        paymentPageUrl,
+        apiOk: /secure\.3gdirectpay\.com\/API\/v6\/?$/i.test(api)
+            || /secure\.3gdirectpay\.com\/API\/v6/i.test(api),
+        paymentUrlOk: /payv3\.php/i.test(paymentPageUrl) && !/dpopayment\.php/i.test(paymentPageUrl)
+    };
+}
+
+function areLivePaymentRoutesReady() {
+    try {
+        const dpoPaymentService = require('./dpopayment.service');
+        return typeof dpoPaymentService.initiatePayment === 'function'
+            && typeof dpoPaymentService.verifyAndUpdateOrder === 'function';
+    } catch (_error) {
+        return false;
+    }
+}
+
+async function canLoadLiveBackendConfiguration() {
+    try {
+        const dpoConfig = require('../payments/dpo/config');
+        const runtime = await dpoConfig.getEnvironmentConfiguration('live');
+        return Boolean(
+            runtime?.mode === 'live'
+            && runtime?.secrets?.companyToken
+            && runtime?.secrets?.serviceType === LIVE_SERVICE_TYPE_ID
+            && /API\/v6/i.test(runtime?.endpoints?.apiBaseUrl || '')
+            && /payv3\.php/i.test(runtime?.endpoints?.paymentPageUrl || '')
+        );
+    } catch (_error) {
+        return false;
+    }
+}
+
+function liveActivationBlockedReason({
+    liveCredentialsStored,
+    liveServiceTypeOk,
+    endpointsOk,
+    encryptionOk,
+    providerEnabled,
+    onlineEnabled,
+    routesReady,
+    backendLoadable,
+    liveActivated
+}) {
+    if (liveActivated
+        && liveCredentialsStored
+        && liveServiceTypeOk
+        && endpointsOk
+        && encryptionOk
+        && providerEnabled
+        && onlineEnabled
+        && routesReady
+        && backendLoadable) {
+        return '';
+    }
+    if (!liveActivated) {
+        return 'Set Operating Mode to LIVE after saving complete LIVE credentials to activate customer LIVE checkout.';
+    }
+    if (!liveCredentialsStored) return 'Save the official LIVE Company Token before activating LIVE checkout.';
+    if (!liveServiceTypeOk) return 'LIVE Service Type must be 112815.';
+    if (!endpointsOk) return 'LIVE API endpoint and official payv3.php payment URL must be configured.';
+    if (!encryptionOk) return 'PAYMENT_ENCRYPTION_KEY must be configured before LIVE checkout can activate.';
+    if (!providerEnabled) return 'Enable the selected provider before LIVE checkout can activate.';
+    if (!onlineEnabled) return 'Enable online payments before LIVE checkout can activate.';
+    if (!routesReady) return 'Payment callback and verification routes are not available.';
+    if (!backendLoadable) return 'Backend could not load the LIVE configuration. LIVE will not fall back to TEST.';
+    return 'LIVE checkout is inactive until all activation requirements are met.';
+}
+
+function describePaymentSettingChanges(before = {}, after = {}, payload = {}) {
+    const events = [];
+    const beforeMode = getSelectedOperatingMode(before);
+    const afterMode = getSelectedOperatingMode(after);
+    if (beforeMode !== afterMode) {
+        events.push({
+            eventType: afterMode === 'live' ? 'payment_live_mode_enabled' : 'payment_live_mode_disabled',
+            summary: afterMode === 'live' ? 'LIVE mode enabled' : 'LIVE mode disabled',
+            meta: { from: beforeMode, to: afterMode }
+        });
+    }
+    if (Boolean(before.enabled) !== Boolean(after.enabled)) {
+        events.push({
+            eventType: after.enabled ? 'payment_online_enabled' : 'payment_online_disabled',
+            summary: after.enabled ? 'Online payments enabled' : 'Online payments disabled',
+            meta: { enabled: Boolean(after.enabled) }
+        });
+    }
+    const beforeProvider = before.providers?.[after.activeProvider] || before.providers?.[before.activeProvider] || {};
+    const afterProvider = after.providers?.[after.activeProvider] || {};
+    if (Boolean(beforeProvider.enabled !== false) !== Boolean(afterProvider.enabled !== false)) {
+        events.push({
+            eventType: afterProvider.enabled !== false ? 'payment_provider_enabled' : 'payment_provider_disabled',
+            summary: afterProvider.enabled !== false ? 'Payment provider enabled' : 'Payment provider disabled',
+            meta: { providerId: after.activeProvider || before.activeProvider || 'dpo' }
+        });
+    }
+    const liveCreds = payload?.credentials?.live && typeof payload.credentials.live === 'object'
+        ? payload.credentials.live
+        : {};
+    if (normalizeText(liveCreds.companyToken)) {
+        events.push({
+            eventType: 'payment_live_credentials_updated',
+            summary: 'LIVE credentials updated',
+            meta: { configured: true }
+        });
+    }
+    if (normalizeText(liveCreds.serviceType)) {
+        events.push({
+            eventType: 'payment_live_service_type_changed',
+            summary: 'LIVE Service Type changed',
+            meta: { serviceType: LIVE_SERVICE_TYPE_ID }
+        });
+    }
+    if (!events.length) {
+        events.push({
+            eventType: 'payment_settings_updated',
+            summary: 'Payment settings updated',
+            meta: {
+                enabled: Boolean(after.enabled),
+                mode: afterMode,
+                activeProvider: after.activeProvider || ''
+            }
+        });
+    }
+    return events;
 }
 
 function buildDefaultProvidersConfig() {
@@ -178,7 +321,7 @@ function buildCredentialStatus(provider, mode) {
 }
 
 function toAdminPaymentView(config) {
-    const encryption = secretsStore.getEncryptionStatus();
+    const encryption = sanitizeEncryptionStatus(secretsStore.getEncryptionStatus());
     const providers = listProviders().map((provider) => {
         const providerConfig = config.providers[provider.id] || provider.createDefaultConfig();
         return {
@@ -404,13 +547,42 @@ async function getAdminPaymentSettings() {
     const liveEndpoints = liveProvider?.endpoints?.live || {};
     const liveServiceType = normalizeText(liveCreds.fields?.serviceType?.value);
     const selectedMode = getSelectedOperatingMode(config);
-    const liveConfigured = Boolean(
-        liveCreds.ready
-        && liveEndpoints.apiBaseUrl
-        && liveEndpoints.paymentPageUrl
+    const liveCredentialsStored = Boolean(liveCreds.fields?.companyToken?.configured);
+    const liveServiceTypeOk = liveServiceType === LIVE_SERVICE_TYPE_ID;
+    const endpoints = officialLiveEndpointsOk(liveEndpoints);
+    const encryptionOk = Boolean(view.encryption?.configured);
+    const providerEnabled = liveProvider?.enabled !== false;
+    const liveConfigurationComplete = Boolean(
+        liveCredentialsStored
+        && liveServiceTypeOk
+        && endpoints.apiOk
+        && endpoints.paymentUrlOk
+        && encryptionOk
     );
     const liveActivated = isLiveCheckoutActivated(config);
-    const liveCheckoutActive = Boolean(liveActivated && liveConfigured && config.enabled);
+    const routesReady = areLivePaymentRoutesReady();
+    const backendLoadable = liveConfigurationComplete
+        ? await canLoadLiveBackendConfiguration()
+        : false;
+    const liveCheckoutActive = Boolean(
+        liveActivated
+        && liveConfigurationComplete
+        && config.enabled
+        && providerEnabled
+        && routesReady
+        && backendLoadable
+    );
+    const blockedReason = liveActivationBlockedReason({
+        liveCredentialsStored,
+        liveServiceTypeOk,
+        endpointsOk: endpoints.apiOk && endpoints.paymentUrlOk,
+        encryptionOk,
+        providerEnabled,
+        onlineEnabled: Boolean(config.enabled),
+        routesReady,
+        backendLoadable,
+        liveActivated
+    });
 
     return {
         ...view,
@@ -424,20 +596,20 @@ async function getAdminPaymentSettings() {
             operatingMode: selectedMode,
             liveCheckoutEnabled: liveActivated,
             checkoutEnvironment: selectedMode,
-            liveCredentialsConfigured: Boolean(liveCreds.ready),
-            liveConfigurationComplete: liveConfigured,
-            liveServiceType: liveServiceType,
-            liveApiEndpointConfigured: Boolean(liveEndpoints.apiBaseUrl),
-            liveApiEndpoint: normalizeText(liveEndpoints.apiBaseUrl),
-            livePaymentPageUrl: normalizeText(liveEndpoints.paymentPageUrl),
+            liveCredentialsConfigured: liveCredentialsStored,
+            liveCredentialsStored,
+            liveConfigurationComplete,
+            liveServiceType: liveServiceTypeOk ? LIVE_SERVICE_TYPE_ID : '',
+            liveServiceTypeOk,
+            liveApiEndpointConfigured: endpoints.apiOk,
+            liveApiEndpoint: endpoints.api,
+            livePaymentPageUrl: endpoints.paymentPageUrl,
+            livePaymentPageConfigured: endpoints.paymentUrlOk,
             liveConnectionVerified: false,
             liveCheckoutReady: liveCheckoutActive,
             liveCheckoutActive,
-            liveActivationBlockedReason: liveCheckoutActive
-                ? ''
-                : (liveActivated
-                    ? 'LIVE Operating Mode is selected, but LIVE credentials or online payments are not complete.'
-                    : 'Set Operating Mode to LIVE after saving complete LIVE credentials to activate customer LIVE checkout.'),
+            liveActivationBlockedReason: liveCheckoutActive ? '' : blockedReason,
+            paymentRoutesReady: routesReady,
             providerExtensible: true
         }
     };
@@ -538,7 +710,8 @@ function buildConnectionStatus(adminView) {
         onlineEnabled,
         checkoutReady: code === 'connected',
         liveConnectionVerified: false,
-        liveCheckoutActive: mode === 'live' && credentialsReady && onlineEnabled
+        liveCheckoutActive: mode === 'live' && credentialsReady && onlineEnabled && providerEnabled,
+        activeEndpointLabel: mode === 'live' ? 'LIVE endpoint' : 'TEST endpoint'
     };
 }
 
@@ -559,15 +732,30 @@ function summarizePaymentActivityRow(order) {
         ? order.payment.gateway
         : {};
     const status = normalizeText(order.paymentStatus || order.payment?.status, 'pending').toLowerCase();
+    const method = normalizeText(order.paymentMethod || order.payment?.method);
+    const storedMode = normalizeText(gateway.mode).toLowerCase();
+    const paymentReference = normalizeText(
+        order.paymentReference
+        || order.payment?.reference
+        || gateway.transRef
+        || order.transactionReference
+        || order.transactionId
+    );
     return {
         orderId: normalizeText(order.orderId || order.id),
         customerName: normalizeText(order.customerName || order.customer?.name, 'Customer'),
         amount: Number(order.totalAmount ?? order.total) || 0,
         currency: normalizeText(order.currency, 'RWF') || 'RWF',
+        paymentMethod: method,
+        paymentMethodLabel: storefrontPaymentMethodLabel(method, method || '—'),
+        usesDpo: Boolean(gateway.provider === 'dpo' || gateway.transToken) && !isCodPaymentMethod(method),
         paymentStatus: status,
         paymentStatusLabel: normalizeText(order.paymentStatusLabel || order.payment?.statusLabel, status),
-        provider: normalizeText(gateway.provider || order.paymentMethod, 'dpo') || 'dpo',
-        mode: normalizeText(gateway.mode, 'test') || 'test',
+        orderStatus: normalizeText(order.status || order.orderStatus),
+        provider: normalizeText(gateway.provider || (isCodPaymentMethod(method) ? 'cod' : 'dpo')) || 'dpo',
+        mode: storedMode === 'live' || storedMode === 'test' ? storedMode : 'test',
+        paymentReference,
+        transRef: normalizeText(gateway.transRef || order.transactionReference),
         outcome: normalizeText(gateway.lastOutcome),
         resultCode: normalizeText(gateway.lastResult),
         tokenHint: gateway.transToken
@@ -860,6 +1048,7 @@ async function updatePaymentSettings(payload = {}, admin = {}) {
         error.code = 'PAYMENT_ENABLED_PERSISTENCE_FAILED';
         throw error;
     }
+    confirmed.auditEvents = describePaymentSettingChanges(current, validated, source);
     return confirmed;
 }
 

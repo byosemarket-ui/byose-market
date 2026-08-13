@@ -144,9 +144,10 @@ async function checkLiveCheckoutActivation() {
         assert(!/dpopayment\.php/i.test(liveRuntime.endpoints.paymentPageUrl || ''), 'LIVE must not use dpopayment.php');
 
         const publicConfig = await dpoConfig.getPublicCheckoutConfig();
-        assert(publicConfig.mode === 'live', 'public checkout config must report LIVE');
         assert(publicConfig.enabled === true, 'public LIVE checkout must be enabled when configuration is complete');
-        assert(publicConfig.liveCheckoutEnabled === true, 'public config must report LIVE checkout enabled');
+        assert(publicConfig.label === 'Pay Online', 'public checkout label must stay customer-safe');
+        assert(publicConfig.mode == null, 'public checkout must not expose Operating Mode');
+        assert(publicConfig.liveCheckoutEnabled == null, 'public checkout must not expose LIVE checkout flags');
         assert(!JSON.stringify(publicConfig).includes(liveToken), 'public config must not include LIVE Company Token');
         assert(!/"serviceType"\s*:\s*"/.test(JSON.stringify(publicConfig)), 'public config must not include Service Type');
 
