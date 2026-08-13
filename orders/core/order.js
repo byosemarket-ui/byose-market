@@ -390,7 +390,7 @@ export async function initiateDpoPayment(orderId) {
   if (!response.ok || !payload?.success) {
     return {
       success: false,
-      message: payload?.message || `Unable to start DPO payment (${response.status})`,
+      message: payload?.message || `Unable to start online payment (${response.status})`,
       code: payload?.code || ''
     };
   }

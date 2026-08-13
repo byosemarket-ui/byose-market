@@ -2,7 +2,8 @@
  * DPO Pay checkout orchestration.
  * Flow: Create Token → Payment URL → Customer Payment → Verify Token → Order Update
  * Configuration (Company Token, Service Type, environment) comes from the DPO
- * config resolver. LIVE checkout is gated off until a later step.
+ * config resolver. The same service can run TEST or LIVE; the resolver selects
+ * the active environment. LIVE checkout stays gated off until a later step.
  */
 
 const orderDataService = require('./orderdataservice');
@@ -14,8 +15,6 @@ const { isSettledPaidStatus } = require('../payments/payment-status');
 const { isCodPaymentMethod, storefrontPaymentMethodLabel } = require('../payments/storefront-methods');
 
 const PROVIDER_ID = dpoConfig.PROVIDER_ID;
-const CHECKOUT_MODE = dpoConfig.CHECKOUT_MODE;
-const FORCED_MODE = CHECKOUT_MODE;
 const TOKEN_REUSE_MAX_MS = 20 * 60 * 60 * 1000;
 
 function normalizeText(value, fallback = '') {
@@ -129,6 +128,22 @@ async function loadCheckoutRuntime() {
     return dpoConfig.getActiveDpoConfiguration();
 }
 
+function storedGatewayMode(order) {
+    return normalizeText(order?.payment?.gateway?.mode).toLowerCase();
+}
+
+/**
+ * Verify and reuse tokens against the environment the payment was created in.
+ * Never substitute TEST credentials for a LIVE payment, or the reverse.
+ */
+async function loadRuntimeForOrder(order) {
+    const storedMode = storedGatewayMode(order);
+    if (storedMode === 'test' || storedMode === 'live') {
+        return dpoConfig.getEnvironmentConfiguration(storedMode);
+    }
+    return dpoConfig.getActiveDpoConfiguration();
+}
+
 function applyGatewayPaymentUpdate(order, {
     paymentStatus,
     paymentStatusLabel,
@@ -173,8 +188,8 @@ function applyGatewayPaymentUpdate(order, {
         gateway: {
             ...previousGateway,
             provider: PROVIDER_ID,
-            mode: normalizeText(gateway.mode, CHECKOUT_MODE) || CHECKOUT_MODE,
             ...gateway,
+            mode: normalizeText(gateway.mode) || normalizeText(previousGateway.mode),
             updatedAt: new Date().toISOString()
         },
         transaction: {
@@ -220,7 +235,7 @@ function sanitizePublicGateway(order) {
         : {};
     return {
         provider: PROVIDER_ID,
-        mode: normalizeText(gateway.mode, CHECKOUT_MODE) || CHECKOUT_MODE,
+        mode: normalizeText(gateway.mode),
         companyRef: normalizeText(gateway.companyRef || order?.orderId || order?.id),
         hasTransToken: Boolean(gateway.transToken),
         transTokenHint: gateway.transToken ? `••••${String(gateway.transToken).slice(-4)}` : '',
@@ -292,11 +307,13 @@ async function initiatePayment({ orderId, req } = {}) {
         || currentStatus === 'pending'
         || currentStatus === '';
     const tokenFresh = Number.isFinite(initiatedAtMs) && (Date.now() - initiatedAtMs) < TOKEN_REUSE_MAX_MS;
+    const storedMode = storedGatewayMode(order);
+    const sameEnvironment = !storedMode || storedMode === normalizeText(runtime.mode).toLowerCase();
 
-    if (awaitingReuse && existingToken && existingUrl && tokenFresh) {
+    if (awaitingReuse && existingToken && existingUrl && tokenFresh && sameEnvironment) {
         appLogger.info('dpo.payment.initiate_reused', {
             orderId: id,
-            mode: runtime.mode || CHECKOUT_MODE
+            mode: runtime.mode
         });
         return {
             alreadyPaid: false,
@@ -361,7 +378,7 @@ async function initiatePayment({ orderId, req } = {}) {
 
     appLogger.info('dpo.payment.initiated', {
         orderId: id,
-        mode: runtime.mode || CHECKOUT_MODE,
+        mode: runtime.mode,
         previousPaymentStatus,
         hasPaymentUrl: Boolean(created.paymentUrl)
     });
@@ -392,7 +409,8 @@ async function persistVerifiedPayment(order, verified, token, req) {
             transactionAmount: verified.transactionAmount || '',
             transactionCurrency: verified.transactionCurrency || '',
             transactionApproval: verified.transactionApproval || '',
-            verifiedAt: new Date().toISOString()
+            verifiedAt: new Date().toISOString(),
+            mode: storedGatewayMode(order)
         }
     });
 
@@ -463,7 +481,7 @@ async function verifyAndUpdateOrder({
         const storedCancelToken = normalizeText(order.payment?.gateway?.transToken);
         if (storedCancelToken) {
             try {
-                const runtime = await loadCheckoutRuntime();
+                const runtime = await loadRuntimeForOrder(order);
                 const verifiedOnBack = await dpoClient.verifyToken({
                     companyToken: runtime.secrets.companyToken,
                     apiBaseUrl: runtime.endpoints.apiBaseUrl,
@@ -524,7 +542,7 @@ async function verifyAndUpdateOrder({
         };
     }
 
-    const runtime = await loadCheckoutRuntime();
+    const runtime = await loadRuntimeForOrder(order);
     const storedToken = normalizeText(order.payment?.gateway?.transToken);
     const token = normalizeText(transactionToken) || storedToken;
 
@@ -607,13 +625,11 @@ async function notifyPaymentChange(order, previousPaymentStatus) {
 }
 
 module.exports = {
-    CHECKOUT_MODE,
-    FORCED_MODE,
     PROVIDER_ID,
     getPublicConfig,
     initiatePayment,
     loadCheckoutRuntime,
-    loadTestRuntime: loadCheckoutRuntime,
+    loadRuntimeForOrder,
     toPublicPaymentView,
     verifyAndUpdateOrder
 };

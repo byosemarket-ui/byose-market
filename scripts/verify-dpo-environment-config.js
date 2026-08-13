@@ -41,6 +41,14 @@ function checkSources() {
     assert(admin.includes('LIVE credentials'), 'Admin must show LIVE credential status');
     assert(!/Airtel Money/.test(admin), 'Admin payment page is not the customer method list');
 
+    const dpoService = read('server/services/dpopayment.service.js');
+    assert(dpoService.includes('getActiveDpoConfiguration'), 'payment service must use the environment resolver');
+    assert(!dpoService.includes('FORCED_MODE'), 'payment service must not force TEST');
+    assert(!dpoService.includes('loadTestRuntime'), 'TEST-only runtime alias must be removed from production service');
+
+    const client = read('server/payments/dpo/client.js');
+    assert(!client.includes('DPO-TEST'), 'DPO client User-Agent must not be TEST-specific');
+
     const constants = read('orders/core/constants.js');
     assert(constants.includes("id: 'mtn'"), 'customer methods still include MTN MoMo');
     assert(constants.includes("id: 'card'"), 'customer methods still include Card');

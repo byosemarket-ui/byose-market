@@ -104,7 +104,7 @@ async function boot() {
   const map = {
     cancelled: {
       title: 'Payment cancelled',
-      message: 'You cancelled the DPO payment. Your order is saved and waiting if you want to try again.',
+      message: 'You cancelled the payment. Your order is saved and waiting if you want to try again.',
       tone: 'warn'
     },
     invalid: {
@@ -114,12 +114,12 @@ async function boot() {
     },
     pending: {
       title: 'Payment still pending',
-      message: 'DPO has not confirmed payment yet. You can wait a moment and refresh, or retry the payment.',
+      message: 'Payment has not been confirmed yet. You can wait a moment and refresh, or retry the payment.',
       tone: 'warn'
     },
     failed: {
       title: 'Payment failed',
-      message: 'The DPO payment did not complete successfully. You can retry this same order without creating a new one.',
+      message: 'The payment did not complete successfully. You can retry this same order without creating a new one.',
       tone: 'error'
     }
   };

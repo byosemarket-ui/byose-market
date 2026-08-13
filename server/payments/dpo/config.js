@@ -8,6 +8,8 @@
  *
  * LIVE checkout stays gated off until official LIVE credentials are provided
  * and a later step explicitly enables LIVE. Do not invent LIVE values here.
+ * CHECKOUT_MODE is the selected environment while that gate is closed — not
+ * a TEST-only payment implementation.
  */
 
 const paymentSettingsService = require('../../services/paymentsettings.service');
@@ -232,7 +234,6 @@ async function getCheckoutRuntime() {
 }
 
 async function getPublicCheckoutConfig() {
-    const payment = await paymentSettingsService.getPublicPaymentSettings();
     const liveStatus = await inspectEnvironmentStatus('live');
     const environment = resolveCheckoutEnvironment({ liveConfigured: liveStatus.configured });
     let credentialsReady = false;
@@ -251,7 +252,7 @@ async function getPublicCheckoutConfig() {
         provider: PROVIDER_ID,
         mode: environment.mode,
         enabled,
-        label: payment.provider?.label || 'DPO Pay',
+        label: 'Pay Online',
         liveAvailable: environment.liveAvailable,
         liveCheckoutEnabled: environment.liveCheckoutEnabled,
         liveConfigured: liveStatus.configured

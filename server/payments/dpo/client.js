@@ -165,7 +165,7 @@ function postXmlRequest(apiBaseUrl, xmlBody, { timeoutMs = 20000 } = {}) {
             headers: {
                 'Content-Type': 'application/xml; charset=utf-8',
                 Accept: 'application/xml',
-                'User-Agent': 'BYOSE-Market/1.0 (DPO-TEST; +https://byosemarket.com)',
+                'User-Agent': 'BYOSE-Market/1.0 (+https://byosemarket.com)',
                 'Content-Length': payload.length
             },
             timeout: timeoutMs
@@ -342,7 +342,7 @@ async function verifyToken(options = {}) {
     const apiBaseUrl = normalizeText(options.apiBaseUrl, DEFAULT_API_BASE);
 
     if (!companyToken) {
-        const error = new Error('DPO TEST credentials are not configured.');
+        const error = new Error('DPO credentials are not configured for this payment environment.');
         error.code = 'DPO_CREDENTIALS_MISSING';
         error.statusCode = 503;
         throw error;
