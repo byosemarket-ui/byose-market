@@ -60,7 +60,8 @@ function checkSources() {
     assert(settings.includes('LIVE Company Token is not configured'), 'incomplete LIVE must explain the missing token');
     assert(settings.includes("mode: 'live'"), 'payment activity query must request LIVE records');
     assert(settings.includes('listAdminPaymentActivity'), 'payment activity must use a dedicated LIVE query');
-    assert(!/If LIVE credentials are missing, use TEST/i.test(settings), 'must not silently fall back from LIVE to TEST');
+    assert(settings.includes('TEST_SERVICE_TYPE_ID'), 'LIVE credential status must ignore TEST Service Type 54841');
+    assert(settings.includes('Do not copy the TEST Company Token into LIVE'), 'LIVE save must reject a copied TEST Company Token');
 
     const config = read('server/payments/dpo/config.js');
     assert(config.includes("CHECKOUT_MODE = 'live'"), 'production checkout mode must be LIVE');

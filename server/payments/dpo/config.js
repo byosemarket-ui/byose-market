@@ -202,17 +202,27 @@ async function inspectEnvironmentStatus(mode) {
             providerId: PROVIDER_ID,
             mode
         });
-        const companyToken = Boolean(normalizeText(runtime?.secrets?.companyToken));
+        const companyToken = normalizeText(runtime?.secrets?.companyToken);
         const serviceType = normalizeText(runtime?.secrets?.serviceType);
+        let liveTokenIsDistinct = true;
+        if (mode === 'live' && companyToken) {
+            const testRuntime = await paymentSettingsService.getRuntimePaymentCredentials({
+                providerId: PROVIDER_ID,
+                mode: 'test'
+            });
+            const testToken = normalizeText(testRuntime?.secrets?.companyToken);
+            liveTokenIsDistinct = !testToken || testToken !== companyToken;
+        }
         const serviceTypeOk = mode === 'live'
             ? serviceType === LIVE_SERVICE_TYPE_ID
             : Boolean(serviceType) && serviceType !== LIVE_SERVICE_TYPE_ID;
+        const tokenOk = Boolean(companyToken) && liveTokenIsDistinct;
         return {
             mode,
             enabled: Boolean(runtime?.enabled),
-            configured: Boolean(companyToken && serviceTypeOk),
-            companyTokenConfigured: companyToken,
-            serviceTypeConfigured: Boolean(serviceType)
+            configured: Boolean(tokenOk && serviceTypeOk),
+            companyTokenConfigured: tokenOk,
+            serviceTypeConfigured: Boolean(serviceTypeOk)
         };
     } catch (_error) {
         return {

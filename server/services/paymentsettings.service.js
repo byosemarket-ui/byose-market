@@ -7,7 +7,7 @@ const {
     listProviders
 } = require('../payments/providers/registry');
 const secretsStore = require('../payments/secrets.store');
-const { LIVE_SERVICE_TYPE_ID } = require('../payments/providers/dpo.provider');
+const { LIVE_SERVICE_TYPE_ID, TEST_SERVICE_TYPE_ID } = require('../payments/providers/dpo.provider');
 const { storefrontPaymentMethodLabel, isCodPaymentMethod } = require('../payments/storefront-methods');
 
 const MODULE_KEY = 'payment';
@@ -294,14 +294,23 @@ function resolveModeSecrets(providerId, mode) {
 
 function buildCredentialStatus(provider, mode) {
     const { secrets, sources } = resolveModeSecrets(provider.id, mode);
+    const testToken = mode === 'live'
+        ? normalizeText(resolveModeSecrets(provider.id, 'test').secrets.companyToken)
+        : '';
     const fields = {};
     (provider.credentialFields || []).forEach((field) => {
-        const value = normalizeText(secrets[field.key]);
+        let value = normalizeText(secrets[field.key]);
+        if (mode === 'live' && field.key === 'serviceType' && value === TEST_SERVICE_TYPE_ID) {
+            value = '';
+        }
+        if (mode === 'live' && field.key === 'companyToken' && testToken && value === testToken) {
+            value = '';
+        }
         const configured = Boolean(value);
         const entry = {
             configured,
             hint: field.secret ? maskSecretHint(value) : '',
-            source: sources[field.key]
+            source: configured ? sources[field.key] : null
         };
         // Non-secret fields may be shown so admins can confirm Service Type IDs.
         if (!field.secret && configured) {
@@ -509,9 +518,10 @@ function applyCredentialUpdates(providerId, credentialsPayload = {}) {
             }
             : normalizedIncoming;
 
-        if (mode === 'live' && toStore.companyToken) {
+        if (mode === 'live') {
             const testToken = normalizeText(resolveModeSecrets(providerId, 'test').secrets.companyToken);
-            if (testToken && toStore.companyToken === testToken) {
+            const resultingToken = normalizeText(toStore.companyToken || existing.companyToken);
+            if (testToken && resultingToken && resultingToken === testToken) {
                 errors[`${mode}.companyToken`] = 'LIVE Company Token must be the official DPO LIVE value. Do not copy the TEST Company Token into LIVE.';
                 return;
             }
