@@ -56,6 +56,14 @@ const ProductDetail = {
     };
 
     window.ByoseStorefrontSync?.writeStateByKey?.('byose_direct_checkout', directItem);
+    window.localStorage.removeItem('byose_checkout_active_v1');
+    window.localStorage.removeItem('byose_checkout_draft_v1');
+    window.localStorage.removeItem('byose_checkout_step1_commit_v1');
+    window.localStorage.removeItem('byose_checkout_confirmation_v1');
+    try {
+      sessionStorage.removeItem('byose_checkout_handoff_v1');
+      sessionStorage.removeItem('byose_checkout_step1_commit_v1');
+    } catch (_error) {}
     window.ByoseStorefrontSync?.removeStateByKey?.('byose_checkout_draft_v1');
     window.ByoseStorefrontSync?.removeStateByKey?.('byose_checkout_confirmation_v1');
     window.location.href = 'orders/shipping.html';

@@ -2,13 +2,9 @@ import { buildVariantKey, normalizeProductAttributes } from './product-attribute
 import { enrichProductColorVariants, resolveMatrixStock } from '../../js/color-variant-inventory.js';
 import { buildVariantCartPayload, validateVariantSelection } from '../../js/variant-cart-payload.js';
 import { normalizeStorefrontAssetUrl } from '../../services/storefront-asset-url.js';
+import { startBuyNowSession } from '../../orders/checkout-session.js';
 import { createProductModal } from './product-modal.js';
 import { renderProductOptionPreview } from './product-ui-renderer.js';
-
-const DIRECT_CHECKOUT_KEY = 'byose_direct_checkout';
-const CHECKOUT_ACTIVE_KEY = 'byose_checkout_active_v1';
-const CHECKOUT_DRAFT_KEY = 'byose_checkout_draft_v1';
-const CHECKOUT_CONFIRMATION_KEY = 'byose_checkout_confirmation_v1';
 
 function createCartPayload(product, quantity, attributes = {}) {
   return buildVariantCartPayload(product, quantity, attributes);
@@ -139,32 +135,7 @@ function startDirectCheckout(itemsInput) {
   }
 
   try {
-    window.ByoseStorefrontSync?.removeStateByKey?.(CHECKOUT_DRAFT_KEY);
-    window.ByoseStorefrontSync?.removeStateByKey?.(CHECKOUT_CONFIRMATION_KEY);
-
-    if (items.length === 1) {
-      // Single Buy Now item uses the dedicated direct-checkout payload.
-      window.localStorage.removeItem(CHECKOUT_ACTIVE_KEY);
-      window.localStorage.setItem(DIRECT_CHECKOUT_KEY, JSON.stringify(items[0]));
-      window.ByoseStorefrontSync?.writeStateByKey?.(DIRECT_CHECKOUT_KEY, items[0]);
-      window.ByoseStorefrontSync?.syncPatch?.({
-        directCheckout: items[0],
-        checkoutDraft: null,
-        checkoutConfirmation: null
-      });
-    } else {
-      // Multi-variant Buy Now reuses the cart checkout-active selection path.
-      window.localStorage.removeItem(DIRECT_CHECKOUT_KEY);
-      window.localStorage.setItem(CHECKOUT_ACTIVE_KEY, JSON.stringify(items));
-      window.ByoseStorefrontSync?.writeStateByKey?.(CHECKOUT_ACTIVE_KEY, items);
-      window.ByoseStorefrontSync?.removeStateByKey?.(DIRECT_CHECKOUT_KEY);
-      window.ByoseStorefrontSync?.syncPatch?.({
-        checkoutActive: items,
-        directCheckout: null,
-        checkoutDraft: null,
-        checkoutConfirmation: null
-      });
-    }
+    startBuyNowSession(items);
   } catch (error) {
     console.error('Unable to start direct checkout', error);
   }

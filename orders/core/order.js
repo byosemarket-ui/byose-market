@@ -3,23 +3,21 @@ import {
   clone,
   clearPendingOrderSubmission,
   createOrderId,
-  emitCartUpdated,
   normalizePhone,
   readPendingOrderSubmission,
-  readStorage,
   removeStorage,
   resolveApiOrigin,
   resolveOrderItemImage,
   resolveProductUrl,
   saveCheckoutConfirmation,
-  savePendingOrderSubmission,
-  writeStorage
+  savePendingOrderSubmission
 } from '../utils.js';
 import {
   COD_PAYMENT_METHOD_LABEL,
   COD_PAYMENT_STATUS,
   COD_PAYMENT_STATUS_LABEL
 } from './constants.js';
+import { clearActiveCheckoutKeys, purchasedLineKeys } from '../checkout-session.js';
 import { clearCheckoutHandoff, getState, setSubmitting } from './state.js';
 import { validatePayment, validateProducts, validateShipping } from './validation.js';
 
@@ -273,27 +271,7 @@ export async function submitOrder() {
 
     const state = getState();
     const persisted = result.order || order;
-
-    const purchasedKeys = new Set(
-      (state.products || []).map((product) => {
-        const lineId = String(product.lineId || '').trim();
-        if (lineId) return `line:${lineId}`;
-        const productId = String(product.id || product.productId || '').trim();
-        const variantKey = String(product.variantKey || '').trim();
-        return `pv:${productId}|${variantKey}`;
-      }).filter(Boolean)
-    );
-
-    if (state.source === 'cart' || purchasedKeys.size) {
-      const remaining = (readStorage(STORAGE_KEYS.cart, []) || []).filter((item) => {
-        const lineId = String(item.lineId || '').trim();
-        if (lineId && purchasedKeys.has(`line:${lineId}`)) return false;
-        const productId = String(item.productId || item.id || '').trim();
-        const variantKey = String(item.variantKey || '').trim();
-        return !purchasedKeys.has(`pv:${productId}|${variantKey}`);
-      });
-      writeStorage(STORAGE_KEYS.cart, remaining);
-    }
+    const purchasedCartKeys = Array.from(purchasedLineKeys(state.products || []));
 
     removeStorage(STORAGE_KEYS.checkoutActive);
     removeStorage(STORAGE_KEYS.directCheckout);
@@ -303,7 +281,7 @@ export async function submitOrder() {
     } catch (_error) {}
     clearPendingOrderSubmission();
     clearCheckoutHandoff();
-    emitCartUpdated();
+    clearActiveCheckoutKeys();
 
     const confirmation = {
       orderId: persisted.orderId || persisted.id || order.orderId,
@@ -325,7 +303,9 @@ export async function submitOrder() {
       paymentStatusLabel: persisted.paymentStatusLabel || order.paymentStatusLabel,
       deliveryMethod: order.deliveryMethod,
       deliveryLabel: order.deliveryLabel,
-      createdAt: order.createdAt
+      createdAt: order.createdAt,
+      checkoutSource: state.source,
+      purchasedCartKeys
     };
     saveCheckoutConfirmation(confirmation);
     succeeded = true;

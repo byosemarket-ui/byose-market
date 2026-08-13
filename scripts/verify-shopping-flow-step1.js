@@ -21,21 +21,29 @@ function read(rel) {
 
 function checkSourceGuards() {
   const state = read('orders/core/state.js');
-  assert(state.includes("STORAGE_KEYS.checkoutActive"), 'state.js must prefer checkoutActive');
-  assert(state.includes('hasCartCheckout'), 'state.js hydrate must protect cart checkout');
+  assert(state.includes('readExplicitCheckoutProducts'), 'state.js must isolate explicit checkout products');
+  assert(state.includes('readCheckoutIntent'), 'state.js hydrate must respect checkout intent');
 
   const cart = read('services/byose-cart.js');
-  assert(cart.includes("syncPatch?.({ directCheckout: null })"), 'proceedToCheckout must clear directCheckout');
+  assert(cart.includes('startCartCheckoutSession'), 'proceedToCheckout must start an isolated cart session');
   assert(cart.includes('Only ${limitLabel} available in stock'), 'add() must reject silent stock clamps');
   assert(cart.includes('resolveLineStockFromCatalog'), 'catalog sync must use variant stock, not product-level stock');
   assert(cart.includes('Incomplete catalog snapshots must not wipe'), 'missing catalog rows must not mark cart unavailable');
 
   const order = read('orders/core/order.js');
-  assert(order.includes('STORAGE_KEYS.checkoutActive'), 'submitOrder must clear checkoutActive');
-  assert(order.includes('purchasedKeys'), 'submitOrder must remove only purchased lines');
+  assert(order.includes('clearActiveCheckoutKeys'), 'submitOrder must clear checkout session keys');
+  assert(!/writeStorage\(STORAGE_KEYS\.cart/.test(order), 'submitOrder must not remove cart lines before payment');
+
+  const success = read('orders/order-success.js');
+  assert(success.includes('removePurchasedItemsFromCart'), 'success page must remove cart lines after confirmed purchase');
+  assert(success.includes('shouldRemoveCartAfterPurchase'), 'success page must require paid/COD confirmation');
+
+  const session = read('orders/checkout-session.js');
+  assert(session.includes('startBuyNowSession'), 'Buy Now session helper must exist');
+  assert(session.includes('startCartCheckoutSession'), 'cart checkout session helper must exist');
 
   const actions = read('details/js/product-actions.js');
-  assert(actions.includes('CHECKOUT_ACTIVE_KEY'), 'Buy Now must clear checkoutActive');
+  assert(actions.includes('startBuyNowSession'), 'Buy Now must start an isolated direct session');
 
   const utils = read('js/utils.js');
   assert(utils.includes('mergeCartItemLists'), 'storefront sync must merge guest/remote carts');
@@ -54,33 +62,54 @@ function checkSourceGuards() {
 }
 
 function simulateCheckoutPrecedence() {
-  // Mirrors loadProducts priority: checkoutActive > direct > cart
-  function loadProducts({ checkoutActive, direct, cart }) {
+  // Mirrors loadProducts: intent + explicit selection, never silent full-cart fallback.
+  function loadProducts({ intent, checkoutActive, direct, cart }) {
+    if (intent?.source === 'direct' && direct) {
+      const list = Array.isArray(direct) ? direct : [direct];
+      return { source: 'direct', products: list };
+    }
+    if (intent?.source === 'cart' && Array.isArray(checkoutActive) && checkoutActive.length) {
+      return { source: 'cart', products: checkoutActive };
+    }
     if (Array.isArray(checkoutActive) && checkoutActive.length) {
       return { source: 'cart', products: checkoutActive };
     }
     if (direct) {
-      return { source: 'direct', products: [direct] };
-    }
-    if (Array.isArray(cart) && cart.length) {
-      return { source: 'cart', products: cart };
+      const list = Array.isArray(direct) ? direct : [direct];
+      return { source: 'direct', products: list };
     }
     return { source: 'cart', products: [] };
   }
 
   const staleDirect = { productId: 'D1', name: 'Buy Now leftover' };
   const selected = [{ productId: 'C1', name: 'Cart selected', lineId: 'C1::default' }];
+  const buyNowB = { productId: 'B1', name: 'Buy Now B', variantKey: 'size:43' };
+
   const result = loadProducts({
+    intent: { source: 'cart' },
     checkoutActive: selected,
     direct: staleDirect,
     cart: selected.concat([{ productId: 'C2', name: 'Unselected leftover' }])
   });
 
   assert(result.source === 'cart', 'precedence: source should be cart');
-  assert(result.products.length === 1 && result.products[0].productId === 'C1', 'precedence: checkoutActive wins over direct');
+  assert(result.products.length === 1 && result.products[0].productId === 'C1', 'precedence: cart intent uses checkoutActive only');
 
-  const buyNow = loadProducts({ checkoutActive: [], direct: staleDirect, cart: selected });
-  assert(buyNow.source === 'direct' && buyNow.products[0].productId === 'D1', 'precedence: Buy Now works without checkoutActive');
+  const buyNow = loadProducts({
+    intent: { source: 'direct' },
+    checkoutActive: selected,
+    direct: buyNowB,
+    cart: selected
+  });
+  assert(buyNow.source === 'direct' && buyNow.products[0].productId === 'B1', 'precedence: new Buy Now beats leftover checkoutActive');
+
+  const noFallback = loadProducts({
+    intent: null,
+    checkoutActive: [],
+    direct: null,
+    cart: selected
+  });
+  assert(noFallback.products.length === 0, 'precedence: must not silently checkout the full cart');
 }
 
 function simulatePartialCartClear() {

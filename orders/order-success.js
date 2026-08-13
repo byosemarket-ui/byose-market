@@ -2,6 +2,7 @@ import { getConfirmation, initCheckout } from './core/state.js';
 import { DELIVERY_FEE } from './core/constants.js';
 import { renderProductList, renderShippingSummary, renderTotals } from './ui/layout.js';
 import { escapeHtml, resolveApiOrigin, saveCheckoutConfirmation } from './utils.js';
+import { removePurchasedItemsFromCart, shouldRemoveCartAfterPurchase } from './checkout-session.js';
 
 const container = document.getElementById('successContent');
 const params = new URLSearchParams(window.location.search);
@@ -133,6 +134,16 @@ function renderSuccess(confirmation, resolvedId) {
   `;
 }
 
+function maybeRemovePurchasedCartItems(confirmation) {
+  if (!confirmation || !shouldRemoveCartAfterPurchase(confirmation)) {
+    return;
+  }
+  removePurchasedItemsFromCart(
+    confirmation.items || confirmation.products || [],
+    confirmation.purchasedCartKeys || []
+  );
+}
+
 await initCheckout('success');
 
 let confirmation = getConfirmation();
@@ -144,6 +155,7 @@ if (!confirmationMatches) {
   renderUnavailable(resolvedId);
 } else {
   renderSuccess(confirmation, resolvedId);
+  maybeRemovePurchasedCartItems(confirmation);
 }
 
 if (confirmationMatches && resolvedId) {
@@ -163,5 +175,6 @@ if (confirmationMatches && resolvedId) {
     };
     saveCheckoutConfirmation(confirmation);
     renderSuccess(confirmation, resolvedId);
+    maybeRemovePurchasedCartItems(confirmation);
   }
 }

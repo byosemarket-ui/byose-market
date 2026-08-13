@@ -2,6 +2,7 @@ export const STORAGE_KEYS = {
   cart: 'byose_market_cart_v1',
   checkoutActive: 'byose_checkout_active_v1',
   directCheckout: 'byose_direct_checkout',
+  checkoutIntent: 'byose_checkout_intent_v1',
   orders: 'byose_orders',
   draft: 'byose_checkout_draft_v1',
   confirmation: 'byose_checkout_confirmation_v1',
@@ -174,8 +175,25 @@ function applyRemoteStorefrontState(state) {
     }
 
     if (Object.prototype.hasOwnProperty.call(state || {}, 'directCheckout')) {
-      if (state.directCheckout) {
-        writeStorage(STORAGE_KEYS.directCheckout, normalizeCartItem(state.directCheckout));
+      let localIntent = null;
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEYS.checkoutIntent);
+        localIntent = raw ? JSON.parse(raw) : null;
+      } catch (_error) {
+        localIntent = null;
+      }
+      const intentAge = Date.now() - Number(localIntent?.startedAt || 0);
+      const intentFresh = Boolean(localIntent?.startedAt) && intentAge >= 0 && intentAge < (30 * 60 * 1000);
+      // A newer local Buy Now / cart checkout must not be replaced by a stale remote payload.
+      if (intentFresh && localIntent.source === 'direct') {
+        /* keep local directCheckout */
+      } else if (intentFresh && localIntent.source === 'cart') {
+        removeStorage(STORAGE_KEYS.directCheckout);
+      } else if (state.directCheckout) {
+        const payload = Array.isArray(state.directCheckout)
+          ? state.directCheckout.map(normalizeCartItem)
+          : normalizeCartItem(state.directCheckout);
+        writeStorage(STORAGE_KEYS.directCheckout, payload);
       } else {
         removeStorage(STORAGE_KEYS.directCheckout);
       }
@@ -185,30 +203,42 @@ function applyRemoteStorefrontState(state) {
       if (state.checkoutDraft) {
         // Never clobber a newer/more-complete local shipping draft with a stale remote echo.
         let localDraft = null;
+        let localIntent = null;
         try {
           const raw = window.localStorage.getItem(STORAGE_KEYS.draft);
           localDraft = raw ? JSON.parse(raw) : null;
         } catch (_error) {
           localDraft = null;
         }
+        try {
+          const intentRaw = window.localStorage.getItem(STORAGE_KEYS.checkoutIntent);
+          localIntent = intentRaw ? JSON.parse(intentRaw) : null;
+        } catch (_error) {
+          localIntent = null;
+        }
         const remoteDraft = clone(state.checkoutDraft);
-        const stepOrder = { shipping: 0, review: 1, payment: 2, success: 3 };
-        const localStep = stepOrder[String(localDraft?.step || '')] ?? -1;
-        const remoteStep = stepOrder[String(remoteDraft?.step || '')] ?? -1;
-        const filled = (shipping = {}) => ['fullName', 'phone', 'provinceCity', 'district', 'sector', 'cell', 'village']
-          .filter((key) => String(shipping[key] || '').trim()).length;
-        const localFilled = filled(localDraft?.shipping || localDraft?.shippingAddress || {});
-        const remoteFilled = filled(remoteDraft?.shipping || remoteDraft?.shippingAddress || {});
-        const localAt = Number(localDraft?.updatedAt || 0);
-        const remoteAt = Number(remoteDraft?.updatedAt || 0);
-        const preferLocal = Boolean(localDraft) && (
-          localStep > remoteStep
-          || (localStep === remoteStep && localFilled > remoteFilled)
-          || (localStep === remoteStep && localFilled === remoteFilled && localAt && remoteAt && localAt >= remoteAt)
-          || (localStep === remoteStep && localFilled >= remoteFilled && localAt && !remoteAt)
-        );
-        if (!preferLocal) {
-          writeStorage(STORAGE_KEYS.draft, remoteDraft);
+        const intentStartedAt = Number(localIntent?.startedAt || 0);
+        if (intentStartedAt && intentStartedAt >= Number(remoteDraft?.updatedAt || 0)) {
+          // New purchase started after this remote draft — do not restore abandoned products/shipping.
+        } else {
+          const stepOrder = { shipping: 0, review: 1, payment: 2, success: 3 };
+          const localStep = stepOrder[String(localDraft?.step || '')] ?? -1;
+          const remoteStep = stepOrder[String(remoteDraft?.step || '')] ?? -1;
+          const filled = (shipping = {}) => ['fullName', 'phone', 'provinceCity', 'district', 'sector', 'cell', 'village']
+            .filter((key) => String(shipping[key] || '').trim()).length;
+          const localFilled = filled(localDraft?.shipping || localDraft?.shippingAddress || {});
+          const remoteFilled = filled(remoteDraft?.shipping || remoteDraft?.shippingAddress || {});
+          const localAt = Number(localDraft?.updatedAt || 0);
+          const remoteAt = Number(remoteDraft?.updatedAt || 0);
+          const preferLocal = Boolean(localDraft) && (
+            localStep > remoteStep
+            || (localStep === remoteStep && localFilled > remoteFilled)
+            || (localStep === remoteStep && localFilled === remoteFilled && localAt && remoteAt && localAt >= remoteAt)
+            || (localStep === remoteStep && localFilled >= remoteFilled && localAt && !remoteAt)
+          );
+          if (!preferLocal) {
+            writeStorage(STORAGE_KEYS.draft, remoteDraft);
+          }
         }
       }
     }
@@ -343,7 +373,13 @@ export function readPersistedDraft() {
 export function readPersistedDirectCheckout() {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEYS.directCheckout);
-    return raw ? normalizeCartItem(JSON.parse(raw)) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const items = parsed.map(normalizeCartItem).filter(Boolean);
+      return items.length ? items : null;
+    }
+    return normalizeCartItem(parsed);
   } catch {
     return null;
   }
@@ -355,6 +391,7 @@ export function writeStorage(key, value) {
   // Confirmation must also survive DPO redirect return for Step 4 Success.
   const forceLocalPersist = key === STORAGE_KEYS.draft
     || key === STORAGE_KEYS.checkoutActive
+    || key === STORAGE_KEYS.directCheckout
     || key === STORAGE_KEYS.confirmation;
 
   if (window.ByoseStorefrontSync?.isManagedKey?.(key)) {
@@ -627,12 +664,7 @@ export function normalizeCartItem(item) {
 }
 
 export function readCartItems() {
-  const checkoutActive = readStorage(STORAGE_KEYS.checkoutActive, []);
-  if (Array.isArray(checkoutActive) && checkoutActive.length) {
-    return checkoutActive.map(normalizeCartItem);
-  }
-
-  return readStorage(STORAGE_KEYS.cart, []).map(normalizeCartItem);
+  return (readStorage(STORAGE_KEYS.cart, []) || []).map(normalizeCartItem);
 }
 
 export function writeCartItems(items) {
@@ -641,12 +673,22 @@ export function writeCartItems(items) {
 
 export function readDirectCheckout() {
   const item = readStorage(STORAGE_KEYS.directCheckout, null);
-  return item ? normalizeCartItem(item) : null;
+  if (!item) return null;
+  if (Array.isArray(item)) {
+    const items = item.map(normalizeCartItem).filter(Boolean);
+    return items.length ? items : null;
+  }
+  return normalizeCartItem(item);
 }
 
 export function writeDirectCheckout(item) {
   if (!item) {
     removeStorage(STORAGE_KEYS.directCheckout);
+    return;
+  }
+
+  if (Array.isArray(item)) {
+    writeStorage(STORAGE_KEYS.directCheckout, item.map(normalizeCartItem).filter(Boolean));
     return;
   }
 

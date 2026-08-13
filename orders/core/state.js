@@ -11,18 +11,21 @@ import {
   readCartItems,
   readCheckoutConfirmation,
   readCurrentUser,
-  readDirectCheckout,
   readPersistedDraft,
-  readPersistedDirectCheckout,
   readStorage,
   removeStorage,
   resolveApiOrigin,
   saveCheckoutConfirmation,
-  writeCartItems,
   writeStorage
 } from '../utils.js';
 import { COD_FEE, DELIVERY_FEE, PAYMENT_METHODS, STEPS } from './constants.js';
 import { validateProducts, validateShipping } from './validation.js';
+import {
+  intentMatchesProducts,
+  productKeysSignature,
+  readCheckoutIntent,
+  readDirectCheckoutItems
+} from '../checkout-session.js';
 
 const listeners = new Set();
 const HANDOFF_KEY = 'byose_checkout_handoff_v1';
@@ -220,6 +223,16 @@ function applyStep1Commit() {
   const commit = readStep1Commit();
   if (!commit) return { applied: false, code: 'CHECKOUT_STATE_MISSING' };
 
+  const explicit = readExplicitCheckoutProducts();
+  if (explicit.items.length && Array.isArray(commit.products) && commit.products.length) {
+    const commitSig = productKeysSignature(commit.products);
+    const explicitSig = productKeysSignature(explicit.items);
+    if (commitSig && explicitSig && commitSig !== explicitSig) {
+      clearStep1Commit();
+      return { applied: false, code: 'STALE_COMMIT' };
+    }
+  }
+
   if (Array.isArray(commit.products) && commit.products.length) {
     state.source = commit.source || state.source;
     state.products = commit.products.map(normalizeProduct).filter(Boolean);
@@ -268,6 +281,7 @@ function shippingForValidation(shipping = state.shipping) {
 function hasValidStep1Commit() {
   const commit = readStep1Commit();
   if (!commit) return false;
+  if (!intentMatchesProducts(commit.products || [])) return false;
   return validateShipping(shippingForValidation(commit.shipping)).valid
     && Array.isArray(commit.products)
     && commit.products.length > 0;
@@ -294,11 +308,52 @@ export function clearCheckoutHandoff() {
   } catch (_) { /* ignore */ }
 }
 
+function clearStep1Commit() {
+  try {
+    window.localStorage.removeItem(STEP1_COMMIT_KEY);
+  } catch (_) { /* ignore */ }
+  try {
+    window.sessionStorage.removeItem(STEP1_COMMIT_KEY);
+  } catch (_) { /* ignore */ }
+}
+
+function readExplicitCheckoutProducts() {
+  const intent = readCheckoutIntent();
+  const checkoutActive = readStorage(STORAGE_KEYS.checkoutActive, []);
+  const directItems = readDirectCheckoutItems();
+  const activeItems = Array.isArray(checkoutActive)
+    ? checkoutActive.map(normalizeProduct).filter(Boolean)
+    : [];
+
+  if (intent?.source === 'direct' && directItems.length) {
+    return { source: 'direct', items: directItems.map(normalizeProduct).filter(Boolean) };
+  }
+  if (intent?.source === 'cart' && activeItems.length) {
+    return { source: 'cart', items: activeItems };
+  }
+  if (activeItems.length) {
+    return { source: 'cart', items: activeItems };
+  }
+  if (directItems.length) {
+    return { source: 'direct', items: directItems.map(normalizeProduct).filter(Boolean) };
+  }
+  return { source: '', items: [] };
+}
+
 function applyHandoff() {
   const handoff = readHandoff();
   if (!handoff) return false;
 
-  if (Array.isArray(handoff.products) && handoff.products.length) {
+  const explicit = readExplicitCheckoutProducts();
+  if (explicit.items.length) {
+    const sameProducts = productKeysSignature(handoff.products) === productKeysSignature(explicit.items);
+    if (!sameProducts) {
+      clearCheckoutHandoff();
+      return false;
+    }
+  }
+
+  if (Array.isArray(handoff.products) && handoff.products.length && !explicit.items.length) {
     state.source = handoff.source || state.source;
     state.products = handoff.products.map(normalizeProduct).filter(Boolean);
   }
@@ -448,45 +503,16 @@ function normalizeProduct(item) {
 }
 
 function loadProducts() {
-  // Explicit cart checkout selection always beats a leftover Buy Now payload.
-  const checkoutActive = readStorage(STORAGE_KEYS.checkoutActive, []);
-  if (Array.isArray(checkoutActive) && checkoutActive.length) {
-    const items = checkoutActive.map(normalizeProduct).filter(Boolean);
-    if (items.length) {
-      state.source = 'cart';
-      state.products = items;
-      return;
-    }
-  }
-
-  const direct = readDirectCheckout() || readPersistedDirectCheckout();
-  if (direct) {
-    const list = Array.isArray(direct) ? direct : [direct];
-    const items = list.map(normalizeProduct).filter(Boolean);
-    if (items.length) {
-      state.source = 'direct';
-      state.products = items;
-      return;
-    }
-  }
-
-  const cart = readStorage(STORAGE_KEYS.cart, []).map(normalizeProduct).filter(Boolean);
-  if (cart.length) {
-    state.source = 'cart';
-    state.products = cart;
+  const explicit = readExplicitCheckoutProducts();
+  if (explicit.items.length) {
+    state.source = explicit.source || 'cart';
+    state.products = explicit.items;
     return;
   }
 
-  const draft = readPersistedDraft() || readStorage(STORAGE_KEYS.draft, null);
-  if (draft?.products?.length) {
-    state.source = draft.source || 'cart';
-    state.products = draft.products.map(normalizeProduct).filter(Boolean);
-  }
-
-  const handoff = readHandoff();
-  if ((!state.products.length || !draft) && handoff?.products?.length) {
-    applyHandoff();
-  }
+  // No explicit Buy Now or cart-checkout selection. Do not silently
+  // reuse an abandoned draft/handoff as the next purchase.
+  state.products = [];
 }
 
 function loadCustomer() {
@@ -503,7 +529,11 @@ function loadCustomer() {
 
 function loadShipping() {
   const draft = readActiveDraft();
-  const fromDraft = draft?.shipping || draft?.shippingAddress;
+  const explicit = readExplicitCheckoutProducts();
+  const draftMatches = !draft?.products?.length
+    || !explicit.items.length
+    || productKeysSignature(draft.products) === productKeysSignature(explicit.items);
+  const fromDraft = draftMatches ? (draft?.shipping || draft?.shippingAddress) : null;
   const user = readCurrentUser();
   const saved = getUserAddress(user);
   const savedFullName = [saved.firstName, saved.lastName].filter(Boolean).join(' ').trim();
@@ -527,7 +557,7 @@ function loadShipping() {
   if (state.customer.name && !state.shipping.fullName) {
     state.shipping.fullName = state.customer.name;
   }
-  if (draft?.deliveryMethodKey) {
+  if (draftMatches && draft?.deliveryMethodKey) {
     state.deliveryMethodKey = String(draft.deliveryMethodKey);
   }
   if (!state.shipping.deliveryMethodKey) {
@@ -535,9 +565,17 @@ function loadShipping() {
   }
 }
 
+function draftMatchesCurrentPurchase(draft) {
+  if (!draft) return false;
+  const explicit = readExplicitCheckoutProducts();
+  if (!explicit.items.length) return Boolean(draft);
+  if (!draft?.products?.length) return true;
+  return productKeysSignature(draft.products) === productKeysSignature(explicit.items);
+}
+
 function loadPayment() {
   const draft = readActiveDraft();
-  if (draft?.payment) {
+  if (draftMatchesCurrentPurchase(draft) && draft?.payment) {
     state.payment = { method: 'dpo', phone: '', ...draft.payment };
   }
   if (!state.payment.phone) {
@@ -556,7 +594,7 @@ function readSelectedCouponFromAccount() {
 
 function loadCoupon() {
   const draft = readActiveDraft();
-  if (draft?.coupon?.code) {
+  if (draftMatchesCurrentPurchase(draft) && draft?.coupon?.code) {
     state.coupon = {
       code: String(draft.coupon.code || '').toUpperCase(),
       title: String(draft.coupon.title || ''),
@@ -705,11 +743,16 @@ export async function initCheckout(preferredStep) {
   void hydrateStorefrontState().then((remote) => {
     if (!remote) return;
 
+    const intent = readCheckoutIntent();
     const checkoutActive = readStorage(STORAGE_KEYS.checkoutActive, []);
     const hasCartCheckout = Array.isArray(checkoutActive) && checkoutActive.length > 0;
-    // Keep cart checkout selection stable if a stale remote Buy Now payload arrives.
-    if (hasCartCheckout) {
+    const hasDirectCheckout = readDirectCheckoutItems().length > 0;
+
+    if (intent?.source === 'cart' && hasCartCheckout) {
       removeStorage(STORAGE_KEYS.directCheckout);
+    }
+    if (intent?.source === 'direct' && hasDirectCheckout) {
+      removeStorage(STORAGE_KEYS.checkoutActive);
     }
 
     const previousSource = state.source;
@@ -722,10 +765,9 @@ export async function initCheckout(preferredStep) {
     loadProducts();
 
     if (
-      hasCartCheckout
-      && previousSource === 'cart'
-      && previousProducts.length
-      && state.source === 'direct'
+      previousProducts.length
+      && intentMatchesProducts(previousProducts)
+      && !intentMatchesProducts(state.products)
     ) {
       state.source = previousSource;
       state.products = previousProducts;
@@ -781,10 +823,10 @@ export function setStep(stepId) {
 
 export function guardStep(stepId) {
   // Prefer the authoritative Step 1 commit for Review/Payment — never bounce
-  // a just-validated Continue if that payload is intact.
+  // a just-validated Continue if that payload is intact AND matches this purchase.
   if (stepId === 'review' || stepId === 'payment') {
     const applied = applyStep1Commit();
-    if (applied.applied) {
+    if (applied.applied && intentMatchesProducts(state.products)) {
       const productsCheck = validateProducts(state.products);
       if (!productsCheck.valid) {
         console.warn('REDIRECT_REASON', 'CHECKOUT_STATE_MISSING', productsCheck.message);

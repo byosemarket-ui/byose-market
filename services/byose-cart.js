@@ -4,6 +4,7 @@
  */
 
 import { getStockForColorSize, isColorSizeInventory } from '../js/color-variant-inventory.js';
+import { startCartCheckoutSession } from '../orders/checkout-session.js';
 
 const CART_KEY = 'byose_market_cart_v1';
 const SAVED_KEY = 'byose_market_saved_v1';
@@ -563,16 +564,7 @@ const ByoseCart = {
       throw new Error('Select at least one available item to checkout.');
     }
 
-    writeJson(CHECKOUT_KEY, selected);
-
-    // Cart checkout must win over any leftover Buy Now payload.
-    try {
-      window.localStorage.removeItem('byose_direct_checkout');
-      window.ByoseStorefrontSync?.removeStateByKey?.('byose_direct_checkout');
-      window.ByoseStorefrontSync?.syncPatch?.({ directCheckout: null });
-    } catch {
-      /* ignore */
-    }
+    startCartCheckoutSession(selected);
 
     const prefix = window.location.pathname.includes('/details/') ? '../' : '';
     window.location.href = `${prefix}orders/shipping.html`;

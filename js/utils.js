@@ -655,13 +655,42 @@ window.Util = Util;
       }
 
       if (Object.prototype.hasOwnProperty.call(state || {}, 'directCheckout')) {
-        stateByField.directCheckout = cloneValue(state.directCheckout || null);
-        changedFields.push('directCheckout');
+        let localIntent = null;
+        try {
+          const raw = global.localStorage.getItem('byose_checkout_intent_v1');
+          localIntent = raw ? JSON.parse(raw) : null;
+        } catch (_error) {
+          localIntent = null;
+        }
+        const intentAge = Date.now() - Number(localIntent?.startedAt || 0);
+        const intentFresh = Boolean(localIntent?.startedAt) && intentAge >= 0 && intentAge < (30 * 60 * 1000);
+        if (intentFresh && localIntent.source === 'direct') {
+          /* keep the in-memory Buy Now payload already written locally */
+        } else if (intentFresh && localIntent.source === 'cart') {
+          stateByField.directCheckout = null;
+          changedFields.push('directCheckout');
+        } else {
+          stateByField.directCheckout = cloneValue(state.directCheckout || null);
+          changedFields.push('directCheckout');
+        }
       }
 
       if (Object.prototype.hasOwnProperty.call(state || {}, 'checkoutDraft')) {
-        stateByField.checkoutDraft = cloneValue(state.checkoutDraft || null);
-        changedFields.push('checkoutDraft');
+        let localIntent = null;
+        try {
+          const raw = global.localStorage.getItem('byose_checkout_intent_v1');
+          localIntent = raw ? JSON.parse(raw) : null;
+        } catch (_error) {
+          localIntent = null;
+        }
+        const intentStartedAt = Number(localIntent?.startedAt || 0);
+        const remoteUpdatedAt = Number(state.checkoutDraft?.updatedAt || 0);
+        if (intentStartedAt && intentStartedAt >= remoteUpdatedAt) {
+          /* new purchase started after this remote draft */
+        } else {
+          stateByField.checkoutDraft = cloneValue(state.checkoutDraft || null);
+          changedFields.push('checkoutDraft');
+        }
       }
 
       if (Object.prototype.hasOwnProperty.call(state || {}, 'checkoutConfirmation')) {

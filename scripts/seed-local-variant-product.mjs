@@ -59,3 +59,45 @@ if (existing) {
 
 db.close();
 console.log(JSON.stringify({ catalogId, name, colorId: 'white-with-grey-details-black', size: '42', extraSize: '43', stock: 5 }, null, 2));
+
+const dbB = new Database('server/database/byosemarket.sqlite');
+const catalogIdB = 12013;
+const nameB = 'BYOSE Test Product B Canvas Sneakers';
+const variantsB = {
+  enabled: true,
+  optionMode: 'structured',
+  colorVariants: [
+    {
+      id: 'navy-canvas',
+      colorName: 'Navy Canvas',
+      image: '/img/logo.png',
+      sizes: [
+        { size: '40', value: '40', stock: 5, label: '40' },
+        { size: '41', value: '41', stock: 5, label: '41' }
+      ],
+      totalStock: 10
+    }
+  ]
+};
+const existingB = dbB.prepare('SELECT id FROM products WHERE catalog_id = ?').get(catalogIdB);
+const nowB = new Date().toISOString();
+if (existingB) {
+  dbB.prepare(`
+    UPDATE products
+    SET name = ?, title = ?, stock = 10, price = 18000, old_price = 22000,
+        variants_json = ?, metadata_json = ?, visibility = 'both', status = 'active',
+        updated_at = ?
+    WHERE catalog_id = ?
+  `).run(nameB, nameB, JSON.stringify(variantsB), JSON.stringify({ colorVariants: variantsB.colorVariants }), nowB, catalogIdB);
+  console.log('UPDATED catalog_id', catalogIdB, 'row', existingB.id);
+} else {
+  dbB.prepare(`
+    INSERT INTO products (
+      catalog_id, category_id, category_slug, name, title, description, short_description,
+      price, old_price, stock, image, main_image, variants_json, metadata_json,
+      visibility, status, created_at, updated_at
+    ) VALUES (?, NULL, 'sneakers', ?, ?, '', '', 18000, 22000, 10, '/img/logo.png', '/img/logo.png', ?, ?, 'both', 'active', ?, ?)
+  `).run(catalogIdB, nameB, nameB, JSON.stringify(variantsB), JSON.stringify({ colorVariants: variantsB.colorVariants }), nowB, nowB);
+  console.log('INSERTED catalog_id', catalogIdB);
+}
+dbB.close();

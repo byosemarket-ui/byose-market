@@ -35,8 +35,9 @@ function checkCartPage() {
 function checkBuyNowMulti() {
   const actions = read('details/js/product-actions.js');
   assert(actions.includes('startDirectCheckout(items)'), 'Buy Now must pass all selected variants');
-  assert(actions.includes('items.length === 1'), 'Buy Now must keep single-item direct path');
-  assert(actions.includes('CHECKOUT_ACTIVE_KEY'), 'multi Buy Now must use checkout-active');
+  assert(actions.includes('startBuyNowSession'), 'Buy Now must use an isolated session, not cart');
+  const session = read('orders/checkout-session.js');
+  assert(session.includes('writeDirectCheckoutItems'), 'multi Buy Now must stay on directCheckout');
 }
 
 function checkReviewPaymentUi() {
