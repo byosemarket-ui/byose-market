@@ -71,24 +71,26 @@ function buildPayload(product) {
 }
 
 async function completeDpoSandboxPayment(page, paymentUrl) {
+  // DPO's hosted card tab is unreliable in a 390px viewport for automation.
+  // BYOSE checkout is still tested at the flow viewport; only the gateway page is widened.
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(paymentUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
   await page.waitForSelector('#cerditcarAtag, a.nav-link:has-text("DEBIT/CREDIT CARD")', { timeout: 60000 });
 
-  // DPO defaults to Mobile Money — switch to card tab.
   const cardTab = page.locator('#cerditcarAtag, a.nav-link:has-text("DEBIT/CREDIT CARD")').first();
   await cardTab.click({ force: true });
-  await page.evaluate(() => {
-    const tab = document.getElementById('cerditcarAtag');
-    if (tab) tab.click();
-  });
-  await page.waitForSelector('#TRANSCreditnum', { state: 'attached', timeout: 30000 });
-  await page.waitForTimeout(500);
+  await page.evaluate(() => document.getElementById('cerditcarAtag')?.click());
+  await page.waitForSelector('#TRANSCreditnum', { state: 'visible', timeout: 30000 });
+  await page.waitForTimeout(400);
 
-  await page.locator('#TRANScardholdername').fill(DPO_TEST_CARD.name, { force: true });
-  await page.locator('#TRANSCreditnum').fill(DPO_TEST_CARD.number, { force: true });
+  await page.locator('#TRANScardholdername').fill('');
+  await page.locator('#TRANScardholdername').pressSequentially(DPO_TEST_CARD.name, { delay: 40 });
+  await page.locator('#TRANSCreditnum').fill('');
+  await page.locator('#TRANSCreditnum').pressSequentially(DPO_TEST_CARD.number, { delay: 20 });
   await page.selectOption('#TRANSexpiryM', '12');
   await page.selectOption('#TRANSexpiryY', '2030');
-  await page.locator('#TRANScvv').fill(DPO_TEST_CARD.cvv, { force: true });
+  await page.locator('#TRANScvv').fill('');
+  await page.locator('#TRANScvv').pressSequentially(DPO_TEST_CARD.cvv, { delay: 30 });
   await page.waitForTimeout(400);
 
   const termsVisible = page.locator('#terms-approval_creditcard').filter({ visible: true }).last();

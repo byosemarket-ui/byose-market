@@ -231,35 +231,41 @@ async function fillShipping(page) {
 
 async function completeDpoSandboxPayment(page, paymentUrl) {
   await page.goto(paymentUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
-  await page.waitForSelector('#cerditcarAtag, a.nav-link:has-text("DEBIT/CREDIT CARD")', { timeout: 60000 });
-  const cardTab = page.locator('#cerditcarAtag, a.nav-link:has-text("DEBIT/CREDIT CARD")').first();
-  await cardTab.click({ force: true });
-  await page.evaluate(() => {
-    const tab = document.getElementById('cerditcarAtag');
-    if (tab) tab.click();
-  });
-  await page.waitForSelector('#TRANSCreditnum', { state: 'attached', timeout: 30000 });
-  await page.waitForTimeout(500);
+  await page.waitForSelector('#cerditcarAtag, a.nav-link:has-text("DEBIT/CREDIT CARD"), #TRANSCreditnum', { timeout: 60000 });
 
-  await page.locator('#TRANScardholdername').fill(DPO_TEST_CARD.name, { force: true });
-  await page.locator('#TRANSCreditnum').fill(DPO_TEST_CARD.number, { force: true });
-  await page.selectOption('#TRANSexpiryM', '12');
-  await page.selectOption('#TRANSexpiryY', '2030');
-  await page.locator('#TRANScvv').fill(DPO_TEST_CARD.cvv, { force: true });
-  await page.waitForTimeout(400);
-
-  const termsVisible = page.locator('#terms-approval_creditcard').filter({ visible: true }).last();
-  if (await termsVisible.count()) {
-    await termsVisible.check({ force: true });
-  } else {
-    await page.locator('#terms-approval_creditcard').last().evaluate((el) => {
+  await page.evaluate((card) => {
+    const tab = document.getElementById('cerditcarAtag')
+      || Array.from(document.querySelectorAll('a.nav-link')).find((el) => /debit|credit card/i.test(el.textContent || ''));
+    tab?.click();
+    document.querySelectorAll('#creditcard, #cerditcard, .tab-pane').forEach((pane) => {
+      if (pane.querySelector('#TRANSCreditnum')) {
+        pane.style.display = 'block';
+        pane.classList.add('active', 'show', 'in');
+        pane.classList.remove('fade');
+      }
+    });
+    const setVal = (id, value) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      el.dispatchEvent(new Event('blur', { bubbles: true }));
+    };
+    setVal('TRANScardholdername', card.name);
+    setVal('TRANSCreditnum', card.number);
+    setVal('TRANSexpiryM', '12');
+    setVal('TRANSexpiryY', '2030');
+    setVal('TRANScvv', card.cvv);
+    document.querySelectorAll('#terms-approval_creditcard').forEach((el) => {
       el.checked = true;
       el.dispatchEvent(new Event('change', { bubbles: true }));
       el.dispatchEvent(new Event('click', { bubbles: true }));
     });
-  }
+  }, DPO_TEST_CARD);
+  await page.waitForTimeout(600);
 
-  const continueBtn = page.locator('button:has-text("CONTINUE TO PAY")').filter({ visible: true }).last();
+  const continueBtn = page.locator('button:has-text("CONTINUE TO PAY")').last();
   if (!(await continueBtn.count())) {
     throw new Error('DPO CONTINUE TO PAY button not found');
   }
