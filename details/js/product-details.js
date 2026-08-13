@@ -259,6 +259,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const relatedProducts = await getRelatedProducts(product);
     renderRelatedProducts(document.getElementById('relatedProducts'), relatedProducts);
 
+    const syncOpenProduct = () => {
+      void loadProductData().then((nextProduct) => {
+        if (!nextProduct) {
+          return;
+        }
+        const currentId = String(product.id || product.catalogId || '');
+        const nextId = String(nextProduct.id || nextProduct.catalogId || '');
+        if (currentId && nextId && currentId !== nextId) {
+          return;
+        }
+        applyMeta(nextProduct);
+        populateProduct(nextProduct);
+      }).catch(() => {});
+    };
+
+    window.addEventListener('byose:products-synchronized', syncOpenProduct);
+    window.addEventListener('byose:products-changed', syncOpenProduct);
+
     if (window.recentlyViewedTracker && typeof window.recentlyViewedTracker.trackProductView === 'function') {
       void window.recentlyViewedTracker.trackProductView({
         id: product.id || product.catalogId,

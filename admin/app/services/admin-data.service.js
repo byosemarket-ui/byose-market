@@ -18,7 +18,6 @@ const MAX_ACTIVITY_ITEMS = 200;
 const MAX_MESSAGES_ITEMS = 200;
 const MAX_CARTS_ITEMS = 300;
 const MAX_HERO_SLIDES_ITEMS = 200;
-const STOREFRONT_CATALOG_STORAGE_KEY = "byose_market_products_catalog_v1";
 
 export const ADMIN_SYNC_EVENT = "byose:admin-sync-updated";
 
@@ -128,19 +127,6 @@ function readCache(scope) {
   }
 }
 
-function readJsonStorage(key, fallbackValue) {
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) {
-      return fallbackValue;
-    }
-
-    return JSON.parse(raw);
-  } catch (_error) {
-    return fallbackValue;
-  }
-}
-
 function readMemoryCache(scope, ttlMs = IN_MEMORY_CACHE_TTL_MS) {
   const entry = scopeMemoryCache.get(scope);
   if (!entry) {
@@ -207,14 +193,6 @@ function writeCache(scope, payload) {
   }
 }
 
-function writeJsonStorage(key, value) {
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch (_error) {
-    // Ignore storage write failures.
-  }
-}
-
 function emitSync(scope, payload) {
   const event = {
     scope,
@@ -233,7 +211,7 @@ function emitSync(scope, payload) {
 
 function getCurrentProductCache() {
   const adminProducts = asArray(getCachedScopePayload("products") || []).map(normalizeProduct);
-  const storefrontProducts = asArray(readJsonStorage(STOREFRONT_CATALOG_STORAGE_KEY, [])).map(normalizeProduct);
+  const storefrontProducts = asArray(productCatalogService.getCachedProducts()).map(normalizeProduct);
   const merged = new Map();
 
   storefrontProducts.forEach((product) => {
@@ -257,7 +235,6 @@ function syncLocalProductCaches(products, options = {}) {
   const normalized = capArray(asArray(products).map(normalizeProduct), options?.maxItems || MAX_PRODUCTS_ITEMS);
   writeCache("products", normalized);
   writeMemoryCache("products", normalized);
-  writeJsonStorage(STOREFRONT_CATALOG_STORAGE_KEY, normalized);
 
   if (options?.emit !== false) {
     emitSync("products", normalized);
@@ -1001,6 +978,17 @@ export async function getCustomers(options = {}) {
   return promise;
 }
 
+export async function getProductById(productId) {
+  const id = String(productId || "").trim();
+  if (!id) {
+    return null;
+  }
+
+  ensureProductCatalogSync();
+  const product = await productCatalogService.getProductById(id);
+  return product ? normalizeProduct(product) : null;
+}
+
 export async function getProducts(options = {}) {
   const scope = "products";
   const allowCacheFallback = options?.allowCacheFallback === true;
@@ -1018,7 +1006,10 @@ export async function getProducts(options = {}) {
   const promise = (async () => {
     try {
       ensureProductCatalogSync();
-      const products = capArray((await productCatalogService.getProducts()).map(normalizeProduct), options?.maxItems || MAX_PRODUCTS_ITEMS);
+      const sourceProducts = options.force && typeof productCatalogService.forceRefreshProducts === "function"
+        ? await productCatalogService.forceRefreshProducts()
+        : await productCatalogService.getProducts();
+      const products = capArray(asArray(sourceProducts).map(normalizeProduct), options?.maxItems || MAX_PRODUCTS_ITEMS);
       writeMemoryCache(scope, products);
       writeCache(scope, products);
       if (options?.emit !== false) {

@@ -185,6 +185,17 @@ function parsePathCollection(value) {
     return normalized.split(',').map((entry) => normalizeText(entry)).filter(Boolean);
 }
 
+function collectVariantImagePaths(product) {
+    const variants = product?.variants && typeof product.variants === 'object' ? product.variants : {};
+    const metadata = product?.metadata && typeof product.metadata === 'object' ? product.metadata : {};
+    const list = [
+        ...(Array.isArray(variants.colorVariants) ? variants.colorVariants : []),
+        ...(Array.isArray(metadata.colorVariants) ? metadata.colorVariants : [])
+    ];
+
+    return list.flatMap((entry) => [entry?.image, entry?.imageStoragePath, entry?.thumbnail]);
+}
+
 function collectProductManagedPaths(product) {
     const candidates = [
         product?.image,
@@ -192,7 +203,8 @@ function collectProductManagedPaths(product) {
         product?.thumbnail,
         ...(Array.isArray(product?.gallery) ? product.gallery : []),
         product?.mainImageStoragePath,
-        ...(Array.isArray(product?.galleryStoragePaths) ? product.galleryStoragePaths : [])
+        ...(Array.isArray(product?.galleryStoragePaths) ? product.galleryStoragePaths : []),
+        ...collectVariantImagePaths(product)
     ];
 
     return Array.from(new Set(candidates.map((entry) => normalizeManagedPath(entry)).filter(Boolean)));

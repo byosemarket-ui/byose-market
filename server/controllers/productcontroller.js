@@ -373,6 +373,86 @@ function resolveComparePrice(source, price) {
     return 0;
 }
 
+function hasOwn(source, key) {
+    return Boolean(source) && Object.prototype.hasOwnProperty.call(source, key);
+}
+
+function toPlainProduct(product) {
+    if (product && typeof product.toObject === 'function') {
+        return product.toObject({ versionKey: false });
+    }
+    return { ...(product || {}) };
+}
+
+function pickIncomingOrExisting(rawBody, key, incomingValue, existingValue, aliases = []) {
+    if (hasOwn(rawBody, key) || aliases.some((alias) => hasOwn(rawBody, alias))) {
+        return incomingValue;
+    }
+    if (existingValue === undefined || existingValue === null) {
+        return incomingValue;
+    }
+    if (typeof existingValue === 'string' && !existingValue && incomingValue) {
+        return incomingValue;
+    }
+    return existingValue;
+}
+
+function pickIncomingArrayOrExisting(rawBody, key, incomingValue, existingValue, aliases = []) {
+    if (hasOwn(rawBody, key) || aliases.some((alias) => hasOwn(rawBody, alias))) {
+        return Array.isArray(incomingValue) ? incomingValue : [];
+    }
+    if (Array.isArray(existingValue) && existingValue.length) {
+        return existingValue;
+    }
+    return Array.isArray(incomingValue) ? incomingValue : [];
+}
+
+function mergeProductUpdate(existingProduct, normalized, rawBody = {}) {
+    const existing = toPlainProduct(existingProduct);
+    const body = rawBody && typeof rawBody === 'object' ? rawBody : {};
+    const existingMetadata = existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {};
+    const incomingMetadata = normalized.metadata && typeof normalized.metadata === 'object' ? normalized.metadata : {};
+
+    return {
+        ...existing,
+        ...normalized,
+        catalogId: existing.catalogId,
+        url: buildProductUrl(existing.catalogId),
+        name: pickIncomingOrExisting(body, 'name', normalized.name, existing.name, ['title']),
+        title: pickIncomingOrExisting(body, 'title', normalized.title, existing.title || existing.name),
+        description: pickIncomingOrExisting(body, 'description', normalized.description, existing.description),
+        shortDescription: pickIncomingOrExisting(body, 'shortDescription', normalized.shortDescription, existing.shortDescription),
+        longDescription: pickIncomingArrayOrExisting(body, 'longDescription', normalized.longDescription, existing.longDescription),
+        badge: pickIncomingOrExisting(body, 'badge', normalized.badge, existing.badge, ['brand']),
+        category: pickIncomingOrExisting(body, 'category', normalized.category, existing.category),
+        price: hasOwn(body, 'price') || hasOwn(body, 'salePrice') ? normalized.price : toNonNegativeNumber(existing.price, normalized.price),
+        oldPrice: hasOwn(body, 'oldPrice') || hasOwn(body, 'originalPrice') || hasOwn(body, 'compareAtPrice')
+            ? normalized.oldPrice
+            : toNonNegativeNumber(existing.oldPrice, normalized.oldPrice),
+        stock: hasOwn(body, 'stock') ? normalized.stock : toNonNegativeNumber(existing.stock, normalized.stock),
+        image: pickIncomingOrExisting(body, 'image', normalized.image, existing.image, ['mainImage']),
+        mainImage: pickIncomingOrExisting(body, 'mainImage', normalized.mainImage, existing.mainImage, ['image']),
+        gallery: pickIncomingArrayOrExisting(body, 'gallery', normalized.gallery, existing.gallery, ['galleryStoragePaths']),
+        keywords: pickIncomingArrayOrExisting(body, 'keywords', normalized.keywords, existing.keywords, ['tags']),
+        highlights: pickIncomingArrayOrExisting(body, 'highlights', normalized.highlights, existing.highlights),
+        trust: pickIncomingArrayOrExisting(body, 'trust', normalized.trust, existing.trust),
+        specs: pickIncomingArrayOrExisting(body, 'specs', normalized.specs, existing.specs),
+        attributes: pickIncomingArrayOrExisting(body, 'attributes', normalized.attributes, existing.attributes, ['variants']),
+        variants: pickIncomingOrExisting(body, 'variants', normalized.variants, existing.variants, ['attributes']),
+        visibility: pickIncomingOrExisting(body, 'visibility', normalized.visibility, existing.visibility),
+        priority: hasOwn(body, 'priority') ? normalized.priority : existing.priority,
+        orderIndex: hasOwn(body, 'orderIndex') ? normalized.orderIndex : existing.orderIndex,
+        highlightTag: pickIncomingOrExisting(body, 'highlightTag', normalized.highlightTag, existing.highlightTag),
+        status: pickIncomingOrExisting(body, 'status', normalized.status, existing.status),
+        brand: pickIncomingOrExisting(body, 'brand', normalized.brand, existing.brand, ['badge']),
+        sku: pickIncomingOrExisting(body, 'sku', normalized.sku, existing.sku),
+        metadata: {
+            ...existingMetadata,
+            ...incomingMetadata
+        }
+    };
+}
+
 function normalizePayload(payload) {
     const name = toTrimmedString(payload?.name || payload?.title);
     const price = toNonNegativeNumber(payload?.price ?? payload?.salePrice, 0);
@@ -391,10 +471,11 @@ function normalizePayload(payload) {
         ...variantFoundation,
         items: Array.isArray(payload?.variants?.items) ? payload.variants.items : variantFoundation.items
     };
+        const galleryFromPayload = uniqueStrings(toStringArray(payload?.gallery));
 
     return {
         name,
-        title: metadata.metaTitle || name,
+        title: toTrimmedString(payload?.title, name) || name,
         description: toTrimmedString(payload?.description || payload?.shortDescription || metadata.metaDescription),
         shortDescription: toTrimmedString(payload?.shortDescription || payload?.description || metadata.metaDescription),
         longDescription: toStringArray(payload?.longDescription),
@@ -405,7 +486,7 @@ function normalizePayload(payload) {
         stock: toNonNegativeNumber(payload?.stock, 0),
         image: mainImage,
         mainImage,
-        gallery: uniqueStrings([mainImage, ...toStringArray(payload?.gallery)]),
+        gallery: galleryFromPayload,
         keywords: keywordSet,
         highlights: toStringArray(payload?.highlights),
         trust: toStringArray(payload?.trust),
@@ -810,7 +891,7 @@ exports.searchProducts = async (req, res) => {
 
         const serialized = sortSerializedProducts(products.map(serialize));
 
-        res.setHeader('Cache-Control', 'public, max-age=20, stale-while-revalidate=40');
+        res.setHeader('Cache-Control', 'public, max-age=5, must-revalidate');
         res.setHeader('Vary', 'Accept-Encoding');
 
         return res.json({
@@ -926,7 +1007,7 @@ exports.getProductById = async (req, res) => {
         }
 
         if (forPublic) {
-            res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+            res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
             res.setHeader('Vary', 'Accept-Encoding, Authorization');
         } else {
             res.setHeader('Cache-Control', 'no-store');
@@ -949,20 +1030,7 @@ exports.updateProduct = async (req, res) => {
 
         let product = await monitorAsyncOperation(logger, 'database.product.find_for_update', { requestedProductId: req.params.id, adminId: req.admin?.id || '' }, () => findProductByIdentifier(req.params.id), { slowThresholdMs: 700 });
         if (!product) {
-            const catalogId = parseCatalogId(req.params.id) || await buildCatalogIdFromPayload(req.body, null);
-            product = await monitorAsyncOperation(logger, 'database.product.create_on_update_fallback', { catalogId, adminId: req.admin?.id || '', productName: normalized.name }, () => productDataService.createProduct({
-                ...normalized,
-                catalogId,
-                url: buildProductUrl(catalogId)
-            }), { slowThresholdMs: 700 });
-
-            logger.info('inventory.product_created_via_update', { adminId: req.admin?.id || '', catalogId, productName: normalized.name });
-
-            void notificationEngine.notifyProductLifecycle(null, product).catch((engineError) => {
-                logger.warn('notification.engine.product_lifecycle_failed', { error: engineError, catalogId });
-            });
-
-            return res.status(201).json({ success: true, created: true, product: serializeProduct(product) });
+            return res.status(404).json({ success: false, message: 'Product not found' });
         }
 
         const previousStock = Number(product.stock || 0);
@@ -975,13 +1043,13 @@ exports.updateProduct = async (req, res) => {
             visibility: product.visibility,
             stock: previousStock
         };
-        product = await monitorAsyncOperation(logger, 'database.product.save_update', { catalogId: product.catalogId, adminId: req.admin?.id || '', productName: normalized.name }, () => productDataService.updateProduct(req.params.id, {
-            ...product,
-            ...normalized,
-            catalogId: product.catalogId,
-            title: normalized.name,
-            url: buildProductUrl(product.catalogId)
-        }), { slowThresholdMs: 700 });
+        const mergedUpdate = mergeProductUpdate(product, normalized, req.body || {});
+        mergedUpdate.catalogId = product.catalogId;
+        product = await monitorAsyncOperation(logger, 'database.product.save_update', { catalogId: product.catalogId, adminId: req.admin?.id || '', productName: mergedUpdate.name }, () => productDataService.updateProduct(req.params.id, mergedUpdate), { slowThresholdMs: 700 });
+
+        if (!product || Number(product.catalogId) !== Number(previousProduct.catalogId)) {
+            return res.status(409).json({ success: false, message: 'Product update did not preserve the original product id.' });
+        }
 
         logger.info('inventory.product_updated', {
             adminId: req.admin?.id || '',
@@ -1010,6 +1078,7 @@ exports.updateProduct = async (req, res) => {
             });
         });
 
+        res.setHeader('Cache-Control', 'no-store');
         return res.json({ success: true, product: serializeProduct(product) });
     } catch (error) {
         logger.error('inventory.product_update_failed', { error, requestedProductId: req.params.id });
@@ -1050,3 +1119,6 @@ exports.deleteProduct = async (req, res) => {
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
+
+exports.mergeProductUpdate = mergeProductUpdate;
+exports.normalizePayload = normalizePayload;

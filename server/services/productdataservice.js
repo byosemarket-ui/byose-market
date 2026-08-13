@@ -72,10 +72,7 @@ async function listAllProducts() {
 }
 
 async function findProductByIdentifier(identifier) {
-    const key = `products:one:${String(identifier || '').trim()}`;
-    return queryCache.remember(key, PRODUCT_LIST_TTL_MS, async () => (
-        decorateProduct(await getRepos().products.findByIdentifier(identifier))
-    ));
+    return decorateProduct(await getRepos().products.findByIdentifier(identifier));
 }
 
 async function getNextCatalogId() {

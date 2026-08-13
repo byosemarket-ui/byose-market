@@ -197,11 +197,14 @@ function renderOptionSelect(name, options, selectedValue, bilingual = false) {
 }
 
 function renderCategorySelect(name, selectedValue) {
+  const selected = String(selectedValue || "").trim();
+  const hasSelected = CATEGORY_OPTIONS.some((option) => option.value === selected);
   return `
     <select name="${escapeHtml(name)}">
+      ${!hasSelected && selected ? `<option value="${escapeHtml(selected)}" selected>${escapeHtml(toLabel(selected))}</option>` : ""}
       ${CATEGORY_OPTIONS.map((option) => {
-        const selected = option.value === selectedValue ? "selected" : "";
-        return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(option.labelRw)} / ${escapeHtml(option.labelEn)}</option>`;
+        const isSelected = option.value === selected ? "selected" : "";
+        return `<option value="${escapeHtml(option.value)}" ${isSelected}>${escapeHtml(option.labelRw)} / ${escapeHtml(option.labelEn)}</option>`;
       }).join("")}
     </select>
   `;
@@ -221,6 +224,9 @@ function renderInfoStep(draft) {
     ${renderBilingualField("Igihugu Yakorewemo", "Country of Origin", `
       <select name="countryOfOrigin">
         <option value="">Hitamo igihugu / Select country</option>
+        ${!COUNTRY_OF_ORIGIN_OPTIONS.includes(info.countryOfOrigin) && info.countryOfOrigin
+          ? `<option value="${escapeHtml(info.countryOfOrigin)}" selected>${escapeHtml(info.countryOfOrigin)}</option>`
+          : ""}
         ${COUNTRY_OF_ORIGIN_OPTIONS.map((country) => `<option value="${escapeHtml(country)}" ${country === info.countryOfOrigin ? "selected" : ""}>${escapeHtml(country)}</option>`).join("")}
       </select>
     `)}
@@ -403,12 +409,15 @@ function renderMediaStep(draft) {
     removeKey: `pending:${index}`
   }));
   const galleryItems = [...savedGallery, ...pendingGallery];
+  const existingCount = [media.mainImage, ...(media.gallery || [])].filter(Boolean).length;
+  const isEditing = Boolean(draft.productId || draft.savedProductId);
 
   return `
     <div class="pm-step-panel">
       <header class="pm-step-header">
         <h2><span class="pm-section-rw">Amafoto</span> <span class="pm-section-sep">/</span> <span class="pm-section-en">Media</span></h2>
         <p>Shyiraho ifoto nyamukuru n'amafoto y'inyongera ya product.</p>
+        ${isEditing ? `<p class="pm-field-hint">${existingCount} existing image${existingCount === 1 ? "" : "s"} loaded. They stay on this product unless you remove or replace them.</p>` : ""}
       </header>
       <div class="pm-media-layout">
         <section class="pm-upload-card">
@@ -1554,12 +1563,24 @@ function mountWizard(container) {
             }
           });
 
+      const savedId = String(savedProduct?.id || savedProduct?.catalogId || "").trim();
+      if (productId && savedId && savedId !== productId) {
+        throw new Error("Save did not update the original product. Reload and try again.");
+      }
+
       traceWizard("save:complete", {
         productId: String(savedProduct?.id || savedProduct?.catalogId || "")
       });
 
-      activeDraft.savedProductId = String(savedProduct?.id || savedProduct?.catalogId || "");
-      activeDraft.productId = activeDraft.savedProductId;
+      if (savedProduct && savedId) {
+        const refreshedDraft = hydrateDraftFromProduct(savedProduct);
+        refreshedDraft.productId = savedId;
+        refreshedDraft.savedProductId = savedId;
+        activeDraft = refreshedDraft;
+      } else {
+        activeDraft.savedProductId = String(savedProduct?.id || savedProduct?.catalogId || "");
+        activeDraft.productId = activeDraft.savedProductId;
+      }
       saveSuccess = savedProduct;
       isSaving = false;
       uploadProgress = { message: "", percent: null };

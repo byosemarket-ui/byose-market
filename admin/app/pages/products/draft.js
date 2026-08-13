@@ -100,9 +100,10 @@ function getCategoryValue(category) {
 
 function normalizeInfoFields(info = {}, defaults = createDefaultInfo()) {
   const categoryValues = CATEGORY_OPTIONS.map((entry) => entry.value);
-  const category = categoryValues.includes(getCategoryValue(info.category))
-    ? getCategoryValue(info.category)
-    : defaults.category;
+  const rawCategory = getCategoryValue(info.category);
+  const category = categoryValues.includes(rawCategory)
+    ? rawCategory
+    : (rawCategory || defaults.category);
   const productType = PRODUCT_TYPE_OPTIONS.some((entry) => entry.value === info.productType)
     ? info.productType
     : defaults.productType;
@@ -303,10 +304,6 @@ export function sanitizeDraft(input) {
   const description = draft.description && typeof draft.description === "object" ? draft.description : {};
   const media = draft.media && typeof draft.media === "object" ? draft.media : {};
   const seo = draft.seo && typeof draft.seo === "object" ? draft.seo : {};
-  const categoryValues = CATEGORY_OPTIONS.map((entry) => entry.value);
-  const category = categoryValues.includes(getCategoryValue(info.category))
-    ? getCategoryValue(info.category)
-    : defaults.info.category;
   const persistedGallery = sanitizePersistedGallery(media.gallery, media.galleryStoragePaths);
   const galleryUrls = persistedGallery.gallery;
   const galleryStorage = persistedGallery.galleryStoragePaths;
@@ -347,6 +344,42 @@ export function clearDraft() {
   clearJsonStorage(DRAFT_STORAGE_KEY);
 }
 
+function joinLongDescription(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry || "").trim()).filter(Boolean).join("\n\n");
+  }
+  return String(value || "").trim();
+}
+
+function isSameAsset(left, right) {
+  const leftUrl = normalizeAssetUrl(left);
+  const rightUrl = normalizeAssetUrl(right);
+  if (leftUrl && rightUrl && leftUrl === rightUrl) {
+    return true;
+  }
+
+  const leftPath = normalizeStoragePath(left);
+  const rightPath = normalizeStoragePath(right);
+  return Boolean(leftPath && rightPath && leftPath === rightPath);
+}
+
+function galleryWithoutMainImage(gallery, galleryStoragePaths, mainImage) {
+  const persisted = sanitizePersistedGallery(gallery, galleryStoragePaths);
+  const urls = [];
+  const storage = [];
+
+  persisted.gallery.forEach((url, index) => {
+    const storagePath = persisted.galleryStoragePaths[index] || normalizeStoragePath(url);
+    if (isSameAsset(url, mainImage) || isSameAsset(storagePath, mainImage)) {
+      return;
+    }
+    urls.push(url);
+    storage.push(storagePath);
+  });
+
+  return { gallery: urls, galleryStoragePaths: storage };
+}
+
 export function hydrateDraftFromProduct(product) {
   const defaults = createDefaultDraft();
   if (!product || typeof product !== "object") {
@@ -355,7 +388,6 @@ export function hydrateDraftFromProduct(product) {
 
   const catalogId = String(product.id || product.catalogId || "").trim();
   const attributes = Array.isArray(product.attributes) ? product.attributes : [];
-  const colorAttribute = attributes.find((entry) => String(entry?.type || entry?.axis || "").toLowerCase() === "color");
   const sizeAttribute = attributes.find((entry) => String(entry?.type || entry?.axis || "").toLowerCase() === "size");
   const variants = Array.isArray(product.variants?.items)
     ? product.variants.items.map((entry, index) => ({
@@ -379,15 +411,33 @@ export function hydrateDraftFromProduct(product) {
       stock: String(row.stock)
     }))
   }));
-  const tags = Array.isArray(product.tags)
+  const tags = Array.isArray(product.tags) && product.tags.length
     ? product.tags
     : (Array.isArray(product.keywords) ? product.keywords : []);
 
   const metadata = product.metadata && typeof product.metadata === "object" ? product.metadata : {};
-  const highlights = Array.isArray(product.highlights)
+  const highlights = Array.isArray(product.highlights) && product.highlights.length
     ? product.highlights
     : (Array.isArray(metadata.highlights) ? metadata.highlights : []);
-  const placement = normalizePlacement(metadata.placement || product.placement || []);
+  const placement = normalizePlacement(
+    metadata.placement || metadata.placements || product.placement || []
+  );
+  const mainImage = product.mainImage || product.image || "";
+  const extraGallery = galleryWithoutMainImage(
+    product.gallery || [],
+    product.galleryStoragePaths || [],
+    mainImage
+  );
+  const longDescription = joinLongDescription(
+    (Array.isArray(product.longDescription) && product.longDescription.length)
+      ? product.longDescription
+      : (metadata.longDescription || product.description || "")
+  );
+  const sellingPrice = toNumber(product.price, 0);
+  const storedOriginal = toNumber(
+    product.oldPrice ?? product.originalPrice ?? product.compareAtPrice ?? metadata.originalPrice,
+    0
+  );
 
   return sanitizeDraft({
     productId: catalogId,
@@ -396,12 +446,12 @@ export function hydrateDraftFromProduct(product) {
       name: product.name || product.title || "",
       shortName: metadata.shortName || product.shortName || "",
       category: product.category || "general",
-      brand: product.brand || product.badge || "",
+      brand: product.brand || metadata.brand || product.badge || "",
       manufacturer: metadata.manufacturer || "",
       countryOfOrigin: metadata.countryOfOrigin || "",
       tags: tags.join(", "),
       visibility: product.visibility || "both",
-      productType: metadata.productType || "simple",
+      productType: metadata.productType || (colorVariants.length ? "variable" : "simple"),
       condition: metadata.condition || "new",
       highlights: highlights.join(", "),
       warranty: metadata.warranty || "none",
@@ -413,29 +463,25 @@ export function hydrateDraftFromProduct(product) {
         || placement.includes("featured_products")
       ),
       placement,
-      positionMode: metadata.positionMode || "automatic",
+      positionMode: metadata.positionMode || product.positionMode || "automatic",
       priorityScore: String(
         Math.max(0, Math.min(100, Math.floor(toNumber(metadata.priorityScore ?? product.priority, 50))))
       ),
       publishStatus: metadata.publishStatus || (product.status === "inactive" ? "inactive" : (product.status === "draft" ? "draft" : "active"))
     },
     description: {
-      description: product.description || product.shortDescription || "",
-      longDescription: product.description || metadata.longDescription || "",
+      description: longDescription || product.description || product.shortDescription || "",
+      longDescription,
       shortDescription: product.shortDescription || metadata.shortDescription || ""
     },
     pricing: {
       costPrice: String(product.costPrice ?? metadata.costPrice ?? ""),
-      originalPrice: String(
-        Number(product.oldPrice ?? metadata.originalPrice ?? 0) > Number(product.price ?? 0)
-          ? (product.oldPrice ?? metadata.originalPrice ?? "")
-          : ""
-      ),
+      originalPrice: storedOriginal > sellingPrice ? String(storedOriginal) : "",
       sellingPrice: String(product.price ?? ""),
       currency: metadata.currency || "RWF"
     },
     inventory: {
-      sku: product.sku || "",
+      sku: product.sku || metadata.sku || "",
       quantity: String(product.stock ?? 0),
       stockStatus: inferStockStatus(product.stock),
       variantsEnabled: Boolean(product.variants?.enabled || colorVariants.length || variants.length),
@@ -446,15 +492,15 @@ export function hydrateDraftFromProduct(product) {
       colorVariants
     },
     media: {
-      mainImage: product.mainImage || product.image || "",
+      mainImage,
       mainImageStoragePath: product.mainImageStoragePath || product.imageStoragePath || "",
-      gallery: product.gallery || [],
-      galleryStoragePaths: product.galleryStoragePaths || []
+      gallery: extraGallery.gallery,
+      galleryStoragePaths: extraGallery.galleryStoragePaths
     },
     seo: {
-      metaTitle: product.metaTitle || product.title || product.name || "",
-      metaDescription: product.metaDescription || product.shortDescription || product.description || "",
-      slug: product.slug || slugify(product.name || product.title || ""),
+      metaTitle: product.metaTitle || metadata.metaTitle || product.title || product.name || "",
+      metaDescription: product.metaDescription || metadata.metaDescription || product.shortDescription || product.description || "",
+      slug: product.slug || metadata.slug || slugify(product.name || product.title || ""),
       slugManual: Boolean(metadata.slugManual)
     }
   });

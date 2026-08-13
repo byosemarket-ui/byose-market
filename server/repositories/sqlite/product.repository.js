@@ -585,13 +585,67 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
     }
 
     persistImages(productId, gallery, mainImage) {
+        if (!Array.isArray(gallery)) {
+            return;
+        }
 
-        this.db.prepare('DELETE FROM product_images WHERE product_id = ?').run(Number(productId));
-        const insert = this.db.prepare('INSERT INTO product_images (product_id, image_url, kind, sort_order) VALUES (?, ?, ?, ?)');
+        const productIdNum = Number(productId);
         const mainImageStorage = this.prepareStorablePath(mainImage);
-        const uniqueGallery = Array.from(new Set((Array.isArray(gallery) ? gallery : []).map((entry) => this.prepareStorablePath(entry)).filter(Boolean)));
-        uniqueGallery.forEach((storedPath, index) => {
-            insert.run(Number(productId), storedPath, storedPath === mainImageStorage ? 'main' : 'gallery', index);
+        const desired = [];
+        const seen = new Set();
+        const pushPath = (value) => {
+            const storedPath = this.prepareStorablePath(value);
+            if (!storedPath || seen.has(storedPath)) {
+                return;
+            }
+            seen.add(storedPath);
+            desired.push(storedPath);
+        };
+
+        pushPath(mainImage);
+        gallery.forEach((entry) => pushPath(entry));
+
+        const existingRows = this.db.prepare(`
+            SELECT id, image_url, kind, sort_order
+            FROM product_images
+            WHERE product_id = ?
+            ORDER BY sort_order ASC, id ASC
+        `).all(productIdNum);
+
+        const existingByPath = new Map();
+        existingRows.forEach((row) => {
+            const path = this.prepareStorablePath(row.image_url);
+            if (path && !existingByPath.has(path)) {
+                existingByPath.set(path, row);
+            }
+        });
+
+        const desiredSet = new Set(desired);
+        const deleteStmt = this.db.prepare('DELETE FROM product_images WHERE id = ?');
+        existingRows.forEach((row) => {
+            const path = this.prepareStorablePath(row.image_url);
+            if (!desiredSet.has(path)) {
+                deleteStmt.run(Number(row.id));
+            }
+        });
+
+        const insertStmt = this.db.prepare(
+            'INSERT INTO product_images (product_id, image_url, kind, sort_order) VALUES (?, ?, ?, ?)'
+        );
+        const updateStmt = this.db.prepare(
+            'UPDATE product_images SET kind = ?, sort_order = ?, image_url = ? WHERE id = ?'
+        );
+
+        desired.forEach((storedPath, index) => {
+            const kind = storedPath === mainImageStorage ? 'main' : 'gallery';
+            const existing = existingByPath.get(storedPath);
+            if (existing) {
+                if (Number(existing.sort_order) !== index || String(existing.kind || '') !== kind) {
+                    updateStmt.run(kind, index, storedPath, Number(existing.id));
+                }
+                return;
+            }
+            insertStmt.run(productIdNum, storedPath, kind, index);
         });
     }
 
@@ -623,7 +677,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             categoryId: category ? Number(category.id) : null,
             categorySlug: this.normalizeText(product.category, 'general').toLowerCase(),
             name: this.normalizeText(product.name),
-            title: this.normalizeText(product.metaTitle || product.title || product.name),
+            title: this.normalizeText(product.title || product.name),
             description: this.normalizeText(product.description),
             shortDescription: this.normalizeText(product.shortDescription || product.metaDescription),
             longDescriptionJson: this.stringifyJson(product.longDescription || [], []),
@@ -737,7 +791,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
                             Number(existing.recordId)
                         );
                     }
-                    this.persistImages(existing.recordId, product.gallery || [], payload.mainImage);
+                    this.persistImages(existing.recordId, Array.isArray(product.gallery) ? product.gallery : null, payload.mainImage);
                     return Number(existing.recordId);
                 });
 

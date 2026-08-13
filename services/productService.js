@@ -293,11 +293,13 @@ async function apiRequest(path, options = {}) {
     ...(options.headers || {})
   };
 
+  const method = options.method || "GET";
   const requestPromise = fetch(url, {
-    method: options.method || "GET",
+    method,
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
-    signal: controller?.signal
+    signal: controller?.signal,
+    cache: options.cache || (method === "GET" ? "no-store" : "default")
   }).then(async (response) => {
     const contentType = String(response.headers.get("content-type") || "").toLowerCase();
     const payload = contentType.includes("application/json")
@@ -386,6 +388,20 @@ function resolveProductImages(source) {
 }
 
 function isCardLikePayload(source) {
+  if (!source || typeof source !== "object") {
+    return true;
+  }
+
+  // Full product serialization always includes these keys. Card list payloads omit them.
+  if (
+    Object.prototype.hasOwnProperty.call(source, "shortDescription")
+    || Object.prototype.hasOwnProperty.call(source, "keywords")
+    || Object.prototype.hasOwnProperty.call(source, "galleryStoragePaths")
+    || Object.prototype.hasOwnProperty.call(source, "attributes")
+  ) {
+    return false;
+  }
+
   const variants = source.variants;
   const attributes = source.attributes;
   const emptyVariants = !variants
@@ -677,17 +693,84 @@ function prepareAssetFields(productData = {}, previousProduct = {}) {
   };
 }
 
+function hasOwnKey(source, key) {
+  return Boolean(source) && Object.prototype.hasOwnProperty.call(source, key);
+}
+
+function pickMergedArray(productData, previousProduct, key) {
+  if (hasOwnKey(productData, key)) {
+    return asArray(productData[key]);
+  }
+  if (hasOwnKey(previousProduct, key)) {
+    return asArray(previousProduct[key]);
+  }
+  return undefined;
+}
+
+function isCompletePreviousProduct(product) {
+  if (!product || typeof product !== "object") {
+    return false;
+  }
+  const catalogId = Number(product.id || product.catalogId);
+  if (!Number.isFinite(catalogId) || catalogId <= 0) {
+    return false;
+  }
+  return !isCardLikePayload(product);
+}
+
+function overlayUpdatedListingFields(products, updatedProduct) {
+  const updatedId = Number(updatedProduct?.id || updatedProduct?.catalogId);
+  if (!updatedId) {
+    return asArray(products);
+  }
+
+  let found = false;
+  const next = asArray(products).map((product) => {
+    if (Number(product.id) !== updatedId && Number(product.catalogId) !== updatedId) {
+      return product;
+    }
+    found = true;
+    return {
+      ...product,
+      name: updatedProduct.name || product.name,
+      title: updatedProduct.title || product.title,
+      price: updatedProduct.price,
+      salePrice: updatedProduct.price,
+      oldPrice: updatedProduct.oldPrice,
+      stock: updatedProduct.stock,
+      category: updatedProduct.category || product.category,
+      status: updatedProduct.status || product.status,
+      visibility: updatedProduct.visibility || product.visibility,
+      image: updatedProduct.image || product.image,
+      mainImage: updatedProduct.mainImage || product.mainImage,
+      thumbnail: updatedProduct.mainImage || product.thumbnail,
+      updatedAt: updatedProduct.updatedAt || product.updatedAt
+    };
+  });
+
+  if (!found) {
+    next.push(updatedProduct);
+  }
+
+  return next;
+}
+
 function buildApiPayload(productData, previousProduct = {}) {
   const assets = prepareAssetFields(productData, previousProduct);
   const name = normalizeText(productData?.name || productData?.title || previousProduct?.name, "Untitled product");
   const price = toNumber(productData?.price ?? previousProduct?.price, 0);
   const oldPrice = toNumber(productData?.oldPrice ?? previousProduct?.oldPrice, 0);
   const catalogId = Math.max(0, Math.floor(toNumber(productData?.catalogId ?? productData?.id ?? previousProduct?.catalogId ?? previousProduct?.id, 0)));
+  const trust = pickMergedArray(productData, previousProduct, "trust");
+  const specs = pickMergedArray(productData, previousProduct, "specs");
+  const extraInfoSource = hasOwnKey(productData, "extraInfo")
+    ? productData.extraInfo
+    : (hasOwnKey(previousProduct, "extraInfo") ? previousProduct.extraInfo : undefined);
 
   return {
     ...(catalogId ? { catalogId } : {}),
     name,
-    title: normalizeText(productData?.metaTitle ?? productData?.title ?? previousProduct?.metaTitle ?? name),
+    title: normalizeText(productData?.title ?? previousProduct?.title ?? name),
     description: normalizeText(productData?.description ?? previousProduct?.description),
     shortDescription: normalizeText(productData?.shortDescription ?? productData?.description ?? productData?.metaDescription ?? previousProduct?.shortDescription ?? previousProduct?.description),
     longDescription: asArray(productData?.longDescription ?? previousProduct?.longDescription),
@@ -704,8 +787,8 @@ function buildApiPayload(productData, previousProduct = {}) {
     galleryStoragePaths: assets.galleryStoragePaths,
     keywords: asArray(productData?.keywords).length ? asArray(productData?.keywords) : uniqueKeywordList(productData, previousProduct),
     highlights: asArray(productData?.highlights ?? previousProduct?.highlights),
-    trust: asArray(productData?.trust ?? previousProduct?.trust),
-    specs: asArray(productData?.specs ?? previousProduct?.specs),
+    ...(trust !== undefined ? { trust } : {}),
+    ...(specs !== undefined ? { specs } : {}),
     attributes: asArray(productData?.attributes ?? previousProduct?.attributes),
     variants: asObject(productData?.variants ?? previousProduct?.variants),
     visibility: normalizeVisibility(productData?.visibility ?? previousProduct?.visibility),
@@ -723,8 +806,11 @@ function buildApiPayload(productData, previousProduct = {}) {
     metaDescription: normalizeText(productData?.metaDescription ?? previousProduct?.metaDescription ?? productData?.description ?? previousProduct?.description),
     slug: normalizeText(productData?.slug ?? previousProduct?.slug),
     tags: asArray(productData?.tags ?? previousProduct?.tags),
-    metadata: asObject(productData?.metadata ?? previousProduct?.metadata),
-    extraInfo: asObject(productData?.extraInfo ?? previousProduct?.extraInfo)
+    metadata: {
+      ...asObject(previousProduct?.metadata),
+      ...asObject(productData?.metadata)
+    },
+    ...(extraInfoSource !== undefined ? { extraInfo: asObject(extraInfoSource) } : {})
   };
 }
 
@@ -911,30 +997,36 @@ export async function getProductById(productId) {
     return null;
   }
 
-  hydrateFromStorage();
-  const cachedHit = cachedProducts.find((product) => String(product.id || product.catalogId) === id);
-  try {
-    const response = await apiRequest(`products/${encodeURIComponent(id)}`, {
+  const token = getAdminToken();
+  const requestFullProduct = async (path, requiresAdmin) => {
+    const response = await apiRequest(path, {
       method: "GET",
-      timeoutMs: DEFAULT_TIMEOUT_MS
+      timeoutMs: DEFAULT_TIMEOUT_MS,
+      requiresAdmin
     });
     const product = response?.product;
     if (!product) {
-      return cachedHit || null;
+      return null;
+    }
+    return normalizeProductRecord(product);
+  };
+
+  try {
+    if (token) {
+      const adminProduct = await requestFullProduct(`admin/products/${encodeURIComponent(id)}`, true);
+      if (adminProduct) {
+        return adminProduct;
+      }
     }
 
-    const normalized = normalizeProductRecord(product);
-    const next = [
-      ...cachedProducts.filter((entry) => String(entry.id || entry.catalogId) !== String(normalized.id || normalized.catalogId)),
-      normalized
-    ];
-    cachedProducts = sortProducts(next);
-    hasHydratedCatalog = true;
-    lastSnapshotAt = Date.now();
-    return normalized;
+    return await requestFullProduct(`products/${encodeURIComponent(id)}`, false);
   } catch (error) {
-    if (cachedHit) {
-      return cachedHit;
+    if (token) {
+      try {
+        return await requestFullProduct(`products/${encodeURIComponent(id)}`, false);
+      } catch (_fallbackError) {
+        throw mapApiError(error, "Unable to load the selected product.");
+      }
     }
     throw mapApiError(error, "Unable to load the selected product.");
   }
@@ -1042,6 +1134,26 @@ export async function createProduct(productData = {}, options = {}) {
   return createdProduct;
 }
 
+async function resolvePreviousProductForUpdate(catalogId) {
+  try {
+    const fullProduct = await getProductById(String(catalogId));
+    if (isCompletePreviousProduct(fullProduct)) {
+      return fullProduct;
+    }
+  } catch (_error) {
+    // Fall through to in-memory catalog, but never merge from card-list payloads.
+  }
+
+  const cached = cachedProducts.find((product) => (
+    Number(product.id) === catalogId || Number(product.catalogId) === catalogId
+  ));
+  if (isCompletePreviousProduct(cached)) {
+    return cached;
+  }
+
+  return {};
+}
+
 export async function updateProduct(productId, productData = {}, options = {}) {
   const onProgress = options?.onProgress;
   const catalogId = Math.max(0, Math.floor(toNumber(productId, 0)));
@@ -1049,9 +1161,13 @@ export async function updateProduct(productId, productData = {}, options = {}) {
     throw new Error("Product id is required.");
   }
 
-  const previousProduct = cachedProducts.find((product) => Number(product.id) === catalogId || Number(product.catalogId) === catalogId) || {};
+  const previousProduct = await resolvePreviousProductForUpdate(catalogId);
   await ensureUploadCapableApiBaseUrl(options);
   const payload = buildApiPayload(productData, previousProduct);
+  if (Number(payload.catalogId || catalogId) !== catalogId) {
+    throw new Error("Product id is required.");
+  }
+  payload.catalogId = catalogId;
   reportProgress(onProgress, "Updating product record in backend...");
   const response = await apiRequest(`admin/products/${encodeURIComponent(String(catalogId))}`, {
     method: "PUT",
@@ -1061,10 +1177,21 @@ export async function updateProduct(productId, productData = {}, options = {}) {
   });
 
   const updatedProduct = normalizeProductRecord(response?.product);
-  publishProducts([...cachedProducts.filter((product) => Number(product.id) !== Number(updatedProduct.id)), updatedProduct], "api-update");
+  if (Number(updatedProduct.id || updatedProduct.catalogId) !== catalogId) {
+    throw new Error("Save did not update the original product. Reload and try again.");
+  }
+
+  publishProducts(
+    overlayUpdatedListingFields(
+      [...cachedProducts.filter((product) => Number(product.id) !== catalogId && Number(product.catalogId) !== catalogId), updatedProduct],
+      updatedProduct
+    ),
+    "api-update"
+  );
   reportProgress(onProgress, "Product updated successfully in backend.", { phase: "completed" });
   try {
     await forceRefreshProducts({ silent: true });
+    publishProducts(overlayUpdatedListingFields(cachedProducts, updatedProduct), "api-update-sync");
   } catch (_error) {
     // Keep the optimistic publish if background refresh fails.
   }

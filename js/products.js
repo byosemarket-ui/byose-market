@@ -142,11 +142,14 @@
 					publishProducts(cached);
 				}
 
-				const source = options.force && typeof service.forceRefreshProducts === 'function'
-					? await service.forceRefreshProducts()
-					: await service.getProducts();
-
-				publishProducts(source);
+				if (options.force && typeof service.forceRefreshProducts === 'function') {
+					await service.forceRefreshProducts();
+					publishProducts(typeof service.getCachedProducts === 'function'
+						? service.getCachedProducts()
+						: []);
+				} else {
+					publishProducts(await service.getProducts());
+				}
 			} catch (error) {
 				publishError(error);
 			}

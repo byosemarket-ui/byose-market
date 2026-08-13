@@ -1,5 +1,5 @@
 import { migrateLegacyStoredApiBase } from "../../../../services/api-origin.js";
-import { uploadProductGallery, uploadWithRetry, removeStoredAssets } from "../../../../services/uploadService.js";
+import { uploadProductGallery, uploadWithRetry } from "../../../../services/uploadService.js";
 import {
   isBlobUrl,
   isPersistableAssetUrl,
@@ -9,11 +9,9 @@ import {
 } from "./utils.js";
 
 export async function uploadMainImage(file, previousPath = "", onProgress) {
-  const cleanupPaths = previousPath ? [normalizeStoragePath(previousPath)] : [];
   const result = await uploadWithRetry(file, {
     onProgress,
-    progressLabel: "Uploading main image...",
-    cleanupPaths: cleanupPaths.filter(Boolean)
+    progressLabel: "Uploading main image..."
   });
 
   const mainImage = normalizeAssetUrl(result.publicUrl || result.url || result.path);
@@ -63,12 +61,7 @@ export async function resolveDraftMedia(draft, pendingMainFile, pendingGalleryFi
     draft?.media?.mainImageStoragePath || media.mainImage
   );
 
-  const removedPaths = [];
-
   if (pendingMainFile) {
-    if (media.mainImageStoragePath) {
-      removedPaths.push(media.mainImageStoragePath);
-    }
     const uploaded = await uploadMainImage(pendingMainFile, media.mainImageStoragePath, onProgress);
     media.mainImage = uploaded.mainImage;
     media.mainImageStoragePath = uploaded.mainImageStoragePath;
@@ -89,10 +82,6 @@ export async function resolveDraftMedia(draft, pendingMainFile, pendingGalleryFi
   media.gallery = media.gallery.filter((entry) => isPersistableAssetUrl(entry));
   media.galleryStoragePaths = media.galleryStoragePaths.slice(0, media.gallery.length);
 
-  if (removedPaths.length) {
-    await removeStoredAssets(removedPaths.filter(Boolean));
-  }
-
   console.debug("[ProductWizard:upload] resolve-complete", {
     mainImage: media.mainImage || "",
     mainImageStoragePath: media.mainImageStoragePath || "",
@@ -107,13 +96,8 @@ export function removeGalleryItem(draft, index) {
     draft?.media?.gallery || [],
     draft?.media?.galleryStoragePaths || []
   );
-  const removedStorage = sanitized.galleryStoragePaths[index] || normalizeStoragePath(sanitized.gallery[index]);
   sanitized.gallery.splice(index, 1);
   sanitized.galleryStoragePaths.splice(index, 1);
-
-  if (removedStorage) {
-    void removeStoredAssets([removedStorage]);
-  }
 
   return {
     ...(draft.media || {}),
@@ -122,11 +106,9 @@ export function removeGalleryItem(draft, index) {
 }
 
 export async function uploadColorVariantImage(file, previousPath = "", onProgress) {
-  const cleanupPaths = previousPath ? [normalizeStoragePath(previousPath)] : [];
   const result = await uploadWithRetry(file, {
     onProgress,
-    progressLabel: "Uploading color image...",
-    cleanupPaths: cleanupPaths.filter(Boolean)
+    progressLabel: "Uploading color image..."
   });
 
   const image = normalizeAssetUrl(result.publicUrl || result.url || result.path);
@@ -141,14 +123,8 @@ export async function uploadColorVariantImage(file, previousPath = "", onProgres
 
 export function removeColorVariantImage(color = {}) {
   const next = { ...(color || {}) };
-  const removedStorage = next.imageStoragePath || normalizeStoragePath(next.image);
   next.image = "";
   next.imageStoragePath = "";
-
-  if (removedStorage && isPersistableAssetUrl(removedStorage)) {
-    void removeStoredAssets([removedStorage]);
-  }
-
   return next;
 }
 
@@ -180,13 +156,7 @@ export async function resolveColorVariantImages(inventory = {}, onProgress) {
 
 export function removeMainImage(draft) {
   const media = { ...(draft.media || {}) };
-  const removedStorage = media.mainImageStoragePath || normalizeStoragePath(media.mainImage);
   media.mainImage = "";
   media.mainImageStoragePath = "";
-
-  if (removedStorage && isPersistableAssetUrl(removedStorage)) {
-    void removeStoredAssets([removedStorage]);
-  }
-
   return media;
 }
