@@ -34,6 +34,11 @@
 				continue;
 			}
 
+			const lowered = value.replace(/\\/g, '/').toLowerCase();
+			if (/(?:^|\/)img\/logo\.png(?:\?|#|$)/.test(lowered) || lowered.endsWith('/img/logo.png')) {
+				continue;
+			}
+
 			if (/^https?:\/\//i.test(value)) {
 				return value;
 			}

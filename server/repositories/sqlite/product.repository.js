@@ -122,13 +122,8 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             return null;
         }
 
-        const rawImage = row.image || row.main_image;
-
+                const rawImage = row.image || row.main_image;
                 const rawMainImage = row.main_image || row.image;
-                const imageStoragePath = this.resolveStoragePath(rawImage);
-                const mainImageStoragePath = this.resolveStoragePath(rawMainImage) || imageStoragePath;
-                const image = this.resolvePublicPath(rawImage);
-                const mainImage = this.resolvePublicPath(rawMainImage);
 
                 const galleryEntries = Array.isArray(images) ? images : [];
                 const galleryPublic = [];
@@ -142,6 +137,11 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
                         galleryStoragePaths.push(storagePath || this.resolveStoragePath(publicPath));
                     }
                 });
+
+                const image = this.resolvePublicPath(rawImage) || galleryPublic[0] || '';
+                const mainImage = this.resolvePublicPath(rawMainImage) || image;
+                const imageStoragePath = this.resolveStoragePath(rawImage) || this.resolveStoragePath(image);
+                const mainImageStoragePath = this.resolveStoragePath(rawMainImage) || imageStoragePath;
 
         const metadata = this.parseJson(row.metadata_json, {});
 
@@ -323,10 +323,13 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
             `).all(safeLimit, safeOffset);
         }
 
-        // Card payloads only need main_image/image columns — skip gallery table lookup.
-        const imageLookup = columns === 'card'
-            ? new Map()
-            : this.loadImagesForProductIds(rows.map((row) => Number(row.id)));
+        // Card payloads normally use products.image/main_image. If those columns
+        // were emptied by a bad update, still load product_images so Home/Shop
+        // can recover the real photo instead of the logo fallback.
+        const needsImageLookup = columns !== 'card' || rows.some((row) => !String(row.image || '').trim() && !String(row.main_image || '').trim());
+        const imageLookup = needsImageLookup
+            ? this.loadImagesForProductIds(rows.map((row) => Number(row.id)))
+            : new Map();
         return rows.map((row) => this.mapRow(row, imageLookup.get(Number(row.id)) || []));
     }
 
@@ -585,7 +588,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
     }
 
     persistImages(productId, gallery, mainImage) {
-        if (!Array.isArray(gallery)) {
+        if (!Array.isArray(gallery) && !String(mainImage || '').trim()) {
             return;
         }
 
@@ -595,7 +598,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         const seen = new Set();
         const pushPath = (value) => {
             const storedPath = this.prepareStorablePath(value);
-            if (!storedPath || seen.has(storedPath)) {
+            if (!storedPath || storedPath.includes('..') || /(?:^|\/)img\/logo\.png$/i.test(storedPath) || seen.has(storedPath)) {
                 return;
             }
             seen.add(storedPath);
@@ -603,7 +606,15 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         };
 
         pushPath(mainImage);
-        gallery.forEach((entry) => pushPath(entry));
+        if (Array.isArray(gallery)) {
+            gallery.forEach((entry) => pushPath(entry));
+        }
+
+        // An update with no usable image paths must not delete existing rows.
+        // That happens on stock-only saves that send empty image fields.
+        if (!desired.length) {
+            return;
+        }
 
         const existingRows = this.db.prepare(`
             SELECT id, image_url, kind, sort_order
@@ -654,8 +665,22 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
 
         const category = await categoryRepository.ensureBySlug(product.category, { name: product.category });
         const now = this.now(product.updatedAt);
-        const imageStoragePath = this.prepareStorablePath(product.image || product.mainImage);
-        const mainImageStoragePath = this.prepareStorablePath(product.mainImage || product.image) || imageStoragePath;
+        const incomingImagePath = this.prepareStorablePath(
+            product.image
+            || product.mainImage
+            || product.mainImageStoragePath
+            || product.imageStoragePath
+        );
+        const existingImagePath = existing
+            ? (this.prepareStorablePath(existing.image || existing.mainImage || existing.mainImageStoragePath) || this.normalizeText(existing.image || existing.mainImage))
+            : '';
+        const imageStoragePath = incomingImagePath || existingImagePath;
+        const mainImageStoragePath = incomingImagePath || existingImagePath;
+        const incomingPublicImagePath = this.prepareStorablePath(product.image || product.mainImage);
+        const incomingGallery = Array.isArray(product.gallery) ? product.gallery : null;
+        const galleryForPersist = (!incomingPublicImagePath && Array.isArray(incomingGallery) && incomingGallery.length === 0 && Array.isArray(existing?.gallery))
+            ? existing.gallery
+            : (incomingGallery || (Array.isArray(existing?.gallery) ? existing.gallery : null));
         const metadataSource = product.metadata && typeof product.metadata === 'object' ? product.metadata : {};
         const metadata = {
             ...metadataSource,
@@ -791,7 +816,11 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
                             Number(existing.recordId)
                         );
                     }
-                    this.persistImages(existing.recordId, Array.isArray(product.gallery) ? product.gallery : null, payload.mainImage);
+                    this.persistImages(
+                        existing.recordId,
+                        galleryForPersist,
+                        payload.mainImage || existingImagePath
+                    );
                     return Number(existing.recordId);
                 });
 

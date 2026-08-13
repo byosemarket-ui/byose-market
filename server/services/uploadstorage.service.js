@@ -96,6 +96,23 @@ function isManagedUploadPath(value) {
     return Boolean(normalizeManagedPath(value));
 }
 
+function isPlaceholderProductImage(value) {
+    const normalized = String(value || '').trim().replace(/\\/g, '/').toLowerCase();
+    if (!normalized) {
+        return true;
+    }
+
+    return /(?:^|\/)img\/logo\.png(?:\?|#|$)/.test(normalized)
+        || normalized === 'img/logo.png'
+        || normalized === '../img/logo.png'
+        || normalized.endsWith('/img/logo.png');
+}
+
+function hasUsableProductImageValue(value) {
+    const normalized = String(value || '').trim();
+    return Boolean(normalized) && !isPlaceholderProductImage(normalized);
+}
+
 function resolveManagedAbsolutePath(value) {
     const normalized = normalizeManagedPath(value);
     if (!normalized) {
@@ -217,7 +234,9 @@ module.exports = {
     collectProductManagedPaths,
     createUploadFilename,
     deleteManagedFiles,
+    hasUsableProductImageValue,
     isManagedUploadPath,
+    isPlaceholderProductImage,
     normalizeManagedPath,
     parsePathCollection,
     resolveManagedAbsolutePath

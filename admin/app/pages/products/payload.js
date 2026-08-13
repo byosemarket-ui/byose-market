@@ -279,8 +279,9 @@ export function buildProductPayload(draft, assetOverrides = {}) {
     assetOverrides.gallery || media.gallery || [],
     assetOverrides.galleryStoragePaths || media.galleryStoragePaths || []
   );
-  const mainImage = isPersistableAssetUrl(assetOverrides.mainImage || media.mainImage)
-    ? String(assetOverrides.mainImage || media.mainImage || "").trim()
+  const rawMainImage = assetOverrides.mainImage || media.mainImage || media.mainImageStoragePath || "";
+  const mainImage = isPersistableAssetUrl(rawMainImage)
+    ? String(rawMainImage).trim()
     : "";
   const mainImageStoragePath = normalizeStoragePath(
     assetOverrides.mainImageStoragePath || media.mainImageStoragePath || mainImage

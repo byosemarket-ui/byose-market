@@ -11,6 +11,7 @@ const {
     resolvePublicProductStatus
 } = require('../utils/product-visibility');
 const { enrichSerializedProductColorVariants } = require('../utils/colorVariantSerialization');
+const { hasUsableProductImageValue } = require('../services/uploadstorage.service');
 
 const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
 const DEFAULT_SITE_ORIGIN = 'https://byosemarket.com';
@@ -397,6 +398,39 @@ function pickIncomingOrExisting(rawBody, key, incomingValue, existingValue, alia
     return existingValue;
 }
 
+function pickIncomingImageOrExisting(rawBody, key, incomingValue, existingValue, aliases = []) {
+    const incomingProvided = hasOwn(rawBody, key) || aliases.some((alias) => hasOwn(rawBody, alias));
+    if (incomingProvided && hasUsableProductImageValue(incomingValue)) {
+        return incomingValue;
+    }
+    if (hasUsableProductImageValue(existingValue)) {
+        return existingValue;
+    }
+    if (incomingProvided && incomingValue !== undefined && incomingValue !== null) {
+        return incomingValue;
+    }
+    return existingValue || incomingValue || '';
+}
+
+function pickIncomingGalleryOrExisting(rawBody, incomingGallery, existingGallery) {
+    const incomingProvided = hasOwn(rawBody, 'gallery') || hasOwn(rawBody, 'galleryStoragePaths');
+    const existing = Array.isArray(existingGallery) ? existingGallery.filter((entry) => hasUsableProductImageValue(entry)) : [];
+    const incoming = Array.isArray(incomingGallery) ? incomingGallery.filter((entry) => hasUsableProductImageValue(entry)) : [];
+
+    if (!incomingProvided) {
+        return existing.length ? existing : incoming;
+    }
+
+    const rawMainUsable = hasUsableProductImageValue(rawBody.mainImage) || hasUsableProductImageValue(rawBody.image);
+    // Empty extras with no real public main image means the client did not
+    // actually send image data (stock/price/description-only save). Keep extras.
+    if (!incoming.length && !rawMainUsable) {
+        return existing;
+    }
+
+    return incoming;
+}
+
 function pickIncomingArrayOrExisting(rawBody, key, incomingValue, existingValue, aliases = []) {
     if (hasOwn(rawBody, key) || aliases.some((alias) => hasOwn(rawBody, alias))) {
         return Array.isArray(incomingValue) ? incomingValue : [];
@@ -430,9 +464,9 @@ function mergeProductUpdate(existingProduct, normalized, rawBody = {}) {
             ? normalized.oldPrice
             : toNonNegativeNumber(existing.oldPrice, normalized.oldPrice),
         stock: hasOwn(body, 'stock') ? normalized.stock : toNonNegativeNumber(existing.stock, normalized.stock),
-        image: pickIncomingOrExisting(body, 'image', normalized.image, existing.image, ['mainImage']),
-        mainImage: pickIncomingOrExisting(body, 'mainImage', normalized.mainImage, existing.mainImage, ['image']),
-        gallery: pickIncomingArrayOrExisting(body, 'gallery', normalized.gallery, existing.gallery, ['galleryStoragePaths']),
+        image: pickIncomingImageOrExisting(body, 'image', normalized.image, existing.image, ['mainImage']),
+        mainImage: pickIncomingImageOrExisting(body, 'mainImage', normalized.mainImage, existing.mainImage, ['image']),
+        gallery: pickIncomingGalleryOrExisting(body, normalized.gallery, existing.gallery),
         keywords: pickIncomingArrayOrExisting(body, 'keywords', normalized.keywords, existing.keywords, ['tags']),
         highlights: pickIncomingArrayOrExisting(body, 'highlights', normalized.highlights, existing.highlights),
         trust: pickIncomingArrayOrExisting(body, 'trust', normalized.trust, existing.trust),
@@ -456,7 +490,11 @@ function mergeProductUpdate(existingProduct, normalized, rawBody = {}) {
 function normalizePayload(payload) {
     const name = toTrimmedString(payload?.name || payload?.title);
     const price = toNonNegativeNumber(payload?.price ?? payload?.salePrice, 0);
-    const mainImage = toTrimmedString(payload?.mainImage || payload?.image);
+    const mainImage = hasUsableProductImageValue(payload?.mainImage)
+        ? toTrimmedString(payload.mainImage)
+        : (hasUsableProductImageValue(payload?.image)
+            ? toTrimmedString(payload.image)
+            : toTrimmedString(payload?.mainImageStoragePath || payload?.imageStoragePath));
     const oldPrice = toNonNegativeNumber(
         payload?.oldPrice ?? payload?.originalPrice ?? payload?.compareAtPrice ?? payload?.discountPrice,
         0
@@ -471,7 +509,7 @@ function normalizePayload(payload) {
         ...variantFoundation,
         items: Array.isArray(payload?.variants?.items) ? payload.variants.items : variantFoundation.items
     };
-        const galleryFromPayload = uniqueStrings(toStringArray(payload?.gallery));
+        const galleryFromPayload = uniqueStrings(toStringArray(payload?.gallery)).filter((entry) => hasUsableProductImageValue(entry));
 
     return {
         name,
@@ -540,8 +578,10 @@ function serializeProduct(product, options = {}) {
         : (resolvedOldPrice > price
             ? Math.round(((resolvedOldPrice - price) / resolvedOldPrice) * 100)
             : 0);
-    const rawMainImage = source.mainImage || source.image || '';
-    const rawGallery = uniqueStrings(source.gallery || []);
+    const rawGallery = uniqueStrings(source.gallery || []).filter((entry) => hasUsableProductImageValue(entry));
+    const rawMainImage = hasUsableProductImageValue(source.mainImage)
+        ? source.mainImage
+        : (hasUsableProductImageValue(source.image) ? source.image : (rawGallery[0] || ''));
     const mainImage = absolutizePublicAssetUrl(rawMainImage);
     const gallery = absolutizePublicAssetList(rawGallery.length ? rawGallery : [rawMainImage]);
 
@@ -607,10 +647,13 @@ function serializeProductCard(product, options = {}) {
         : (resolvedOldPrice > price
             ? Math.round(((resolvedOldPrice - price) / resolvedOldPrice) * 100)
             : 0);
-    const rawMainImage = source.mainImage || source.image || '';
+    const rawGallery = uniqueStrings(source.gallery || []).filter((entry) => hasUsableProductImageValue(entry));
+    const rawMainImage = hasUsableProductImageValue(source.mainImage)
+        ? source.mainImage
+        : (hasUsableProductImageValue(source.image) ? source.image : (rawGallery[0] || ''));
     const mainImage = absolutizePublicAssetUrl(rawMainImage);
     const gallery = absolutizePublicAssetList(
-        uniqueStrings(source.gallery || []).slice(0, 1).concat(rawMainImage ? [rawMainImage] : [])
+        (rawGallery.slice(0, 1).concat(rawMainImage ? [rawMainImage] : []))
     ).slice(0, 1);
     const placements = Array.isArray(metadataObject.placements) && metadataObject.placements.length
         ? metadataObject.placements

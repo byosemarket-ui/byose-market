@@ -143,6 +143,27 @@ async function main() {
     "multi-field update keeps existing image rows"
   );
 
+  const stockOnlyEmptyImages = {
+    ...afterMulti,
+    stock: 22,
+    image: "",
+    mainImage: "",
+    gallery: []
+  };
+  await productRepository.save(stockOnlyEmptyImages, { identifier: catalogId });
+  const afterStockOnly = await productRepository.findByIdentifier(catalogId);
+  const afterStockRows = loadImageRows(afterStockOnly.recordId);
+  assert(afterStockOnly.stock === 22, "stock-only empty-image save changes stock");
+  assert(String(afterStockOnly.mainImage || afterStockOnly.image).includes("edit-main-9101.webp"), "stock-only empty-image save keeps the main image column");
+  assert(
+    afterStockRows.some((row) => String(row.image_url).includes("edit-g1-9101.webp")),
+    "stock-only empty-image save keeps gallery image rows"
+  );
+  assert(
+    JSON.stringify(afterStockRows.map((row) => Number(row.id))) === JSON.stringify(beforeIds),
+    "stock-only empty-image save keeps the same product_images row ids"
+  );
+
   const addedGallery = {
     ...afterMulti,
     gallery: [...(afterDescription.gallery || []), "products/edit-g5-9101.webp"]

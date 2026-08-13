@@ -96,9 +96,16 @@ export function collectProductImageCandidates(product) {
 export function resolveProductImageUrl(product) {
   for (const candidate of collectProductImageCandidates(product)) {
     const normalized = normalizeStorefrontAssetUrl(candidate);
-    if (normalized && !/^javascript:/i.test(normalized)) {
-      return normalized;
+    if (!normalized || /^javascript:/i.test(normalized)) {
+      continue;
     }
+
+    const lowered = normalized.replace(/\\/g, "/").toLowerCase();
+    if (/(?:^|\/)img\/logo\.png(?:\?|#|$)/.test(lowered) || lowered.endsWith("/img/logo.png")) {
+      continue;
+    }
+
+    return normalized;
   }
 
   return "";

@@ -160,6 +160,10 @@ function normalizeManagedUploadPath(value) {
     return "";
   }
 
+  if (/^(?:products|categories|users|reviews|temp)\//i.test(normalized)) {
+    return normalized.replace(/^\/+/, "");
+  }
+
   if (normalized.startsWith("/uploads/")) {
     return normalized.slice("/uploads/".length).replace(/^\/+/, "");
   }
@@ -352,16 +356,19 @@ function resolveComparePrice(source, price) {
 }
 
 function resolveProductImages(source) {
-  const galleryRaw = asArray(parseJsonArray(source.gallery).map((entry) => normalizeText(entry))).filter(Boolean);
-  const galleryStorageRaw = asArray(parseJsonArray(source.gallery_storage_paths ?? source.galleryStoragePaths)).map((entry) => normalizeText(entry)).filter(Boolean);
+  const galleryRaw = asArray(parseJsonArray(source.gallery).map((entry) => normalizeText(entry)))
+    .filter((entry) => entry && !isCompanyLogoUrl(entry));
+  const galleryStorageRaw = asArray(parseJsonArray(source.gallery_storage_paths ?? source.galleryStoragePaths))
+    .map((entry) => normalizeText(entry))
+    .filter((entry) => entry && !isCompanyLogoUrl(entry));
 
-  const resolvedMainImage = normalizeText(
-    source.main_image
-      ?? source.mainImage
-      ?? source.image
-      ?? source.thumbnail
-      ?? galleryRaw[0]
-      ?? galleryStorageRaw[0]
+  const resolvedMainImage = firstNonEmpty(
+    source.main_image,
+    source.mainImage,
+    source.image,
+    source.thumbnail,
+    galleryRaw[0],
+    galleryStorageRaw[0]
   );
 
   const mainImage = resolveProductImageUrl({
@@ -372,7 +379,7 @@ function resolveProductImages(source) {
     mainImageStoragePath: source.main_image_storage_path ?? source.mainImageStoragePath ?? source.imageStoragePath,
     imageStoragePath: source.image_storage_path ?? source.imageStoragePath,
     galleryStoragePaths: galleryStorageRaw
-  }) || normalizeStorefrontAssetUrl(resolvedMainImage);
+  });
 
   const gallery = normalizeStorefrontAssetList([
     mainImage,
@@ -604,9 +611,21 @@ function isManagedStoragePath(value) {
   return Boolean(text) && /^(?:products|categories|users|reviews|temp)\//i.test(text);
 }
 
+function isCompanyLogoUrl(value) {
+  const normalized = normalizeText(value).replace(/\\/g, "/").toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return /(?:^|\/)img\/logo\.png(?:\?|#|$)/.test(normalized)
+    || normalized === "img/logo.png"
+    || normalized === "../img/logo.png"
+    || normalized.endsWith("/img/logo.png");
+}
+
 function isDirectAssetReference(value) {
   const text = normalizeText(value);
-  if (!text) {
+  if (!text || isCompanyLogoUrl(text)) {
     return false;
   }
 
@@ -615,7 +634,7 @@ function isDirectAssetReference(value) {
   }
 
   if (/^(?:https?:|\/|\.\/|\.\.\/)/i.test(text)) {
-    return true;
+    return !isCompanyLogoUrl(text);
   }
 
   return isManagedStoragePath(text);
@@ -641,36 +660,62 @@ function normalizeGalleryEntries(entries = []) {
     .filter((entry, index, values) => values.indexOf(entry) === index);
 }
 
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const text = normalizeText(value);
+    if (text && !isCompanyLogoUrl(text)) {
+      return text;
+    }
+  }
+  return "";
+}
+
 function prepareAssetFields(productData = {}, previousProduct = {}) {
-  const nextMainImage = normalizeText(
-    productData.mainImage
-      ?? productData.image
-      ?? productData.mainImageStoragePath
-      ?? productData.imageStoragePath
-      ?? previousProduct.mainImage
-      ?? previousProduct.image
-      ?? previousProduct.mainImageStoragePath
-      ?? previousProduct.imageStoragePath
+  const nextMainImage = firstNonEmpty(
+    productData.mainImage,
+    productData.image,
+    productData.mainImageStoragePath,
+    productData.imageStoragePath,
+    previousProduct.mainImage,
+    previousProduct.image,
+    previousProduct.mainImageStoragePath,
+    previousProduct.imageStoragePath
   );
   const nextGallery = normalizeGalleryEntries(
     Object.prototype.hasOwnProperty.call(productData, "gallery")
       ? productData.gallery
       : (previousProduct.gallery || [])
-  );
+  ).filter((entry) => !isCompanyLogoUrl(entry));
   const nextGalleryStorage = normalizeGalleryEntries(
     Object.prototype.hasOwnProperty.call(productData, "galleryStoragePaths")
       ? productData.galleryStoragePaths
       : (previousProduct.galleryStoragePaths || [])
   );
 
+  const previousMain = firstNonEmpty(
+    previousProduct.mainImage,
+    previousProduct.image,
+    previousProduct.mainImageStoragePath,
+    previousProduct.imageStoragePath
+  );
+  const incomingHasGalleryKey = Object.prototype.hasOwnProperty.call(productData, "gallery")
+    || Object.prototype.hasOwnProperty.call(productData, "galleryStoragePaths");
+  const incomingHasRealMain = Boolean(firstNonEmpty(
+    productData.mainImage,
+    productData.image,
+    productData.mainImageStoragePath,
+    productData.imageStoragePath
+  ));
+
   const mainImage = isDirectAssetReference(nextMainImage)
-    ? resolveAssetReference(nextMainImage, previousProduct.mainImage ?? previousProduct.image)
-    : normalizeText(previousProduct.mainImage ?? previousProduct.image);
-  const image = isDirectAssetReference(nextMainImage)
-    ? resolveAssetReference(nextMainImage, previousProduct.image ?? previousProduct.mainImage)
-    : normalizeText(previousProduct.image ?? previousProduct.mainImage);
-  const gallery = nextGallery
-    .filter((entry) => isDirectAssetReference(entry))
+    ? resolveAssetReference(nextMainImage, previousMain)
+    : previousMain;
+  const image = mainImage;
+  const gallery = (incomingHasGalleryKey && (nextGallery.length || incomingHasRealMain)
+    ? nextGallery
+    : normalizeGalleryEntries(previousProduct.gallery || [])
+  )
+    .filter((entry) => isDirectAssetReference(entry) || isManagedStoragePath(entry))
     .map((entry, index) => resolveAssetReference(entry, nextGalleryStorage[index] || ""))
     .filter(Boolean)
     .filter((entry, index, values) => values.indexOf(entry) === index);

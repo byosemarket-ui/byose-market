@@ -148,9 +148,21 @@ export function isDataUrl(value) {
   return /^data:/i.test(String(value || "").trim());
 }
 
+export function isCompanyLogoUrl(value) {
+  const normalized = String(value || "").trim().replace(/\\/g, "/").toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return /(?:^|\/)img\/logo\.png(?:\?|#|$)/.test(normalized)
+    || normalized === "img/logo.png"
+    || normalized === "../img/logo.png"
+    || normalized.endsWith("/img/logo.png");
+}
+
 export function isPersistableAssetUrl(value) {
   const normalized = String(value || "").trim();
-  if (!normalized || isBlobUrl(normalized) || isDataUrl(normalized)) {
+  if (!normalized || isBlobUrl(normalized) || isDataUrl(normalized) || isCompanyLogoUrl(normalized)) {
     return false;
   }
 

@@ -56,7 +56,9 @@ export async function resolveDraftMedia(draft, pendingMainFile, pendingGalleryFi
 
   media.mainImage = isPersistableAssetUrl(draft?.media?.mainImage)
     ? normalizeAssetUrl(draft.media.mainImage)
-    : "";
+    : (isPersistableAssetUrl(draft?.media?.mainImageStoragePath)
+      ? normalizeAssetUrl(draft.media.mainImageStoragePath)
+      : "");
   media.mainImageStoragePath = normalizeStoragePath(
     draft?.media?.mainImageStoragePath || media.mainImage
   );

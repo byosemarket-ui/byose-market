@@ -220,6 +220,22 @@ assert(priceOnlyPayload.sku === roundTrip.sku, "changing only price keeps SKU");
 assert(Number(priceOnlyPayload.catalogId) === 42, "price-only save keeps the original catalog id");
 assert(Number(roundTrip.catalogId) === 42, "edit payload targets the original catalog id");
 
+const stockOnlyDraft = JSON.parse(JSON.stringify(hydrated));
+stockOnlyDraft.inventory.quantity = "5";
+if (Array.isArray(stockOnlyDraft.inventory.colorVariants) && stockOnlyDraft.inventory.colorVariants[0]?.sizes?.[0]) {
+  stockOnlyDraft.inventory.colorVariants[0].sizes[0].stock = "5";
+  if (stockOnlyDraft.inventory.colorVariants[0].sizes[1]) {
+    stockOnlyDraft.inventory.colorVariants[0].sizes[1].stock = "0";
+  }
+}
+const stockOnlyPayload = buildProductPayload(stockOnlyDraft);
+assert(stockOnlyPayload.stock === 5, "changing only stock updates stock");
+assert(stockOnlyPayload.mainImage === roundTrip.mainImage, "changing only stock keeps main image");
+assert(JSON.stringify(stockOnlyPayload.gallery) === JSON.stringify(roundTrip.gallery), "changing only stock keeps gallery");
+assert(stockOnlyPayload.price === roundTrip.price, "changing only stock keeps price");
+assert(stockOnlyPayload.description === roundTrip.description, "changing only stock keeps description");
+assert(stockOnlyPayload.category === roundTrip.category, "changing only stock keeps category");
+
 const walked = sanitizeDraft(sanitizeDraft(hydrated));
 assert(walked.info.name === hydrated.info.name, "next/back sanitizing keeps product name");
 assert(walked.description.longDescription === hydrated.description.longDescription, "next/back sanitizing keeps long description");
@@ -237,6 +253,39 @@ assert(descriptionOnlyPayload.price === roundTrip.price, "changing only descript
 assert(JSON.stringify(descriptionOnlyPayload.gallery) === JSON.stringify(roundTrip.gallery), "changing only description keeps gallery");
 assert(descriptionOnlyPayload.stock === roundTrip.stock, "changing only description keeps stock");
 assert(JSON.stringify(descriptionOnlyPayload.metadata.colorVariants) === JSON.stringify(roundTrip.metadata.colorVariants), "changing only description keeps colors/sizes");
+
+const sizeOnlyDraft = JSON.parse(JSON.stringify(hydrated));
+if (sizeOnlyDraft.inventory.colorVariants[0]) {
+  sizeOnlyDraft.inventory.colorVariants[0].sizes = [
+    { size: "40", stock: "2" },
+    { size: "41", stock: "3" },
+    { size: "42", stock: "2" }
+  ];
+}
+const sizeOnlyPayload = buildProductPayload(sizeOnlyDraft);
+assert(sizeOnlyPayload.metadata.colorVariants[0].sizes.some((row) => row.size === "40"), "changing only size updates sizes");
+assert(sizeOnlyPayload.mainImage === roundTrip.mainImage, "changing only size keeps main image");
+assert(JSON.stringify(sizeOnlyPayload.gallery) === JSON.stringify(roundTrip.gallery), "changing only size keeps gallery");
+assert(sizeOnlyPayload.price === roundTrip.price, "changing only size keeps price");
+assert(sizeOnlyPayload.description === roundTrip.description, "changing only size keeps description");
+
+const multiFieldDraft = JSON.parse(JSON.stringify(hydrated));
+multiFieldDraft.pricing.sellingPrice = "48000";
+multiFieldDraft.inventory.quantity = "9";
+if (multiFieldDraft.inventory.colorVariants[0]?.sizes?.[0]) {
+  multiFieldDraft.inventory.colorVariants[0].sizes[0].stock = "5";
+  if (multiFieldDraft.inventory.colorVariants[0].sizes[1]) {
+    multiFieldDraft.inventory.colorVariants[0].sizes[1].stock = "4";
+  }
+}
+multiFieldDraft.description.longDescription = "Updated description with price and stock.";
+multiFieldDraft.description.description = "Updated description with price and stock.";
+const multiFieldPayload = buildProductPayload(multiFieldDraft);
+assert(multiFieldPayload.price === 48000, "changing price+stock+description updates price");
+assert(multiFieldPayload.stock === 9, "changing price+stock+description updates stock");
+assert(multiFieldPayload.description === "Updated description with price and stock.", "changing price+stock+description updates description");
+assert(multiFieldPayload.mainImage === roundTrip.mainImage, "changing price+stock+description keeps main image");
+assert(JSON.stringify(multiFieldPayload.gallery) === JSON.stringify(roundTrip.gallery), "changing price+stock+description keeps gallery");
 
 const addImageDraft = JSON.parse(JSON.stringify(hydrated));
 addImageDraft.media.gallery = [

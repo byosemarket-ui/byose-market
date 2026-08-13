@@ -96,9 +96,22 @@ const clearedGallery = mergeProductUpdate(
   emptyGalleryNormalized,
   { name: existing.name, price: 45000, gallery: [] }
 );
-assert(clearedGallery.gallery.length === 0, "explicit empty gallery is treated as an intentional extras clear");
-assert(clearedGallery.mainImage === existing.mainImage, "explicit empty gallery still keeps the main image field");
-assert(clearedGallery.catalogId === 42, "explicit empty gallery does not change the catalog id");
+assert(clearedGallery.gallery.length === 2, "empty gallery without a main image does not wipe existing extras");
+assert(clearedGallery.mainImage === existing.mainImage, "empty gallery without a main image keeps the existing main image");
+assert(clearedGallery.catalogId === 42, "empty gallery without a main image does not change the catalog id");
+
+const intentionalExtrasClear = mergeProductUpdate(
+  existing,
+  normalizePayload({
+    name: existing.name,
+    price: 45000,
+    mainImage: existing.mainImage,
+    gallery: []
+  }),
+  { name: existing.name, price: 45000, mainImage: existing.mainImage, gallery: [] }
+);
+assert(intentionalExtrasClear.gallery.length === 0, "explicit empty gallery with a real main image clears extras only");
+assert(intentionalExtrasClear.mainImage === existing.mainImage, "explicit extras clear keeps the main image");
 
 const emptyGalleryBody = {
   name: existing.name,
@@ -110,6 +123,53 @@ assert(preserved.gallery.length === 2, "incomplete payload without gallery does 
 assert(preserved.mainImage === existing.mainImage, "incomplete payload without images does not wipe main image");
 assert(preserved.trust.length === 2, "incomplete payload does not wipe trust");
 assert(preserved.variants.enabled === true, "incomplete payload does not wipe variants");
+
+const stockOnlyEmptyImages = mergeProductUpdate(
+  existing,
+  normalizePayload({
+    name: existing.name,
+    price: existing.price,
+    stock: 5,
+    mainImage: "",
+    image: "",
+    gallery: []
+  }),
+  {
+    name: existing.name,
+    price: existing.price,
+    stock: 5,
+    mainImage: "",
+    image: "",
+    gallery: []
+  }
+);
+assert(stockOnlyEmptyImages.stock === 5, "stock-only update with empty image fields changes stock");
+assert(stockOnlyEmptyImages.mainImage === existing.mainImage, "stock-only update with empty image fields keeps main image");
+assert(stockOnlyEmptyImages.gallery.length === 2, "stock-only update with empty image fields keeps gallery");
+assert(stockOnlyEmptyImages.price === existing.price, "stock-only update with empty image fields keeps price");
+
+const logoOverwrite = mergeProductUpdate(
+  existing,
+  normalizePayload({
+    name: existing.name,
+    price: existing.price,
+    stock: 9,
+    mainImage: "https://byosemarket.com/img/logo.png",
+    image: "../img/logo.png",
+    gallery: []
+  }),
+  {
+    name: existing.name,
+    price: existing.price,
+    stock: 9,
+    mainImage: "https://byosemarket.com/img/logo.png",
+    image: "../img/logo.png",
+    gallery: []
+  }
+);
+assert(logoOverwrite.stock === 9, "logo payload still applies stock");
+assert(logoOverwrite.mainImage === existing.mainImage, "company logo is not saved as the product image");
+assert(logoOverwrite.gallery.length === 2, "company logo payload does not wipe gallery images");
 
 const missingUpdate = mergeProductUpdate(
   { catalogId: 42, name: "Existing", price: 1000, gallery: ["/uploads/products/a.webp"] },

@@ -67,6 +67,14 @@ function runUnitTests() {
     resolveProductImageUrl({ name: "No image product" }) === "",
     "empty product returns no image URL"
   );
+
+  assert(
+    resolveProductImageUrl({
+      mainImage: `${PRODUCTION_ORIGIN}/img/logo.png`,
+      gallery: ["/uploads/products/real.webp"]
+    }) === `${PRODUCTION_ORIGIN}/uploads/products/real.webp`,
+    "skip company logo and use the real gallery image"
+  );
 }
 
 async function verifyLiveApi() {

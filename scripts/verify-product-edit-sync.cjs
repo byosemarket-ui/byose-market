@@ -91,6 +91,30 @@ const omittedImages = mergeProductUpdate(
 assert(omittedImages.gallery.length === 4, "omitted gallery does not wipe VPS image references");
 assert(omittedImages.mainImage === existing.mainImage, "omitted images keep the main VPS path");
 
+const stockOnlyEmpty = mergeProductUpdate(
+  existing,
+  normalizePayload({
+    name: "Nike Shoes",
+    price: 30000,
+    stock: 25,
+    mainImage: "",
+    image: "",
+    gallery: []
+  }),
+  {
+    name: "Nike Shoes",
+    price: 30000,
+    stock: 25,
+    mainImage: "",
+    image: "",
+    gallery: []
+  }
+);
+assert(stockOnlyEmpty.stock === 25, "stock-only empty-image merge updates stock");
+assert(stockOnlyEmpty.mainImage === existing.mainImage, "stock-only empty-image merge keeps main VPS path");
+assert(stockOnlyEmpty.gallery.length === 4, "stock-only empty-image merge keeps extra VPS gallery paths");
+assert(collectRemovedPaths(existing, stockOnlyEmpty).length === 0, "stock-only empty-image merge does not collect VPS files for deletion");
+
 const relativePrevious = {
   mainImage: "/uploads/products/nike-main.webp",
   gallery: [

@@ -307,7 +307,9 @@ export function sanitizeDraft(input) {
   const persistedGallery = sanitizePersistedGallery(media.gallery, media.galleryStoragePaths);
   const galleryUrls = persistedGallery.gallery;
   const galleryStorage = persistedGallery.galleryStoragePaths;
-  const normalizedMainImage = isPersistableAssetUrl(media.mainImage) ? normalizeAssetUrl(media.mainImage) : "";
+  const normalizedMainImage = isPersistableAssetUrl(media.mainImage)
+    ? normalizeAssetUrl(media.mainImage)
+    : (isPersistableAssetUrl(media.mainImageStoragePath) ? normalizeAssetUrl(media.mainImageStoragePath) : "");
   const normalizedMainStoragePath = normalizeStoragePath(
     media.mainImageStoragePath || normalizedMainImage
   );
@@ -422,7 +424,13 @@ export function hydrateDraftFromProduct(product) {
   const placement = normalizePlacement(
     metadata.placement || metadata.placements || product.placement || []
   );
-  const mainImage = product.mainImage || product.image || "";
+  const mainImage = isPersistableAssetUrl(product.mainImage)
+    ? product.mainImage
+    : (isPersistableAssetUrl(product.image)
+      ? product.image
+      : (isPersistableAssetUrl(product.mainImageStoragePath)
+        ? product.mainImageStoragePath
+        : (Array.isArray(product.gallery) ? (product.gallery.find((entry) => isPersistableAssetUrl(entry)) || "") : "")));
   const extraGallery = galleryWithoutMainImage(
     product.gallery || [],
     product.galleryStoragePaths || [],
