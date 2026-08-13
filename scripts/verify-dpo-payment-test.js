@@ -26,6 +26,7 @@ const {
 const verifyStore = isolateVerifyCredentialStore('verify-dpo-payment-test');
 
 let expectedCompanyToken = '';
+let expectedTestCompanyToken = '';
 
 function assert(condition, message) {
     if (!condition) throw new Error(message);
@@ -111,20 +112,26 @@ async function seedTestCredentials() {
 
     const paymentSettingsService = require('../server/services/paymentsettings.service');
     const settingsSnapshot = await snapshotPaymentSettingsFlags(paymentSettingsService);
+    const liveToken = `LIVE-VERIFY-${crypto.randomBytes(12).toString('hex')}`;
     await paymentSettingsService.updatePaymentSettings({
         enabled: true,
         activeProvider: 'dpo',
-        mode: 'test',
+        mode: 'live',
         credentials: {
             test: {
                 companyToken: ephemeral.companyToken,
                 serviceType: ephemeral.serviceType
+            },
+            live: {
+                companyToken: liveToken,
+                serviceType: '112815'
             }
         }
     }, { id: 'ADMIN_VERIFY_DPO', email: 'admin@example.com' });
 
-    expectedCompanyToken = ephemeral.companyToken;
-    return { ephemeral, settingsSnapshot };
+    expectedCompanyToken = liveToken;
+    expectedTestCompanyToken = ephemeral.companyToken;
+    return { ephemeral, settingsSnapshot, liveToken };
 }
 
 function installDpoMock(scenario = 'success') {
@@ -313,7 +320,7 @@ async function verifyServiceFlows() {
     const paidOrder = await orderDataService.findOrderByIdentifier(orderId);
     assert(String(paidOrder.paymentStatus).toLowerCase() === 'paid', 'persisted paymentStatus paid');
     assert(paidOrder.payment?.gateway?.provider === 'dpo', 'gateway provider missing');
-    assert(paidOrder.payment?.gateway?.mode === 'test', 'gateway mode should be test');
+    assert(paidOrder.payment?.gateway?.mode === 'live', 'gateway mode should be LIVE');
     assert(
         paidOrder.payment?.gateway?.transRef === 'REF123'
         || paidOrder.payment?.transaction?.reference === 'REF123'
@@ -473,34 +480,21 @@ async function verifyLiveUnconfiguredAndNoMix() {
     const dpoConfig = require('../server/payments/dpo/config');
     const paymentSettingsService = require('../server/services/paymentsettings.service');
 
-    assert(dpoConfig.resolveCheckoutEnvironment().mode === 'test', 'checkout environment decision must be TEST by default');
-
-    const liveStatus = await dpoConfig.inspectEnvironmentStatus('live');
-    assert(liveStatus.configured === false, 'isolated verify store must not start with LIVE credentials');
-
-    let liveError = null;
-    try {
-        await dpoConfig.getEnvironmentConfiguration('live');
-    } catch (error) {
-        liveError = error;
-    }
-    assert(
-        liveError && (liveError.code === 'DPO_LIVE_NOT_CONFIGURED' || liveError.code === 'DPO_LIVE_NOT_ENABLED'),
-        `LIVE without credentials must be rejected, got ${liveError?.code || liveError?.message}`
-    );
+    assert(dpoConfig.resolveCheckoutEnvironment().mode === 'live', 'checkout environment decision must be LIVE by default');
 
     const active = await dpoConfig.getActiveDpoConfiguration();
-    assert(active.mode === 'test', 'active checkout must be TEST');
-    assert(active.secrets.companyToken === expectedCompanyToken, 'active checkout must use TEST Company Token');
-    assert(active.secrets.companyToken !== liveError?.details?.token, 'LIVE rejection must not expose TEST token');
+    assert(active.mode === 'live', 'active checkout must be LIVE');
+    assert(active.secrets.companyToken === expectedCompanyToken, 'active checkout must use the LIVE Company Token');
+    assert(active.secrets.companyToken !== expectedTestCompanyToken, 'LIVE checkout must not fall back to TEST');
+    assert(active.secrets.serviceType === '112815', 'LIVE checkout must use Service Type 112815');
 
     let copied = null;
     try {
         await paymentSettingsService.updatePaymentSettings({
             credentials: {
                 live: {
-                    companyToken: expectedCompanyToken,
-                    serviceType: '12345'
+                    companyToken: expectedTestCompanyToken,
+                    serviceType: '112815'
                 }
             }
         }, { id: 'ADMIN_VERIFY_DPO', email: 'admin@example.com' });
@@ -512,8 +506,9 @@ async function verifyLiveUnconfiguredAndNoMix() {
     await paymentSettingsService.updatePaymentSettings({
         liveCheckoutEnabled: true
     }, { id: 'ADMIN_VERIFY_DPO', email: 'admin@example.com' });
-    const stillTest = await dpoConfig.getActiveDpoConfiguration();
-    assert(stillTest.mode === 'test', 'liveCheckoutEnabled payload must not switch Operating Mode to LIVE');
+    const stillLive = await dpoConfig.getActiveDpoConfiguration();
+    assert(stillLive.mode === 'live', 'liveCheckoutEnabled payload must not take checkout off LIVE');
+    assert(stillLive.secrets.companyToken === expectedCompanyToken, 'LIVE token must remain the Admin-saved LIVE value');
 }
 
 async function verifyCheckoutUsesLiveWhenAdminModeIsLive() {
@@ -549,8 +544,14 @@ async function verifyCheckoutUsesLiveWhenAdminModeIsLive() {
         assertNoSecretLeak(publicConfig, 'public config while admin mode is live');
     } finally {
         await paymentSettingsService.updatePaymentSettings({
-            mode: 'test',
-            enabled: true
+            mode: 'live',
+            enabled: true,
+            credentials: {
+                live: {
+                    companyToken: expectedCompanyToken,
+                    serviceType: '112815'
+                }
+            }
         }, { id: 'ADMIN_VERIFY_DPO', email: 'admin@example.com' });
     }
 }
@@ -723,10 +724,10 @@ async function main() {
         console.log('[verify-dpo-payment-test] service flows OK (success/failed/cancelled/invalid)');
 
         await verifyStorefrontMethodsUseDpo();
-        console.log('[verify-dpo-payment-test] MTN MoMo/Card use DPO TEST; COD does not call DPO');
+        console.log('[verify-dpo-payment-test] MTN MoMo/Card use DPO LIVE; COD does not call DPO');
 
         await verifyLiveUnconfiguredAndNoMix();
-        console.log('[verify-dpo-payment-test] LIVE unconfigured is blocked; TEST/LIVE credentials do not mix');
+        console.log('[verify-dpo-payment-test] LIVE checkout does not fall back to TEST; credentials do not mix');
 
         await verifyCheckoutUsesLiveWhenAdminModeIsLive();
         console.log('[verify-dpo-payment-test] LIVE operating mode uses LIVE configuration; no TEST fallback');

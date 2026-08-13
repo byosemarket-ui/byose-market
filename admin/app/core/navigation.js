@@ -140,7 +140,7 @@ export const ADMIN_NAVIGATION = [
           externalLink("website-store-settings", "Store Settings", "settings/index.html", { description: "Detected storefront settings entry." }),
           routeLink("website-payment-management", "Payment Management", "settings", {
             query: "?panel=payment",
-            description: "DPO Pay provider, TEST/LIVE mode, encrypted credentials, and connection status."
+            description: "DPO Pay LIVE production control, encrypted credentials, and checkout status."
           }),
           externalLink("website-media", "Media Assets", "media/upload.html", { description: "Detected upload workflow for site assets." })
         ]
@@ -179,7 +179,7 @@ export const ADMIN_NAVIGATION = [
           routeLink("settings-general", "General", "settings", { query: "?panel=general", description: "Platform store, regional, and system configuration." }),
           routeLink("settings-branding", "Branding", "settings", { query: "?panel=branding", description: "Logos, colors, icons, and brand identity." }),
           routeLink("settings-delivery", "Delivery", "settings", { query: "?panel=delivery", description: "Delivery zones, fees, methods, and timing." }),
-          routeLink("settings-payment", "Payment Management", "settings", { query: "?panel=payment", description: "DPO Pay provider, TEST/LIVE mode, encrypted credentials, and connection status." }),
+          routeLink("settings-payment", "Payment Management", "settings", { query: "?panel=payment", description: "DPO Pay LIVE production control, encrypted credentials, and checkout status." }),
           routeLink("settings-seo", "SEO", "settings", { query: "?panel=seo", description: "Website SEO, social cards, analytics, and structured data." }),
           routeLink("settings-notifications", "Notifications", "settings", { query: "?panel=notifications", description: "Admin alert email, email/browser/sound notification preferences." }),
           routeLink("settings-logout", "Logout & Sessions", "settings", { query: "?panel=logout", description: "Active sessions, secure logout, expiration, and audit trail." })

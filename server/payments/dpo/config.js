@@ -1,14 +1,10 @@
 /**
  * Authoritative DPO configuration resolver.
  *
- * Admin Payment Settings is the source of truth. Operating Mode selects the
- * TEST or LIVE credential set, endpoints, and Service Type. The encrypted
- * secrets store holds each environment separately. This module is the only
- * place checkout decides which environment to use.
- *
- * Operating Mode = LIVE activates customer LIVE checkout when LIVE credentials
- * are complete. Missing or invalid LIVE configuration fails safely. It never
- * falls back to TEST.
+ * Admin Payment Management is the LIVE production control center.
+ * Customer checkout uses the encrypted LIVE configuration only.
+ * Missing or invalid LIVE configuration fails safely. It never
+ * falls back to TEST credentials, endpoints, or Service Type.
  */
 
 const paymentSettingsService = require('../../services/paymentsettings.service');
@@ -17,7 +13,7 @@ const { TEST_SERVICE_TYPE_ID, LIVE_SERVICE_TYPE_ID } = require('../providers/dpo
 const { appLogger } = require('../../utils/logger');
 
 const PROVIDER_ID = 'dpo';
-const CHECKOUT_MODE = 'test';
+const CHECKOUT_MODE = 'live';
 
 function normalizeText(value, fallback = '') {
     const text = String(value == null ? '' : value).trim();
@@ -49,11 +45,10 @@ function customerSafeMessage(mode) {
 
 /**
  * Server-side checkout environment decision.
- * Admin operating mode selects the complete TEST or LIVE configuration.
- * LIVE never substitutes TEST credentials, endpoints, or Service Type.
+ * Production checkout is LIVE-only. Incomplete LIVE never substitutes TEST.
  */
 function resolveCheckoutEnvironment({ operatingMode = CHECKOUT_MODE, liveConfigured = false } = {}) {
-    const selected = normalizeText(operatingMode).toLowerCase() === 'live' ? 'live' : 'test';
+    const selected = normalizeText(operatingMode).toLowerCase() === 'test' ? 'test' : 'live';
     const configured = Boolean(liveConfigured);
 
     if (selected === 'live') {
@@ -232,13 +227,12 @@ async function inspectEnvironmentStatus(mode) {
 
 /**
  * Active checkout configuration. Payment service should call this, not
- * pick TEST/LIVE credentials itself.
+ * pick TEST/LIVE credentials itself. Production checkout is LIVE-only.
  */
 async function getActiveDpoConfiguration() {
-    const paymentConfig = await paymentSettingsService.getPaymentConfig();
     const liveStatus = await inspectEnvironmentStatus('live');
     const environment = resolveCheckoutEnvironment({
-        operatingMode: paymentConfig.mode,
+        operatingMode: 'live',
         liveConfigured: liveStatus.configured
     });
 
@@ -275,10 +269,9 @@ async function getCheckoutRuntime() {
 }
 
 async function getPublicCheckoutConfig() {
-    const paymentConfig = await paymentSettingsService.getPaymentConfig();
     const liveStatus = await inspectEnvironmentStatus('live');
     const environment = resolveCheckoutEnvironment({
-        operatingMode: paymentConfig.mode,
+        operatingMode: 'live',
         liveConfigured: liveStatus.configured
     });
     let credentialsReady = false;

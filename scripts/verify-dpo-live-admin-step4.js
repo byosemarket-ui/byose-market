@@ -38,6 +38,9 @@ function checkSources() {
     assert(admin.includes('LIVE configuration'), 'Admin must distinguish configuration from credentials');
     assert(admin.includes('LIVE checkout'), 'Admin must show LIVE checkout as a separate state');
     assert(admin.includes('Official LIVE Service Type ID is 112815'), 'Admin LIVE help must name 112815');
+    assert(!admin.includes('data-payment-mode-tab="test"'), 'Admin must not present TEST credential tabs');
+    assert(!admin.includes('Test TEST credentials'), 'Admin must not present TEST probe controls');
+    assert(admin.includes('Save LIVE payment settings'), 'Admin save must persist LIVE settings');
     assert(admin.includes('payv3.php'), 'Admin must name the official payv3.php payment URL');
     assert(!/Airtel Money/.test(admin), 'Admin payment page is not the customer method list');
     assert(admin.includes('paymentMethodLabel') || admin.includes('Method'), 'activity must show payment method');
@@ -115,7 +118,8 @@ async function checkAdminControlFlow() {
         assert(savedLive.capabilities.liveCredentialsStored === true, 'LIVE credentials stored must be true after save');
         assert(savedLive.capabilities.liveServiceType === '112815', 'LIVE Service Type must persist as 112815');
         assert(savedLive.capabilities.liveConfigurationComplete === true, 'LIVE configuration must be ready after save');
-        assert(savedLive.capabilities.liveCheckoutActive === false, 'LIVE checkout must stay inactive while Operating Mode is TEST');
+        assert(savedLive.capabilities.liveCheckoutActive === true, 'LIVE checkout must activate when LIVE configuration is complete');
+        assert(savedLive.mode === 'live', 'Admin Payment Management must report LIVE operating mode');
         assert(/API\/v6/i.test(savedLive.capabilities.liveApiEndpoint || ''), 'LIVE API must be API v6');
         assert(/payv3\.php/i.test(savedLive.capabilities.livePaymentPageUrl || ''), 'LIVE payment URL must be payv3.php');
         assert(Array.isArray(savedLive.auditEvents) && savedLive.auditEvents.some((event) => event.eventType === 'payment_live_credentials_updated'), 'saving LIVE credentials must create an audit event');
@@ -123,7 +127,7 @@ async function checkAdminControlFlow() {
 
         // Test B — reload
         const reloaded = await paymentSettingsService.getAdminPaymentSettings();
-        assert(reloaded.mode === 'test', 'reload must keep Operating Mode until it is changed');
+        assert(reloaded.mode === 'live', 'reload must keep LIVE as the production operating mode');
         assert(reloaded.providers[0].credentials.live.fields.companyToken.configured === true, 'reload must keep LIVE credentials stored');
         assert(reloaded.capabilities.liveServiceType === '112815', 'reload must keep LIVE Service Type 112815');
         assert(!JSON.stringify(reloaded).includes(liveToken), 'reload must not reveal the LIVE Company Token');
@@ -148,21 +152,20 @@ async function checkAdminControlFlow() {
         assert(publicLive.enabled === true, 'customer online checkout must be available when LIVE is active');
         assert(publicLive.mode == null, 'customer config must not expose Operating Mode');
 
-        // Test D — Operating Mode TEST selects TEST backend
-        const testMode = await paymentSettingsService.updatePaymentSettings({
+        // Test D — stored TEST mode must not take customer checkout off LIVE
+        await paymentSettingsService.updatePaymentSettings({
             mode: 'test',
             enabled: true
         }, { id: 'ADMIN_VERIFY_STEP4', email: 'admin@example.com' });
-        assert(testMode.mode === 'test', 'Operating Mode TEST must persist');
-        const testRuntime = await dpoConfig.getActiveDpoConfiguration();
-        assert(testRuntime.mode === 'test', 'backend must use TEST configuration');
-        assert(testRuntime.secrets.companyToken === testToken, 'TEST backend must use TEST Company Token');
-        assert(testRuntime.secrets.serviceType === '54841', 'TEST backend must keep Service Type 54841');
-
-        await paymentSettingsService.updatePaymentSettings({
-            mode: 'live',
-            enabled: true
-        }, { id: 'ADMIN_VERIFY_STEP4', email: 'admin@example.com' });
+        const adminAfterTestMode = await paymentSettingsService.getAdminPaymentSettings();
+        assert(adminAfterTestMode.mode === 'live', 'Admin Payment Management must still present LIVE');
+        const liveAfterTestMode = await dpoConfig.getActiveDpoConfiguration();
+        assert(liveAfterTestMode.mode === 'live', 'customer checkout must stay on LIVE');
+        assert(liveAfterTestMode.secrets.companyToken === liveToken, 'LIVE backend must keep the LIVE Company Token');
+        assert(liveAfterTestMode.secrets.companyToken !== testToken, 'LIVE checkout must not fall back to TEST');
+        const isolatedTest = await dpoConfig.getEnvironmentConfiguration('test');
+        assert(isolatedTest.secrets.companyToken === testToken, 'TEST credentials may remain stored for isolation');
+        assert(isolatedTest.secrets.serviceType === '54841', 'TEST Service Type 54841 must stay isolated from LIVE');
 
         // Test E — disable online payments
         const disabledOnline = await paymentSettingsService.updatePaymentSettings({

@@ -127,10 +127,11 @@ async function verifyServiceLayer() {
     assert(admin.connection?.code, 'connection status missing');
     assert(Array.isArray(admin.activity), 'activity missing');
     assert(admin.activityStats && typeof admin.activityStats === 'object', 'activityStats missing');
-    assert(admin.capabilities?.canTestConnection === true, 'TEST mode should allow connection tests');
-    assert(admin.capabilities?.liveCheckoutEnabled === false, 'LIVE checkout must stay off while Operating Mode is TEST');
-    assert(admin.capabilities?.checkoutEnvironment === 'test', 'checkout environment must be TEST');
-    assert(admin.capabilities?.liveCheckoutReady === false, 'LIVE checkout must not be ready');
+    assert(admin.capabilities?.canTestConnection === true, 'TEST credential probe API may remain available internally');
+    assert(admin.capabilities?.liveCheckoutEnabled === true, 'LIVE is the production checkout environment');
+    assert(admin.capabilities?.checkoutEnvironment === 'live', 'checkout environment must be LIVE');
+    assert(admin.capabilities?.liveCheckoutReady === false, 'LIVE checkout must stay inactive until LIVE credentials are complete');
+    assert(admin.mode === 'live', 'Admin Payment Management must report LIVE operating mode');
     assertNoSecretLeak(admin, 'admin payment view');
 
     // Disable provider

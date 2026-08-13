@@ -99,6 +99,8 @@ function checkArchitecturePreserved() {
     assert(admin.includes('Company Token'), 'Admin must keep Company Token fields');
     assert(admin.includes('Service Type'), 'Admin must keep Service Type fields');
     assert(admin.includes('data-payment-cred-panel="live"'), 'Admin LIVE credential panel must remain');
+    assert(!admin.includes('data-payment-cred-panel="test"'), 'Admin must not present TEST credential UI');
+    assert(!admin.includes('Test TEST credentials'), 'Admin must not present TEST probe controls');
 }
 
 function checkNoHardCodedSecrets() {
@@ -136,9 +138,9 @@ async function checkRuntimeGate() {
     const dpoConfig = require('../server/payments/dpo/config');
     assert(dpoConfig.LIVE_CHECKOUT_ENABLED === undefined, 'LIVE_CHECKOUT_ENABLED hard gate must be removed');
     const decision = dpoConfig.resolveCheckoutEnvironment();
-    assert(decision.mode === 'test', 'default checkout environment must resolve to TEST');
-    assert(decision.liveCheckoutEnabled === false, 'LIVE checkout flag must be false until Operating Mode is LIVE');
-    assert(decision.liveAvailable === false, 'LIVE must not be available while Operating Mode is TEST');
+    assert(decision.mode === 'live', 'default checkout environment must resolve to LIVE');
+    assert(decision.liveCheckoutEnabled === true, 'LIVE is the production checkout environment');
+    assert(decision.customerCheckoutAllowed === false, 'incomplete LIVE must keep customer checkout inactive');
 
     const liveOn = dpoConfig.resolveCheckoutEnvironment({ operatingMode: 'live', liveConfigured: true });
     assert(liveOn.mode === 'live', 'Operating Mode LIVE must select LIVE checkout');

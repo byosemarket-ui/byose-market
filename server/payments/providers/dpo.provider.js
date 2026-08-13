@@ -19,7 +19,7 @@ const CREDENTIAL_FIELDS = Object.freeze([
         required: true,
         inputType: 'password',
         autocomplete: 'off',
-        help: 'Issued by DPO Pay. Never share publicly. Stored encrypted server-side only.'
+        help: 'Official DPO LIVE Company Token. Never share publicly. Stored encrypted server-side only.'
     },
     {
         key: 'serviceType',
@@ -28,7 +28,7 @@ const CREDENTIAL_FIELDS = Object.freeze([
         required: true,
         inputType: 'text',
         autocomplete: 'off',
-        help: 'Numeric DPO Service Type ID for this Company Token. LIVE uses 112815. TEST uses 54841. Do not mix them.'
+        help: 'Numeric DPO Service Type ID. LIVE uses 112815 (112815-Shoes). Do not use TEST Service Type 54841.'
     }
 ]);
 
@@ -91,7 +91,7 @@ function sanitizeProviderConfig(raw = {}) {
         label: normalizeText(source.label, 'DPO Pay').slice(0, 80),
         endpoints: {
             test: sanitizeEndpoints(endpointsSource.test, DEFAULT_ENDPOINTS.test, { upgradeLegacyPayV2: true }),
-            live: sanitizeEndpoints(endpointsSource.live, DEFAULT_ENDPOINTS.live, { upgradeLegacyPayV2: true })
+            live: { ...DEFAULT_ENDPOINTS.live }
         }
     };
 }

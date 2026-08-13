@@ -13,7 +13,8 @@
  * URL if DPO confirms one — never guess a different path here.
  *
  * TEST and LIVE use this same documented host; Company Token + Service Type
- * select the merchant environment. LIVE checkout stays gated in the resolver.
+ * select the merchant environment. Production checkout is LIVE-only and never
+ * falls back to TEST.
  */
 
 const DEFAULT_API_BASE = 'https://secure.3gdirectpay.com/API/v6/';

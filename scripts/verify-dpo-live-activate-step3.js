@@ -95,10 +95,14 @@ async function checkLiveCheckoutActivation() {
             }
         }, { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' });
 
-        const activeTest = await dpoConfig.getActiveDpoConfiguration();
-        assert(activeTest.mode === 'test', 'TEST operating mode must use TEST configuration');
-        assert(activeTest.secrets.companyToken === testToken, 'TEST checkout must use TEST Company Token');
-        assert(activeTest.secrets.serviceType === '54841', 'TEST checkout must use TEST Service Type');
+        let missingLive = null;
+        try {
+            await dpoConfig.getActiveDpoConfiguration();
+        } catch (error) {
+            missingLive = error;
+        }
+        assert(missingLive && missingLive.code === 'DPO_LIVE_NOT_CONFIGURED', 'TEST credentials must not be used as a LIVE fallback');
+        assert(missingLive.message && /Cash on Delivery/i.test(missingLive.message), 'customer LIVE failure must stay safe');
 
         await paymentSettingsService.updatePaymentSettings({
             mode: 'live',
@@ -115,7 +119,7 @@ async function checkLiveCheckoutActivation() {
         assert(incomplete.code !== 'DPO_NOT_ENABLED' || incomplete.details?.mode === 'live', 'LIVE failure must not load TEST');
 
         await paymentSettingsService.updatePaymentSettings({
-            mode: 'test',
+            mode: 'live',
             enabled: true,
             credentials: {
                 live: {
@@ -123,15 +127,6 @@ async function checkLiveCheckoutActivation() {
                     serviceType: '112815-Shoes'
                 }
             }
-        }, { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' });
-
-        const stillTest = await dpoConfig.getActiveDpoConfiguration();
-        assert(stillTest.mode === 'test', 'saving LIVE credentials must not switch checkout off TEST');
-        assert(stillTest.secrets.companyToken === testToken, 'TEST checkout must keep TEST Company Token until Operating Mode is LIVE');
-
-        await paymentSettingsService.updatePaymentSettings({
-            mode: 'live',
-            enabled: true
         }, { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' });
 
         const liveRuntime = await dpoPaymentService.loadCheckoutRuntime();

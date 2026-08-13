@@ -38,9 +38,10 @@ function checkSources() {
     assert(settings.includes('getCheckoutEnvironmentMode'), 'checkout environment must be server-decided');
 
     const admin = read('admin/app/pages/settings-payment.js');
-    assert(admin.includes('window.confirm'), 'switching to LIVE operating mode needs confirmation');
-    assert(admin.includes('Checkout ${escapeHtml(checkoutEnvironment.toUpperCase())}') || admin.includes('Checkout ${escapeHtml(checkoutEnvironment'), 'Admin must show checkout environment');
+    assert(admin.includes('window.confirm'), 'saving a LIVE Company Token needs confirmation');
+    assert(admin.includes('LIVE Payment Control Center') || admin.includes('LIVE payment control'), 'Admin must present LIVE payment management');
     assert(admin.includes('LIVE credentials'), 'Admin must show LIVE credential status');
+    assert(!admin.includes('data-payment-mode-tab="test"'), 'Admin must not present TEST credential tabs');
     assert(!/Airtel Money/.test(admin), 'Admin payment page is not the customer method list');
 
     const dpoService = read('server/services/dpopayment.service.js');
@@ -69,9 +70,9 @@ function main() {
     const dpoConfig = require('../server/payments/dpo/config');
     assert(dpoConfig.LIVE_CHECKOUT_ENABLED === undefined, 'LIVE_CHECKOUT_ENABLED hard gate must be removed');
     const decision = dpoConfig.resolveCheckoutEnvironment();
-    assert(decision.mode === 'test', 'default checkout environment must resolve to TEST');
-    assert(decision.liveCheckoutEnabled === false, 'LIVE checkout flag must be false until Operating Mode is LIVE');
-    assert(decision.liveAvailable === false, 'LIVE must not be available while Operating Mode is TEST');
+    assert(decision.mode === 'live', 'default checkout environment must resolve to LIVE');
+    assert(decision.liveCheckoutEnabled === true, 'LIVE is the production checkout environment');
+    assert(decision.customerCheckoutAllowed === false, 'incomplete LIVE must keep customer checkout inactive');
 
     const liveDecision = dpoConfig.resolveCheckoutEnvironment({ operatingMode: 'live', liveConfigured: true });
     assert(liveDecision.mode === 'live', 'operating mode LIVE must select LIVE configuration');
@@ -90,8 +91,7 @@ function main() {
     }
 
     console.log('[verify-dpo-environment-config] PASS');
-    console.log(' Default checkout environment: TEST');
-    console.log(' Operating Mode LIVE + complete credentials: LIVE checkout');
+    console.log(' Default checkout environment: LIVE');
     console.log(' Incomplete LIVE: fail safely, no TEST fallback');
     console.log(' Customer methods unchanged: MTN MoMo, Card, Cash on Delivery');
 }
