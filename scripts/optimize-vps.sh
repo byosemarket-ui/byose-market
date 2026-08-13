@@ -178,9 +178,16 @@ fi
 # Verification
 # ---------------------------------------------------------------------------
 log "Verifying local health + product API..."
-sleep 2
-
-curl -fsS --max-time 10 "http://127.0.0.1:${API_PORT}/healthz" >/dev/null || fail "Local API /healthz failed"
+health_ok=0
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  if curl -fsS --max-time 10 "http://127.0.0.1:${API_PORT}/healthz" >/dev/null; then
+    health_ok=1
+    break
+  fi
+  log "Local API /healthz not ready (attempt ${attempt}/10)..."
+  sleep 2
+done
+[[ "${health_ok}" -eq 1 ]] || fail "Local API /healthz failed"
 curl -fsS --max-time 10 "http://127.0.0.1/healthz" >/dev/null || fail "Nginx /healthz proxy failed"
 
 PRODUCTS_HEADERS="$(mktemp)"
