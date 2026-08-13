@@ -67,9 +67,14 @@ function main() {
     assert(dpoConfig.LIVE_CHECKOUT_ENABLED === false, 'LIVE_CHECKOUT_ENABLED export must be false');
     assert(dpoConfig.isLiveCheckoutGateOpen() === false, 'LIVE gate must be closed');
     const decision = dpoConfig.resolveCheckoutEnvironment();
-    assert(decision.mode === 'test', 'checkout environment must resolve to TEST');
+    assert(decision.mode === 'test', 'default checkout environment must resolve to TEST');
     assert(decision.liveCheckoutEnabled === false, 'LIVE checkout flag must be false');
     assert(decision.liveAvailable === false, 'LIVE must not be available to customers');
+
+    const liveDecision = dpoConfig.resolveCheckoutEnvironment({ operatingMode: 'live', liveConfigured: true });
+    assert(liveDecision.mode === 'live', 'operating mode LIVE must select LIVE configuration');
+    assert(liveDecision.customerCheckoutAllowed === false, 'LIVE operating mode must not activate customer checkout yet');
+    assert(liveDecision.liveCheckoutEnabled === false, 'LIVE checkout gate must stay closed');
 
     if (failures.length) {
         console.error('[verify-dpo-environment-config] FAIL:');

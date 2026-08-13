@@ -31,7 +31,7 @@ function statusChip(payment) {
   const code = String(payment?.connection?.code || payment?.statusSummary?.code || "disabled");
   const tone = code === "connected" || code === "ready"
     ? "success"
-    : (code === "configured_disabled" || code === "incomplete" || code === "credentials_incomplete" ? "warn" : "danger");
+    : (code === "configured_disabled" || code === "incomplete" || code === "credentials_incomplete" || code === "live_stored_inactive" ? "warn" : "danger");
   const label = payment?.connection?.label || payment?.statusSummary?.label || "Not configured";
   return `<span class="admin-profile-chip admin-profile-chip-${tone}">${escapeHtml(label)}</span>`;
 }
@@ -41,9 +41,19 @@ function credentialFieldMarkup(provider, mode, field) {
   const configured = Boolean(status.configured);
   const hint = status.hint || "";
   const shownValue = !field.secret && status.value ? String(status.value) : "";
+  const liveServiceType = field.key === "serviceType" && mode === "live";
   const placeholder = field.secret
-    ? (configured ? `Configured ${hint || "••••"} — leave blank to keep` : "Enter secret value")
-    : (configured ? "Update value or leave as shown" : "Enter value");
+    ? (configured
+      ? `Configured ${hint || "••••"} — leave blank to keep`
+      : (mode === "live" ? "Enter official DPO LIVE Company Token" : "Enter secret value"))
+    : (configured
+      ? "Update value or leave as shown"
+      : (liveServiceType ? "112815" : "Enter value"));
+  const help = liveServiceType
+    ? "Official LIVE Service Type ID is 112815. Do not use TEST Service Type 54841. 112815-Shoes is stored as 112815."
+    : (field.key === "serviceType" && mode === "test"
+      ? "TEST Service Type ID for this Company Token. Do not copy this value into LIVE."
+      : (field.help || ""));
 
   return `
     <label class="admin-payment-cred-field">
@@ -63,7 +73,7 @@ function credentialFieldMarkup(provider, mode, field) {
         ${field.secret ? 'value=""' : `value="${attr(shownValue)}"`}
         placeholder="${attr(placeholder)}"
       />
-      ${field.help ? `<small class="admin-payment-help">${escapeHtml(field.help)}</small>` : ""}
+      ${help ? `<small class="admin-payment-help">${escapeHtml(help)}</small>` : ""}
       <small class="field-error" data-error-for="${attr(`${mode}.${field.key}`)}"></small>
     </label>
   `;
@@ -136,7 +146,14 @@ function paymentMarkup(payment) {
     ? "live"
     : "test";
   const liveConfigured = Boolean(payment?.capabilities?.liveCredentialsConfigured);
+  const liveServiceType = String(payment?.capabilities?.liveServiceType || active?.credentials?.live?.fields?.serviceType?.value || "").trim();
+  const liveApiEndpoint = String(payment?.capabilities?.liveApiEndpoint || active?.endpoints?.live?.apiBaseUrl || "").trim();
+  const liveCheckoutActive = Boolean(payment?.capabilities?.liveCheckoutActive);
+  const liveConnectionVerified = Boolean(payment?.capabilities?.liveConnectionVerified);
   const canTest = payment?.capabilities?.canTestConnection !== false;
+  const checkoutChipClass = checkoutEnvironment === "live" && !liveCheckoutActive
+    ? "admin-profile-chip-warn"
+    : "admin-profile-chip-success";
 
   return `
     <div class="admin-profile-page admin-payment-page" id="adminPaymentPage">
@@ -149,7 +166,9 @@ function paymentMarkup(payment) {
             <div class="admin-profile-chip-row">
               ${statusChip(payment)}
               <span class="admin-profile-chip">${escapeHtml(String(mode).toUpperCase())} operating</span>
-              <span class="admin-profile-chip admin-profile-chip-success">Checkout ${escapeHtml(checkoutEnvironment.toUpperCase())}</span>
+              <span class="admin-profile-chip ${checkoutChipClass}">
+                Checkout ${escapeHtml(checkoutEnvironment.toUpperCase())}${checkoutEnvironment === "live" && !liveCheckoutActive ? " inactive" : ""}
+              </span>
               <span class="admin-profile-chip ${liveConfigured ? "" : "admin-profile-chip-warn"}">
                 LIVE credentials ${liveConfigured ? "stored" : "not configured"}
               </span>
@@ -163,8 +182,9 @@ function paymentMarkup(payment) {
         <div class="admin-profile-hero-meta">
           <div class="admin-profile-meta-item"><span>Gateway</span><strong>${escapeHtml(active?.label || "—")}</strong></div>
           <div class="admin-profile-meta-item"><span>Operating mode</span><strong>${escapeHtml(String(mode).toUpperCase())}</strong></div>
-          <div class="admin-profile-meta-item"><span>Checkout environment</span><strong>${escapeHtml(checkoutEnvironment.toUpperCase())}</strong></div>
+          <div class="admin-profile-meta-item"><span>Selected environment</span><strong>${escapeHtml(checkoutEnvironment.toUpperCase())}</strong></div>
           <div class="admin-profile-meta-item"><span>LIVE credentials</span><strong>${liveConfigured ? "Stored" : "Not configured"}</strong></div>
+          <div class="admin-profile-meta-item"><span>LIVE checkout</span><strong>${liveCheckoutActive ? "Active" : "Inactive"}</strong></div>
           <div class="admin-profile-meta-item"><span>Online Payments</span><strong>${payment?.enabled ? "Enabled" : "Disabled"}</strong></div>
         </div>
       </section>
@@ -175,13 +195,16 @@ function paymentMarkup(payment) {
           connection.detail || "Live view of encryption, credentials, and checkout readiness.",
           `
             <div class="admin-delivery-coverage">
-              <div class="admin-profile-meta-item"><span>Status</span><strong>${escapeHtml(connection.label || "—")}</strong></div>
+              <div class="admin-profile-meta-item"><span>Operating mode</span><strong>${escapeHtml(String(mode).toUpperCase())}</strong></div>
+              <div class="admin-profile-meta-item"><span>LIVE credentials</span><strong>${liveConfigured ? "Stored" : "Not configured"}</strong></div>
+              <div class="admin-profile-meta-item"><span>LIVE Service Type</span><strong>${escapeHtml(liveServiceType || "Not set")}</strong></div>
+              <div class="admin-profile-meta-item"><span>LIVE API endpoint</span><strong>${liveApiEndpoint ? "Configured" : "Not set"}</strong></div>
+              <div class="admin-profile-meta-item"><span>LIVE connection</span><strong>${liveConnectionVerified ? "Verified" : "Not yet verified"}</strong></div>
+              <div class="admin-profile-meta-item"><span>LIVE checkout</span><strong>${liveCheckoutActive ? "Active" : "Inactive"}</strong></div>
               <div class="admin-profile-meta-item"><span>Encryption</span><strong>${encryption.configured ? "Ready" : "Missing"}</strong></div>
               <div class="admin-profile-meta-item"><span>TEST credentials</span><strong>${active?.credentials?.test?.ready ? "Complete" : "Incomplete"}</strong></div>
-              <div class="admin-profile-meta-item"><span>LIVE credentials</span><strong>${liveConfigured ? "Stored" : "Not configured"}</strong></div>
-              <div class="admin-profile-meta-item"><span>TEST checkout ready</span><strong>${connection.checkoutReady && checkoutEnvironment === "test" ? "Yes" : "No"}</strong></div>
-              <div class="admin-profile-meta-item"><span>LIVE checkout</span><strong>Inactive</strong></div>
-              <div class="admin-profile-meta-item"><span>Last TEST</span><strong>${lastTest.at ? (lastTest.success ? "Passed" : "Failed") : "Not run"}</strong></div>
+              ${mode === "test" ? `<div class="admin-profile-meta-item"><span>TEST checkout ready</span><strong>${connection.checkoutReady ? "Yes" : "No"}</strong></div>` : ""}
+              <div class="admin-profile-meta-item"><span>Last TEST probe</span><strong>${lastTest.at ? (lastTest.success ? "Passed" : "Failed") : "Not run"}</strong></div>
             </div>
             ${lastTest.at ? `
               <p class="admin-profile-help">
@@ -240,16 +263,17 @@ function paymentMarkup(payment) {
               <label>
                 <span>Operating mode</span>
                 <select name="mode" id="paymentMode" required>
-                  <option value="test" ${mode === "test" ? "selected" : ""}>TEST (sandbox)</option>
-                  <option value="live" ${mode === "live" ? "selected" : ""}>LIVE (store credentials only — checkout stays TEST)</option>
+                  <option value="test" ${mode === "test" ? "selected" : ""}>TEST</option>
+                  <option value="live" ${mode === "live" ? "selected" : ""}>LIVE</option>
                 </select>
                 <small class="field-error" data-error-for="mode"></small>
               </label>
 
               <p class="admin-profile-help admin-delivery-span-2">
-                Operating mode only chooses which credential set Admin is managing.
-                Customer checkout uses TEST until official DPO LIVE credentials are provided and LIVE checkout is explicitly activated.
-                Do not paste TEST Company Token or Service Type into LIVE fields.
+                Operating mode selects the complete TEST or LIVE configuration for the backend:
+                Company Token, Service Type, API endpoint, and payment URL.
+                Saving LIVE credentials does not activate customer LIVE checkout.
+                Do not paste TEST Company Token or Service Type 54841 into LIVE fields.
                 Secrets stay encrypted on the server. Leave password fields blank to keep existing Company Tokens.
               </p>
             </form>
@@ -268,7 +292,7 @@ function paymentMarkup(payment) {
               </div>
               <p class="admin-profile-help admin-delivery-span-2">
                 These tabs only edit stored credentials. They do not activate LIVE checkout.
-                TEST credentials are used for customer payments. LIVE stays empty until DPO provides official LIVE values.
+                LIVE Service Type ID is 112815. TEST Service Type 54841 must not be saved here.
               </p>
 
               <div class="admin-payment-cred-grid" data-payment-cred-panel="test" ${mode === "test" ? "" : "hidden"}>
@@ -286,7 +310,9 @@ function paymentMarkup(payment) {
                   <strong>LIVE endpoints</strong>
                   <p>API: ${escapeHtml(active?.endpoints?.live?.apiBaseUrl || "—")}</p>
                   <p>Payment page: ${escapeHtml(active?.endpoints?.live?.paymentPageUrl || "—")}</p>
-                  <p>This is DPO's documented host. The Company Token selects TEST vs LIVE. Do not invent a different production URL. Leave LIVE Company Token empty until DPO issues official LIVE credentials.</p>
+                  <p>Official LIVE API from DPO: https://secure.3gdirectpay.com/API/v6/</p>
+                  <p>Official LIVE payment URL from DPO: https://secure.3gdirectpay.com/payv3.php?ID=token</p>
+                  <p>The Company Token and Service Type 112815 select this LIVE merchant. Do not use TEST Service Type 54841. Leave the Company Token blank to keep the stored secret.</p>
                 </div>
               </div>
             </form>
@@ -331,7 +357,8 @@ function paymentMarkup(payment) {
               Set <code>PAYMENT_ENCRYPTION_KEY</code> in the server <code>.env</code> (never commit it).
               Company Tokens are never returned by the API — only configured/hint status.
               When you change a Company Token, enter its matching Service Type ID in the same save.
-              Keep Service Type <code>54841</code> only if it belongs to that Company Token.
+              Keep TEST Service Type <code>54841</code> only on the TEST tab.
+              LIVE Service Type must be <code>112815</code>.
             </p>
             ${!encryption.configured
               ? '<p class="admin-profile-help is-error">PAYMENT_ENCRYPTION_KEY is required before credentials can be saved.</p>'
@@ -456,7 +483,7 @@ function bindPaymentPanel(container, payment) {
     const nextMode = String(select.value || "test");
     if (nextMode === "live") {
       const confirmed = window.confirm(
-        "LIVE is for real customer payments.\n\nCustomer checkout will stay on TEST until official DPO LIVE credentials are provided and LIVE checkout is explicitly activated.\n\nContinue so you can store future LIVE credentials? Do not copy TEST values into LIVE."
+        "Operating Mode LIVE selects the LIVE Company Token, Service Type 112815, and LIVE endpoints for the backend.\n\nCustomer LIVE checkout stays inactive until a later activation step. TEST will not be used as a fallback.\n\nContinue? Do not copy TEST values into LIVE."
       );
       if (!confirmed) {
         select.value = "test";
@@ -534,11 +561,12 @@ function bindPaymentPanel(container, payment) {
         }
       }
       const saved = await updateAdminPayment(payload);
-      const testReady = Boolean(saved?.providers?.find((entry) => entry.id === (saved.activeProvider || "dpo"))?.credentials?.test?.ready);
+      const liveReady = Boolean(saved?.providers?.find((entry) => entry.id === (saved.activeProvider || "dpo"))?.credentials?.live?.ready);
+      const liveType = String(saved?.capabilities?.liveServiceType || saved?.providers?.find((entry) => entry.id === (saved.activeProvider || "dpo"))?.credentials?.live?.fields?.serviceType?.value || "").trim();
       paint(
         saved,
-        testReady
-          ? "Payment settings saved. TEST credentials are configured (secret values are not shown)."
+        liveReady
+          ? `Payment settings saved. LIVE credentials are stored${liveType ? ` (Service Type ${liveType})` : ""}. Secret values are not shown. LIVE checkout is not activated.`
           : "Payment settings saved successfully.",
         "is-success"
       );

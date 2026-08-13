@@ -535,24 +535,35 @@ async function verifyCheckoutStaysTestWhenAdminModeIsLive() {
             credentials: {
                 live: {
                     companyToken: `LIVE-UNUSED-${crypto.randomBytes(6).toString('hex')}`,
-                    serviceType: '99999'
+                    serviceType: '112815'
                 }
             }
         }, { id: 'ADMIN_VERIFY_DPO', email: 'admin@example.com' });
 
-        const runtime = await dpoPaymentService.loadCheckoutRuntime();
-        assert(runtime.mode === 'test', 'checkout runtime must stay TEST while LIVE is gated');
-        assert(runtime.secrets.companyToken === expectedCompanyToken, 'checkout must use Admin TEST Company Token, not LIVE');
-        assert(runtime.liveCheckoutEnabled === false, 'LIVE checkout must remain gated off');
+        let liveCheckoutError = null;
+        try {
+            await dpoPaymentService.loadCheckoutRuntime();
+        } catch (error) {
+            liveCheckoutError = error;
+        }
+        assert(
+            liveCheckoutError && liveCheckoutError.code === 'DPO_LIVE_NOT_ENABLED',
+            `LIVE operating mode must not fall back to TEST while the gate is closed, got ${liveCheckoutError?.code || 'no error'}`
+        );
 
         const liveRuntime = await dpoConfig.getEnvironmentConfiguration('live');
         assert(liveRuntime.mode === 'live', 'LIVE configuration must resolve independently');
         assert(liveRuntime.secrets.companyToken !== expectedCompanyToken, 'LIVE resolver must not use TEST Company Token');
         assert(String(liveRuntime.secrets.companyToken).startsWith('LIVE-UNUSED-'), 'LIVE resolver must use the stored LIVE token');
+        assert(liveRuntime.secrets.serviceType === '112815', 'LIVE resolver must use Service Type 112815');
+        assert(/API\/v6/i.test(String(liveRuntime.endpoints.apiBaseUrl || '')), 'LIVE API endpoint must be API v6');
+        assert(/payv3\.php/i.test(String(liveRuntime.endpoints.paymentPageUrl || '')), 'LIVE payment URL must be official payv3.php');
 
         const publicConfig = await dpoPaymentService.getPublicConfig();
-        assert(publicConfig.mode === 'test', 'public DPO config mode must stay test');
+        assert(publicConfig.mode === 'live', 'public config reports the selected LIVE operating mode');
+        assert(publicConfig.enabled === false, 'customer checkout must stay disabled while LIVE is gated');
         assert(publicConfig.liveAvailable === false, 'LIVE must not be advertised as available');
+        assert(publicConfig.liveCheckoutEnabled === false, 'LIVE checkout must remain gated off');
         assertNoSecretLeak(publicConfig, 'public config while admin mode is live');
         assert(dpoConfig.LIVE_CHECKOUT_ENABLED === false, 'LIVE_CHECKOUT_ENABLED must stay false');
     } finally {
@@ -735,7 +746,7 @@ async function main() {
         console.log('[verify-dpo-payment-test] LIVE unconfigured is blocked; TEST/LIVE credentials do not mix');
 
         await verifyCheckoutStaysTestWhenAdminModeIsLive();
-        console.log('[verify-dpo-payment-test] checkout stays TEST while LIVE is gated');
+        console.log('[verify-dpo-payment-test] LIVE operating mode does not fall back to TEST; LIVE checkout stays gated');
 
         await verifyHttpInProcess();
         console.log('[verify-dpo-payment-test] HTTP layer OK');

@@ -1,13 +1,15 @@
 /**
  * DPO Pay provider definition.
  * Endpoint defaults come from the shared DPO endpoints module.
- * LIVE uses the same documented DPO host; the Company Token selects TEST vs LIVE.
+ * LIVE uses the official DPO API v6 host; Company Token + Service Type select TEST vs LIVE.
  * LIVE checkout is gated off until a later step.
  */
 
 const { DEFAULT_API_BASE, DEFAULT_PAYMENT_PAGE } = require('../dpo/endpoints');
 
 const PROVIDER_ID = 'dpo';
+const TEST_SERVICE_TYPE_ID = '54841';
+const LIVE_SERVICE_TYPE_ID = '112815';
 
 const CREDENTIAL_FIELDS = Object.freeze([
     {
@@ -26,7 +28,7 @@ const CREDENTIAL_FIELDS = Object.freeze([
         required: true,
         inputType: 'text',
         autocomplete: 'off',
-        help: 'DPO Service Type / Product Service ID for this Company Token. TEST and LIVE Service Types can differ — save the ID that belongs to that environment\'s Company Token. Do not copy TEST into LIVE unless DPO confirms they are the same.'
+        help: 'Numeric DPO Service Type ID for this Company Token. LIVE uses 112815. TEST uses 54841. Do not mix them.'
     }
 ]);
 
@@ -49,8 +51,9 @@ function normalizeText(value, fallback = '') {
 function sanitizeEndpoints(source = {}, fallback = DEFAULT_ENDPOINTS.test, options = {}) {
     const raw = source && typeof source === 'object' ? source : {};
     let paymentPageUrl = normalizeText(raw.paymentPageUrl, fallback.paymentPageUrl).slice(0, 300);
-    // Option A / STEP 4: TEST hosted page must use payv3.php?ID=token.
-    // Do not rewrite LIVE endpoints here.
+    // Legacy payv2 hosted pages are upgraded to the official payv3 template.
+    // LIVE and TEST both use DPO's confirmed payv3.php URL unless Admin stored
+    // a later official URL. Do not rewrite to dpopayment.php.
     if (options.upgradeLegacyPayV2 && /payv2\.php/i.test(paymentPageUrl)) {
         paymentPageUrl = fallback.paymentPageUrl || DEFAULT_ENDPOINTS.test.paymentPageUrl;
     }
@@ -58,6 +61,15 @@ function sanitizeEndpoints(source = {}, fallback = DEFAULT_ENDPOINTS.test, optio
         apiBaseUrl: normalizeText(raw.apiBaseUrl, fallback.apiBaseUrl).slice(0, 300),
         paymentPageUrl
     };
+}
+
+/**
+ * DPO LIVE labels the product as "112815-Shoes". The API expects the numeric ID.
+ */
+function normalizeServiceTypeId(value) {
+    const text = normalizeText(value);
+    const match = text.match(/^(\d{1,12})(?:\s*[-–].*)?$/);
+    return match ? match[1] : text;
 }
 
 function createDefaultConfig() {
@@ -79,24 +91,33 @@ function sanitizeProviderConfig(raw = {}) {
         label: normalizeText(source.label, 'DPO Pay').slice(0, 80),
         endpoints: {
             test: sanitizeEndpoints(endpointsSource.test, DEFAULT_ENDPOINTS.test, { upgradeLegacyPayV2: true }),
-            live: sanitizeEndpoints(endpointsSource.live, DEFAULT_ENDPOINTS.live, { upgradeLegacyPayV2: false })
+            live: sanitizeEndpoints(endpointsSource.live, DEFAULT_ENDPOINTS.live, { upgradeLegacyPayV2: true })
         }
     };
 }
 
-function validateCredentials(modeSecrets = {}, { requireConfigured = false } = {}) {
+function validateCredentials(modeSecrets = {}, { requireConfigured = false, mode = '' } = {}) {
     const errors = {};
     const companyToken = normalizeText(modeSecrets.companyToken);
-    const serviceType = normalizeText(modeSecrets.serviceType);
+    const serviceType = normalizeServiceTypeId(modeSecrets.serviceType);
+    const resolvedMode = normalizeText(mode).toLowerCase();
 
     if (requireConfigured || companyToken || serviceType) {
         if (!companyToken) {
             errors.companyToken = 'Company Token is required for DPO Pay.';
+        } else if (companyToken.length < 8) {
+            errors.companyToken = 'Company Token looks too short.';
         }
         if (!serviceType) {
             errors.serviceType = 'Service Type ID is required for DPO Pay.';
         } else if (!/^\d{1,12}$/.test(serviceType)) {
             errors.serviceType = 'Service Type ID must be a numeric ID.';
+        } else if (resolvedMode === 'live' && serviceType === TEST_SERVICE_TYPE_ID) {
+            errors.serviceType = 'LIVE Service Type cannot be TEST Service Type 54841. Use 112815.';
+        } else if (resolvedMode === 'live' && serviceType !== LIVE_SERVICE_TYPE_ID) {
+            errors.serviceType = 'LIVE Service Type ID must be 112815.';
+        } else if (resolvedMode === 'test' && serviceType === LIVE_SERVICE_TYPE_ID) {
+            errors.serviceType = 'TEST Service Type cannot be LIVE Service Type 112815. Use the TEST Service Type for this Company Token.';
         }
     }
 
@@ -124,8 +145,11 @@ module.exports = {
     description: 'DPO Pay (Direct Pay Online) card and mobile money gateway.',
     supportsModes: Object.freeze(['test', 'live']),
     credentialFields: CREDENTIAL_FIELDS,
+    TEST_SERVICE_TYPE_ID,
+    LIVE_SERVICE_TYPE_ID,
     DEFAULT_ENDPOINTS,
     createDefaultConfig,
+    normalizeServiceTypeId,
     sanitizeProviderConfig,
     validateCredentials,
     getEnvCredentialOverrides

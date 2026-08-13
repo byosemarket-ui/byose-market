@@ -149,16 +149,31 @@ async function verifyServiceLayer() {
         mode: 'test'
     }, { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' });
 
-    // Operating mode LIVE stores future credentials; it must not become checkout LIVE.
+    // Operating mode LIVE selects LIVE configuration; customer checkout stays gated.
+    const liveToken = `LIVE-STEP3-${crypto.randomBytes(6).toString('hex')}`;
+    await paymentSettingsService.updatePaymentSettings({
+        mode: 'test',
+        enabled: true,
+        credentials: {
+            live: {
+                companyToken: liveToken,
+                serviceType: '112815'
+            }
+        }
+    }, { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' });
     await paymentSettingsService.updatePaymentSettings({
         mode: 'live',
         enabled: true
     }, { id: 'ADMIN_VERIFY_STEP3', email: 'admin@example.com' });
     const liveOperating = await paymentSettingsService.getAdminPaymentSettings();
-    assert(liveOperating.mode === 'live', 'admin operating mode can be LIVE for credential storage');
-    assert(liveOperating.capabilities?.checkoutEnvironment === 'test', 'checkout must stay TEST while LIVE is gated');
+    assert(liveOperating.mode === 'live', 'admin operating mode can be LIVE');
+    assert(liveOperating.capabilities?.checkoutEnvironment === 'live', 'operating mode selects the LIVE environment');
     assert(liveOperating.capabilities?.liveCheckoutEnabled === false, 'LIVE checkout gate must stay off');
+    assert(liveOperating.capabilities?.liveCheckoutActive === false, 'LIVE checkout must not be marked active');
+    assert(liveOperating.capabilities?.liveConnectionVerified === false, 'LIVE connection must not be marked verified');
+    assert(liveOperating.capabilities?.liveServiceType === '112815', 'LIVE Service Type must persist as 112815');
     assert(liveOperating.capabilities?.canTestConnection === true, 'TEST connection tests stay available');
+    assert(!JSON.stringify(liveOperating).includes(liveToken), 'admin view must not return the LIVE Company Token');
 
     let liveActivationBlocked = false;
     try {

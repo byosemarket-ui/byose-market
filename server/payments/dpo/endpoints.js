@@ -1,12 +1,19 @@
 /**
- * Documented DPO Pay API host used by this integration.
+ * Official DPO Pay API v6 host used by this integration.
  *
- * DPO's published API host is https://secure.3gdirectpay.com/.
- * TEST and LIVE merchants use this host; the Company Token selects the environment.
- * Do not invent a different production URL. If DPO later provides an official
- * LIVE host that differs, store it in Admin LIVE endpoints — never guess it.
+ * LIVE API endpoint supplied by DPO:
+ *   https://secure.3gdirectpay.com/API/v6/
  *
- * LIVE checkout remains gated off in the DPO config resolver.
+ * LIVE payment URL supplied by DPO for this API v6 account:
+ *   https://secure.3gdirectpay.com/payv3.php?ID=token
+ *
+ * dpopayment.php was mentioned as a possible path but is not present in this
+ * integration and was not the official URL in the DPO LIVE configuration email.
+ * Do not silently switch to it. Admin LIVE endpoints can store a later official
+ * URL if DPO confirms one — never guess a different path here.
+ *
+ * TEST and LIVE use this same documented host; Company Token + Service Type
+ * select the merchant environment. LIVE checkout stays gated in the resolver.
  */
 
 const DEFAULT_API_BASE = 'https://secure.3gdirectpay.com/API/v6/';

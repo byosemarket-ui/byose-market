@@ -1,25 +1,26 @@
 /**
  * Authoritative DPO configuration resolver.
  *
- * Admin Payment Settings + the encrypted secrets store hold TEST and LIVE
- * credentials separately. This module is the only place checkout decides
- * which environment to use, then returns that environment's Company Token,
- * Service Type, and endpoints to the DPO payment service.
+ * Admin Payment Settings is the source of truth. Operating Mode selects the
+ * TEST or LIVE credential set, endpoints, and Service Type. The encrypted
+ * secrets store holds each environment separately. This module is the only
+ * place checkout decides which environment to use.
  *
- * LIVE checkout stays gated off until official LIVE credentials are provided
- * and a later step explicitly enables LIVE. Do not invent LIVE values here.
- * CHECKOUT_MODE is the selected environment while that gate is closed — not
- * a TEST-only payment implementation.
+ * Saving LIVE credentials does not activate customer LIVE checkout.
+ * LIVE_CHECKOUT_ENABLED stays off until a later step. When Operating Mode is
+ * LIVE and the gate is closed, customer checkout fails safely — it does not
+ * fall back to TEST.
  */
 
 const paymentSettingsService = require('../../services/paymentsettings.service');
 const envConfig = require('../../config/env');
 const { DEFAULT_API_BASE, DEFAULT_PAYMENT_PAGE } = require('./endpoints');
+const { TEST_SERVICE_TYPE_ID, LIVE_SERVICE_TYPE_ID } = require('../providers/dpo.provider');
 const { appLogger } = require('../../utils/logger');
 
 const PROVIDER_ID = 'dpo';
 const CHECKOUT_MODE = 'test';
-/** Hard gate. Do not flip this on until official LIVE credentials are activated. */
+/** Hard gate. Saving LIVE credentials must not flip this on. */
 const LIVE_CHECKOUT_ENABLED = false;
 
 function normalizeText(value, fallback = '') {
@@ -57,25 +58,41 @@ function customerSafeMessage(mode) {
 
 /**
  * Server-side checkout environment decision.
- * Admin operating mode is not trusted for customer checkout.
+ * Admin operating mode selects TEST vs LIVE configuration.
+ * The LIVE checkout gate is a separate activation switch.
  */
-function resolveCheckoutEnvironment({ liveConfigured = false } = {}) {
-    if (!isLiveCheckoutGateOpen()) {
+function resolveCheckoutEnvironment({ operatingMode = CHECKOUT_MODE, liveConfigured = false } = {}) {
+    const selected = normalizeText(operatingMode).toLowerCase() === 'live' ? 'live' : 'test';
+
+    if (selected === 'live' && !isLiveCheckoutGateOpen()) {
         return {
-            mode: 'test',
+            mode: 'live',
             liveCheckoutEnabled: false,
             liveAvailable: false,
             liveConfigured: Boolean(liveConfigured),
+            customerCheckoutAllowed: false,
             reason: 'LIVE_CHECKOUT_DISABLED'
         };
     }
 
+    if (selected === 'live') {
+        return {
+            mode: 'live',
+            liveCheckoutEnabled: true,
+            liveAvailable: true,
+            liveConfigured: Boolean(liveConfigured),
+            customerCheckoutAllowed: true,
+            reason: 'LIVE_CHECKOUT_ENABLED'
+        };
+    }
+
     return {
-        mode: 'live',
-        liveCheckoutEnabled: true,
-        liveAvailable: true,
+        mode: 'test',
+        liveCheckoutEnabled: false,
+        liveAvailable: false,
         liveConfigured: Boolean(liveConfigured),
-        reason: 'LIVE_CHECKOUT_ENABLED'
+        customerCheckoutAllowed: true,
+        reason: 'OPERATING_MODE_TEST'
     };
 }
 
@@ -163,6 +180,32 @@ async function getEnvironmentConfiguration(mode) {
         );
     }
 
+    if (resolvedMode === 'live' && serviceType === TEST_SERVICE_TYPE_ID) {
+        throw ValidationError(
+            customerSafeMessage('live'),
+            { serviceType: 'TEST_SERVICE_TYPE_REJECTED' },
+            'DPO_LIVE_CREDENTIAL_MIX',
+            503
+        );
+    }
+    if (resolvedMode === 'live' && serviceType !== LIVE_SERVICE_TYPE_ID) {
+        throw ValidationError(
+            customerSafeMessage('live'),
+            { serviceType: 'LIVE_SERVICE_TYPE_REQUIRED' },
+            'DPO_LIVE_NOT_CONFIGURED',
+            503
+        );
+    }
+    if (resolvedMode === 'test' && serviceType === LIVE_SERVICE_TYPE_ID) {
+        throw ValidationError(
+            customerSafeMessage('test'),
+            { serviceType: 'LIVE_SERVICE_TYPE_REJECTED' },
+            'DPO_ENVIRONMENT_MISMATCH',
+            503
+        );
+    }
+
+    const liveEndpoints = runtime.endpoints || {};
     return {
         providerId: PROVIDER_ID,
         mode: resolvedMode,
@@ -171,8 +214,8 @@ async function getEnvironmentConfiguration(mode) {
         secrets: { companyToken, serviceType },
         sources: runtime.sources || {},
         endpoints: {
-            apiBaseUrl: normalizeText(runtime.endpoints?.apiBaseUrl, DEFAULT_API_BASE) || DEFAULT_API_BASE,
-            paymentPageUrl: resolvePaymentPageUrl(runtime.endpoints?.paymentPageUrl)
+            apiBaseUrl: normalizeText(liveEndpoints.apiBaseUrl, DEFAULT_API_BASE) || DEFAULT_API_BASE,
+            paymentPageUrl: resolvePaymentPageUrl(liveEndpoints.paymentPageUrl)
         }
     };
 }
@@ -208,8 +251,22 @@ async function inspectEnvironmentStatus(mode) {
  * pick TEST/LIVE credentials itself.
  */
 async function getActiveDpoConfiguration() {
+    const paymentConfig = await paymentSettingsService.getPaymentConfig();
     const liveStatus = await inspectEnvironmentStatus('live');
-    const environment = resolveCheckoutEnvironment({ liveConfigured: liveStatus.configured });
+    const environment = resolveCheckoutEnvironment({
+        operatingMode: paymentConfig.mode,
+        liveConfigured: liveStatus.configured
+    });
+
+    if (environment.mode === 'live' && !environment.customerCheckoutAllowed) {
+        throw ValidationError(
+            customerSafeMessage('live'),
+            { reason: environment.reason, liveConfigured: liveStatus.configured },
+            'DPO_LIVE_NOT_ENABLED',
+            503
+        );
+    }
+
     const resolved = await getEnvironmentConfiguration(environment.mode);
 
     appLogger.info('dpo.config.resolved', {
@@ -234,18 +291,24 @@ async function getCheckoutRuntime() {
 }
 
 async function getPublicCheckoutConfig() {
+    const paymentConfig = await paymentSettingsService.getPaymentConfig();
     const liveStatus = await inspectEnvironmentStatus('live');
-    const environment = resolveCheckoutEnvironment({ liveConfigured: liveStatus.configured });
+    const environment = resolveCheckoutEnvironment({
+        operatingMode: paymentConfig.mode,
+        liveConfigured: liveStatus.configured
+    });
     let credentialsReady = false;
     let enabled = false;
 
-    try {
-        const runtime = await getEnvironmentConfiguration(environment.mode);
-        credentialsReady = Boolean(runtime.secrets?.companyToken && runtime.secrets?.serviceType);
-        enabled = Boolean(runtime.enabled && credentialsReady);
-    } catch (_error) {
-        enabled = false;
-        credentialsReady = false;
+    if (environment.customerCheckoutAllowed) {
+        try {
+            const runtime = await getEnvironmentConfiguration(environment.mode);
+            credentialsReady = Boolean(runtime.secrets?.companyToken && runtime.secrets?.serviceType);
+            enabled = Boolean(runtime.enabled && credentialsReady);
+        } catch (_error) {
+            enabled = false;
+            credentialsReady = false;
+        }
     }
 
     return {
