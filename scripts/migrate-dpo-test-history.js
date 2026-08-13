@@ -201,6 +201,7 @@ async function main() {
     const archivePath = path.join(backupDir, `dpo-test-history-archive-${stamp()}.sqlite`);
     if (fs.existsSync(archivePath)) fs.unlinkSync(archivePath);
     const archive = new Database(archivePath);
+    archive.pragma('foreign_keys = OFF');
     archive.exec(cloneTableSql(db, 'orders'));
     archive.exec(cloneTableSql(db, 'order_items'));
     archive.exec('CREATE TABLE IF NOT EXISTS cleanup_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);');
@@ -211,7 +212,7 @@ async function main() {
     const insertItem = archive.prepare(`INSERT INTO order_items (${itemCols.map((name) => `"${name}"`).join(', ')}) VALUES (${itemCols.map(() => '?').join(', ')})`);
     const productRepository = require('../server/repositories/sqlite/product.repository');
 
-    const applyTxn = db.transaction(() => {
+    const copyToArchive = archive.transaction(() => {
         report.removable.forEach((entry) => {
             const row = db.prepare('SELECT * FROM orders WHERE id = ?').get(entry.id);
             if (!row) return;
@@ -219,6 +220,17 @@ async function main() {
             entry.items.forEach((item) => {
                 insertItem.run(...itemCols.map((col) => item[col]));
             });
+        });
+        archive.prepare('INSERT OR REPLACE INTO cleanup_meta(key, value) VALUES (?, ?)').run('removedCount', String(report.removable.length));
+        archive.prepare('INSERT OR REPLACE INTO cleanup_meta(key, value) VALUES (?, ?)').run('removedAt', new Date().toISOString());
+        archive.prepare('INSERT OR REPLACE INTO cleanup_meta(key, value) VALUES (?, ?)').run('sourceBackup', backup.backupPath);
+    });
+    copyToArchive();
+
+    const applyTxn = db.transaction(() => {
+        report.removable.forEach((entry) => {
+            const row = db.prepare('SELECT * FROM orders WHERE id = ?').get(entry.id);
+            if (!row) return;
             productRepository.restoreStockForOrderItems(mapOrder(row, entry.items).items);
             if (tableExists(db, 'coupon_redemptions')) {
                 db.prepare('DELETE FROM coupon_redemptions WHERE order_id = ?').run(entry.orderId);
@@ -226,8 +238,6 @@ async function main() {
             db.prepare('DELETE FROM order_items WHERE order_id = ?').run(entry.id);
             db.prepare('DELETE FROM orders WHERE id = ?').run(entry.id);
         });
-        archive.prepare('INSERT OR REPLACE INTO cleanup_meta(key, value) VALUES (?, ?)').run('removedCount', String(report.removable.length));
-        archive.prepare('INSERT OR REPLACE INTO cleanup_meta(key, value) VALUES (?, ?)').run('removedAt', new Date().toISOString());
         clearLastTest(db);
     });
 
