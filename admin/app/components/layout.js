@@ -118,7 +118,7 @@ function navDestination(item, depth) {
 
   if (item.action === "logout") {
     return `
-      <button class="${destinationClass} nav-sublink-action" type="button" data-admin-logout data-nav-destination-id="${item.id}">
+      <button class="${destinationClass} nav-sublink-action" type="button" data-admin-logout data-nav-destination-id="${item.id}" title="${item.label}">
         <span class="nav-sublink-dot" aria-hidden="true"></span>
         <span class="nav-sublink-copy">
           <strong>${item.label}</strong>
@@ -129,7 +129,7 @@ function navDestination(item, depth) {
   }
 
   return `
-    <a class="${destinationClass}" data-nav-destination-id="${item.id}" href="${resolveAdminHref(item.href)}">
+    <a class="${destinationClass}" data-nav-destination-id="${item.id}" href="${resolveAdminHref(item.href)}" title="${item.label}">
       <span class="nav-sublink-dot" aria-hidden="true"></span>
       <span class="nav-sublink-copy">
         <strong>${item.label}</strong>
@@ -156,14 +156,16 @@ function navBranch(item, depth = 0) {
 
   return `
     <section class="nav-branch nav-depth-${depth}" data-nav-branch data-branch-id="${item.id}">
-      <button class="nav-branch-trigger" type="button" data-nav-branch-trigger aria-expanded="false" aria-controls="nav-panel-${item.id}">
+      <button class="nav-branch-trigger" type="button" data-nav-branch-trigger aria-expanded="false" aria-controls="nav-panel-${item.id}" title="${item.label}" aria-label="${item.label}">
         ${iconMarkup}
         <span class="nav-branch-copy">
           <strong>${item.label}</strong>
           ${descriptionMarkup}
         </span>
-        <span class="nav-branch-summary">${countLeafDestinations(childEntries)} items</span>
-        <span class="nav-branch-chevron" aria-hidden="true"></span>
+        <span class="nav-branch-meta">
+          <span class="nav-branch-summary">${countLeafDestinations(childEntries)} items</span>
+          <span class="nav-branch-chevron" aria-hidden="true"></span>
+        </span>
       </button>
       <div class="nav-branch-panel" id="nav-panel-${item.id}" data-nav-branch-panel aria-hidden="true">
         <div class="nav-branch-panel-inner">
@@ -372,7 +374,7 @@ export function renderAppShell(rootElement) {
             </div>
             <div class="sidebar-shell-actions">
               <span class="sidebar-shell-tag">Shell Foundation</span>
-              <button class="sidebar-collapse-toggle" type="button" id="sidebarCollapseToggle" aria-label="Collapse sidebar">
+              <button class="sidebar-collapse-toggle" type="button" id="sidebarCollapseToggle" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">
                 <span></span>
                 <span></span>
               </button>
@@ -650,6 +652,25 @@ export function bindLayoutActions() {
 
   const isDrawerMode = () => drawerMediaQuery.matches;
 
+  const syncCollapsedChrome = () => {
+    const collapsed = Boolean(shell?.classList.contains("sidebar-collapsed"));
+    const drawerOpen = Boolean(shell?.classList.contains("sidebar-drawer-open"));
+    if (!collapseToggle) {
+      return;
+    }
+
+    if (isDrawerMode()) {
+      collapseToggle.setAttribute("aria-expanded", drawerOpen ? "true" : "false");
+      collapseToggle.setAttribute("aria-label", drawerOpen ? "Close navigation" : "Open navigation");
+      collapseToggle.setAttribute("title", drawerOpen ? "Close navigation" : "Open navigation");
+      return;
+    }
+
+    collapseToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    collapseToggle.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+    collapseToggle.setAttribute("title", collapsed ? "Expand sidebar" : "Collapse sidebar");
+  };
+
   const setShellInteractivityState = (drawerOpen) => {
     document.body.classList.toggle("admin-nav-locked", drawerOpen);
     shell?.classList.toggle("sidebar-drawer-open", drawerOpen);
@@ -666,12 +687,25 @@ export function bindLayoutActions() {
     if (toggle) {
       toggle.classList.toggle("is-active", drawerOpen);
     }
+
+    if (isDrawerMode()) {
+      sidebar?.setAttribute("aria-hidden", drawerOpen ? "false" : "true");
+    } else {
+      sidebar?.removeAttribute("aria-hidden");
+    }
+
+    syncCollapsedChrome();
   };
 
   const syncResponsiveShellMode = () => {
     closeHeaderPanels();
     const drawerMode = isDrawerMode();
     shell?.classList.toggle("is-drawer-mode", drawerMode);
+
+    if (drawerMode) {
+      shell?.classList.remove("sidebar-collapsed");
+      syncCollapsedChrome();
+    }
 
     if (!drawerMode) {
       document.body.classList.remove("admin-nav-locked");
@@ -684,6 +718,7 @@ export function bindLayoutActions() {
       }
       syncMenuToggleState(false);
       toggle?.classList.remove("is-active");
+      sidebar?.removeAttribute("aria-hidden");
       return;
     }
 
@@ -725,6 +760,7 @@ export function bindLayoutActions() {
     toggle.addEventListener("click", () => {
       if (!isDrawerMode()) {
         shell?.classList.toggle("sidebar-collapsed");
+        syncCollapsedChrome();
         return;
       }
 
@@ -745,6 +781,7 @@ export function bindLayoutActions() {
       }
 
       shell?.classList.toggle("sidebar-collapsed");
+      syncCollapsedChrome();
     });
   }
 
@@ -772,6 +809,8 @@ export function bindLayoutActions() {
 
     trigger.addEventListener("click", () => {
       if (shell?.classList.contains("sidebar-collapsed") && !isDrawerMode()) {
+        shell.classList.remove("sidebar-collapsed");
+        syncCollapsedChrome();
         return;
       }
 
@@ -844,6 +883,7 @@ export function bindLayoutActions() {
 
   syncResponsiveShellMode();
   syncNavigationState();
+  syncCollapsedChrome();
 
   const syncHeaderProfileFromEvent = (event) => {
     const next = readAdminSessionProfile();

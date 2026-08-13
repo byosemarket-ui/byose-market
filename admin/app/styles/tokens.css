@@ -41,8 +41,8 @@
   --app-section-gap: clamp(0.78rem, 1.25vw, 1.15rem);
   --app-content-max: 1640px;
   --app-reading-max: 1560px;
-  --app-sidebar-width: 304px;
-  --app-sidebar-collapsed-width: 112px;
+  --app-sidebar-width: 352px;
+  --app-sidebar-collapsed-width: 96px;
   --app-header-height: 62px;
   --app-header-offset: clamp(0.32rem, 0.7vw, 0.58rem);
 }

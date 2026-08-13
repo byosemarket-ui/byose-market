@@ -7,10 +7,6 @@
     grid-template-columns: minmax(0, 1.16fr) minmax(300px, 0.78fr) auto;
   }
 
-  .admin-sidebar {
-    padding: calc(var(--app-shell-gutter) + 0.1rem);
-  }
-
   .header-search-shell {
     max-width: 430px;
   }
@@ -23,7 +19,7 @@
 
 @media (min-width: 2200px) {
   .admin-app {
-    grid-template-columns: 336px minmax(0, 1fr);
+    grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);
   }
 
   .admin-main {

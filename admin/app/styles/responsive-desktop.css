@@ -7,10 +7,6 @@
     width: 100%;
   }
 
-  .admin-sidebar {
-    padding: var(--app-shell-gutter);
-  }
-
   .header-actions {
     justify-self: end;
   }

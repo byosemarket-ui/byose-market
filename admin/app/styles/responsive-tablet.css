@@ -12,25 +12,22 @@
     top: 0;
     left: 0;
     bottom: 0;
-    z-index: 50;
-    width: min(70vw, 360px);
-    max-width: calc(100vw - 1.5rem);
-    padding: 0.95rem 0.9rem 1rem;
+    z-index: 60;
+    width: min(78vw, 380px);
+    max-width: calc(100% - 1.5rem);
+    height: auto;
+    max-height: 100svh;
+    padding: 0.9rem 0.85rem 1rem;
+    overflow: hidden;
+    pointer-events: none;
     transform: translateX(-104%);
-    opacity: 0;
-    visibility: hidden;
     box-shadow: 28px 0 52px rgba(2, 10, 9, 0.28);
-    transition: transform 0.24s ease, opacity 0.24s ease, visibility 0.24s ease;
+    transition: transform 0.24s ease;
   }
 
   .admin-sidebar.sidebar-open {
     transform: translateX(0);
-    opacity: 1;
-    visibility: visible;
-  }
-
-  .sidebar-collapse-toggle {
-    display: none;
+    pointer-events: auto;
   }
 
   .menu-toggle {
@@ -100,20 +97,25 @@
 
   .nav-branch-trigger,
   .nav-sublink {
-    min-height: 50px;
+    min-height: 46px;
   }
 
   .nav-branch-trigger {
     grid-template-columns: auto minmax(0, 1fr) auto;
+    padding: 0.56rem 0.62rem;
   }
 
-  .nav-branch-summary {
-    display: none;
+  .nav-sublink {
+    padding: 0.52rem 0.62rem;
+  }
+
+  .brand-summary {
+    font-size: 0.72rem;
   }
 
   .nav-submenu {
-    margin-left: 0.75rem;
-    padding-left: 0.85rem;
+    margin-left: 0.85rem;
+    padding-left: 0.75rem;
   }
 
   .content-grid.two-col,
