@@ -163,9 +163,11 @@ function installDpoMock(scenario = 'success') {
                     body: '<?xml version="1.0" encoding="utf-8"?><API3G><Result>900</Result><ResultExplanation>Transaction not paid yet</ResultExplanation></API3G>'
                 };
             }
+            const refMatch = body.match(/<CompanyRef>([^<]+)<\/CompanyRef>/i);
+            const companyRef = refMatch ? refMatch[1] : 'BM-REF';
             return {
                 statusCode: 200,
-                body: `<?xml version="1.0" encoding="utf-8"?><API3G><Result>000</Result><ResultExplanation>Transaction Paid</ResultExplanation><TransToken>${transToken}</TransToken><TransRef>REF123</TransRef><TransactionAmount>15000.00</TransactionAmount><TransactionCurrency>RWF</TransactionCurrency></API3G>`
+                body: `<?xml version="1.0" encoding="utf-8"?><API3G><Result>000</Result><ResultExplanation>Transaction Paid</ResultExplanation><TransToken>${transToken}</TransToken><TransRef>REF123</TransRef><CompanyRef>${companyRef}</CompanyRef><TransactionAmount>15000.00</TransactionAmount><TransactionCurrency>RWF</TransactionCurrency></API3G>`
             };
         }
 
@@ -248,6 +250,12 @@ async function verifyClientHelpers() {
     assert(!redacted.includes('SECRET-VALUE'), 'xml redaction failed');
     assert(extractTag('<A><Result>000</Result></A>', 'Result') === '000', 'extractTag failed');
 
+    const paidXml = dpoClient.parseVerifyTokenResponse(
+        '<API3G><Result>000</Result><CompanyRef>BM-1</CompanyRef><TransactionAmount>15000.00</TransactionAmount><TransactionCurrency>RWF</TransactionCurrency></API3G>'
+    );
+    assert(paidXml.companyRef === 'BM-1', 'verify XML must expose CompanyRef');
+    assert(paidXml.transactionAmount === '15000.00', 'verify XML must expose amount');
+    assert(paidXml.transactionCurrency === 'RWF', 'verify XML must expose currency');
     const paid = dpoClient.mapVerifyResultToPaymentStatus('000');
     const failed = dpoClient.mapVerifyResultToPaymentStatus('901');
     const cancelled = dpoClient.mapVerifyResultToPaymentStatus('904');
@@ -326,6 +334,31 @@ async function verifyServiceFlows() {
     await dpoPaymentService.initiatePayment({ orderId: invalidId, req: { get: () => '', protocol: 'http' } });
     const invalid = await dpoPaymentService.verifyAndUpdateOrder({ orderId: invalidId, req: { get: () => '', protocol: 'http' } });
     assert(invalid.outcome === 'invalid_token', 'invalid_token outcome expected');
+
+    // Amount mismatch must not mark the order paid.
+    dpoClient.setHttpTransportForTests(async (_url, xmlBody) => {
+        const body = String(xmlBody || '');
+        if (body.includes('<Request>createToken</Request>')) {
+            return {
+                statusCode: 200,
+                body: '<?xml version="1.0" encoding="utf-8"?><API3G><Result>000</Result><TransToken>TOK-MISMATCH</TransToken><TransRef>REF-LOW</TransRef></API3G>'
+            };
+        }
+        return {
+            statusCode: 200,
+            body: '<?xml version="1.0" encoding="utf-8"?><API3G><Result>000</Result><ResultExplanation>Transaction Paid</ResultExplanation><CompanyRef>OTHER-ORDER</CompanyRef><TransactionAmount>1.00</TransactionAmount><TransactionCurrency>RWF</TransactionCurrency><TransRef>REF-LOW</TransRef></API3G>'
+        };
+    });
+    const mismatchId = `${orderId}-M`;
+    await createFixtureOrder(mismatchId);
+    await dpoPaymentService.initiatePayment({ orderId: mismatchId, req: { get: () => '', protocol: 'http' } });
+    const mismatched = await dpoPaymentService.verifyAndUpdateOrder({
+        orderId: mismatchId,
+        req: { get: () => '', protocol: 'http' }
+    });
+    assert(mismatched.outcome !== 'success', 'mismatched DPO payment must not succeed');
+    const mismatchedOrder = await orderDataService.findOrderByIdentifier(mismatchId);
+    assert(String(mismatchedOrder.paymentStatus).toLowerCase() !== 'paid', 'amount/ref mismatch must not persist as paid');
 
     dpoClient.resetHttpTransport();
     return { orderId };

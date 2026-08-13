@@ -97,9 +97,8 @@ async function boot() {
     tone: selected.tone,
     actions: [
       { label: 'Back to shop', href: '../shop/index.html', primary: true },
-      { label: 'Try payment again', href: 'payment.html' },
-      orderId ? { label: 'View confirmation', href: `order-success.html?orderId=${encodeURIComponent(orderId)}` } : null
-    ].filter(Boolean)
+      { label: 'Try payment again', href: 'payment.html' }
+    ]
   });
 }
 

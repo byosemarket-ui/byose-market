@@ -9,6 +9,7 @@ const paymentSettingsService = require('./paymentsettings.service');
 const dpoClient = require('../payments/dpo/client');
 const config = require('../config/env');
 const { appLogger } = require('../utils/logger');
+const { isSettledPaidStatus } = require('../payments/payment-status');
 
 const PROVIDER_ID = 'dpo';
 const FORCED_MODE = 'test';
@@ -18,12 +19,63 @@ function normalizeText(value, fallback = '') {
     return text || fallback;
 }
 
+function parseMoney(value) {
+    const parsed = Number(String(value == null ? '' : value).replace(/,/g, '').trim());
+    return Number.isFinite(parsed) ? parsed : NaN;
+}
+
 function ValidationError(message, details = {}, code = 'DPO_PAYMENT_VALIDATION_FAILED', statusCode = 400) {
     const error = new Error(message);
     error.statusCode = statusCode;
     error.code = code;
     error.details = details;
     return error;
+}
+
+function assertVerifiedPaymentMatchesOrder(order, verified, tokenUsed) {
+    const orderId = normalizeText(order?.orderId || order?.id);
+    const expectedAmount = parseMoney(order?.totalAmount ?? order?.total);
+    const expectedCurrency = normalizeText(order?.currency, 'RWF').toUpperCase() || 'RWF';
+    const dpoAmountRaw = normalizeText(verified?.transactionAmount);
+    const dpoCurrency = normalizeText(verified?.transactionCurrency).toUpperCase();
+    const dpoCompanyRef = normalizeText(verified?.companyRef);
+    const storedToken = normalizeText(order?.payment?.gateway?.transToken);
+
+    if (dpoCompanyRef && dpoCompanyRef !== orderId) {
+        return {
+            ok: false,
+            code: 'DPO_COMPANY_REF_MISMATCH',
+            message: 'DPO payment reference does not match this order.'
+        };
+    }
+
+    if (dpoCurrency && dpoCurrency !== expectedCurrency) {
+        return {
+            ok: false,
+            code: 'DPO_CURRENCY_MISMATCH',
+            message: 'DPO payment currency does not match this order.'
+        };
+    }
+
+    if (dpoAmountRaw) {
+        const dpoAmount = parseMoney(dpoAmountRaw);
+        if (!Number.isFinite(expectedAmount) || expectedAmount <= 0 || !Number.isFinite(dpoAmount)
+            || Math.abs(expectedAmount - dpoAmount) > 0.51) {
+            return {
+                ok: false,
+                code: 'DPO_AMOUNT_MISMATCH',
+                message: 'DPO payment amount does not match this order.'
+            };
+        }
+    } else if (storedToken && tokenUsed && storedToken !== tokenUsed) {
+        return {
+            ok: false,
+            code: 'DPO_TOKEN_MISMATCH',
+            message: 'DPO transaction token does not match this order.'
+        };
+    }
+
+    return { ok: true };
 }
 
 function resolveAppBaseUrl(req) {
@@ -258,7 +310,7 @@ async function initiatePayment({ orderId, req } = {}) {
     }
 
     const currentStatus = normalizeText(order.paymentStatus || order.payment?.status).toLowerCase();
-    if (currentStatus === 'paid') {
+    if (isSettledPaidStatus(currentStatus)) {
         const appBase = resolveAppBaseUrl(req);
         return {
             alreadyPaid: true,
@@ -352,7 +404,7 @@ async function verifyAndUpdateOrder({
     }
 
     const existingStatus = normalizeText(order.paymentStatus || order.payment?.status).toLowerCase();
-    if (existingStatus === 'paid') {
+    if (isSettledPaidStatus(existingStatus)) {
         return {
             outcome: 'success',
             paymentStatus: 'paid',
@@ -425,6 +477,32 @@ async function verifyAndUpdateOrder({
             };
         }
         throw error;
+    }
+
+    if (verified.outcome === 'success') {
+        const binding = assertVerifiedPaymentMatchesOrder(order, verified, token);
+        if (!binding.ok) {
+            appLogger.warn('dpo.payment.binding_rejected', {
+                orderId: id,
+                code: binding.code,
+                dpoAmount: verified.transactionAmount || '',
+                dpoCurrency: verified.transactionCurrency || '',
+                dpoCompanyRef: verified.companyRef || '',
+                expectedAmount: order.totalAmount ?? order.total,
+                expectedCurrency: order.currency || 'RWF'
+            });
+            return {
+                outcome: 'failed',
+                paymentStatus: normalizeText(order.paymentStatus, 'awaiting_payment') || 'awaiting_payment',
+                result: verified.result,
+                resultExplanation: binding.message,
+                payment: toPublicPaymentView(order, { outcome: 'failed', code: binding.code }),
+                redirectUrl: buildFrontendUrl(
+                    resolveAppBaseUrl(req),
+                    `/orders/payment-result.html?status=failed&orderId=${encodeURIComponent(id)}`
+                )
+            };
+        }
     }
 
     const { order: updated, previousPaymentStatus } = applyGatewayPaymentUpdate(order, {

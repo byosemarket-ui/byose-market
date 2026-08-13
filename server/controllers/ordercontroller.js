@@ -314,18 +314,10 @@ function normalizeStorefrontOrder(payload, user) {
     const codFee = COD_FEE;
     const total = subtotal + shippingFee + codFee;
     const paymentMethod = normalizePaymentMethod(source.paymentMethod || source.payment?.method);
-    let paymentStatus = normalizePaymentState(source.paymentStatus || source.payment?.status || source.payment?.transaction?.state);
-    let paymentStatusLabel = normalizeText(source.paymentStatusLabel || source.payment?.statusLabel) || resolvePaymentStatusLabel(paymentStatus);
-    if (paymentMethod === 'cod' && (paymentStatus === 'pending' || !source.paymentStatus)) {
-        paymentStatus = 'awaiting_delivery_payment';
-        paymentStatusLabel = 'Awaiting Delivery Payment';
-    } else if (paymentMethod && paymentMethod !== 'cod' && (paymentStatus === 'pending' || !source.paymentStatus)) {
-        paymentStatus = 'awaiting_payment';
-        paymentStatusLabel = 'Awaiting Payment';
-    }
-    const paymentTransaction = source.payment?.transaction && typeof source.payment.transaction === 'object'
-        ? source.payment.transaction
-        : {};
+    // Storefront create must never trust client-supplied payment settlement.
+    // Gateway orders start awaiting payment; COD starts awaiting delivery payment.
+    const paymentStatus = paymentMethod === 'cod' ? 'awaiting_delivery_payment' : 'awaiting_payment';
+    const paymentStatusLabel = paymentMethod === 'cod' ? 'Awaiting Delivery Payment' : 'Awaiting Payment';
     const deliveryMethodKey = 'homeDelivery';
 
     return {
@@ -386,25 +378,14 @@ function normalizeStorefrontOrder(payload, user) {
             note: normalizeText(shippingAddress.note)
         },
         gpsLocation: source.gpsLocation && typeof source.gpsLocation === 'object' ? source.gpsLocation : {},
-        payment: source.payment && typeof source.payment === 'object'
-            ? {
-                ...source.payment,
-                method: paymentMethod,
-                status: paymentStatus,
-                statusLabel: paymentStatusLabel,
-                transaction: paymentTransaction && typeof paymentTransaction === 'object'
-                    ? {
-                        ...paymentTransaction,
-                        state: normalizePaymentState(paymentTransaction.state || paymentStatus)
-                    }
-                    : { state: paymentStatus }
-            }
-            : {
-                method: paymentMethod,
-                status: paymentStatus,
-                statusLabel: paymentStatusLabel,
-                transaction: { state: paymentStatus }
-            },
+        payment: {
+            type: paymentMethod === 'cod' ? 'cod' : 'pay_now',
+            method: paymentMethod,
+            methodLabel: paymentMethod === 'cod' ? 'Cash on Delivery' : (paymentMethod === 'dpo' ? 'DPO Pay' : paymentMethod),
+            status: paymentStatus,
+            statusLabel: paymentStatusLabel,
+            transaction: { state: paymentStatus }
+        },
         customer: {
             id: customerId,
             name: normalizeText(shippingAddress.fullName || source.customerName || customer.name || user?.name) || 'Guest Customer',
@@ -633,15 +614,10 @@ exports.createOrder = async (req, res) => {
         const defaultOrderStatus = String(platformSettings.defaultOrderStatus || 'Pending').trim() || 'Pending';
         normalizedOrder.status = defaultOrderStatus;
         normalizedOrder.orderStatus = defaultOrderStatus.toLowerCase();
+        normalizedOrder.currency = String(platformSettings.currency || 'RWF').trim().toUpperCase() || 'RWF';
 
-        const defaultPaymentStatus = String(platformSettings.defaultPaymentStatus || 'pending').trim().toLowerCase();
-        if (defaultPaymentStatus === 'paid') {
-            normalizedOrder.paymentStatus = 'paid';
-            normalizedOrder.paymentStatusLabel = 'Paid';
-        } else if (defaultPaymentStatus === 'unpaid' && String(normalizedOrder.paymentStatus || '').toLowerCase() === 'pending') {
-            normalizedOrder.paymentStatus = 'unpaid';
-            normalizedOrder.paymentStatusLabel = 'Unpaid';
-        }
+        // Default payment status in General Settings must never mark a new order paid.
+        // Settlement comes only from DPO verify, COD-on-delivery, or an authenticated Admin.
 
         if (!normalizedOrder.orderId) {
             return res.status(400).json({ success: false, message: 'orderId required' });

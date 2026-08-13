@@ -25,6 +25,8 @@ function checkSourceGuards() {
   assert(orderController.includes('restoreOrderStock'), 'server must restore stock on cancel/delete');
   assert(orderController.includes("customerId = user?.id"), 'server must force authenticated customerId');
   assert(orderController.includes('awaiting_payment'), 'server must track awaiting payment');
+  assert(orderController.includes("paymentMethod === 'cod' ? 'awaiting_delivery_payment' : 'awaiting_payment'"), 'storefront create must ignore client paid status');
+  assert(!orderController.includes("if (defaultPaymentStatus === 'paid')"), 'defaultPaymentStatus must not mark new orders paid');
 
   const productRepo = read('server/repositories/sqlite/product.repository.js');
   assert(productRepo.includes('restoreStockForOrderItems'), 'product repo must restore stock');
@@ -44,9 +46,10 @@ function checkSourceGuards() {
   assert(layout.includes('product.name || product.productName'), 'success/summary must render productName');
   assert(layout.includes('renderPaymentInstructions'), 'layout exports payment instructions');
 
-  const success = read('orders/order-success.js');
-  assert(success.includes('confirmationMatches'), 'success page requires matching confirmation');
-  assert(success.includes('confirmation?.deliveryFee'), 'success totals use confirmation fees');
+  const dpoService = read('server/services/dpopayment.service.js');
+  assert(dpoService.includes('assertVerifiedPaymentMatchesOrder'), 'DPO verify must bind amount/companyRef to the order');
+  assert(dpoService.includes('DPO_AMOUNT_MISMATCH'), 'DPO verify must reject amount mismatch');
+  assert(dpoService.includes('isSettledPaidStatus'), 'DPO verify must use settled-paid guard');
 
   const account = read('account/services/orderservice.js');
   assert(account.includes("return 'cancelled'"), 'cancelled orders have own group');
