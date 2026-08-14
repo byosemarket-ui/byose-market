@@ -22,15 +22,21 @@ function read(rel) {
 }
 
 function trackedFiles() {
+    const deleted = new Set(
+        execFileSync('git', ['ls-files', '--deleted'], { cwd: root, encoding: 'utf8' })
+            .split(/\r?\n/)
+            .filter(Boolean)
+    );
     return execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' })
         .split(/\r?\n/)
-        .filter(Boolean);
+        .filter((file) => file && !deleted.has(file));
 }
 
 function checkGitFreeze() {
     const ignore = read('.gitignore');
     assert(ignore.includes('scripts/dpo-after-pay-*.png'), 'gitignore must exclude DPO probe screenshots');
     assert(ignore.includes('scripts/probe-dpo-*.mjs'), 'gitignore must exclude DPO probe scripts');
+    assert(ignore.includes('scripts/e2e-checkout-prod-both-flows.mjs'), 'gitignore must exclude obsolete production TEST E2E');
     assert(ignore.includes('*.enc'), 'encrypted credential store must stay gitignored');
     assert(ignore.includes('.env'), '.env must stay gitignored');
     assert(ignore.includes('server/secure/*'), 'server/secure credential files must stay gitignored');
@@ -45,6 +51,8 @@ function checkGitFreeze() {
         || /probe-dpo-/i.test(file)
         || /debug-place-order\.mjs$/i.test(file)
         || /dpo-sandbox-probe\.png$/i.test(file)
+        || /e2e-checkout-prod-both-flows\.mjs$/i.test(file)
+        || /e2e-online-cod-mtn\.mjs$/i.test(file)
     ));
     assert(blocked.length === 0, `tracked forbidden artifacts: ${blocked.join(', ')}`);
 }

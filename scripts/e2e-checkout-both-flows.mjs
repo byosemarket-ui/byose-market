@@ -21,6 +21,9 @@ const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
 
 const SITE = (process.env.BYOSE_SITE_ORIGIN || 'http://127.0.0.1:5000').replace(/\/+$/, '');
+if (/byosemarket\.com/i.test(SITE)) {
+  throw new Error('Refusing to run DPO TEST sandbox E2E against production LIVE.');
+}
 const PRODUCT_ID = String(process.env.BYOSE_E2E_PRODUCT_ID || '12012');
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 

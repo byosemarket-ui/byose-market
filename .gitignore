@@ -63,4 +63,5 @@ scripts/dpo-sandbox-probe.png
 scripts/debug-place-order.mjs
 scripts/diag-step1-to3-prod.mjs
 scripts/e2e-online-cod-mtn.mjs
+scripts/e2e-checkout-prod-both-flows.mjs
 scripts/probe-dpo-*.mjs
