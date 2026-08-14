@@ -27,6 +27,7 @@ function checkSources() {
     assert(config.includes('getActiveDpoConfiguration'), 'resolver must expose getActiveDpoConfiguration');
     assert(config.includes('getEnvironmentConfiguration'), 'resolver must load one environment at a time');
     assert(config.includes('OPERATING_MODE_LIVE'), 'LIVE operating mode must activate LIVE checkout');
+    assert(!config.includes('OPERATING_MODE_TEST'), 'customer checkout resolver must not select TEST');
     assert(config.includes('DPO_LIVE_NOT_CONFIGURED'), 'missing LIVE credentials must have a dedicated error');
     assert(config.includes('DPO_LIVE_CREDENTIAL_MIX'), 'TEST/LIVE Company Token mix must be rejected');
     assert(!config.includes('LIVE_CHECKOUT_ENABLED = false'), 'hard LIVE checkout gate must be removed');
@@ -83,6 +84,15 @@ function main() {
     assert(liveIncomplete.mode === 'live', 'incomplete LIVE must still select LIVE, not TEST');
     assert(liveIncomplete.customerCheckoutAllowed === false, 'incomplete LIVE must fail safely');
     assert(liveIncomplete.reason === 'LIVE_NOT_CONFIGURED', 'incomplete LIVE must not fall back to TEST');
+
+    const testOperating = dpoConfig.resolveCheckoutEnvironment({ operatingMode: 'test', liveConfigured: true });
+    assert(testOperating.mode === 'live', 'TEST operating mode must not open TEST customer checkout');
+    assert(testOperating.customerCheckoutAllowed === true, 'complete LIVE still allows checkout even if TEST mode is requested');
+    assert(testOperating.reason !== 'OPERATING_MODE_TEST', 'customer checkout must never resolve as OPERATING_MODE_TEST');
+
+    const testIncomplete = dpoConfig.resolveCheckoutEnvironment({ operatingMode: 'test', liveConfigured: false });
+    assert(testIncomplete.mode === 'live', 'TEST operating mode with incomplete LIVE must stay on LIVE');
+    assert(testIncomplete.customerCheckoutAllowed === false, 'incomplete LIVE must not fall back to TEST checkout');
 
     if (failures.length) {
         console.error('[verify-dpo-environment-config] FAIL:');

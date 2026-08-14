@@ -45,30 +45,19 @@ function customerSafeMessage(mode) {
 
 /**
  * Server-side checkout environment decision.
- * Production checkout is LIVE-only. Incomplete LIVE never substitutes TEST.
+ * Production checkout is LIVE-only. Operating Mode TEST cannot open customer
+ * checkout. Incomplete LIVE never substitutes TEST credentials or endpoints.
  */
 function resolveCheckoutEnvironment({ operatingMode = CHECKOUT_MODE, liveConfigured = false } = {}) {
-    const selected = normalizeText(operatingMode).toLowerCase() === 'test' ? 'test' : 'live';
+    void operatingMode;
     const configured = Boolean(liveConfigured);
-
-    if (selected === 'live') {
-        return {
-            mode: 'live',
-            liveCheckoutEnabled: true,
-            liveAvailable: configured,
-            liveConfigured: configured,
-            customerCheckoutAllowed: configured,
-            reason: configured ? 'OPERATING_MODE_LIVE' : 'LIVE_NOT_CONFIGURED'
-        };
-    }
-
     return {
-        mode: 'test',
-        liveCheckoutEnabled: false,
-        liveAvailable: false,
+        mode: CHECKOUT_MODE,
+        liveCheckoutEnabled: true,
+        liveAvailable: configured,
         liveConfigured: configured,
-        customerCheckoutAllowed: true,
-        reason: 'OPERATING_MODE_TEST'
+        customerCheckoutAllowed: configured,
+        reason: configured ? 'OPERATING_MODE_LIVE' : 'LIVE_NOT_CONFIGURED'
     };
 }
 

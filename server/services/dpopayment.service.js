@@ -370,6 +370,7 @@ async function initiatePayment({ orderId, req } = {}) {
             lastResult: created.result,
             lastOutcome: 'redirect',
             mode: runtime.mode,
+            serviceType: runtime.secrets.serviceType,
             initiatedAt: new Date().toISOString()
         }
     });
@@ -410,7 +411,10 @@ async function persistVerifiedPayment(order, verified, token, req) {
             transactionCurrency: verified.transactionCurrency || '',
             transactionApproval: verified.transactionApproval || '',
             verifiedAt: new Date().toISOString(),
-            mode: storedGatewayMode(order)
+            mode: storedGatewayMode(order),
+            ...(normalizeText(order.payment?.gateway?.serviceType)
+                ? { serviceType: normalizeText(order.payment.gateway.serviceType) }
+                : {})
         }
     });
 

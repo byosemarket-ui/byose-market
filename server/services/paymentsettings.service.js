@@ -583,9 +583,13 @@ async function getAdminPaymentSettings() {
         liveActivated
     });
 
+    const connection = buildConnectionStatus(view);
+    connection.liveCheckoutActive = liveCheckoutActive;
+    connection.checkoutReady = liveCheckoutActive;
+
     return {
         ...view,
-        connection: buildConnectionStatus(view),
+        connection,
         activity,
         activityStats: stats,
         capabilities: {
@@ -596,18 +600,29 @@ async function getAdminPaymentSettings() {
             checkoutEnvironment: 'live',
             liveCredentialsConfigured: liveCredentialsStored,
             liveCredentialsStored,
+            liveCredentialsState: liveCredentialsStored ? 'stored' : 'missing',
             liveConfigurationComplete,
+            liveConfigurationState: liveConfigurationComplete ? 'ready' : 'incomplete',
             liveServiceType: liveServiceTypeOk ? LIVE_SERVICE_TYPE_ID : '',
             liveServiceTypeOk,
+            liveServiceTypeState: liveServiceTypeOk ? LIVE_SERVICE_TYPE_ID : 'missing',
             liveApiEndpointConfigured: endpoints.apiOk,
             liveApiEndpoint: endpoints.api,
+            liveApiEndpointState: endpoints.apiOk ? 'configured' : 'missing',
             livePaymentPageUrl: endpoints.paymentPageUrl,
             livePaymentPageConfigured: endpoints.paymentUrlOk,
+            livePaymentPageState: endpoints.paymentUrlOk ? 'configured' : 'missing',
             liveConnectionVerified: false,
             liveCheckoutReady: liveCheckoutActive,
             liveCheckoutActive,
+            liveCheckoutState: liveCheckoutActive ? 'active' : 'inactive',
             liveActivationBlockedReason: liveCheckoutActive ? '' : blockedReason,
+            encryptionReady: encryptionOk,
+            encryptionState: encryptionOk ? 'ready' : 'not_ready',
+            providerState: providerEnabled ? 'enabled' : 'disabled',
+            onlinePaymentsState: config.enabled ? 'enabled' : 'disabled',
             paymentRoutesReady: routesReady,
+            backendLoadable,
             providerExtensible: true
         }
     };
