@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="checkout.css">
+  <link rel="stylesheet" href="checkout.css?v=20260814-step2-payment-ux">
 </head>
 <body>
   <div class="ck-shell">
@@ -18,7 +18,7 @@
           <header class="ck-panel-head">
             <p>Step 3 of 4</p>
             <h1>Payment</h1>
-            <p>Choose how you want to pay.</p>
+            <p>Choose MTN MoMo, Card, or Cash on Delivery.</p>
           </header>
           <div id="message" hidden></div>
           <form id="paymentForm" class="ck-payment-form">
@@ -27,12 +27,7 @@
               <h2 class="ck-pay-section__title" id="payMethodsTitle">Payment method</h2>
               <div class="ck-pay-grid" id="paymentMethods" role="radiogroup" aria-labelledby="payMethodsTitle"></div>
             </section>
-            <label class="ck-field ck-field--full ck-payment-phone" id="paymentPhoneField" hidden>
-              <span>Payment phone number</span>
-              <input type="tel" name="paymentPhone" inputmode="tel" placeholder="07XXXXXXXX" autocomplete="tel">
-              <small class="ck-field-error" data-error="phone"></small>
-            </label>
-            <div id="paymentInstructions" class="ck-payment-instructions"></div>
+            <div id="paymentMethodPanel" class="ck-payment-method-panel"></div>
             <div id="couponBlock"></div>
             <div id="totalsBlock" class="ck-payment-totals"></div>
             <div class="ck-actions">
@@ -49,6 +44,6 @@
   <script src="../config/runtime-api-bootstrap.js"></script>
   <script src="../services/authservice.js"></script>
   <script src="../services/wishlist-client.js"></script>
-  <script type="module" src="payment.js?v=20260813-step5-duplicate-guard"></script>
+  <script type="module" src="payment.js?v=20260814-step2-payment-ux"></script>
 </body>
 </html>

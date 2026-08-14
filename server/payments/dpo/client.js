@@ -45,6 +45,41 @@ function splitCustomerName(fullName) {
     };
 }
 
+const ALL_BLOCKABLE_PAYMENTS = Object.freeze(['CC', 'MO', 'PP', 'BT', 'XP', 'SE']);
+
+/**
+ * Official createToken hosted-page defaults.
+ * DefaultPayment / DefaultPaymentCountry / DefaultPaymentMNO / BlockPayment
+ * are documented DPO API v6 fields. They pre-select the method and hide
+ * unused options so customers are not asked for details BYOSE already has.
+ */
+function resolveHostedPaymentOptions(method) {
+    const id = normalizeText(method).toLowerCase();
+    if (id === 'mtn') {
+        return {
+            defaultPayment: 'MO',
+            defaultPaymentCountry: 'rwanda',
+            defaultPaymentMno: 'MTN',
+            blockPayments: ALL_BLOCKABLE_PAYMENTS.filter((code) => code !== 'MO')
+        };
+    }
+    return {
+        defaultPayment: 'CC',
+        defaultPaymentCountry: '',
+        defaultPaymentMno: '',
+        blockPayments: ALL_BLOCKABLE_PAYMENTS.filter((code) => code !== 'CC')
+    };
+}
+
+function toDpoPhone(value) {
+    const digits = String(value == null ? '' : value).replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('250') && digits.length >= 12) return digits.slice(0, 12);
+    if (digits.startsWith('0') && digits.length === 10) return `250${digits.slice(1)}`;
+    if (digits.length === 9) return `250${digits}`;
+    return digits.slice(0, 15);
+}
+
 function buildPaymentPageUrl(paymentPageUrl, transToken) {
     const token = normalizeText(transToken);
     if (!token) {
@@ -86,6 +121,9 @@ function buildCreateTokenXml({
     customerName,
     customerEmail,
     customerPhone,
+    customerAddress,
+    customerCity,
+    paymentMethod,
     serviceDescription,
     serviceDate
 }) {
@@ -98,6 +136,16 @@ function buildCreateTokenXml({
         throw error;
     }
 
+    const hosted = resolveHostedPaymentOptions(paymentMethod);
+    const phone = toDpoPhone(customerPhone);
+    const city = normalizeText(customerCity).slice(0, 80);
+    const address = normalizeText(customerAddress).slice(0, 120);
+    const orderNumber = normalizeText(companyRef).slice(0, 15);
+
+    const additional = (hosted.blockPayments || []).map(
+        (code) => `    <BlockPayment>${escapeXml(code)}</BlockPayment>`
+    );
+
     return [
         '<?xml version="1.0" encoding="utf-8"?>',
         '<API3G>',
@@ -107,6 +155,7 @@ function buildCreateTokenXml({
         `    <PaymentAmount>${escapeXml(safeAmount.toFixed(2))}</PaymentAmount>`,
         `    <PaymentCurrency>${escapeXml(currency || 'RWF')}</PaymentCurrency>`,
         `    <CompanyRef>${escapeXml(companyRef)}</CompanyRef>`,
+        orderNumber ? `    <OrderNumber>${escapeXml(orderNumber)}</OrderNumber>` : '',
         `    <RedirectURL>${escapeXml(redirectUrl)}</RedirectURL>`,
         `    <BackURL>${escapeXml(backUrl)}</BackURL>`,
         '    <CompanyRefUnique>0</CompanyRefUnique>',
@@ -114,7 +163,19 @@ function buildCreateTokenXml({
         `    <customerFirstName>${escapeXml(names.firstName)}</customerFirstName>`,
         `    <customerLastName>${escapeXml(names.lastName)}</customerLastName>`,
         customerEmail ? `    <customerEmail>${escapeXml(customerEmail)}</customerEmail>` : '',
-        customerPhone ? `    <customerPhone>${escapeXml(customerPhone)}</customerPhone>` : '',
+        address ? `    <customerAddress>${escapeXml(address)}</customerAddress>` : '',
+        city ? `    <customerCity>${escapeXml(city)}</customerCity>` : '',
+        '    <customerCountry>RW</customerCountry>',
+        '    <customerDialCode>RW</customerDialCode>',
+        phone ? `    <customerPhone>${escapeXml(phone)}</customerPhone>` : '',
+        `    <DefaultPayment>${escapeXml(hosted.defaultPayment)}</DefaultPayment>`,
+        hosted.defaultPaymentCountry
+            ? `    <DefaultPaymentCountry>${escapeXml(hosted.defaultPaymentCountry)}</DefaultPaymentCountry>`
+            : '',
+        hosted.defaultPaymentMno
+            ? `    <DefaultPaymentMNO>${escapeXml(hosted.defaultPaymentMno)}</DefaultPaymentMNO>`
+            : '',
+        '    <TransactionSource>Website</TransactionSource>',
         '  </Transaction>',
         '  <Services>',
         '    <Service>',
@@ -123,6 +184,9 @@ function buildCreateTokenXml({
         `      <ServiceDate>${escapeXml(serviceDate || formatServiceDate())}</ServiceDate>`,
         '    </Service>',
         '  </Services>',
+        additional.length ? '  <Additional>' : '',
+        ...additional,
+        additional.length ? '  </Additional>' : '',
         '</API3G>'
     ].filter(Boolean).join('\n');
 }
@@ -280,6 +344,9 @@ async function createToken(options = {}) {
         customerName: options.customerName,
         customerEmail: options.customerEmail,
         customerPhone: options.customerPhone,
+        customerAddress: options.customerAddress,
+        customerCity: options.customerCity,
+        paymentMethod: options.paymentMethod,
         serviceDescription: options.serviceDescription,
         serviceDate: options.serviceDate
     });
@@ -386,6 +453,8 @@ module.exports = {
     DEFAULT_API_BASE,
     DEFAULT_PAYMENT_PAGE,
     buildCreateTokenXml,
+    resolveHostedPaymentOptions,
+    toDpoPhone,
     buildPaymentPageUrl,
     buildVerifyTokenXml,
     createToken,

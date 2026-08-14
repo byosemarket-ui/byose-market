@@ -124,6 +124,9 @@ export function buildOrderPayload(options = {}) {
   const hasAccount = Boolean(state.customer.id);
   const usesCod = isCodPaymentMethod(state.payment.method);
   const usesGateway = isGatewayPaymentMethod(state.payment.method);
+  const payerPhone = usesGateway && state.payment.method === 'mtn'
+    ? (normalizePhone(state.payment.phone) || customerPhone)
+    : customerPhone;
   const paymentStatus = usesCod ? COD_PAYMENT_STATUS : 'awaiting_payment';
   const paymentStatusLabel = usesCod ? COD_PAYMENT_STATUS_LABEL : 'Awaiting Payment';
   const paymentMethodLabelText = usesCod
@@ -209,12 +212,12 @@ export function buildOrderPayload(options = {}) {
       methodLabel: paymentMethodLabelText,
       status: paymentStatus,
       statusLabel: paymentStatusLabel,
-      payerPhone: customerPhone,
+      payerPhone,
       note: usesCod
         ? 'Pay when the order is delivered'
         : (usesGateway
           ? (state.payment.method === 'mtn'
-            ? 'Complete MTN MoMo payment on the secure payment page'
+            ? 'Complete MTN MoMo payment with the official payment provider'
             : 'Complete card payment on the secure payment page')
           : 'Complete payment using the selected method')
     },

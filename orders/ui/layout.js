@@ -192,40 +192,15 @@ export function renderStickyBar(label, buttonId, options = {}) {
   `;
 }
 
-export function renderPaymentInstructions(methodId, totals = {}) {
-  const method = String(methodId || '').toLowerCase();
-  const total = formatCurrency(totals.total || 0);
-
-  if (method === 'cod') {
-    return `
-      <div class="ck-pay-instructions ck-pay-instructions--cod">
-        <strong>Cash on Delivery</strong>
-        <p>Pay <strong>${total}</strong> when your order is delivered. Available in Kigali only. No online payment is taken now.</p>
-      </div>
-    `;
-  }
-
-  if (method === 'mtn') {
-    return `
-      <div class="ck-pay-instructions">
-        <strong>MTN MoMo</strong>
-        <p>You will be redirected to a secure payment page to pay <strong>${total}</strong> with MTN Mobile Money.</p>
-        <p>We will use the phone number from your shipping details. Payment is confirmed automatically after you finish.</p>
-      </div>
-    `;
-  }
-
-  if (method === 'card') {
-    return `
-      <div class="ck-pay-instructions">
-        <strong>Card — Visa / Mastercard</strong>
-        <p>You will be redirected to a secure payment page to pay <strong>${total}</strong> with your Visa or Mastercard.</p>
-        <p>Payment is confirmed automatically after you finish.</p>
-      </div>
-    `;
-  }
-
-  return '';
+export function renderCompactDeliverySummary(shipping) {
+  const customer = String(shipping.fullName || '').trim();
+  const phone = String(shipping.phone || '').trim();
+  const place = [shipping.provinceCity, shipping.district].filter(Boolean).join(', ');
+  const line = [customer, phone, place].filter(Boolean).join(' · ');
+  if (!line) return '';
+  return `
+    <p class="ck-delivery-compact">Delivering to ${escapeHtml(line)}</p>
+  `;
 }
 
 export function renderShippingSummary(shipping) {

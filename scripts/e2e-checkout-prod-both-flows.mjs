@@ -344,7 +344,7 @@ async function runFlow(browser, flow, payload) {
     await page.waitForURL(/order-success\.html/, { timeout: 60000 });
     createdOrderId = createdOrderId || new URL(page.url()).searchParams.get('orderId') || '';
     const successText = await page.locator('body').innerText();
-    if (/Payment Successful!/i.test(successText)) {
+    if (/Payment Successful!?/i.test(successText)) {
       throw new Error(`${flow}: COD success claimed online payment`);
     }
     if (!/Awaiting Delivery Payment|not paid online/i.test(successText)) {
@@ -439,11 +439,11 @@ async function runFlow(browser, flow, payload) {
 
   await page.waitForFunction(() => {
     const text = document.body?.innerText || '';
-    return /Payment Successful!/i.test(text) && /Payment confirmed/i.test(text);
+    return /Payment Successful!?/i.test(text) && /Payment confirmed/i.test(text);
   }, undefined, { timeout: 30000 });
 
   const successText = await page.locator('body').innerText();
-  const successOk = /Payment Successful!/i.test(successText) && successText.includes(createdOrderId);
+  const successOk = /Payment Successful!?/i.test(successText) && successText.includes(createdOrderId);
 
   // Confirm backend paid status as well.
   const verified = await fetch(`${SITE}/api/payments/dpo/verify`, {

@@ -20,7 +20,7 @@ export const PAYMENT_METHODS = [
     id: 'mtn',
     label: 'MTN MoMo',
     logo: '/img/MTN.jpeg',
-    hint: 'Pay securely using MTN Mobile Money.',
+    hint: 'Pay with MTN Mobile Money',
     type: 'gateway',
     enabled: true,
     gateway: 'dpo'
@@ -30,7 +30,7 @@ export const PAYMENT_METHODS = [
     label: 'Card',
     subtitle: 'Visa / Mastercard',
     logo: '/img/VASA  MASTERCARD.jpeg',
-    hint: 'Pay securely using your Visa or Mastercard.',
+    hint: 'Pay securely with Visa / Mastercard',
     type: 'gateway',
     enabled: true,
     gateway: 'dpo'
@@ -39,7 +39,7 @@ export const PAYMENT_METHODS = [
     id: 'cod',
     label: 'Cash on Delivery',
     logo: '/img/PAY ON DELIVERY.jpeg',
-    hint: 'Pay when your order is delivered.',
+    hint: 'Pay when your order is delivered',
     type: 'cod',
     enabled: true
   }
@@ -65,10 +65,10 @@ export function paymentMethodLabel(method) {
   return PAYMENT_METHOD_LABELS[id] || '';
 }
 
-export function paymentCtaLabel(method) {
+export function paymentCtaLabel(method, formattedTotal = '') {
   const id = String(method || '').trim().toLowerCase();
-  if (id === 'mtn') return 'Pay with MTN MoMo';
-  if (id === 'card') return 'Pay with Card';
+  if (id === 'mtn') return formattedTotal ? `Pay ${formattedTotal}` : 'Pay with MTN MoMo';
+  if (id === 'card') return formattedTotal ? `Pay ${formattedTotal}` : 'Pay with Card';
   if (id === 'cod') return 'Place Order';
   return 'Place Order';
 }

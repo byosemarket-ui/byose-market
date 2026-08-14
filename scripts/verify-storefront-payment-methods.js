@@ -72,13 +72,16 @@ function checkCustomerPaymentUi() {
     assert(paymentJs.includes('isCodPaymentMethod'), 'COD path must be explicit');
     assert(paymentJs.includes("window.location.href = `order-success.html"), 'COD must go to Success without DPO');
     assert(!paymentJs.includes("method === 'dpo'"), 'standalone DPO must not be selected in payment.js');
-    assert(paymentJs.includes('phoneField.hidden = true'), 'duplicate payment phone must stay hidden');
+    assert(paymentJs.includes('placeInFlight'), 'duplicate Pay clicks must be locked on the Payment page');
+    assert(paymentJs.includes('renderPaymentPanel'), 'payment page must render the selected-method panel');
+    assert(paymentJs.includes('readMomoPhoneFromPanel'), 'MTN phone must be read from the payment panel');
 
     const layout = read('orders/ui/layout.js');
-    assert(constants.includes('Pay securely using MTN Mobile Money.'), 'MTN description required');
-    assert(constants.includes('Pay securely using your Visa or Mastercard.'), 'Card description required');
-    assert(constants.includes('Pay when your order is delivered.'), 'COD description required');
+    assert(constants.includes('Pay with MTN Mobile Money'), 'MTN description required');
+    assert(constants.includes('Pay securely with Visa / Mastercard'), 'Card description required');
+    assert(constants.includes('Pay when your order is delivered'), 'COD description required');
     assert(layout.includes('method.hint'), 'payment cards must render method descriptions');
+    assert(layout.includes('renderCompactDeliverySummary'), 'payment page must reuse shipping as a compact summary');
     assert(!/Airtel/i.test(layout), 'Airtel must not appear in payment layout');
     assert(!/Bank Transfer/i.test(layout), 'Bank Transfer must not appear in payment layout');
     assert(!/DPO Pay/i.test(layout), 'DPO Pay must not appear in payment layout');
@@ -86,10 +89,18 @@ function checkCustomerPaymentUi() {
     const paymentHtml = read('orders/payment.html');
     assert(paymentHtml.includes('id="paymentMethods"'), 'live Payment Step is orders/payment.html');
     assert(paymentHtml.includes('payment.js'), 'payment.html must load payment.js');
-    assert(paymentHtml.includes('id="paymentPhoneField" hidden'), 'payment phone field must be hidden by default');
+    assert(paymentHtml.includes('id="paymentMethodPanel"'), 'selected-method panel must exist');
+    assert(!paymentHtml.includes('id="paymentPhoneField"'), 'duplicate hidden payment phone field must be removed');
+
+    const panel = read('orders/ui/payment-panel.js');
+    assert(panel.includes('momoPhoneInput'), 'MTN panel must collect the authorizing mobile number');
+    assert(panel.includes('+250'), 'MTN panel must show the Rwanda prefix');
+    assert(!/name=["']cvv["']/i.test(panel), 'BYOSE must not collect CVV');
+    assert(!/name=["']cardNumber["']/i.test(panel), 'BYOSE must not collect card number');
+    assert(!/PIN/i.test(panel) || panel.includes('never ask for your PIN'), 'BYOSE must not collect MTN PIN');
 
     const success = read('orders/order-success.js');
-    assert(success.includes('Payment Successful!'), 'paid online orders still show Payment Successful');
+    assert(success.includes('Payment Successful'), 'paid online orders still show Payment Successful');
     assert(success.includes('This order is not paid online.'), 'COD success must not look like an online paid order');
     assert(success.includes('confirmationIsCod'), 'Success must skip DPO verify for Cash on Delivery');
 

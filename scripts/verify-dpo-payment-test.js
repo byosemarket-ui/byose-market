@@ -269,6 +269,64 @@ async function verifyClientHelpers() {
     assert(!redacted.includes('SECRET-VALUE'), 'xml redaction failed');
     assert(extractTag('<A><Result>000</Result></A>', 'Result') === '000', 'extractTag failed');
 
+    const mtnHosted = dpoClient.resolveHostedPaymentOptions('mtn');
+    assert(mtnHosted.defaultPayment === 'MO', 'MTN hosted default must be MO');
+    assert(mtnHosted.defaultPaymentCountry === 'rwanda', 'MTN hosted country must be rwanda');
+    assert(mtnHosted.defaultPaymentMno === 'MTN', 'MTN hosted operator must be MTN');
+    assert(mtnHosted.blockPayments.includes('CC') && !mtnHosted.blockPayments.includes('MO'), 'MTN must block card, not mobile');
+
+    const cardHosted = dpoClient.resolveHostedPaymentOptions('card');
+    assert(cardHosted.defaultPayment === 'CC', 'Card hosted default must be CC');
+    assert(!cardHosted.defaultPaymentMno, 'Card must not set a mobile operator');
+    assert(cardHosted.blockPayments.includes('MO') && !cardHosted.blockPayments.includes('CC'), 'Card must block mobile, not card');
+
+    const mtnXml = dpoClient.buildCreateTokenXml({
+        companyToken: 'COMPANY-TOKEN',
+        serviceType: '112815',
+        amount: 25000,
+        currency: 'RWF',
+        companyRef: 'BM123456',
+        redirectUrl: 'https://byosemarket.com/return',
+        backUrl: 'https://byosemarket.com/back',
+        customerName: 'Jane Doe',
+        customerEmail: 'jane@example.com',
+        customerPhone: '0788123456',
+        customerAddress: 'Kacyiru',
+        customerCity: 'Kigali',
+        paymentMethod: 'mtn'
+    });
+    assert(mtnXml.includes('<DefaultPayment>MO</DefaultPayment>'), 'MTN XML must default to mobile money');
+    assert(mtnXml.includes('<DefaultPaymentCountry>rwanda</DefaultPaymentCountry>'), 'MTN XML must set Rwanda');
+    assert(mtnXml.includes('<DefaultPaymentMNO>MTN</DefaultPaymentMNO>'), 'MTN XML must set MTN');
+    assert(mtnXml.includes('<customerFirstName>Jane</customerFirstName>'), 'customer name must be reused');
+    assert(mtnXml.includes('<customerPhone>250788123456</customerPhone>'), 'customer phone must be reused');
+    assert(mtnXml.includes('<customerCity>Kigali</customerCity>'), 'customer city must be reused');
+    assert(mtnXml.includes('<customerCountry>RW</customerCountry>'), 'customer country must be RW');
+    assert(mtnXml.includes('<BlockPayment>CC</BlockPayment>'), 'MTN XML must block card');
+    assert(!mtnXml.includes('<BlockPayment>MO</BlockPayment>'), 'MTN XML must not block mobile');
+    assert(mtnXml.includes('<ServiceType>112815</ServiceType>'), 'LIVE Service Type 112815 required');
+    assert(!mtnXml.includes('54841'), 'TEST Service Type 54841 must not appear');
+
+    const cardXml = dpoClient.buildCreateTokenXml({
+        companyToken: 'COMPANY-TOKEN',
+        serviceType: '112815',
+        amount: 25000,
+        currency: 'RWF',
+        companyRef: 'BM123456',
+        redirectUrl: 'https://byosemarket.com/return',
+        backUrl: 'https://byosemarket.com/back',
+        customerName: 'Jane Doe',
+        customerPhone: '0788123456',
+        paymentMethod: 'card'
+    });
+    assert(cardXml.includes('<DefaultPayment>CC</DefaultPayment>'), 'Card XML must default to card');
+    assert(!cardXml.includes('<DefaultPaymentMNO>'), 'Card XML must not set an MNO');
+    assert(cardXml.includes('<BlockPayment>MO</BlockPayment>'), 'Card XML must block mobile');
+    assert(!cardXml.includes('<BlockPayment>CC</BlockPayment>'), 'Card XML must not block card');
+    assert(cardXml.includes('<ServiceType>112815</ServiceType>'), 'Card LIVE Service Type 112815 required');
+    assert(!cardXml.includes('54841'), 'Card XML must not include TEST Service Type');
+    assert(dpoClient.toDpoPhone('+250788123456') === '250788123456', 'toDpoPhone must strip plus');
+
     const paidXml = dpoClient.parseVerifyTokenResponse(
         '<API3G><Result>000</Result><CompanyRef>BM-1</CompanyRef><TransactionAmount>15000.00</TransactionAmount><TransactionCurrency>RWF</TransactionCurrency></API3G>'
     );

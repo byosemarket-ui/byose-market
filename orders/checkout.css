@@ -755,36 +755,122 @@ a { color: var(--ck-accent); text-decoration: none; }
   box-shadow: inset 0 0 0 3px #fff;
 }
 
-.ck-payment-phone {
-  margin-top: 2px;
+.ck-delivery-compact {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ck-muted);
+  line-height: 1.4;
 }
 
-.ck-payment-instructions {
-  margin-top: 12px;
+.ck-payment-method-panel {
+  margin-top: 4px;
 }
 
-.ck-pay-instructions {
+.ck-pay-panel {
   border: 1px solid var(--ck-border);
   border-radius: 14px;
-  padding: 14px 16px;
-  background: linear-gradient(180deg, #f8fffc 0%, #f3faf7 100%);
-  color: #1f3b34;
+  padding: 16px;
+  background: #fff;
 }
 
-.ck-pay-instructions strong {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 0.95rem;
-}
-
-.ck-pay-instructions p {
-  margin: 0 0 6px;
-  font-size: 0.9rem;
+.ck-pay-panel p {
+  margin: 10px 0 0;
+  font-size: 13px;
   line-height: 1.45;
+  color: var(--ck-muted);
 }
 
-.ck-pay-instructions--cod {
+.ck-pay-panel--mtn {
+  background: linear-gradient(180deg, #fffdf5 0%, #fff8e8 100%);
+}
+
+.ck-pay-panel--card {
+  background: linear-gradient(180deg, #f8fbff 0%, #f3f7fc 100%);
+}
+
+.ck-pay-panel--cod {
   background: linear-gradient(180deg, #fffaf2 0%, #fff6e8 100%);
+}
+
+.ck-pay-amount {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ck-pay-amount span {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ck-muted);
+}
+
+.ck-pay-amount strong {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--ck-text);
+}
+
+.ck-momo-field {
+  display: grid;
+  gap: 6px;
+}
+
+.ck-momo-field > span {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ck-momo-input {
+  display: flex;
+  align-items: stretch;
+  min-height: 48px;
+  border: 1.5px solid var(--ck-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.ck-momo-input:focus-within {
+  border-color: var(--ck-accent);
+  box-shadow: 0 0 0 3px rgba(225, 29, 72, .12);
+}
+
+.ck-momo-prefix {
+  display: grid;
+  place-items: center;
+  padding: 0 12px;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ck-text);
+  background: #f8fafc;
+  border-right: 1px solid var(--ck-border);
+  white-space: nowrap;
+}
+
+.ck-momo-input input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  padding: 12px 14px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+@media (max-width: 719px) {
+  .ck-pay-amount strong {
+    font-size: 20px;
+  }
+
+  .ck-actions .ck-btn--primary,
+  .ck-sticky .ck-btn--primary {
+    min-height: 48px;
+  }
 }
 
 .ck-payment-totals {
@@ -817,6 +903,35 @@ a { color: var(--ck-accent); text-decoration: none; }
 }
 
 /* Delivery info */
+.ck-success-facts {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--ck-border);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.ck-success-facts p {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.ck-success-facts span {
+  color: var(--ck-muted);
+  font-weight: 600;
+}
+
+.ck-field-error {
+  color: #b91c1c;
+  font-size: 12px;
+  min-height: 1em;
+}
+
 .ck-delivery-info {
   display: flex;
   align-items: center;

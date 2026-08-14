@@ -44,8 +44,9 @@ function checkSourceGuards() {
   assert(orderJs.includes('awaiting_payment'), 'pay-now orders await payment');
 
   const paymentJs = read('orders/payment.js');
-  assert(paymentJs.includes('renderPaymentInstructions'), 'payment page shows instructions');
+  assert(paymentJs.includes('renderPaymentPanel'), 'payment page shows the selected-method panel');
   assert(paymentJs.includes('getState().isSubmitting'), 'payment page guards double submit');
+  assert(paymentJs.includes('placeInFlight'), 'payment page guards duplicate Pay clicks');
   assert(paymentJs.includes('isGatewayPaymentMethod'), 'MTN MoMo and Card must use DPO gateway');
   assert(paymentJs.includes('Pay with MTN MoMo') || paymentJs.includes('paymentCtaLabel'), 'MTN CTA comes from selected method');
   assert(!paymentJs.includes("method === 'dpo'"), 'standalone DPO must not be a customer method');
@@ -60,7 +61,7 @@ function checkSourceGuards() {
 
   const layout = read('orders/ui/layout.js');
   assert(layout.includes('product.name || product.productName'), 'success/summary must render productName');
-  assert(layout.includes('renderPaymentInstructions'), 'layout exports payment instructions');
+  assert(layout.includes('renderCompactDeliverySummary'), 'layout exports compact delivery summary for payment');
 
   const dpoService = read('server/services/dpopayment.service.js');
   assert(dpoService.includes('assertVerifiedPaymentMatchesOrder'), 'DPO verify must bind amount/companyRef to the order');

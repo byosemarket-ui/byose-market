@@ -1,7 +1,7 @@
 import { getConfirmation, initCheckout } from './core/state.js';
 import { DELIVERY_FEE } from './core/constants.js';
 import { renderProductList, renderShippingSummary, renderTotals } from './ui/layout.js';
-import { escapeHtml, resolveApiOrigin, saveCheckoutConfirmation, clearPendingOrderSubmission } from './utils.js';
+import { escapeHtml, formatCurrency, resolveApiOrigin, saveCheckoutConfirmation, clearPendingOrderSubmission } from './utils.js';
 import {
   clearActiveCheckoutKeys,
   clearAwaitingGatewayOrderId,
@@ -152,20 +152,38 @@ function renderSuccess(confirmation, resolvedId) {
     ? 'Pay when your order arrives. This order is not paid online.'
     : (paid
       ? 'Payment confirmed. Thank you — your order is paid.'
-      : 'Complete the payment on the secure payment page. Your order stays awaiting payment until confirmed.');
+      : 'Complete the payment with the official payment provider. Your order stays awaiting payment until confirmed.');
+
+  const orderStatus = paid && !isCod
+    ? 'PROCESSING'
+    : (isCod ? 'Pending' : (confirmation?.orderStatusLabel || confirmation?.status || 'Pending'));
+
+  const facts = paid && !isCod
+    ? `
+        <div class="ck-success-facts">
+          <p><span>Order</span><strong>${escapeHtml(resolvedId)}</strong></p>
+          <p><span>Amount</span><strong>${formatCurrency(totals.total)}</strong></p>
+          <p><span>Payment Method</span><strong>${escapeHtml(paymentLabel)}</strong></p>
+          <p><span>Payment Status</span><strong>PAID</strong></p>
+          <p><span>Order Status</span><strong>${escapeHtml(orderStatus)}</strong></p>
+        </div>
+      `
+    : `
+        <p><strong>Order ID:</strong> ${escapeHtml(resolvedId)}</p>
+        <p><strong>Payment:</strong> ${escapeHtml(paymentLabel)}</p>
+        ${paymentStatus ? `<p><strong>Payment status:</strong> ${escapeHtml(paymentStatus)}</p>` : ''}
+      `;
 
   container.innerHTML = `
     <div class="ck-success-icon">✓</div>
-    <h1>${paid && !isCod ? 'Payment Successful!' : 'Order Placed!'}</h1>
+    <h1>${paid && !isCod ? 'Payment Successful' : 'Order Placed!'}</h1>
     <p>Thank you, ${escapeHtml(confirmation?.customerName || 'customer')}. Your order has been received.</p>
     <p class="ck-cod-success-note">${escapeHtml(paymentNote)}</p>
-    <p><strong>Order ID:</strong> ${escapeHtml(resolvedId)}</p>
+    ${facts}
     <div class="ck-success-details">
       <h3>Order Summary</h3>
       ${renderProductList(items)}
       ${renderTotals(totals)}
-      <p style="margin-top:12px"><strong>Payment:</strong> ${escapeHtml(paymentLabel)}</p>
-      ${paymentStatus ? `<p><strong>Payment status:</strong> ${escapeHtml(paymentStatus)}</p>` : ''}
       <div style="margin-top:16px">${renderShippingSummary(shippingForSummary)}</div>
     </div>
     <div class="ck-success-actions">

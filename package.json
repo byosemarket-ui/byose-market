@@ -36,6 +36,7 @@
     "verify:dpo-live-admin-controls": "node scripts/verify-dpo-live-admin-step4.js",
     "verify:dpo-live-only-admin": "node scripts/verify-dpo-live-only-admin.js",
     "verify:dpo-live-foundation": "node scripts/verify-dpo-live-foundation.js",
+    "verify:dpo-checkout-ux": "node scripts/verify-dpo-checkout-ux.js",
     "verify:payment-credential-guard": "node scripts/verify-payment-credential-guard.js",
     "verify:admin-seo": "node scripts/verify-admin-seo.js",
     "verify:admin-logout": "node scripts/verify-admin-logout.js",

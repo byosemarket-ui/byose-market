@@ -43,11 +43,16 @@ export function validatePayment(payment = {}, shippingAddress = {}) {
     return { valid: Object.keys(errors).length === 0, errors };
   }
 
-  // MTN MoMo and Card are paid on the DPO hosted page.
-  // Contact phone comes from Shipping — do not require a second payment number.
-  const phone = normalizePhone(shippingAddress.phone || payment.phone);
+  // MTN MoMo uses the number entered on Payment. Card reuses the shipping phone.
+  const phone = normalizePhone(
+    method === 'mtn'
+      ? (payment.phone || shippingAddress.phone)
+      : (shippingAddress.phone || payment.phone)
+  );
   if (!isValidPhone(phone)) {
-    errors.phone = 'A valid shipping phone number is required for payment.';
+    errors.phone = method === 'mtn'
+      ? 'Enter a valid MTN Mobile Number (7XXXXXXXX).'
+      : 'A valid shipping phone number is required for payment.';
   }
 
   return { valid: Object.keys(errors).length === 0, errors };

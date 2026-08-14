@@ -487,6 +487,18 @@ function paymentLabel(order) {
   return order?.paymentMethodLabel || order?.paymentMethod || "—";
 }
 
+function resolveAdminPaymentMode(order) {
+  const method = String(order?.paymentMethod || order?.payment?.method || "").toLowerCase();
+  if (method === "cod") return "—";
+  const mode = String(order?.payment?.gateway?.mode || "").toLowerCase();
+  if (mode === "test") return "TEST";
+  if (mode === "live") return "LIVE";
+  const serviceType = String(order?.payment?.gateway?.serviceType || "").trim();
+  if (serviceType === "54841") return "TEST";
+  if (serviceType === "112815") return "LIVE";
+  return order?.payment?.gateway?.transToken ? "LIVE" : "—";
+}
+
 function canMarkPaymentPaid(order) {
   const payment = String(order?.paymentStatus || order?.paymentStatusLabel || "").toLowerCase();
   if (!payment) return true;
@@ -1564,6 +1576,7 @@ function renderAllOrdersDetails(order) {
             ["Payment Status", { html: badge(String(paymentStatus), statusTone(paymentStatus)) }],
             ["Payment Reference", resolveTransactionReference(order)],
             ["DPO Transaction Reference", resolveDpoTransactionReference(order)],
+            ["Mode", resolveAdminPaymentMode(order)],
             ["Payment Type", order.paymentType || (order.paymentMethod === "cod" ? "cod" : "pay_now")],
             ["Amount", formatCurrency(order.grandTotal || order.total || 0)],
             ["Currency", order.currency || "RWF"],

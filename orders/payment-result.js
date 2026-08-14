@@ -104,12 +104,12 @@ async function boot() {
   const map = {
     cancelled: {
       title: 'Payment cancelled',
-      message: 'You cancelled the payment. Your order is saved and waiting if you want to try again.',
+      message: 'Payment was cancelled.',
       tone: 'warn'
     },
     invalid: {
       title: 'Invalid payment token',
-      message: 'We could not verify this payment token. If you were charged, contact support with your order ID.',
+      message: 'We could not verify this payment. If you were charged, contact support with your order ID.',
       tone: 'error'
     },
     pending: {
@@ -119,7 +119,7 @@ async function boot() {
     },
     failed: {
       title: 'Payment failed',
-      message: 'The payment did not complete successfully. You can retry this same order without creating a new one.',
+      message: 'Payment was not completed. Please try again or choose another payment method.',
       tone: 'error'
     }
   };

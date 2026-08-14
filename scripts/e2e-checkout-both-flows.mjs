@@ -492,13 +492,13 @@ async function runBrowserFlow(browser, flow, payload) {
       });
       await page.waitForFunction(() => {
         const text = document.body?.innerText || '';
-        return /Order Placed!|Payment Successful!|Confirmation Unavailable|Order Not Found/i.test(text);
+        return /Order Placed!|Payment Successful!?|Confirmation Unavailable|Order Not Found/i.test(text);
       }, { timeout: 30000 });
       const successText = await page.locator('body').innerText();
       if (/Confirmation Unavailable/i.test(successText)) {
         throw new Error(`${flow}: success page showed Confirmation Unavailable after Place Order`);
       }
-      if (/Payment Successful!/i.test(successText)) {
+      if (/Payment Successful!?/i.test(successText)) {
         throw new Error(`${flow}: unpaid order shown as Payment Successful`);
       }
       if (!successText.includes(createdOrderId) || !/Order Placed!/i.test(successText)) {
@@ -540,7 +540,7 @@ async function runBrowserFlow(browser, flow, payload) {
 
   await completeDpoSandboxPayment(page, paymentUrl);
   const successText = await page.locator('body').innerText();
-  const successOk = (/Order Placed!|Payment Successful!/i.test(successText) && successText.includes(createdOrderId));
+  const successOk = (/Order Placed!|Payment Successful!?/i.test(successText) && successText.includes(createdOrderId));
   if (!successOk) {
     throw new Error(`${flow}: success page missing confirmation. Snippet: ${successText.slice(0, 400)}`);
   }

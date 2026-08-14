@@ -16,6 +16,7 @@ const { isCodPaymentMethod, storefrontPaymentMethodLabel } = require('../payment
 
 const PROVIDER_ID = dpoConfig.PROVIDER_ID;
 const TOKEN_REUSE_MAX_MS = 20 * 60 * 60 * 1000;
+const initiateLocks = new Map();
 
 function normalizeText(value, fallback = '') {
     const text = String(value == null ? '' : value).trim();
@@ -308,12 +309,17 @@ async function initiatePayment({ orderId, req } = {}) {
         || currentStatus === '';
     const tokenFresh = Number.isFinite(initiatedAtMs) && (Date.now() - initiatedAtMs) < TOKEN_REUSE_MAX_MS;
     const storedMode = storedGatewayMode(order);
+    const selectedMethod = orderPaymentMethod(order);
+    const hosted = dpoClient.resolveHostedPaymentOptions(selectedMethod);
+    const storedDefaultPayment = normalizeText(existingGateway.defaultPayment).toUpperCase();
+    const sameMethod = !storedDefaultPayment || storedDefaultPayment === hosted.defaultPayment;
     const sameEnvironment = !storedMode || storedMode === normalizeText(runtime.mode).toLowerCase();
 
-    if (awaitingReuse && existingToken && existingUrl && tokenFresh && sameEnvironment) {
+    if (awaitingReuse && existingToken && existingUrl && tokenFresh && sameEnvironment && sameMethod) {
         appLogger.info('dpo.payment.initiate_reused', {
             orderId: id,
-            mode: runtime.mode
+            mode: runtime.mode,
+            defaultPayment: hosted.defaultPayment
         });
         return {
             alreadyPaid: false,
@@ -325,72 +331,109 @@ async function initiatePayment({ orderId, req } = {}) {
         };
     }
 
-    const appBase = resolveAppBaseUrl(req);
-    const redirectUrl = buildFrontendUrl(
-        appBase,
-        `/api/payments/dpo/return?orderId=${encodeURIComponent(id)}`
-    );
-    const backUrl = buildFrontendUrl(
-        appBase,
-        `/api/payments/dpo/back?orderId=${encodeURIComponent(id)}`
-    );
-    const callbackUrl = buildFrontendUrl(
-        appBase,
-        `/api/payments/dpo/callback?orderId=${encodeURIComponent(id)}`
-    );
+    if (initiateLocks.has(id)) {
+        throw ValidationError(
+            'Payment is already being started for this order. Please wait.',
+            { orderId: id },
+            'DPO_PAYMENT_IN_PROGRESS',
+            409
+        );
+    }
+    initiateLocks.set(id, Date.now());
+    try {
+        const appBase = resolveAppBaseUrl(req);
+        const redirectUrl = buildFrontendUrl(
+            appBase,
+            `/api/payments/dpo/return?orderId=${encodeURIComponent(id)}`
+        );
+        const backUrl = buildFrontendUrl(
+            appBase,
+            `/api/payments/dpo/back?orderId=${encodeURIComponent(id)}`
+        );
+        const callbackUrl = buildFrontendUrl(
+            appBase,
+            `/api/payments/dpo/callback?orderId=${encodeURIComponent(id)}`
+        );
 
-    const created = await dpoClient.createToken({
-        companyToken: runtime.secrets.companyToken,
-        serviceType: runtime.secrets.serviceType,
-        apiBaseUrl: runtime.endpoints.apiBaseUrl,
-        paymentPageUrl: runtime.endpoints.paymentPageUrl,
-        amount,
-        currency: normalizeText(order.currency, 'RWF') || 'RWF',
-        companyRef: id,
-        redirectUrl,
-        backUrl,
-        customerName: order.customerName || order.customer?.name || 'Customer',
-        customerEmail: order.customerEmail || order.customer?.email || '',
-        customerPhone: order.customerPhone || order.phoneNumber || order.customer?.phone || '',
-        serviceDescription: `BYOSE Market order ${id}`
-    });
+        const shipping = order.shippingAddress && typeof order.shippingAddress === 'object'
+            ? order.shippingAddress
+            : {};
+        const payerPhone = normalizeText(
+            order.payment?.payerPhone
+            || order.customerPhone
+            || order.phoneNumber
+            || order.customer?.phone
+            || shipping.phone
+        );
+        const customerCity = normalizeText(shipping.provinceCity || shipping.city);
+        const customerAddress = [
+            shipping.district,
+            shipping.sector,
+            shipping.cell,
+            shipping.village,
+            shipping.note
+        ].map((part) => normalizeText(part)).filter(Boolean).join(', ');
 
-    const { order: updated, previousPaymentStatus } = applyGatewayPaymentUpdate(order, {
-        paymentStatus: 'awaiting_payment',
-        paymentStatusLabel: 'Awaiting Payment',
-        historyLabel: 'DPO payment token created — awaiting customer payment',
-        gateway: {
+        const created = await dpoClient.createToken({
+            companyToken: runtime.secrets.companyToken,
+            serviceType: runtime.secrets.serviceType,
+            apiBaseUrl: runtime.endpoints.apiBaseUrl,
+            paymentPageUrl: runtime.endpoints.paymentPageUrl,
+            amount,
+            currency: normalizeText(order.currency, 'RWF') || 'RWF',
             companyRef: id,
-            transToken: created.transToken,
-            transRef: created.transRef || '',
-            paymentUrl: created.paymentUrl,
             redirectUrl,
             backUrl,
-            callbackUrl,
-            lastResult: created.result,
-            lastOutcome: 'redirect',
+            paymentMethod: selectedMethod,
+            customerName: order.customerName || order.customer?.name || 'Customer',
+            customerEmail: order.customerEmail || order.customer?.email || '',
+            customerPhone: payerPhone,
+            customerAddress,
+            customerCity,
+            serviceDescription: `BYOSE Market order ${id}`
+        });
+
+        const { order: updated, previousPaymentStatus } = applyGatewayPaymentUpdate(order, {
+            paymentStatus: 'awaiting_payment',
+            paymentStatusLabel: 'Awaiting Payment',
+            historyLabel: 'DPO payment token created — awaiting customer payment',
+            gateway: {
+                companyRef: id,
+                transToken: created.transToken,
+                transRef: created.transRef || '',
+                paymentUrl: created.paymentUrl,
+                redirectUrl,
+                backUrl,
+                callbackUrl,
+                lastResult: created.result,
+                lastOutcome: 'redirect',
+                mode: runtime.mode,
+                serviceType: runtime.secrets.serviceType,
+                defaultPayment: hosted.defaultPayment,
+                paymentMethod: selectedMethod,
+                initiatedAt: new Date().toISOString()
+            }
+        });
+
+        await orderDataService.saveOrder(updated);
+
+        appLogger.info('dpo.payment.initiated', {
+            orderId: id,
             mode: runtime.mode,
-            serviceType: runtime.secrets.serviceType,
-            initiatedAt: new Date().toISOString()
-        }
-    });
+            previousPaymentStatus,
+            hasPaymentUrl: Boolean(created.paymentUrl)
+        });
 
-    await orderDataService.saveOrder(updated);
-
-    appLogger.info('dpo.payment.initiated', {
-        orderId: id,
-        mode: runtime.mode,
-        previousPaymentStatus,
-        hasPaymentUrl: Boolean(created.paymentUrl)
-    });
-
-    return {
-        alreadyPaid: false,
-        orderId: id,
-        paymentUrl: created.paymentUrl,
-        redirectUrl: created.paymentUrl,
-        payment: toPublicPaymentView(updated, { outcome: 'redirect' })
-    };
+        return {
+            alreadyPaid: false,
+            orderId: id,
+            paymentUrl: created.paymentUrl,
+            redirectUrl: created.paymentUrl,
+            payment: toPublicPaymentView(updated, { outcome: 'redirect' })
+        };
+    } finally {
+        initiateLocks.delete(id);
+    }
 }
 
 async function persistVerifiedPayment(order, verified, token, req) {
