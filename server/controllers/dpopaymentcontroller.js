@@ -16,6 +16,12 @@ function customerSafePaymentMessage(error, statusCode) {
     if (code === 'DPO_PAYMENT_RATE_LIMITED' || code === 'RATE_LIMITED') {
         return error?.message || 'Too many payment attempts. Please retry shortly.';
     }
+    if (code === 'DPO_AMOUNT_MISMATCH' || code === 'DPO_INVALID_AMOUNT' || code === 'DPO_CURRENCY_MISMATCH' || code === 'DPO_INVALID_ORDER_ITEMS') {
+        return 'This order could not be verified for payment. Please refresh and try again.';
+    }
+    if (code === 'DPO_VERIFY_UNAVAILABLE' || code === 'DPO_API_TIMEOUT') {
+        return 'Payment confirmation is still pending. Please wait and try again.';
+    }
     if (code === 'DPO_LIVE_NOT_CONFIGURED' || code === 'DPO_LIVE_NOT_ENABLED' || code === 'DPO_LIVE_CREDENTIAL_MIX') {
         return 'Online payment is temporarily unavailable. Please try again or choose Cash on Delivery.';
     }
@@ -27,6 +33,18 @@ function customerSafePaymentMessage(error, statusCode) {
         return 'Unable to process this payment request. Please try again.';
     }
     return message;
+}
+
+function isUncertainPaymentError(error) {
+    const code = String(error?.code || '');
+    const message = String(error?.message || '');
+    return code === 'DPO_VERIFY_UNAVAILABLE'
+        || code === 'DPO_API_TIMEOUT'
+        || /timed out|timeout|ECONNRESET|ENOTFOUND|EAI_AGAIN/i.test(`${code} ${message}`);
+}
+
+function paymentResultFallback(orderId, status) {
+    return `/orders/payment-result.html?status=${encodeURIComponent(status)}&orderId=${encodeURIComponent(orderId || '')}`;
 }
 
 function sendError(req, res, error, eventName) {
@@ -140,8 +158,10 @@ exports.returnFromGateway = async (req, res) => {
             message: error?.message || ''
         });
         const orderId = readOrderIdFromRequest(req);
-        const status = error?.code === 'ORDER_NOT_FOUND' ? 'invalid' : 'failed';
-        const fallback = `/orders/payment-result.html?status=${encodeURIComponent(status)}&orderId=${encodeURIComponent(orderId || '')}`;
+        const status = error?.code === 'ORDER_NOT_FOUND'
+            ? 'invalid'
+            : (isUncertainPaymentError(error) ? 'pending' : 'failed');
+        const fallback = paymentResultFallback(orderId, status);
         return res.redirect(302, fallback);
     }
 };
@@ -162,7 +182,8 @@ exports.backFromGateway = async (req, res) => {
             message: error?.message || ''
         });
         const orderId = readOrderIdFromRequest(req);
-        const fallback = `/orders/payment-result.html?status=cancelled&orderId=${encodeURIComponent(orderId || '')}`;
+        const status = isUncertainPaymentError(error) ? 'pending' : 'cancelled';
+        const fallback = paymentResultFallback(orderId, status);
         return res.redirect(302, fallback);
     }
 };
@@ -202,8 +223,10 @@ exports.callbackFromGateway = async (req, res) => {
         });
         if (wantsRedirect) {
             const orderId = readOrderIdFromRequest(req);
-            const status = error?.code === 'ORDER_NOT_FOUND' ? 'invalid' : 'failed';
-            const fallback = `/orders/payment-result.html?status=${encodeURIComponent(status)}&orderId=${encodeURIComponent(orderId || '')}`;
+            const status = error?.code === 'ORDER_NOT_FOUND'
+                ? 'invalid'
+                : (isUncertainPaymentError(error) ? 'pending' : 'failed');
+            const fallback = paymentResultFallback(orderId, status);
             return res.redirect(302, fallback);
         }
         return sendError(req, res, error, 'dpo.callback_failed');

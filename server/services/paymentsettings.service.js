@@ -812,7 +812,7 @@ async function getPaymentActivityStats() {
         };
         activity.forEach((row) => {
             const status = String(row.paymentStatus || '').toLowerCase();
-            if (status === 'paid' || status === 'authorized') stats.paid += 1;
+            if (status === 'paid') stats.paid += 1;
             else if (status.includes('awaiting') || status === 'pending') stats.awaiting += 1;
             else if (status === 'cancelled') stats.cancelled += 1;
             else if (status === 'failed' || status.includes('invalid')) stats.failed += 1;

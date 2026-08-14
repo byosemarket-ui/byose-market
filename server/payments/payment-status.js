@@ -30,8 +30,7 @@ function isSettledPaidStatus(value) {
         || status === 'successful'
         || status === 'completed'
         || status === 'complete'
-        || status === 'payment_successful'
-        || status === 'authorized';
+        || status === 'payment_successful';
 }
 
 module.exports = {

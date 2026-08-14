@@ -154,6 +154,7 @@ export function buildOrderPayload(options = {}) {
     paymentMethod: usesCod ? 'cod' : state.payment.method,
     paymentMethodLabel: paymentMethodLabelText,
     paymentType: usesCod ? 'cod' : 'pay_now',
+    checkoutSource: state.source === 'direct' ? 'direct' : 'cart',
     subtotal: state.totals.subtotal,
     deliveryFee: state.totals.deliveryFee,
     shippingFee: state.totals.deliveryFee,

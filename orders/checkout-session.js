@@ -320,8 +320,7 @@ export function shouldRemoveCartAfterPurchase(confirmation = {}) {
     || status === 'successful'
     || status === 'completed'
     || status === 'complete'
-    || status === 'payment_successful'
-    || status === 'authorized';
+    || status === 'payment_successful';
 }
 
 if (typeof window !== 'undefined') {

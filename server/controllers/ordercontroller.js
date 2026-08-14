@@ -548,6 +548,7 @@ function normalizeStorefrontOrder(payload, user) {
             methodLabel: paymentMethodLabel,
             status: paymentStatus,
             statusLabel: paymentStatusLabel,
+            checkoutSource: normalizeText(source.checkoutSource || source.source),
             transaction: { state: paymentStatus }
         },
         customer: {
@@ -1127,6 +1128,23 @@ function toPublicOrderConfirmation(order) {
     const gps = order?.gpsLocation && typeof order.gpsLocation === 'object' ? order.gpsLocation : {};
     const method = normalizeText(order.paymentMethod || order.payment?.method);
     const status = normalizeText(order.paymentStatus || order.payment?.status);
+    const orderStatus = normalizeText(order.orderStatus || order.status, 'pending') || 'pending';
+    const gateway = order?.payment?.gateway && typeof order.payment.gateway === 'object'
+        ? order.payment.gateway
+        : {};
+    const paymentReference = normalizeText(
+        order.paymentReference
+        || order.transactionReference
+        || gateway.transRef
+        || order.payment?.reference
+        || order.payment?.transaction?.reference
+    );
+    const checkoutSource = normalizeText(
+        order.checkoutSource
+        || order.payment?.checkoutSource
+        || order.source
+    );
+    const isCod = method === 'cod' || normalizeText(order.paymentType || order.payment?.type) === 'cod';
     return {
         orderId: normalizeText(order.orderId || order.id),
         customerName: normalizeText(order.customerName || shipping.fullName),
@@ -1143,12 +1161,20 @@ function toPublicOrderConfirmation(order) {
         paymentMethodLabel: normalizeText(order.paymentMethodLabel || order.payment?.methodLabel) || storefrontPaymentMethodLabel(method, method),
         paymentStatus: status,
         paymentStatusLabel: normalizeText(order.paymentStatusLabel || order.payment?.statusLabel),
+        orderStatus,
+        orderStatusLabel: isCod
+            ? 'Pending'
+            : (orderStatus === 'processing' ? 'PROCESSING' : (normalizeText(order.status) || 'Pending')),
+        checkoutSource,
+        paymentReference: paymentReference || '',
         payment: {
             method,
             methodLabel: normalizeText(order.paymentMethodLabel || order.payment?.methodLabel) || storefrontPaymentMethodLabel(method, method),
             status,
             statusLabel: normalizeText(order.paymentStatusLabel || order.payment?.statusLabel),
-            type: normalizeText(order.paymentType || order.payment?.type)
+            type: normalizeText(order.paymentType || order.payment?.type),
+            reference: paymentReference || '',
+            mode: isCod ? '' : normalizeText(gateway.mode)
         },
         shippingAddress: {
             fullName: normalizeText(shipping.fullName || order.customerName),

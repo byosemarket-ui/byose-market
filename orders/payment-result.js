@@ -34,6 +34,19 @@ function renderResult({ title, message, orderId, tone = 'error', actions = [] })
   `;
 }
 
+function displayStatus(verified, statusHint) {
+  const outcome = String(verified?.outcome || '').toLowerCase();
+  const paymentStatus = String(verified?.paymentStatus || '').toLowerCase();
+  if (outcome === 'success' || paymentStatus === 'paid') return 'success';
+  if (outcome === 'cancelled' || paymentStatus === 'cancelled') return 'cancelled';
+  if (outcome === 'invalid_token' || outcome === 'invalid') return 'invalid';
+  if (outcome === 'pending' || paymentStatus === 'pending' || paymentStatus === 'awaiting_payment' || paymentStatus === 'authorized') {
+    return 'pending';
+  }
+  if (outcome === 'failed' || paymentStatus === 'failed') return 'failed';
+  return statusHint || 'pending';
+}
+
 async function verifyOnLoad(orderId, statusHint) {
   const base = resolveApiOrigin();
   if (!base || !orderId) return null;
@@ -49,11 +62,14 @@ async function verifyOnLoad(orderId, statusHint) {
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok || !payload?.success) {
-      return { outcome: statusHint || 'failed', orderId, message: payload?.message || '' };
+      if (response.status >= 500) {
+        return { outcome: 'pending', orderId, message: payload?.message || '' };
+      }
+      return { outcome: statusHint || 'pending', orderId, message: payload?.message || '' };
     }
     return payload;
   } catch (_error) {
-    return { outcome: statusHint || 'failed', orderId };
+    return { outcome: 'pending', orderId };
   }
 }
 
@@ -91,14 +107,16 @@ async function retryExistingPayment(orderId) {
 async function boot() {
   const query = params();
   const orderId = String(query.get('orderId') || '').trim();
-  const status = String(query.get('status') || 'failed').trim().toLowerCase();
+  const statusHint = String(query.get('status') || 'failed').trim().toLowerCase();
 
-  if (status === 'pending' || status === 'failed' || status === 'invalid') {
-    const verified = await verifyOnLoad(orderId, status);
-    if (verified?.outcome === 'success' || verified?.paymentStatus === 'paid') {
+  let status = statusHint;
+  if (orderId) {
+    const verified = await verifyOnLoad(orderId, statusHint);
+    if (displayStatus(verified, statusHint) === 'success') {
       window.location.replace(`order-success.html?orderId=${encodeURIComponent(orderId)}`);
       return;
     }
+    status = displayStatus(verified, statusHint);
   }
 
   const map = {

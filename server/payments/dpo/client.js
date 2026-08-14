@@ -245,7 +245,10 @@ function postXmlRequest(apiBaseUrl, xmlBody, { timeoutMs = 20000 } = {}) {
         });
 
         req.on('timeout', () => {
-            req.destroy(new Error('DPO API request timed out.'));
+            const error = new Error('DPO API request timed out.');
+            error.code = 'DPO_API_TIMEOUT';
+            error.statusCode = 504;
+            req.destroy(error);
         });
         req.on('error', reject);
         req.write(payload);
@@ -434,7 +437,20 @@ async function verifyToken(options = {}) {
         xml: redactXmlSecrets(xml)
     });
 
-    const response = await httpTransport(apiBaseUrl, xml);
+    let response;
+    try {
+        response = await httpTransport(apiBaseUrl, xml);
+    } catch (error) {
+        const code = String(error?.code || '');
+        const message = String(error?.message || '');
+        if (code === 'DPO_API_TIMEOUT' || /timed out|timeout|ECONNRESET|ENOTFOUND|EAI_AGAIN/i.test(`${code} ${message}`)) {
+            const unavailable = new Error('Payment confirmation is still pending. Please wait and try again.');
+            unavailable.code = 'DPO_VERIFY_UNAVAILABLE';
+            unavailable.statusCode = 503;
+            throw unavailable;
+        }
+        throw error;
+    }
     const parsed = parseVerifyTokenResponse(response.body || '');
 
     appLogger.info('dpo.verify_token.response', {

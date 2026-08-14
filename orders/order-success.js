@@ -33,8 +33,7 @@ function isPaidStatus(value) {
     || status === 'successful'
     || status === 'completed'
     || status === 'complete'
-    || status === 'payment_successful'
-    || status === 'authorized';
+    || status === 'payment_successful';
 }
 
 function getAuthHeaders() {
@@ -155,7 +154,7 @@ function renderSuccess(confirmation, resolvedId) {
       : 'Complete the payment with the official payment provider. Your order stays awaiting payment until confirmed.');
 
   const orderStatus = paid && !isCod
-    ? 'PROCESSING'
+    ? String(confirmation?.orderStatusLabel || confirmation?.orderStatus || 'PROCESSING').toUpperCase()
     : (isCod ? 'Pending' : (confirmation?.orderStatusLabel || confirmation?.status || 'Pending'));
 
   const facts = paid && !isCod
@@ -203,6 +202,32 @@ function maybeRemovePurchasedCartItems(confirmation) {
   );
 }
 
+function isCodConfirmation(confirmation) {
+  const method = String(confirmation?.payment?.method || confirmation?.paymentMethod || '').toLowerCase();
+  const type = String(confirmation?.payment?.type || confirmation?.paymentType || '').toLowerCase();
+  return method === 'cod' || type === 'cod';
+}
+
+function renderConfirming(resolvedId) {
+  if (!container) return;
+  container.innerHTML = `
+    <div class="ck-success-icon">…</div>
+    <h1>Confirming payment</h1>
+    <p>Please wait while we confirm your payment with the payment provider.</p>
+    ${resolvedId ? `<p><strong>Order:</strong> ${escapeHtml(resolvedId)}</p>` : ''}
+  `;
+}
+
+function outcomeStatus(verified) {
+  const outcome = String(verified?.outcome || '').toLowerCase();
+  if (outcome === 'success' || isPaidStatus(verified?.paymentStatus)) return 'success';
+  if (outcome === 'cancelled') return 'cancelled';
+  if (outcome === 'invalid_token' || outcome === 'invalid') return 'invalid';
+  if (outcome === 'pending') return 'pending';
+  if (outcome === 'failed') return 'failed';
+  return '';
+}
+
 await initCheckout('success');
 
 let confirmation = getConfirmation();
@@ -210,9 +235,11 @@ const resolvedId = orderId || confirmation?.orderId || '';
 let confirmationMatches = confirmation
   && (!orderId || String(confirmation.orderId || '') === String(orderId));
 
-if (confirmationMatches) {
+if (confirmationMatches && isCodConfirmation(confirmation)) {
   renderSuccess(confirmation, resolvedId);
   maybeRemovePurchasedCartItems(confirmation);
+} else if (resolvedId) {
+  renderConfirming(resolvedId);
 }
 
 if (resolvedId) {
@@ -221,12 +248,15 @@ if (resolvedId) {
     confirmation = {
       ...(confirmation && confirmationMatches ? confirmation : {}),
       ...remote,
-      checkoutSource: remote.checkoutSource || confirmation?.checkoutSource || 'unknown'
+      checkoutSource: remote.checkoutSource || confirmation?.checkoutSource || '',
+      purchasedCartKeys: confirmation?.purchasedCartKeys || remote.purchasedCartKeys || []
     };
     saveCheckoutConfirmation(confirmation);
     confirmationMatches = true;
-    renderSuccess(confirmation, resolvedId);
-    maybeRemovePurchasedCartItems(confirmation);
+    if (isCodConfirmation(confirmation)) {
+      renderSuccess(confirmation, resolvedId);
+      maybeRemovePurchasedCartItems(confirmation);
+    }
   }
 }
 
@@ -234,25 +264,25 @@ if (!confirmationMatches) {
   renderUnavailable(resolvedId);
 }
 
-const confirmationIsCod = confirmationMatches
-  && (
-    String(confirmation?.payment?.method || confirmation?.paymentMethod || '').toLowerCase() === 'cod'
-    || String(confirmation?.payment?.type || confirmation?.paymentType || '').toLowerCase() === 'cod'
-  );
+const confirmationIsCod = confirmationMatches && isCodConfirmation(confirmation);
 
 if (confirmationMatches && resolvedId && !confirmationIsCod) {
   const verified = await verifyPaidStatus(resolvedId);
-  if (verified && (verified.outcome === 'success' || isPaidStatus(verified.paymentStatus))) {
+  const verifiedOutcome = outcomeStatus(verified);
+  if (verifiedOutcome === 'success') {
     confirmation = {
       ...confirmation,
       paymentStatus: 'paid',
       paymentStatusLabel: 'Paid',
+      orderStatus: verified?.payment?.orderStatus || confirmation.orderStatus || 'processing',
+      orderStatusLabel: 'PROCESSING',
       payment: {
         ...(confirmation.payment || {}),
         status: 'paid',
         statusLabel: 'Paid',
         method: confirmation.payment?.method || confirmation.paymentMethod || 'card',
-        methodLabel: confirmation.payment?.methodLabel || confirmation.paymentMethodLabel || 'Card'
+        methodLabel: confirmation.payment?.methodLabel || confirmation.paymentMethodLabel || 'Card',
+        reference: verified?.payment?.gateway?.transRef || confirmation.payment?.reference || ''
       }
     };
     saveCheckoutConfirmation(confirmation);
@@ -261,5 +291,7 @@ if (confirmationMatches && resolvedId && !confirmationIsCod) {
     clearPendingOrderSubmission();
     clearAwaitingGatewayOrderId();
     clearActiveCheckoutKeys();
+  } else {
+    window.location.replace(`payment-result.html?status=pending&orderId=${encodeURIComponent(resolvedId)}`);
   }
 }

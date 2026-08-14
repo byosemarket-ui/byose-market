@@ -13,10 +13,12 @@ const config = require('../config/env');
 const { appLogger } = require('../utils/logger');
 const { isSettledPaidStatus } = require('../payments/payment-status');
 const { isCodPaymentMethod, storefrontPaymentMethodLabel } = require('../payments/storefront-methods');
+const { LIVE_SERVICE_TYPE_ID, TEST_SERVICE_TYPE_ID } = require('../payments/providers/dpo.provider');
 
 const PROVIDER_ID = dpoConfig.PROVIDER_ID;
 const TOKEN_REUSE_MAX_MS = 20 * 60 * 60 * 1000;
 const initiateLocks = new Map();
+const verifyLocks = new Map();
 
 function normalizeText(value, fallback = '') {
     const text = String(value == null ? '' : value).trim();
@@ -68,12 +70,29 @@ function assertVerifiedPaymentMatchesOrder(order, verified, tokenUsed) {
     const dpoCurrency = normalizeText(verified?.transactionCurrency).toUpperCase();
     const dpoCompanyRef = normalizeText(verified?.companyRef);
     const storedToken = normalizeText(order?.payment?.gateway?.transToken);
+    const usedToken = normalizeText(tokenUsed);
 
     if (dpoCompanyRef && dpoCompanyRef !== orderId) {
         return {
             ok: false,
             code: 'DPO_COMPANY_REF_MISMATCH',
             message: 'DPO payment reference does not match this order.'
+        };
+    }
+
+    if (!dpoCompanyRef && (!storedToken || !usedToken || storedToken !== usedToken)) {
+        return {
+            ok: false,
+            code: 'DPO_COMPANY_REF_MISSING',
+            message: 'DPO payment reference does not match this order.'
+        };
+    }
+
+    if (storedToken && usedToken && storedToken !== usedToken) {
+        return {
+            ok: false,
+            code: 'DPO_TOKEN_MISMATCH',
+            message: 'DPO transaction token does not match this order.'
         };
     }
 
@@ -95,15 +114,110 @@ function assertVerifiedPaymentMatchesOrder(order, verified, tokenUsed) {
                 message: 'DPO payment amount does not match this order.'
             };
         }
-    } else if (storedToken && tokenUsed && storedToken !== tokenUsed) {
-        return {
-            ok: false,
-            code: 'DPO_TOKEN_MISMATCH',
-            message: 'DPO transaction token does not match this order.'
-        };
     }
 
     return { ok: true };
+}
+
+function assertTrustedOrderAmount(order) {
+    const items = Array.isArray(order?.items) && order.items.length
+        ? order.items
+        : (Array.isArray(order?.products) ? order.products : []);
+    const subtotal = parseMoney(order?.subtotal);
+    const deliveryFee = parseMoney(order?.deliveryFee ?? order?.shippingFee);
+    const couponDiscount = Math.max(0, parseMoney(order?.couponDiscount) || 0);
+    const codFee = Math.max(0, parseMoney(order?.codFee) || 0);
+    const storedTotal = parseMoney(order?.totalAmount ?? order?.total);
+    const currency = normalizeText(order?.currency, 'RWF').toUpperCase() || 'RWF';
+
+    if (!Number.isFinite(storedTotal) || storedTotal <= 0) {
+        throw ValidationError('Order total is invalid for payment.', { total: storedTotal }, 'DPO_INVALID_AMOUNT', 400);
+    }
+    if (!Number.isFinite(deliveryFee) || deliveryFee < 0) {
+        throw ValidationError('Delivery fee could not be verified.', { deliveryFee }, 'DPO_INVALID_AMOUNT', 400);
+    }
+    if (currency !== 'RWF') {
+        throw ValidationError('Unsupported payment currency.', { currency }, 'DPO_CURRENCY_MISMATCH', 400);
+    }
+
+    let computedSubtotal = Number.isFinite(subtotal) ? subtotal : NaN;
+    if (items.length) {
+        computedSubtotal = items.reduce((sum, item) => {
+            const qty = Number(item?.quantity ?? item?.qty);
+            const price = Number(item?.price);
+            if (!Number.isFinite(qty) || qty < 1 || !Number.isFinite(price) || price < 0) {
+                throw ValidationError(
+                    'Order items are invalid for payment.',
+                    { productId: item?.productId || item?.id || '' },
+                    'DPO_INVALID_ORDER_ITEMS',
+                    400
+                );
+            }
+            return sum + (price * qty);
+        }, 0);
+        if (Number.isFinite(subtotal) && Math.abs(computedSubtotal - subtotal) > 0.51) {
+            throw ValidationError(
+                'Order amount could not be verified.',
+                { lineTotal: computedSubtotal, subtotal },
+                'DPO_AMOUNT_MISMATCH',
+                400
+            );
+        }
+    }
+    if (!Number.isFinite(computedSubtotal)) {
+        throw ValidationError('Order total is invalid for payment.', { subtotal }, 'DPO_INVALID_AMOUNT', 400);
+    }
+
+    const expectedTotal = Math.max(0, computedSubtotal - couponDiscount) + deliveryFee + codFee;
+    if (Math.abs(expectedTotal - storedTotal) > 0.51) {
+        throw ValidationError(
+            'Order amount could not be verified.',
+            { expectedTotal, storedTotal },
+            'DPO_AMOUNT_MISMATCH',
+            400
+        );
+    }
+
+    return storedTotal;
+}
+
+function applyPaidOrderStatus(order) {
+    if (isCodPaymentMethod(orderPaymentMethod(order))) return;
+    const current = normalizeText(order.orderStatus || order.status).toLowerCase();
+    const keep = [
+        'processing', 'packed', 'shipped', 'delivered',
+        'completed', 'complete', 'cancelled', 'canceled', 'returned'
+    ];
+    if (keep.some((status) => current === status || current.includes(status))) return;
+    order.orderStatus = 'processing';
+    order.status = 'Processing';
+}
+
+function isUncertainVerifyError(error) {
+    const code = String(error?.code || '');
+    const message = String(error?.message || '');
+    return code === 'DPO_VERIFY_UNAVAILABLE'
+        || code === 'DPO_API_TIMEOUT'
+        || /timed out|timeout|ECONNRESET|ENOTFOUND|EAI_AGAIN/i.test(`${code} ${message}`);
+}
+
+async function withOrderLock(map, id, fn) {
+    while (map.has(id)) {
+        try {
+            await map.get(id);
+        } catch (_error) {
+            // Previous lock holder finished (including failure). Continue.
+        }
+    }
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    map.set(id, gate);
+    try {
+        return await fn();
+    } finally {
+        map.delete(id);
+        release();
+    }
 }
 
 function resolveAppBaseUrl(req) {
@@ -162,7 +276,9 @@ function applyGatewayPaymentUpdate(order, {
 
     order.paymentStatus = nextStatus;
     order.paymentStatusLabel = label;
-    // Fulfillment status stays independent of payment settlement.
+    if (isSettledPaidStatus(nextStatus)) {
+        applyPaidOrderStatus(order);
+    }
     const existingMethod = normalizeText(order.paymentMethod || order.payment?.method).toLowerCase();
     order.paymentMethod = existingMethod || 'card';
     order.paymentMethodLabel = storefrontPaymentMethodLabel(
@@ -254,6 +370,7 @@ function toPublicPaymentView(order, extra = {}) {
         paymentStatusLabel: normalizeText(order.paymentStatusLabel),
         paymentMethod: normalizeText(order.paymentMethod),
         paymentMethodLabel: normalizeText(order.paymentMethodLabel),
+        orderStatus: normalizeText(order.orderStatus || order.status),
         total: Number(order.totalAmount ?? order.total) || 0,
         currency: normalizeText(order.currency, 'RWF') || 'RWF',
         gateway: sanitizePublicGateway(order),
@@ -279,6 +396,22 @@ async function initiatePayment({ orderId, req } = {}) {
     assertOrderEligibleForDpo(order);
 
     const runtime = await loadCheckoutRuntime();
+    if (normalizeText(runtime.secrets?.serviceType) === TEST_SERVICE_TYPE_ID) {
+        throw ValidationError(
+            'Online payment is temporarily unavailable. Please try again or choose Cash on Delivery.',
+            { serviceType: 'TEST_SERVICE_TYPE_REJECTED' },
+            'DPO_TEST_SERVICE_TYPE_REJECTED',
+            503
+        );
+    }
+    if (normalizeText(runtime.mode) === 'live' && normalizeText(runtime.secrets?.serviceType) !== LIVE_SERVICE_TYPE_ID) {
+        throw ValidationError(
+            'Online payment is temporarily unavailable. Please try again or choose Cash on Delivery.',
+            { serviceType: 'LIVE_SERVICE_TYPE_REQUIRED' },
+            'DPO_LIVE_SERVICE_TYPE_REQUIRED',
+            503
+        );
+    }
 
     const currentStatus = normalizeText(order.paymentStatus || order.payment?.status).toLowerCase();
     if (isSettledPaidStatus(currentStatus)) {
@@ -293,10 +426,7 @@ async function initiatePayment({ orderId, req } = {}) {
     }
 
     // Amount is taken from the stored order (catalog + delivery fee), never from the browser.
-    const amount = Number(order.totalAmount ?? order.total);
-    if (!Number.isFinite(amount) || amount <= 0) {
-        throw ValidationError('Order total is invalid for payment.', { total: amount });
-    }
+    const amount = assertTrustedOrderAmount(order);
 
     const existingGateway = order.payment?.gateway && typeof order.payment.gateway === 'object'
         ? order.payment.gateway
@@ -504,6 +634,33 @@ async function verifyAndUpdateOrder({
         throw ValidationError('Order ID is required.', { orderId: 'Required' });
     }
 
+    return withOrderLock(verifyLocks, id, () => verifyAndUpdateOrderUnlocked({
+        orderId: id,
+        transactionToken,
+        markCancelled,
+        req
+    }));
+}
+
+function pendingVerifyResult(order, req, id) {
+    return {
+        outcome: 'pending',
+        paymentStatus: normalizeText(order.paymentStatus, 'awaiting_payment') || 'awaiting_payment',
+        payment: toPublicPaymentView(order, { outcome: 'pending' }),
+        redirectUrl: buildFrontendUrl(
+            resolveAppBaseUrl(req),
+            `/orders/payment-result.html?status=pending&orderId=${encodeURIComponent(id)}`
+        )
+    };
+}
+
+async function verifyAndUpdateOrderUnlocked({
+    orderId,
+    transactionToken,
+    markCancelled = false,
+    req
+} = {}) {
+    const id = normalizeText(orderId);
     const order = await orderDataService.findOrderByIdentifier(id);
     if (!order) {
         throw ValidationError('Order not found.', { orderId: id }, 'ORDER_NOT_FOUND', 404);
@@ -553,15 +710,7 @@ async function verifyAndUpdateOrder({
                         code: error?.code || '',
                         message: error?.message || ''
                     });
-                    return {
-                        outcome: 'pending',
-                        paymentStatus: normalizeText(order.paymentStatus, 'awaiting_payment') || 'awaiting_payment',
-                        payment: toPublicPaymentView(order, { outcome: 'pending' }),
-                        redirectUrl: buildFrontendUrl(
-                            resolveAppBaseUrl(req),
-                            `/orders/payment-result.html?status=pending&orderId=${encodeURIComponent(id)}`
-                        )
-                    };
+                    return pendingVerifyResult(order, req, id);
                 }
             }
         }
@@ -591,7 +740,14 @@ async function verifyAndUpdateOrder({
 
     const runtime = await loadRuntimeForOrder(order);
     const storedToken = normalizeText(order.payment?.gateway?.transToken);
-    const token = normalizeText(transactionToken) || storedToken;
+    const requestedToken = normalizeText(transactionToken);
+    if (storedToken && requestedToken && storedToken !== requestedToken) {
+        appLogger.warn('dpo.payment.request_token_ignored', {
+            orderId: id,
+            hasStoredToken: true
+        });
+    }
+    const token = storedToken || requestedToken;
 
     let verified;
     try {
@@ -624,6 +780,14 @@ async function verifyAndUpdateOrder({
                     `/orders/payment-result.html?status=invalid&orderId=${encodeURIComponent(id)}`
                 )
             };
+        }
+        if (isUncertainVerifyError(error)) {
+            appLogger.warn('dpo.payment.verify_unavailable', {
+                orderId: id,
+                code: error?.code || '',
+                message: error?.message || ''
+            });
+            return pendingVerifyResult(order, req, id);
         }
         throw error;
     }
@@ -678,5 +842,6 @@ module.exports = {
     loadCheckoutRuntime,
     loadRuntimeForOrder,
     toPublicPaymentView,
-    verifyAndUpdateOrder
+    verifyAndUpdateOrder,
+    assertTrustedOrderAmount
 };

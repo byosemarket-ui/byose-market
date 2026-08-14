@@ -179,7 +179,6 @@ function isPaidStatus(value) {
         return false;
     }
     return status === 'paid'
-        || status === 'authorized'
         || status === 'success'
         || status === 'successful'
         || status === 'completed'

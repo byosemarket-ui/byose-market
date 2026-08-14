@@ -214,10 +214,10 @@ async function createFixtureOrder(orderId, overrides = {}) {
         paymentMethodLabel,
         paymentType,
         currency: 'RWF',
-        subtotal: 13000,
-        deliveryFee: 2000,
-        total: 15000,
-        totalAmount: 15000,
+        subtotal: overrides.subtotal != null ? Number(overrides.subtotal) : 13000,
+        deliveryFee: overrides.deliveryFee != null ? Number(overrides.deliveryFee) : 2000,
+        total: overrides.total != null ? Number(overrides.total) : 15000,
+        totalAmount: overrides.totalAmount != null ? Number(overrides.totalAmount) : (overrides.total != null ? Number(overrides.total) : 15000),
         items: [],
         products: [],
         shippingAddress: {
@@ -256,6 +256,7 @@ async function verifyPaidStatusMatching() {
     assert(isSettledPaidStatus('awaiting_payment') === false, 'awaiting_payment must not match paid');
     assert(isSettledPaidStatus('failed') === false, 'failed must not match paid');
     assert(isSettledPaidStatus('cancelled') === false, 'cancelled must not match paid');
+    assert(isSettledPaidStatus('authorized') === false, 'authorized must not match paid');
 }
 
 async function verifyClientHelpers() {
@@ -377,6 +378,8 @@ async function verifyServiceFlows() {
 
     const paidOrder = await orderDataService.findOrderByIdentifier(orderId);
     assert(String(paidOrder.paymentStatus).toLowerCase() === 'paid', 'persisted paymentStatus paid');
+    assert(String(paidOrder.orderStatus || '').toLowerCase() === 'processing', 'paid online order status must become processing');
+    assert(String(paidOrder.status || '').toLowerCase() === 'processing', 'paid online fulfillment label must become Processing');
     assert(paidOrder.payment?.gateway?.provider === 'dpo', 'gateway provider missing');
     assert(paidOrder.payment?.gateway?.mode === 'live', 'gateway mode should be LIVE');
     assert(
@@ -426,6 +429,7 @@ async function verifyServiceFlows() {
     const paidBackOrder = await orderDataService.findOrderByIdentifier(paidBackId);
     assert(String(paidBackOrder.paymentStatus).toLowerCase() === 'paid', 'paid order must not become cancelled from back URL');
     assert(String(paidBackOrder.orderStatus || paidBackOrder.status).toLowerCase() !== 'paid', 'fulfillment status must stay independent of payment');
+    assert(String(paidBackOrder.orderStatus || '').toLowerCase() === 'processing', 'paid back URL must set order processing');
 
     // Invalid token path
     installDpoMock('invalid');
@@ -459,6 +463,50 @@ async function verifyServiceFlows() {
     assert(mismatched.outcome !== 'success', 'mismatched DPO payment must not succeed');
     const mismatchedOrder = await orderDataService.findOrderByIdentifier(mismatchId);
     assert(String(mismatchedOrder.paymentStatus).toLowerCase() !== 'paid', 'amount/ref mismatch must not persist as paid');
+
+    const duplicate = await dpoPaymentService.verifyAndUpdateOrder({
+        orderId,
+        req: { get: () => '', protocol: 'http' }
+    });
+    assert(duplicate.outcome === 'success' && duplicate.paymentStatus === 'paid', 'duplicate verify must remain paid');
+    const duplicateOrder = await orderDataService.findOrderByIdentifier(orderId);
+    assert(String(duplicateOrder.paymentStatus).toLowerCase() === 'paid', 'duplicate callback must not change paid');
+    assert(String(duplicateOrder.orderStatus).toLowerCase() === 'processing', 'duplicate callback must keep processing');
+
+    const timeoutId = `${orderId}-TO`;
+    await createFixtureOrder(timeoutId);
+    installDpoMock('success');
+    await dpoPaymentService.initiatePayment({
+        orderId: timeoutId,
+        req: { get: () => '', protocol: 'http' }
+    });
+    dpoClient.setHttpTransportForTests(async () => {
+        const error = new Error('DPO API request timed out.');
+        error.code = 'DPO_API_TIMEOUT';
+        throw error;
+    });
+    const timedOut = await dpoPaymentService.verifyAndUpdateOrder({
+        orderId: timeoutId,
+        req: { get: () => '', protocol: 'http' }
+    });
+    assert(timedOut.outcome === 'pending', `timeout must stay pending, got ${timedOut.outcome}`);
+    const timedOutOrder = await orderDataService.findOrderByIdentifier(timeoutId);
+    assert(String(timedOutOrder.paymentStatus).toLowerCase() !== 'paid', 'timeout must not mark paid');
+    assert(String(timedOutOrder.paymentStatus).toLowerCase() !== 'failed', 'timeout must not mark failed');
+
+    const tamperId = `${orderId}-TAMPER`;
+    await createFixtureOrder(tamperId, { total: 25000, totalAmount: 25000 });
+    installDpoMock('success');
+    let tamperCode = '';
+    try {
+        await dpoPaymentService.initiatePayment({
+            orderId: tamperId,
+            req: { get: () => '', protocol: 'http' }
+        });
+    } catch (error) {
+        tamperCode = String(error?.code || '');
+    }
+    assert(tamperCode === 'DPO_AMOUNT_MISMATCH', `tampered total must be rejected, got ${tamperCode}`);
 
     dpoClient.resetHttpTransport();
     return { orderId };
@@ -669,6 +717,14 @@ async function verifyHttpInProcess() {
         assert(confirmation.status === 200 && confirmation.json?.success, `confirmation HTTP failed: ${confirmation.raw}`);
         assert(confirmation.json.confirmation?.orderId === orderId, 'confirmation must return the same order');
         assert(Number(confirmation.json.confirmation?.total) === 15000, 'confirmation total must match the order');
+        assert(String(confirmation.json.confirmation?.paymentStatus).toLowerCase() === 'paid', 'confirmation payment status must be paid after verify');
+        assert(String(confirmation.json.confirmation?.orderStatus).toLowerCase() === 'processing', 'confirmation order status must be processing after paid');
+        assert(
+            confirmation.json.confirmation?.paymentReference === 'REF123'
+            || confirmation.json.confirmation?.payment?.reference === 'REF123',
+            'confirmation must expose the safe DPO reference'
+        );
+        assert(!JSON.stringify(confirmation.json).includes('transToken'), 'confirmation must not expose the raw DPO token');
         assertNoSecretLeak(confirmation.json, 'HTTP confirmation');
 
         // Cancelled / back redirect for a still-unpaid order
@@ -709,6 +765,9 @@ async function verifyHttpInProcess() {
         assert(callback.json.outcome === 'success', 'callback must verify via existing DPO verifyToken path');
         assert(callback.json.paymentStatus === 'paid', 'callback paid status must come from verify, not from visiting the URL');
         assertNoSecretLeak(callback.json, 'HTTP callback');
+
+        const callbackAgain = await request(baseUrl, 'POST', `/api/payments/dpo/callback?orderId=${encodeURIComponent(callbackId)}`);
+        assert(callbackAgain.status === 200 && callbackAgain.json?.paymentStatus === 'paid', 'duplicate callback must stay paid');
 
         const mtnHttpId = `${orderId}-MTN`;
         await createFixtureOrder(mtnHttpId, { paymentMethod: 'mtn', paymentMethodLabel: 'MTN MoMo' });
