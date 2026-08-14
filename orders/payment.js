@@ -1,7 +1,5 @@
 import { initiateDpoPayment, submitOrder } from './core/order.js';
 import {
-  applyCheckoutCoupon,
-  clearCheckoutCoupon,
   getPaymentMethods, getState, guardStep, initCheckout,
   loadGatewayPaymentConfig,
   refreshBackendDeliveryQuote,
@@ -18,7 +16,7 @@ import {
 import { validatePayment } from './core/validation.js';
 import { formatCurrency } from './utils.js';
 import {
-  renderCouponPanel, renderPaymentMethods, renderProgress, renderCompactDeliverySummary,
+  renderPaymentMethods, renderProgress, renderCompactDeliverySummary,
   renderSidebar, renderStickyBar, renderTotals, showMessage
 } from './ui/layout.js';
 import { readMomoPhoneFromPanel, renderPaymentPanel } from './ui/payment-panel.js';
@@ -27,7 +25,6 @@ const progressEl = document.getElementById('progress');
 const sidebarEl = document.getElementById('sidebar');
 const stickyEl = document.getElementById('stickyBar');
 const methodsEl = document.getElementById('paymentMethods');
-const couponBlockEl = document.getElementById('couponBlock');
 const totalsBlockEl = document.getElementById('totalsBlock');
 const shippingSummaryEl = document.getElementById('paymentShippingSummary');
 const methodPanelEl = document.getElementById('paymentMethodPanel');
@@ -67,28 +64,6 @@ function setBusy(isBusy, label) {
   if (momoInput) momoInput.disabled = Boolean(isBusy);
 }
 
-function bindCouponPanel() {
-  const applyBtn = document.getElementById('couponApplyBtn');
-  const clearBtn = document.getElementById('couponClearBtn');
-  const input = document.getElementById('couponCodeInput');
-  const message = document.getElementById('couponMessage');
-
-  applyBtn?.addEventListener('click', async () => {
-    applyBtn.disabled = true;
-    const result = await applyCheckoutCoupon(input?.value || '');
-    if (!result.ok && message) {
-      message.textContent = result.message || 'Unable to apply coupon.';
-    }
-    applyBtn.disabled = false;
-    render();
-  });
-
-  clearBtn?.addEventListener('click', () => {
-    clearCheckoutCoupon();
-    render();
-  });
-}
-
 function bindMomoPhone() {
   const input = document.getElementById('momoPhoneInput');
   input?.addEventListener('input', () => {
@@ -120,10 +95,6 @@ function render() {
     shippingSummaryEl.innerHTML = renderCompactDeliverySummary(state.shipping);
   }
   renderMethods();
-  if (couponBlockEl) {
-    couponBlockEl.innerHTML = renderCouponPanel(state.coupon);
-    bindCouponPanel();
-  }
   totalsBlockEl.innerHTML = renderTotals(state.totals);
   sidebarEl.innerHTML = renderSidebar(state.products, state.totals);
   stickyEl.innerHTML = renderStickyBar(idleCta(), 'placeOrderBtn', { disabled: state.isSubmitting });

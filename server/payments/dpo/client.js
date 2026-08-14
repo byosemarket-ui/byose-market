@@ -45,13 +45,15 @@ function splitCustomerName(fullName) {
     };
 }
 
-const ALL_BLOCKABLE_PAYMENTS = Object.freeze(['CC', 'MO', 'PP', 'BT', 'XP', 'SE']);
+const ALL_BLOCKABLE_PAYMENTS = Object.freeze(['CC', 'MO', 'PP', 'BT', 'XP']);
 
 /**
  * Official createToken hosted-page defaults.
  * DefaultPayment / DefaultPaymentCountry / DefaultPaymentMNO / BlockPayment
  * are documented DPO API v6 fields. They pre-select the method and hide
  * unused options so customers are not asked for details BYOSE already has.
+ * BlockPayment codes are the official v6 set: CC, DD, BT, PP, XP, MO.
+ * Do not send undocumented codes such as SE — LIVE DPO returns Result 930.
  */
 function resolveHostedPaymentOptions(method) {
     const id = normalizeText(method).toLowerCase();

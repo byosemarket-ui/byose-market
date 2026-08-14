@@ -44,6 +44,9 @@ function checkPaymentUi() {
 
     assert(paymentHtml.includes('id="paymentMethodPanel"'), 'selected-method panel required');
     assert(paymentHtml.includes('Choose MTN MoMo, Card, or Cash on Delivery.'), 'payment heading copy required');
+    assert(!paymentHtml.includes('couponBlock'), 'payment page must not show a Coupon section');
+    assert(!paymentJs.includes('renderCouponPanel'), 'payment.js must not render coupon UI');
+    assert(!paymentJs.includes('bindCouponPanel'), 'payment.js must not bind coupon UI');
     assert(!/Airtel Money|Bank Transfer|TEST Service Type|Sandbox/i.test(paymentHtml), 'TEST/Airtel/Bank must not appear on payment.html');
 
     assert(panel.includes('momoPhoneInput'), 'MTN panel collects the authorizing number');
@@ -84,6 +87,8 @@ function checkDpoLivePath() {
     assert(client.includes("defaultPayment: 'MO'"), 'MTN uses official DefaultPayment MO');
     assert(client.includes("defaultPayment: 'CC'"), 'Card uses official DefaultPayment CC');
     assert(client.includes('BlockPayment'), 'unused DPO methods are blocked via official BlockPayment');
+    assert(client.includes("['CC', 'MO', 'PP', 'BT', 'XP']"), 'BlockPayment must use official DPO v6 codes only');
+    assert(!/ALL_BLOCKABLE_PAYMENTS = Object\.freeze\(\[[^\]]*SE/.test(client), 'BlockPayment must not include undocumented SE');
     assert(client.includes('customerFirstName'), 'customer details are prefilled for DPO');
     assert(!client.includes('54841'), 'DPO client must not hard-code TEST Service Type 54841');
     assert(!/chargeToken/i.test(client), 'do not invent a custom card chargeToken processor');

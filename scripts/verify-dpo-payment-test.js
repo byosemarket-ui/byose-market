@@ -305,6 +305,8 @@ async function verifyClientHelpers() {
     assert(mtnXml.includes('<customerCountry>RW</customerCountry>'), 'customer country must be RW');
     assert(mtnXml.includes('<BlockPayment>CC</BlockPayment>'), 'MTN XML must block card');
     assert(!mtnXml.includes('<BlockPayment>MO</BlockPayment>'), 'MTN XML must not block mobile');
+    assert(!mtnXml.includes('<BlockPayment>SE</BlockPayment>'), 'MTN XML must not send undocumented BlockPayment SE');
+    assert((mtnXml.match(/<BlockPayment>/g) || []).length === 4, 'MTN XML must send exactly 4 official BlockPayment codes');
     assert(mtnXml.includes('<ServiceType>112815</ServiceType>'), 'LIVE Service Type 112815 required');
     assert(!mtnXml.includes('54841'), 'TEST Service Type 54841 must not appear');
 
@@ -324,6 +326,8 @@ async function verifyClientHelpers() {
     assert(!cardXml.includes('<DefaultPaymentMNO>'), 'Card XML must not set an MNO');
     assert(cardXml.includes('<BlockPayment>MO</BlockPayment>'), 'Card XML must block mobile');
     assert(!cardXml.includes('<BlockPayment>CC</BlockPayment>'), 'Card XML must not block card');
+    assert(!cardXml.includes('<BlockPayment>SE</BlockPayment>'), 'Card XML must not send undocumented BlockPayment SE');
+    assert((cardXml.match(/<BlockPayment>/g) || []).length === 4, 'Card XML must send exactly 4 official BlockPayment codes');
     assert(cardXml.includes('<ServiceType>112815</ServiceType>'), 'Card LIVE Service Type 112815 required');
     assert(!cardXml.includes('54841'), 'Card XML must not include TEST Service Type');
     assert(dpoClient.toDpoPhone('+250788123456') === '250788123456', 'toDpoPhone must strip plus');

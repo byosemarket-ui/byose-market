@@ -157,6 +157,7 @@ function checkPaymentLifecycle() {
     assert(!/id:\s*'dpo'/.test(constants), 'generic DPO Pay must not be a customer method');
 
     assert(paymentHtml.includes('MTN MoMo, Card, or Cash on Delivery'), 'payment page copy must list only the three methods');
+    assert(!paymentHtml.includes('couponBlock'), 'payment page must not show a Coupon section');
     assert(panel.includes('We never ask for your PIN'), 'MTN panel must not collect PIN');
     assert(panel.includes('Card number and CVV stay with the payment provider'), 'card secrets stay with DPO');
 

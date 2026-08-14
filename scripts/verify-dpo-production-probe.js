@@ -87,6 +87,7 @@ async function main() {
 
     const paymentHtml = await request('GET', '/orders/payment.html');
     assert(/MTN MoMo, Card, or Cash on Delivery/i.test(paymentHtml.raw), 'payment page must list MTN MoMo, Card, COD');
+    assert(!/id=["']couponBlock["']/.test(paymentHtml.raw), 'payment page must not show a Coupon section');
     assert(!/Airtel Money|Sandbox|TEST Service Type/i.test(paymentHtml.raw), 'payment page must not show TEST/Airtel');
 
     const adminPay = await request('GET', '/api/admin/payment');
