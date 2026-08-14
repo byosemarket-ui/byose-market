@@ -44,7 +44,8 @@ const sanitized = dpoProvider.sanitizeProviderConfig({
     }
 });
 assert.match(sanitized.endpoints.test.paymentPageUrl, /payv3\.php\?ID=token/i);
-assert.match(sanitized.endpoints.live.paymentPageUrl, /payv2\.php/i, 'LIVE payv2 must remain unchanged');
+assert.match(sanitized.endpoints.live.paymentPageUrl, /payv3\.php\?ID=token/i, 'LIVE payment URL must stay official payv3');
+assert.ok(!/payv2\.php/i.test(sanitized.endpoints.live.paymentPageUrl), 'LIVE must not keep legacy payv2');
 
 const realExistsAfter = fs.existsSync(REAL_CREDENTIALS_FILE);
 assert.strictEqual(realExistsAfter, realExistsBefore, 'real credential store existence must not change');
@@ -62,6 +63,6 @@ console.log(JSON.stringify({
     isolatedPath: isolated.isolatedPath,
     realStoreUntouched: true,
     testPaymentPageUpgradedToPayV3: true,
-    livePaymentPageUnchanged: true,
+    livePaymentPageForcedToOfficialPayV3: true,
     dpoConnectionTestExecuted: false
 }, null, 2));

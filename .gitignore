@@ -54,3 +54,13 @@ logs/*
 !logs/.gitkeep
 verification-artifacts/
 node_modules/
+
+# Local DPO probe artifacts — never commit or deploy
+scripts/dpo-after-pay-*.png
+scripts/dpo-before-pay.png
+scripts/dpo-final.png
+scripts/dpo-sandbox-probe.png
+scripts/debug-place-order.mjs
+scripts/diag-step1-to3-prod.mjs
+scripts/e2e-online-cod-mtn.mjs
+scripts/probe-dpo-*.mjs
