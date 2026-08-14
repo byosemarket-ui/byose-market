@@ -39,6 +39,7 @@
     "verify:dpo-checkout-ux": "node scripts/verify-dpo-checkout-ux.js",
     "verify:dpo-payment-lifecycle": "node scripts/verify-dpo-payment-lifecycle.js",
     "verify:dpo-production-readiness": "node scripts/verify-dpo-production-readiness.js",
+    "verify:dpo-production-probe": "node scripts/verify-dpo-production-probe.js",
     "verify:dpo-regression-lock": "node scripts/verify-dpo-regression-lock.js",
     "verify:dpo-handover": "node scripts/verify-dpo-regression-lock.js && node scripts/verify-dpo-production-readiness.js && node scripts/verify-dpo-payment-lifecycle.js && node scripts/verify-dpo-checkout-ux.js && node scripts/verify-checkout-delivery-fee.js && node scripts/verify-storefront-payment-methods.js",
     "verify:payment-credential-guard": "node scripts/verify-payment-credential-guard.js",

@@ -45,7 +45,9 @@ One purchase uses one BYOSE Market order record. Payment state lives on that ord
 | Mode | `live` for online DPO; empty / non-DPO for COD |
 | Timestamp | Order created/updated and gateway `verifiedAt` |
 
-Public confirmation: `GET /api/orders/confirmation/:id`. It must not return Company Token, transToken, card data, or encryption material.
+Public confirmation: `GET /api/orders/confirmation/:id`.
+
+A missing or unknown order ID correctly returns HTTP **404** with `{ "success": false, "message": "Order not found" }`. That is not a missing route. An unauthenticated Admin payment request correctly returns HTTP **401**.
 
 ### Status pairing
 
