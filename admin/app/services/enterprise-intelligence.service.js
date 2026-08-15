@@ -78,7 +78,7 @@ export function downloadJsonFile(filename, payload) {
   downloadBlob(filename, "application/json;charset=utf-8", JSON.stringify(payload || {}, null, 2));
 }
 
-export function openPrintableReport(title, sections) {
+export function openPrintableReport(title, sections, options = {}) {
   const reportSections = asArray(sections)
     .map((section) => `
       <section class="report-section">
@@ -125,13 +125,15 @@ export function openPrintableReport(title, sections) {
   reportWindow.document.write(reportHtml);
   reportWindow.document.close();
   reportWindow.focus();
-  window.setTimeout(() => {
-    try {
-      reportWindow.print();
-    } catch (_error) {
-      // Ignore print failures in restricted browsers.
-    }
-  }, 250);
+  if (options?.autoPrint !== false) {
+    window.setTimeout(() => {
+      try {
+        reportWindow.print();
+      } catch (_error) {
+        // Ignore print failures in restricted browsers.
+      }
+    }, 250);
+  }
 
   return true;
 }

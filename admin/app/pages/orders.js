@@ -23,6 +23,45 @@ const PRIORITY_OPTIONS = [
 
 const STAFF_OPTIONS = ["Unassigned", "Admin", "Fulfillment", "Support", "Delivery"];
 const ORDER_META_STORAGE_KEY = "byose.admin.orderMeta.v1";
+const ORDERS_FILTER_STORAGE_KEY = "byose.admin.orders.listFilters.v1";
+const DATE_TABS = [
+  { key: "all", label: "All Orders" },
+  { key: "today", label: "Today" },
+  { key: "yesterday", label: "Yesterday" },
+  { key: "week", label: "This Week" },
+  { key: "month", label: "This Month" },
+  { key: "custom", label: "Custom Range" }
+];
+const PAYMENT_METHOD_FILTERS = [
+  { value: "mtn", label: "MTN MoMo" },
+  { value: "card", label: "Card" },
+  { value: "cod", label: "Cash on Delivery" }
+];
+const PAYMENT_STATUS_FILTERS = [
+  { value: "pending", label: "Pending" },
+  { value: "paid", label: "Paid" },
+  { value: "failed", label: "Failed" },
+  { value: "cancelled", label: "Cancelled" },
+  { value: "refunded", label: "Refunded" }
+];
+const DELIVERY_STATUS_FILTERS = [
+  { value: "pending", label: "Pending" },
+  { value: "processing", label: "Processing" },
+  { value: "shipped", label: "Shipped" },
+  { value: "out_for_delivery", label: "Out for Delivery" },
+  { value: "delivered", label: "Delivered" },
+  { value: "cancelled", label: "Cancelled" },
+  { value: "returned", label: "Returned" }
+];
+const SORT_LABELS = {
+  "date-desc": "Newest First",
+  "date-asc": "Oldest First",
+  "total-desc": "Highest Total",
+  "total-asc": "Lowest Total",
+  "customer-asc": "Customer Name A–Z",
+  "customer-desc": "Customer Name Z–A",
+  status: "Status"
+};
 const PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 const ORDER_DETAIL_NAV = [
@@ -82,12 +121,13 @@ function closeOrdersUxDialog(result = false) {
   }
   const resolve = ordersUxDialogResolver;
   ordersUxDialogResolver = null;
-  if (typeof resolve === "function") resolve(Boolean(result));
+  if (typeof resolve === "function") resolve(result);
 }
 
 function openOrdersConfirmDialog({
   title = "Confirm",
   message = "",
+  details = [],
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   tone = "warn"
@@ -96,6 +136,10 @@ function openOrdersConfirmDialog({
     closeOrdersUxDialog(false);
     ordersUxDialogResolver = resolve;
     const host = ensureOrdersUxHost();
+    const detailsHtml = (Array.isArray(details) ? details : [])
+      .filter((row) => Array.isArray(row) && row[0] && String(row[1] ?? "").trim() !== "")
+      .map((row) => `<div class="orders-ux-info-row"><span>${escapeHtml(row[0])}</span><strong>${escapeHtml(row[1])}</strong></div>`)
+      .join("");
     host.hidden = false;
     host.innerHTML = `
       <div class="orders-ux-backdrop" data-orders-dialog-dismiss></div>
@@ -104,7 +148,8 @@ function openOrdersConfirmDialog({
           <h3 id="ordersUxDialogTitle">${escapeHtml(title)}</h3>
         </header>
         <div class="orders-ux-dialog__body" id="ordersUxDialogBody">
-          <p>${escapeHtml(message)}</p>
+          ${message ? `<p>${escapeHtml(message)}</p>` : ""}
+          ${detailsHtml}
         </div>
         <footer class="orders-ux-dialog__actions">
           <button type="button" class="orders-tool-btn" data-orders-dialog-dismiss>${escapeHtml(cancelLabel)}</button>
@@ -114,6 +159,9 @@ function openOrdersConfirmDialog({
     `;
     host.onclick = (event) => {
       if (event.target?.closest?.("[data-orders-dialog-confirm]")) {
+        const confirmBtn = event.target.closest("[data-orders-dialog-confirm]");
+        if (confirmBtn?.disabled) return;
+        confirmBtn.disabled = true;
         closeOrdersUxDialog(true);
         return;
       }
@@ -160,6 +208,108 @@ function openOrdersInfoDialog({ title = "Details", lines = [] } = {}) {
     host.querySelector("[data-orders-dialog-dismiss].orders-tool-btn, [data-orders-dialog-dismiss][autofocus]")?.focus();
   });
 }
+
+function openOrdersStatusDialog({ order, options = [] } = {}) {
+  const choices = Array.isArray(options) ? options.filter(Boolean) : [];
+  if (!choices.length) return Promise.resolve("");
+  const orderNumber = resolveOrderIdentifiers(order).orderNumber || order?.orderId || order?.id || "";
+  const current = getOrderStatusLabel(order);
+  return new Promise((resolve) => {
+    closeOrdersUxDialog(false);
+    ordersUxDialogResolver = (result) => resolve(result ? String(result) : "");
+    const host = ensureOrdersUxHost();
+    const warning = choices.includes("Cancelled")
+      ? "<p class=\"orders-ux-dialog__hint\">Cancelling restores stock. Paid orders may be prepared for Returns &amp; Refunds.</p>"
+      : "";
+    const restoreHint = choices.length === 1 && choices[0] === "Pending"
+      ? "<p class=\"orders-ux-dialog__hint\">Restoring a cancelled order re-reserves stock if inventory is available.</p>"
+      : "";
+    host.hidden = false;
+    host.innerHTML = `
+      <div class="orders-ux-backdrop" data-orders-dialog-dismiss></div>
+      <div class="orders-ux-dialog" role="dialog" aria-modal="true" aria-labelledby="ordersUxDialogTitle">
+        <header class="orders-ux-dialog__head">
+          <h3 id="ordersUxDialogTitle">Change order status?</h3>
+        </header>
+        <div class="orders-ux-dialog__body" id="ordersUxDialogBody">
+          <div class="orders-ux-info-row"><span>Order</span><strong>#${escapeHtml(orderNumber)}</strong></div>
+          <div class="orders-ux-info-row"><span>From</span><strong>${escapeHtml(current)}</strong></div>
+          <label class="orders-ux-dialog__field">
+            <span>To</span>
+            <select id="ordersStatusDialogSelect" aria-label="New order status">
+              ${choices.map((status, index) => `<option value="${escapeHtml(status)}" ${index === 0 ? "selected" : ""}>${escapeHtml(status)}</option>`).join("")}
+            </select>
+          </label>
+          ${warning}${restoreHint}
+        </div>
+        <footer class="orders-ux-dialog__actions">
+          <button type="button" class="orders-tool-btn" data-orders-dialog-dismiss>Keep Status</button>
+          <button type="button" class="orders-tool-btn orders-tool-btn--primary" data-orders-dialog-confirm autofocus>Confirm Status Change</button>
+        </footer>
+      </div>
+    `;
+    const confirmBtn = host.querySelector("[data-orders-dialog-confirm]");
+    const select = host.querySelector("#ordersStatusDialogSelect");
+    host.onclick = (event) => {
+      if (event.target?.closest?.("[data-orders-dialog-confirm]")) {
+        if (confirmBtn?.disabled) return;
+        confirmBtn.disabled = true;
+        closeOrdersUxDialog(select?.value || choices[0]);
+        return;
+      }
+      if (event.target?.closest?.("[data-orders-dialog-dismiss]")) {
+        closeOrdersUxDialog("");
+      }
+    };
+    select?.focus();
+  });
+}
+
+function openOrdersCancelDialog(order) {
+  const orderNumber = resolveOrderIdentifiers(order).orderNumber || order?.orderId || order?.id || "";
+  const current = getOrderStatusLabel(order);
+  return new Promise((resolve) => {
+    closeOrdersUxDialog(false);
+    const host = ensureOrdersUxHost();
+    ordersUxDialogResolver = resolve;
+    host.hidden = false;
+    host.innerHTML = `
+      <div class="orders-ux-backdrop" data-orders-dialog-dismiss></div>
+      <div class="orders-ux-dialog orders-ux-dialog--danger" role="alertdialog" aria-modal="true" aria-labelledby="ordersUxDialogTitle">
+        <header class="orders-ux-dialog__head">
+          <h3 id="ordersUxDialogTitle">Cancel this order?</h3>
+        </header>
+        <div class="orders-ux-dialog__body">
+          <div class="orders-ux-info-row"><span>Order</span><strong>#${escapeHtml(orderNumber)}</strong></div>
+          <div class="orders-ux-info-row"><span>Current status</span><strong>${escapeHtml(current)}</strong></div>
+          <p>This action may affect payment and inventory. Stock will be restored. Paid orders are prepared for Returns &amp; Refunds.</p>
+          <label class="orders-ux-dialog__field">
+            <span>Cancellation reason (optional)</span>
+            <textarea id="ordersCancelReason" rows="3" maxlength="240">Cancelled by administrator</textarea>
+          </label>
+        </div>
+        <footer class="orders-ux-dialog__actions">
+          <button type="button" class="orders-tool-btn" data-orders-dialog-dismiss>Keep Order</button>
+          <button type="button" class="orders-tool-btn orders-tool-btn--danger" data-orders-dialog-confirm autofocus>Cancel Order</button>
+        </footer>
+      </div>
+    `;
+    host.onclick = (event) => {
+      if (event.target?.closest?.("[data-orders-dialog-confirm]")) {
+        const confirmBtn = event.target.closest("[data-orders-dialog-confirm]");
+        if (confirmBtn?.disabled) return;
+        const reason = String(host.querySelector("#ordersCancelReason")?.value || "").trim();
+        confirmBtn.disabled = true;
+        closeOrdersUxDialog({ confirmed: true, reason });
+        return;
+      }
+      if (event.target?.closest?.("[data-orders-dialog-dismiss]")) {
+        closeOrdersUxDialog({ confirmed: false, reason: "" });
+      }
+    };
+    host.querySelector("[data-orders-dialog-confirm]")?.focus();
+  });
+}
 const TIMELINE_STAGES = [
   { key: "created", label: "Created", match: /pending|creat|received|order/i },
   { key: "confirmed", label: "Confirmed", match: /confirm|accept|paid/i },
@@ -174,18 +324,15 @@ const TIMELINE_STAGES = [
   { key: "refunded", label: "Refunded", match: /refund/i }
 ];
 
-const DATE_GROUP_DEFS = [
-  { key: "today", label: "Today" },
-  { key: "yesterday", label: "Yesterday" },
-  { key: "this_week", label: "This Week" },
-  { key: "last_week", label: "Last Week" },
-  { key: "earlier_month", label: "Earlier This Month" },
-  { key: "older", label: "Older Orders" }
-];
-
 function startOfLocalDay(value = new Date()) {
   const date = new Date(value);
   date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function endOfLocalDay(value = new Date()) {
+  const date = startOfLocalDay(value);
+  date.setHours(23, 59, 59, 999);
   return date;
 }
 
@@ -197,42 +344,88 @@ function startOfWeekMonday(value = new Date()) {
   return date;
 }
 
+function endOfWeekSunday(value = new Date()) {
+  const date = startOfWeekMonday(value);
+  date.setDate(date.getDate() + 6);
+  date.setHours(23, 59, 59, 999);
+  return date;
+}
+
+function parseLocalDateInput(value) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatLocalDateInput(value = new Date()) {
+  const date = value instanceof Date ? value : parseLocalDateInput(value);
+  if (!date || Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatReadableDate(value) {
+  const date = value instanceof Date ? value : parseLocalDateInput(value) || new Date(value || 0);
+  if (!date || Number.isNaN(date.getTime()) || date.getTime() <= 0) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  }).format(date);
+}
+
 function resolveOrderTimestamp(order) {
   const raw = order?.date || order?.createdAt || 0;
   const time = new Date(raw).getTime();
   return Number.isFinite(time) ? time : 0;
 }
 
-function resolveDateGroupKey(order, now = new Date()) {
-  const ts = resolveOrderTimestamp(order);
+function formatCalendarGroupLabel(dayStartMs, now = new Date()) {
   const todayStart = startOfLocalDay(now).getTime();
   const yesterdayStart = todayStart - 86400000;
-  const weekStart = startOfWeekMonday(now).getTime();
-  const lastWeekStart = weekStart - (7 * 86400000);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-
-  if (ts >= todayStart) return "today";
-  if (ts >= yesterdayStart) return "yesterday";
-  if (ts >= weekStart) return "this_week";
-  if (ts >= lastWeekStart) return "last_week";
-  if (ts >= monthStart) return "earlier_month";
-  return "older";
+  if (dayStartMs === todayStart) return "Today";
+  if (dayStartMs === yesterdayStart) return "Yesterday";
+  return formatReadableDate(new Date(dayStartMs));
 }
 
-function groupOrdersByDate(orders = [], now = new Date()) {
-  const buckets = Object.fromEntries(DATE_GROUP_DEFS.map((def) => [def.key, []]));
+function groupOrdersByDate(orders = [], { now = new Date(), newestFirst = true } = {}) {
+  const buckets = new Map();
   (Array.isArray(orders) ? orders : []).forEach((order) => {
-    const key = resolveDateGroupKey(order, now);
-    (buckets[key] || buckets.older).push(order);
+    const ts = resolveOrderTimestamp(order);
+    const key = ts ? startOfLocalDay(new Date(ts)).getTime() : 0;
+    const current = buckets.get(key) || [];
+    current.push(order);
+    buckets.set(key, current);
   });
-  return DATE_GROUP_DEFS
-    .map((def) => ({
-      key: def.key,
-      label: def.label,
-      orders: buckets[def.key],
-      count: buckets[def.key].length
-    }))
-    .filter((group) => group.count > 0);
+  return Array.from(buckets.entries())
+    .sort((left, right) => {
+      if (!left[0]) return 1;
+      if (!right[0]) return -1;
+      return newestFirst ? right[0] - left[0] : left[0] - right[0];
+    })
+    .map(([key, groupOrders]) => ({
+      key: String(key),
+      label: Number(key) ? formatCalendarGroupLabel(Number(key), now) : "Unknown date",
+      orders: groupOrders,
+      count: groupOrders.length
+    }));
+}
+
+function normalizeDateTab(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "7d") return "week";
+  if (raw === "30d" || raw === "month") return "month";
+  if (DATE_TABS.some((tab) => tab.key === raw)) return raw;
+  return "all";
+}
+
+function paymentMethodFilterLabel(value) {
+  const match = PAYMENT_METHOD_FILTERS.find((item) => item.value === String(value || "").toLowerCase());
+  return match?.label || titleCaseLabel(value, "");
 }
 
 function classifyOrderStatBucket(order) {
@@ -307,15 +500,20 @@ function matchesPaymentStatusFilter(order, filter) {
 function matchesDeliveryStatusFilter(order, filter) {
   const raw = String(filter || "").trim().toLowerCase();
   if (!raw) return true;
-  const value = String(order?.deliveryStatus || order?.status || "").toLowerCase();
+  const value = String(order?.deliveryStatus || order?.shippingStatus || order?.status || "").toLowerCase();
   if (raw === "pending") {
-    return value.includes("pending") || value.includes("confirm") || (!value.includes("ship") && !value.includes("deliver") && !value.includes("cancel") && !value.includes("process") && !value.includes("pack"));
+    return value.includes("pending") || value.includes("confirm") || (!value.includes("ship") && !value.includes("deliver") && !value.includes("cancel") && !value.includes("process") && !value.includes("pack") && !value.includes("return"));
   }
   if (raw === "processing") {
     return value.includes("process") || value.includes("pack");
   }
+  if (raw === "out_for_delivery" || raw === "out-for-delivery") {
+    return value.includes("out for delivery") || value.includes("out_for_delivery");
+  }
   if (raw === "shipped") {
-    return value.includes("ship") || value.includes("out for delivery") || value.includes("out_for_delivery");
+    return (value.includes("ship") || value.includes("out for delivery") || value.includes("out_for_delivery"))
+      && !value.includes("deliver")
+      && !value.includes("complete");
   }
   if (raw === "delivered") {
     return value.includes("deliver") || value.includes("complete");
@@ -323,24 +521,183 @@ function matchesDeliveryStatusFilter(order, filter) {
   if (raw === "cancelled") {
     return value.includes("cancel");
   }
+  if (raw === "returned") {
+    return value.includes("return");
+  }
   return value.includes(raw);
 }
 
-function matchesDateRangeFilter(order, range, now = new Date()) {
-  const raw = String(range || "").trim().toLowerCase();
-  if (!raw) return true;
+function matchesDateTab(order, state = {}, now = new Date()) {
+  const tab = normalizeDateTab(state.dateTab || state.dateRangeFilter || "all");
+  if (!tab || tab === "all") return true;
   const ts = resolveOrderTimestamp(order);
   if (!ts) return false;
   const todayStart = startOfLocalDay(now).getTime();
-  if (raw === "today") return ts >= todayStart;
-  if (raw === "yesterday") {
-    const yesterdayStart = todayStart - 86400000;
-    return ts >= yesterdayStart && ts < todayStart;
+  const tomorrowStart = todayStart + 86400000;
+  if (tab === "today") return ts >= todayStart && ts < tomorrowStart;
+  if (tab === "yesterday") return ts >= (todayStart - 86400000) && ts < todayStart;
+  if (tab === "week") {
+    return ts >= startOfWeekMonday(now).getTime() && ts <= endOfWeekSunday(now).getTime();
   }
-  if (raw === "7d") return ts >= (now.getTime() - (7 * 86400000));
-  if (raw === "30d") return ts >= (now.getTime() - (30 * 86400000));
-  if (raw === "month") return ts >= new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-  return true;
+  if (tab === "month") {
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const monthEnd = endOfLocalDay(new Date(now.getFullYear(), now.getMonth() + 1, 0)).getTime();
+    return ts >= monthStart && ts <= monthEnd;
+  }
+  if (tab === "custom") {
+    const from = parseLocalDateInput(state.customFrom);
+    const to = parseLocalDateInput(state.customTo);
+    if (!from || !to) return false;
+    const start = startOfLocalDay(from).getTime();
+    const end = endOfLocalDay(to).getTime();
+    return ts >= Math.min(start, end) && ts <= Math.max(start, end);
+  }
+  return matchesDateRangeFilter(order, tab, now);
+}
+
+function matchesDateRangeFilter(order, range, now = new Date()) {
+  return matchesDateTab(order, { dateTab: range }, now);
+}
+
+function computeDateTabCounts(orders = [], state = {}, now = new Date()) {
+  const list = dedupeOrdersById(orders);
+  const counts = {
+    all: list.length,
+    today: 0,
+    yesterday: 0,
+    week: 0,
+    month: 0,
+    custom: 0
+  };
+  list.forEach((order) => {
+    if (matchesDateTab(order, { dateTab: "today" }, now)) counts.today += 1;
+    if (matchesDateTab(order, { dateTab: "yesterday" }, now)) counts.yesterday += 1;
+    if (matchesDateTab(order, { dateTab: "week" }, now)) counts.week += 1;
+    if (matchesDateTab(order, { dateTab: "month" }, now)) counts.month += 1;
+    if (state.customFrom && state.customTo && matchesDateTab(order, { dateTab: "custom", customFrom: state.customFrom, customTo: state.customTo }, now)) {
+      counts.custom += 1;
+    }
+  });
+  return counts;
+}
+
+function shouldGroupOrdersByDate(state = {}) {
+  const tab = normalizeDateTab(state.dateTab || "all");
+  const sort = String(state.sort || "date-desc");
+  if (sort !== "date-desc" && sort !== "date-asc") return false;
+  return tab === "all" || tab === "week" || tab === "month" || tab === "custom";
+}
+
+function formatCount(value) {
+  return Number(value || 0).toLocaleString("en-US");
+}
+
+function readStoredListFilters() {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(ORDERS_FILTER_STORAGE_KEY) || "null");
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function writeStoredListFilters(state = {}) {
+  try {
+    sessionStorage.setItem(ORDERS_FILTER_STORAGE_KEY, JSON.stringify({
+      query: state.query || "",
+      dateTab: normalizeDateTab(state.dateTab || "all"),
+      customFrom: state.customFrom || "",
+      customTo: state.customTo || "",
+      customDraftFrom: state.customDraftFrom || state.customFrom || "",
+      customDraftTo: state.customDraftTo || state.customTo || "",
+      statusFilter: String(state.statusFilter || "").startsWith("status:") ? state.statusFilter : "",
+      paymentFilter: state.paymentFilter || "",
+      paymentStatusFilter: state.paymentStatusFilter || "",
+      deliveryStatusFilter: state.deliveryStatusFilter || "",
+      sort: state.sort || "date-desc",
+      page: state.page || 1,
+      pageSize: state.pageSize || PAGE_SIZE,
+      statBucket: state.statBucket || "",
+      filtersOpen: Boolean(state.filtersOpen)
+    }));
+  } catch (_error) {
+    /* ignore quota / private mode */
+  }
+}
+
+function clearStoredListFilters() {
+  try {
+    sessionStorage.removeItem(ORDERS_FILTER_STORAGE_KEY);
+  } catch (_error) {
+    /* ignore */
+  }
+}
+
+function hasActiveListFilters(state = {}) {
+  return Boolean(
+    String(state.query || "").trim()
+    || (normalizeDateTab(state.dateTab || "all") !== "all")
+    || String(state.statusFilter || "").startsWith("status:")
+    || state.paymentFilter
+    || state.paymentStatusFilter
+    || state.deliveryStatusFilter
+    || state.statBucket
+    || (state.sort && state.sort !== "date-desc")
+  );
+}
+
+function buildActiveFilterChips(state = {}) {
+  const chips = [];
+  const tab = normalizeDateTab(state.dateTab || "all");
+  if (tab !== "all") {
+    const tabMeta = DATE_TABS.find((item) => item.key === tab);
+    let label = tabMeta?.label || tab;
+    if (tab === "custom" && state.customFrom && state.customTo) {
+      label = `${formatReadableDate(state.customFrom)} – ${formatReadableDate(state.customTo)}`;
+    }
+    chips.push({ key: "date", label });
+  }
+  if (String(state.statusFilter || "").startsWith("status:")) {
+    chips.push({ key: "status", label: `Order Status: ${titleCaseLabel(state.statusFilter.slice(7))}` });
+  }
+  if (state.statBucket) {
+    chips.push({ key: "stat", label: `Summary: ${titleCaseLabel(state.statBucket)}` });
+  }
+  if (state.paymentStatusFilter) {
+    const pay = PAYMENT_STATUS_FILTERS.find((item) => item.value === state.paymentStatusFilter);
+    chips.push({ key: "payStatus", label: `Payment Status: ${pay?.label || titleCaseLabel(state.paymentStatusFilter)}` });
+  }
+  if (state.paymentFilter) {
+    chips.push({ key: "payMethod", label: `Payment Method: ${paymentMethodFilterLabel(state.paymentFilter)}` });
+  }
+  if (state.deliveryStatusFilter) {
+    const delivery = DELIVERY_STATUS_FILTERS.find((item) => item.value === state.deliveryStatusFilter);
+    chips.push({ key: "delivery", label: `Delivery Status: ${delivery?.label || titleCaseLabel(state.deliveryStatusFilter)}` });
+  }
+  if (String(state.query || "").trim()) {
+    chips.push({ key: "query", label: `Search: ${String(state.query).trim()}` });
+  }
+  chips.push({ key: "sort", label: SORT_LABELS[state.sort] || "Newest First" });
+  return chips;
+}
+
+function resetAllOrdersListFilters(state) {
+  state.query = "";
+  state.statusFilter = "";
+  state.paymentFilter = "";
+  state.paymentStatusFilter = "";
+  state.deliveryStatusFilter = "";
+  state.dateRangeFilter = "";
+  state.dateTab = "all";
+  state.customFrom = "";
+  state.customTo = "";
+  state.customDraftFrom = "";
+  state.customDraftTo = "";
+  state.statBucket = "";
+  state.sort = "date-desc";
+  state.page = 1;
+  state.selectedIds = [];
+  clearStoredListFilters();
 }
 
 function buildOrdersExportRows(orders = []) {
@@ -460,6 +817,58 @@ function priorityTone(priority) {
 function canBulkDeleteOrder(order) {
   const status = String(order?.status || order?.orderStatus || "").toLowerCase();
   return status.includes("cancel") || status.includes("return") || status.includes("refund");
+}
+
+function getOrderStatusLabel(order) {
+  return titleCaseLabel(order?.status || order?.orderStatus, "Pending");
+}
+
+function canCancelOrder(order) {
+  const status = String(order?.status || order?.orderStatus || "").toLowerCase();
+  if (!status) return false;
+  if (status.includes("cancel") || status.includes("return") || status.includes("refund")) return false;
+  if (status.includes("deliver") || status.includes("complete")) return false;
+  return true;
+}
+
+function getValidStatusTransitions(order) {
+  const current = String(order?.status || order?.orderStatus || "").trim().toLowerCase();
+  const flow = ["Pending", "Confirmed", "Processing", "Packed", "Shipping", "Delivered"];
+  if (current.includes("cancel")) return ["Pending"];
+  if (current.includes("return") || current.includes("refund")) return [];
+  if (current.includes("deliver") || current.includes("complete")) return [];
+
+  let index = flow.findIndex((status) => current === status.toLowerCase());
+  if (index < 0 && current.includes("ship")) index = flow.indexOf("Shipping");
+  if (index < 0 && current.includes("process")) index = flow.indexOf("Processing");
+  if (index < 0 && current.includes("confirm")) index = flow.indexOf("Confirmed");
+  if (index < 0 && current.includes("pack")) index = flow.indexOf("Packed");
+  if (index < 0 && (current.includes("pending") || !current)) index = 0;
+
+  const options = index >= 0
+    ? flow.slice(index + 1)
+    : flow.filter((status) => status.toLowerCase() !== current);
+  if (canCancelOrder(order)) options.push("Cancelled");
+  return options;
+}
+
+function getFulfillmentTransitions(order) {
+  return getValidStatusTransitions(order).filter((status) => status !== "Cancelled");
+}
+
+function getOrderActionContext(order) {
+  const customer = resolveReviewCustomerRecord(order);
+  const identifiers = resolveOrderIdentifiers(order);
+  return {
+    id: String(order?.orderId || order?.id || ""),
+    orderNumber: identifiers.orderNumber || order?.orderId || order?.id || "",
+    phone: customer.phone,
+    email: customer.email,
+    telHref: formatReviewPhoneHref(customer.phone, "tel"),
+    mailHref: customer.email ? `mailto:${encodeURIComponent(customer.email)}` : "",
+    statusOptions: getFulfillmentTransitions(order),
+    canCancel: canCancelOrder(order)
+  };
 }
 
 function renderPriorityBadge(priority) {
@@ -757,11 +1166,10 @@ function getOrdersViewMeta(statusFilter) {
 }
 
 function filterAndSortOrders(orders, state) {
-  const query = String(state.query || "").trim().toLowerCase();
+  const query = String(state.query || "").trim().toLowerCase().replace(/^#/, "");
   const paymentFilter = String(state.paymentFilter || "").trim().toLowerCase();
   const paymentStatusFilter = String(state.paymentStatusFilter || "").trim().toLowerCase();
   const deliveryStatusFilter = String(state.deliveryStatusFilter || "").trim().toLowerCase();
-  const dateRangeFilter = String(state.dateRangeFilter || "").trim().toLowerCase();
   const cancelledByFilter = String(state.cancelledByFilter || "").trim().toLowerCase();
   const returnStatusFilter = String(state.returnStatusFilter || "").trim().toLowerCase();
   const refundStatusFilter = String(state.refundStatusFilter || "").trim().toLowerCase();
@@ -789,8 +1197,8 @@ function filterAndSortOrders(orders, state) {
     list = list.filter((order) => matchesDeliveryStatusFilter(order, deliveryStatusFilter));
   }
 
-  if (dateRangeFilter) {
-    list = list.filter((order) => matchesDateRangeFilter(order, dateRangeFilter));
+  if (normalizeDateTab(state.dateTab || state.dateRangeFilter || "all") !== "all") {
+    list = list.filter((order) => matchesDateTab(order, state));
   }
 
   if (cancelledByFilter) {
@@ -821,12 +1229,19 @@ function filterAndSortOrders(orders, state) {
   if (query) {
     list = list.filter((order) => {
       const ship = order.shippingAddress || {};
+      const customer = resolveOrderCustomer(order);
       const workflow = getReturnWorkflow(order);
       const haystack = [
         order.orderId,
         order.id,
+        order.recordId,
+        customer.name,
+        customer.phone,
         order.customerName,
         order.customerPhone,
+        order.phoneNumber,
+        ship.phone,
+        ship.fullName,
         order.customerEmail,
         order.paymentMethod,
         order.paymentMethodLabel,
@@ -834,14 +1249,9 @@ function filterAndSortOrders(orders, state) {
         workflow.returnReason,
         workflow.returnStatus,
         workflow.refundStatus,
-        ship.provinceCity,
-        ship.district,
-        ship.sector,
-        ship.village,
-        resolveCompletionDate(order),
-        resolveReturnRequestDate(order),
         ...(order.items || []).map((item) => item.productName),
-        ...(order.items || []).map((item) => item.sku)
+        ...(order.items || []).map((item) => item.sku),
+        ...(order.items || []).map((item) => item.productId)
       ].join(" ").toLowerCase();
       return haystack.includes(query);
     });
@@ -871,16 +1281,16 @@ function filterAndSortOrders(orders, state) {
       return new Date(a.date || a.createdAt || 0) - new Date(b.date || b.createdAt || 0);
     }
     if (sort === "total-desc") {
-      return (Number(b.total) || 0) - (Number(a.total) || 0);
+      return (Number(b.grandTotal || b.total) || 0) - (Number(a.grandTotal || a.total) || 0);
     }
     if (sort === "total-asc") {
-      return (Number(a.total) || 0) - (Number(b.total) || 0);
+      return (Number(a.grandTotal || a.total) || 0) - (Number(b.grandTotal || b.total) || 0);
     }
     if (sort === "customer-asc") {
-      return String(a.customerName || "").localeCompare(String(b.customerName || ""), undefined, { sensitivity: "base" });
+      return String(resolveOrderCustomer(a).name || "").localeCompare(String(resolveOrderCustomer(b).name || ""), undefined, { sensitivity: "base" });
     }
     if (sort === "customer-desc") {
-      return String(b.customerName || "").localeCompare(String(a.customerName || ""), undefined, { sensitivity: "base" });
+      return String(resolveOrderCustomer(b).name || "").localeCompare(String(resolveOrderCustomer(a).name || ""), undefined, { sensitivity: "base" });
     }
     if (sort === "status") {
       return String(a.status || "").localeCompare(String(b.status || ""));
@@ -1083,18 +1493,1001 @@ function resolveProductVariant(item) {
   return String(item?.attributeSummary || [item?.color, item?.size].filter(Boolean).join(" · ") || "").trim();
 }
 
-function renderAllOrdersProductStrip(items = [], orderId = "") {
+function titleCaseLabel(value, fallback = "Pending") {
+  const raw = String(value || "").trim();
+  if (!raw) return fallback;
+  return raw
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function resolveOrderIdentifiers(order) {
+  const orderNumber = String(order?.orderId || order?.id || "").trim();
+  const recordId = Number(order?.recordId);
+  const legacyId = String(order?.id || "").trim();
+  let internalId = "";
+  if (Number.isFinite(recordId) && recordId > 0 && String(recordId) !== orderNumber) {
+    internalId = String(recordId);
+  } else if (legacyId && legacyId !== orderNumber) {
+    internalId = legacyId;
+  }
+  return { orderNumber, internalId };
+}
+
+function resolveOrderCustomer(order) {
+  const ship = order?.shippingAddress || {};
+  const name = String(ship.fullName || order?.customerName || "").trim() || "—";
+  const phone = String(ship.phone || order?.customerPhone || order?.phoneNumber || "").trim();
+  return { name, phone };
+}
+
+function formatOrderRowDateTime(value) {
+  const date = new Date(value || 0);
+  if (!Number.isFinite(date.getTime()) || date.getTime() <= 0) {
+    return { date: "—", time: "" };
+  }
+  return {
+    date: new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    }).format(date),
+    time: new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit"
+    }).format(date)
+  };
+}
+
+function renderOrderRowStatusBadge(status) {
+  const label = titleCaseLabel(status, "Pending");
+  const category = classifyOrderStatBucket({ status: label });
+  return `<span class="order-row-status order-row-status--${escapeHtml(category)}" title="${escapeHtml(label)}" aria-label="Order status: ${escapeHtml(label)}">${escapeHtml(label)}</span>`;
+}
+
+function renderOrderRowPayment(order) {
+  const status = titleCaseLabel(order?.paymentStatusLabel || order?.paymentStatus, "Pending");
+  const method = paymentLabel(order);
+  const tone = statusTone(status);
+  const showMethod = method && method !== "—";
+  return `
+    <div class="order-row-payment" aria-label="Payment status: ${escapeHtml(status)}${showMethod ? `, ${escapeHtml(method)}` : ""}">
+      <span class="order-row-pay-status order-row-pay-status--${escapeHtml(tone)}">${escapeHtml(status)}</span>
+      ${showMethod ? `<span class="order-row-pay-method">${escapeHtml(method)}</span>` : ""}
+    </div>
+  `;
+}
+
+const reviewDrawer = {
+  orderId: "",
+  previousFocus: null,
+  resolveOrder: null,
+  reloadAndResolve: null,
+  handleAction: null,
+  busy: false
+};
+
+function isReviewDrawerOpen() {
+  const host = document.getElementById("ordersReviewDrawerHost");
+  return Boolean(host && !host.hidden);
+}
+
+function setReviewDrawerScrollLock(locked) {
+  document.documentElement.classList.toggle("orders-review-locked", Boolean(locked));
+  document.body.classList.toggle("orders-review-locked", Boolean(locked));
+}
+
+function getReviewDrawerFocusables(host) {
+  return Array.from(host.querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex=\"-1\"])"))
+    .filter((el) => !el.hasAttribute("disabled") && el.getAttribute("aria-hidden") !== "true");
+}
+
+function renderReviewMetaRows(rows = []) {
+  return rows
+    .filter((row) => row && String(row.value ?? "").trim() !== "")
+    .map((row) => `
+      <div class="orders-review-row">
+        <span>${escapeHtml(row.label)}</span>
+        <strong>${row.html ? row.value : escapeHtml(row.value)}</strong>
+      </div>
+    `).join("");
+}
+
+function resolveReviewItemVariants(item) {
+  const size = String(item?.size || item?.sizeLabel || "").trim();
+  const color = String(item?.color || item?.colorName || "").trim();
+  const attrs = item?.attributes && typeof item.attributes === "object" ? item.attributes : {};
+  const model = String(item?.model || attrs.Model || attrs.model || "").trim();
+  const storage = String(item?.storage || attrs.Storage || attrs.storage || "").trim();
+  const rows = [];
+  if (size) rows.push(`Size: ${size}`);
+  if (color) rows.push(`Color: ${color}`);
+  if (model) rows.push(`Model: ${model}`);
+  if (storage) rows.push(`Storage: ${storage}`);
+  if (!rows.length) {
+    const summary = resolveProductVariant(item);
+    if (summary) rows.push(summary);
+  }
+  return rows;
+}
+
+function renderReviewOrderInformation(order) {
+  const { orderNumber, internalId } = resolveOrderIdentifiers(order);
+  const when = formatOrderRowDateTime(order.date || order.createdAt);
+  const status = titleCaseLabel(order.status || order.orderStatus, "Pending");
+  const total = Number(order?.grandTotal || order?.total);
+  return `
+    <section class="orders-review-section" data-review-section="information">
+      <h3>Order Information</h3>
+      <div class="orders-review-card">
+        ${renderReviewMetaRows([
+          { label: "Order Number", value: orderNumber ? `#${orderNumber}` : "" },
+          { label: "Order ID", value: internalId },
+          { label: "Order Date", value: when.date !== "—" ? when.date : "" },
+          { label: "Order Time", value: when.time },
+          { label: "Order Status", value: status },
+          { label: "Total Amount", value: Number.isFinite(total) ? formatCurrency(total) : "" }
+        ])}
+      </div>
+    </section>
+  `;
+}
+
+function sanitizeReviewText(value) {
+  if (value == null) return "";
+  if (typeof value === "object") return "";
+  const text = String(value).trim();
+  if (!text) return "";
+  const lower = text.toLowerCase();
+  if (lower === "undefined" || lower === "null" || lower === "[object object]") return "";
+  return text;
+}
+
+function pickReviewText(...values) {
+  for (const value of values) {
+    const text = sanitizeReviewText(value);
+    if (text) return text;
+  }
+  return "";
+}
+
+function coerceReviewObject(value) {
+  if (!value) return {};
+  if (typeof value === "string") {
+    const text = sanitizeReviewText(value);
+    if (!text) return {};
+    if (text.startsWith("{") || text.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+      } catch (_error) {
+        return { addressLine: text };
+      }
+    }
+    return { addressLine: text };
+  }
+  if (typeof value === "object" && !Array.isArray(value)) return value;
+  return {};
+}
+
+function uniqueReviewText(value, used) {
+  const text = sanitizeReviewText(value);
+  if (!text) return "";
+  const key = text.replace(/\s+/g, " ").trim().toLowerCase();
+  if (used.has(key)) return "";
+  used.add(key);
+  return text;
+}
+
+function formatReviewPhoneHref(phone, protocol) {
+  const compact = String(phone || "").replace(/[^\d+]/g, "");
+  return compact ? `${protocol}:${compact}` : "";
+}
+
+function renderReviewField(label, value, extraHtml = "", options = {}) {
+  const text = sanitizeReviewText(value);
+  if (!text && !extraHtml) return "";
+  const copyable = Boolean(options.copyable);
+  return `
+    <div class="orders-review-field">
+      <span>${escapeHtml(label)}</span>
+      <div class="orders-review-field__value">
+        ${text ? `<strong class="${copyable ? "orders-review-copyable" : ""}">${escapeHtml(text)}</strong>` : ""}
+        ${extraHtml}
+      </div>
+    </div>
+  `;
+}
+
+function renderReviewNoteBlock(text) {
+  const value = sanitizeReviewText(text);
+  if (!value) return "";
+  return `<p class="orders-review-note">${escapeHtml(value)}</p>`;
+}
+
+function renderReviewContactActions(phone, email) {
+  const telHref = formatReviewPhoneHref(phone, "tel");
+  const smsHref = formatReviewPhoneHref(phone, "sms");
+  const mailHref = email ? `mailto:${encodeURIComponent(email)}` : "";
+  const actions = [
+    telHref ? `<a class="orders-review-contact" href="${escapeHtml(telHref)}" aria-label="Call ${escapeHtml(phone)}">Call</a>` : "",
+    smsHref ? `<a class="orders-review-contact" href="${escapeHtml(smsHref)}" aria-label="Message ${escapeHtml(phone)}">Message</a>` : "",
+    mailHref ? `<a class="orders-review-contact" href="${escapeHtml(mailHref)}" aria-label="Email ${escapeHtml(email)}">Email</a>` : ""
+  ].filter(Boolean);
+  if (!actions.length) return "";
+  return `<span class="orders-review-contacts">${actions.join("")}</span>`;
+}
+
+function resolveReviewCustomerRecord(order) {
+  const ship = coerceReviewObject(order?.shippingAddress || order?.deliveryAddress);
+  const customer = coerceReviewObject(order?.customer);
+  const name = pickReviewText(ship.fullName, order?.customerName, customer.name, customer.fullName);
+  const phone = pickReviewText(ship.phone, order?.customerPhone, order?.phoneNumber, customer.phone);
+  const email = pickReviewText(order?.customerEmail, order?.userEmail, customer.email, ship.email);
+  const customerId = pickReviewText(order?.customerId, customer.id, customer.customerId);
+  const isGuest = !customerId;
+  return {
+    name: name || (isGuest ? "Guest Customer" : "Not provided"),
+    phone,
+    email,
+    customerId,
+    isGuest,
+    initial: (name || "G").slice(0, 1).toUpperCase()
+  };
+}
+
+function resolveReviewAddressRecord(order) {
+  const ship = coerceReviewObject(order?.shippingAddress || order?.deliveryAddress);
+  const full = coerceReviewObject(order?.fullAddress);
+  const used = new Set();
+  const province = uniqueReviewText(pickReviewText(
+    ship.provinceCity, ship.province, ship.city, full.provinceCity, full.province, full.city, order?.provinceCity
+  ), used);
+  const district = uniqueReviewText(pickReviewText(ship.district, full.district), used);
+  const sector = uniqueReviewText(pickReviewText(ship.sector, full.sector), used);
+  const cell = uniqueReviewText(pickReviewText(ship.cell, full.cell), used);
+  const village = uniqueReviewText(pickReviewText(ship.village, full.village), used);
+  const street = uniqueReviewText(pickReviewText(ship.street, ship.line1, full.street, full.line1), used);
+  const house = uniqueReviewText(pickReviewText(ship.houseNumber, ship.houseNo, ship.house, full.houseNumber, full.house), used);
+  const building = uniqueReviewText(pickReviewText(ship.building, full.building), used);
+  const apartment = uniqueReviewText(pickReviewText(ship.apartment, ship.apt, full.apartment), used);
+  const postal = uniqueReviewText(pickReviewText(ship.postalCode, ship.postal, ship.zip, full.postalCode, full.postal), used);
+  const additional = uniqueReviewText(pickReviewText(
+    ship.additionalAddress, ship.additional, full.additionalAddress, ship.addressLine, full.addressLine, full.street
+  ), used);
+  const landmark = uniqueReviewText(pickReviewText(ship.note, full.note, ship.landmark, full.landmark), used);
+  return {
+    province,
+    district,
+    sector,
+    cell,
+    village,
+    street,
+    house,
+    building,
+    apartment,
+    postal,
+    additional,
+    landmark,
+    hasHierarchy: Boolean(province || district || sector || cell || village),
+    hasAny: Boolean(province || district || sector || cell || village || street || house || building || apartment || postal || additional || landmark)
+  };
+}
+
+function resolveReviewLocationRecord(order) {
+  const gps = coerceReviewObject(order?.gpsLocation);
+  const ship = coerceReviewObject(order?.shippingAddress || order?.deliveryAddress);
+  const latitude = pickReviewText(gps.latitude, ship.latitude, order?.latitude);
+  const longitude = pickReviewText(gps.longitude, ship.longitude, order?.longitude);
+  const explicitLink = pickReviewText(gps.googleMapsLink, gps.mapLink, ship.mapLink);
+  const locationName = pickReviewText(gps.name, gps.locationName, gps.displayName, ship.locationName);
+  const accuracy = pickReviewText(gps.accuracy, ship.locationAccuracy);
+  const capturedAt = pickReviewText(gps.capturedAt, ship.locationCapturedAt);
+  const latNum = Number(latitude);
+  const lngNum = Number(longitude);
+  const hasCoords = latitude !== "" && longitude !== ""
+    && Number.isFinite(latNum)
+    && Number.isFinite(lngNum)
+    && !(latNum === 0 && lngNum === 0);
+  const mapLink = explicitLink || (hasCoords ? resolveMapLink(order) : "");
+  return {
+    latitude: hasCoords ? latitude : "",
+    longitude: hasCoords ? longitude : "",
+    mapLink,
+    locationName,
+    accuracy,
+    capturedAt,
+    hasAny: Boolean((hasCoords && latitude) || mapLink || locationName)
+  };
+}
+
+function resolveReviewCustomerNotes(order, address) {
+  const ship = coerceReviewObject(order?.shippingAddress || order?.deliveryAddress);
+  const used = new Set();
+  [address?.landmark, address?.additional].forEach((value) => {
+    const key = sanitizeReviewText(value).replace(/\s+/g, " ").trim().toLowerCase();
+    if (key) used.add(key);
+  });
+  const instructions = uniqueReviewText(pickReviewText(
+    ship.deliveryInstructions, order?.deliveryInstructions, ship.instructions
+  ), used);
+  const notes = uniqueReviewText(pickReviewText(
+    order?.customerMessage, order?.orderNotes, order?.checkoutNotes, ship.customerNotes, order?.buyerNotes
+  ), used);
+  return { instructions, notes };
+}
+
+function renderReviewCustomerIdentity(order) {
+  const customer = resolveReviewCustomerRecord(order);
+  const phoneActions = customer.phone ? renderReviewContactActions(customer.phone, "") : "";
+  const emailActions = customer.email ? renderReviewContactActions("", customer.email) : "";
+  return `
+    <section class="orders-review-section" data-review-section="customer">
+      <h3>Customer Information</h3>
+      <div class="orders-review-card">
+        <div class="orders-review-customer-head">
+          <div class="orders-review-avatar" aria-hidden="true">${escapeHtml(customer.initial)}</div>
+          <div class="orders-review-customer-copy">
+            <strong class="orders-review-customer-name">${escapeHtml(customer.name)}</strong>
+            ${customer.isGuest ? `<span class="orders-review-customer-type">Guest checkout</span>` : `<span class="orders-review-customer-type">Registered customer</span>`}
+          </div>
+        </div>
+        <div class="orders-review-fields">
+          ${customer.customerId ? renderReviewField("Customer ID", customer.customerId) : ""}
+          ${renderReviewField("Phone", customer.phone || "Not provided", phoneActions)}
+          ${customer.email ? renderReviewField("Email", customer.email, emailActions) : ""}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderReviewDeliveryAddress(order) {
+  const address = resolveReviewAddressRecord(order);
+  if (!address.hasAny) return "";
+  const streetHouse = [address.street, address.house].filter(Boolean).join(", ");
+  const aptBuilding = [address.apartment, address.building].filter(Boolean).join(", ");
+  return `
+    <section class="orders-review-section" data-review-section="address">
+      <h3>Delivery Address</h3>
+      <div class="orders-review-card">
+        <div class="orders-review-fields">
+          ${address.hasHierarchy ? renderReviewField("Province / City", address.province || "Not provided") : ""}
+          ${address.hasHierarchy ? renderReviewField("District", address.district || "Not provided") : ""}
+          ${address.hasHierarchy ? renderReviewField("Sector", address.sector || "Not provided") : ""}
+          ${address.hasHierarchy ? renderReviewField("Cell", address.cell || "Not provided") : ""}
+          ${address.hasHierarchy ? renderReviewField("Village", address.village || "Not provided") : ""}
+          ${streetHouse ? renderReviewField("Street / House", streetHouse) : ""}
+          ${aptBuilding ? renderReviewField("Apartment / Building", aptBuilding) : ""}
+          ${address.postal ? renderReviewField("Postal Code", address.postal) : ""}
+          ${address.additional ? renderReviewField("Additional Address", address.additional) : ""}
+          ${address.landmark ? renderReviewField("Landmark / Note", address.landmark) : ""}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderReviewCustomerLocation(order) {
+  const location = resolveReviewLocationRecord(order);
+  if (!location.hasAny) return "";
+  const captured = location.capturedAt ? formatOrderRowDateTime(location.capturedAt) : null;
+  const capturedLabel = captured && captured.date !== "—"
+    ? [captured.date, captured.time].filter(Boolean).join(" • ")
+    : "";
+  const mapAction = location.mapLink
+    ? `<a class="orders-review-map-link" href="${escapeHtml(location.mapLink)}" target="_blank" rel="noopener noreferrer">View on Map</a>`
+    : "";
+  return `
+    <section class="orders-review-section" data-review-section="location">
+      <h3>Customer Location</h3>
+      <div class="orders-review-card">
+        <div class="orders-review-fields">
+          ${location.locationName ? renderReviewField("Location", location.locationName) : ""}
+          ${location.latitude ? renderReviewField("Latitude", location.latitude) : ""}
+          ${location.longitude ? renderReviewField("Longitude", location.longitude) : ""}
+          ${location.accuracy ? renderReviewField("Accuracy", location.accuracy) : ""}
+          ${capturedLabel ? renderReviewField("Captured", capturedLabel) : ""}
+        </div>
+        ${mapAction}
+      </div>
+    </section>
+  `;
+}
+
+function renderReviewCustomerNotesSections(order) {
+  const address = resolveReviewAddressRecord(order);
+  const { instructions, notes } = resolveReviewCustomerNotes(order, address);
+  const parts = [];
+  if (notes) {
+    parts.push(`
+      <section class="orders-review-section" data-review-section="notes">
+        <h3>Customer Notes</h3>
+        <div class="orders-review-card">${renderReviewNoteBlock(notes)}</div>
+      </section>
+    `);
+  }
+  if (instructions) {
+    parts.push(`
+      <section class="orders-review-section" data-review-section="instructions">
+        <h3>Delivery Instructions</h3>
+        <div class="orders-review-card">${renderReviewNoteBlock(instructions)}</div>
+      </section>
+    `);
+  }
+  return parts.join("");
+}
+
+function renderReviewCustomerPreview(order) {
+  return [
+    renderReviewCustomerIdentity(order),
+    renderReviewDeliveryAddress(order),
+    renderReviewCustomerLocation(order),
+    renderReviewCustomerNotesSections(order)
+  ].join("");
+}
+
+function renderReviewOrderItem(item) {
+  const productName = String(item?.productName || "Product").trim();
+  const imageSrc = resolveProductImage(item);
+  const sku = sanitizeReviewText(item?.sku);
+  const productId = sanitizeReviewText(item?.productId);
+  const variants = resolveReviewItemVariants(item);
+  const qty = Number(item?.quantity) || 1;
+  const unit = Number(item?.price) || 0;
+  const lineTotal = Number(item?.lineTotal != null ? item.lineTotal : unit * qty) || 0;
+  const placeholderLetter = escapeHtml(productName.slice(0, 1).toUpperCase() || "P");
+  return `
+    <article class="orders-review-item">
+      <div class="orders-review-item-media">
+        ${imageSrc
+          ? `<img src="${escapeHtml(imageSrc)}" alt="${escapeHtml(productName)}" loading="lazy" decoding="async" onerror="this.hidden=true;this.nextElementSibling.hidden=false;">`
+          : ""}
+        <div class="orders-review-item-ph" ${imageSrc ? "hidden" : ""} aria-hidden="true">${placeholderLetter}</div>
+      </div>
+      <div class="orders-review-item-body">
+        <h4 class="orders-review-item-name" title="${escapeHtml(productName)}">${escapeHtml(productName)}</h4>
+        ${productId ? `<p class="orders-review-item-id">Product ID: ${escapeHtml(productId)}</p>` : ""}
+        ${sku ? `<p class="orders-review-item-id">SKU: ${escapeHtml(sku)}</p>` : ""}
+        ${variants.map((line) => `<p class="orders-review-item-variant">${escapeHtml(line)}</p>`).join("")}
+        <p class="orders-review-item-qty">Qty: ${escapeHtml(qty)}</p>
+      </div>
+      <div class="orders-review-item-price">
+        ${qty > 1 ? `<span>${formatCurrency(unit)} × ${escapeHtml(qty)}</span>` : ""}
+        <strong>${formatCurrency(lineTotal)}</strong>
+      </div>
+    </article>
+  `;
+}
+
+function renderReviewOrderItems(order) {
+  const items = Array.isArray(order?.items) ? order.items : [];
+  const countLabel = items.length ? ` — ${items.length} item${items.length === 1 ? "" : "s"}` : "";
+  return `
+    <section class="orders-review-section" data-review-section="items">
+      <h3>Order Items${countLabel}</h3>
+      ${items.length
+        ? `<div class="orders-review-items">${items.map(renderReviewOrderItem).join("")}</div>`
+        : `<div class="orders-review-card"><p class="orders-review-empty">This order has no line items.</p></div>`}
+    </section>
+  `;
+}
+
+function renderReviewOrderSummary(order) {
+  const shipping = Number(order?.shippingCost || order?.deliveryFee || order?.shippingFee || 0);
+  const couponDiscount = Number(order?.couponDiscount || 0);
+  const discount = Number(order?.discount || order?.discountAmount || 0);
+  const tax = Number(order?.tax || 0);
+  const codFee = Number(order?.codFee || 0);
+  const subtotal = Number(order?.subtotal || 0);
+  const total = Number(order?.grandTotal || order?.total || 0);
+  const rows = [];
+  if (subtotal > 0) rows.push({ label: "Subtotal", value: formatCurrency(subtotal) });
+  if (shipping > 0) rows.push({ label: "Shipping", value: formatCurrency(shipping) });
+  if (couponDiscount > 0) {
+    const coupon = sanitizeReviewText(order?.couponCode);
+    rows.push({
+      label: coupon ? `Discount (${coupon})` : "Discount",
+      value: `− ${formatCurrency(couponDiscount)}`
+    });
+  } else if (discount > 0) {
+    rows.push({ label: "Discount", value: `− ${formatCurrency(discount)}` });
+  }
+  if (tax > 0) rows.push({ label: "Tax", value: formatCurrency(tax) });
+  if (codFee > 0) rows.push({ label: "COD Fee", value: formatCurrency(codFee) });
+  rows.push({ label: "Total", value: formatCurrency(total), total: true });
+  return `
+    <section class="orders-review-section" data-review-section="summary">
+      <h3>Order Summary</h3>
+      <div class="orders-review-card orders-review-summary">
+        ${rows.map((row) => `
+          <div class="orders-review-summary-row${row.total ? " is-total" : ""}">
+            <span>${escapeHtml(row.label)}</span>
+            <strong>${escapeHtml(row.value)}</strong>
+          </div>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function resolveReviewPaymentTimestamp(order) {
+  const payment = coerceReviewObject(order?.payment);
+  const gateway = coerceReviewObject(payment.gateway);
+  return pickReviewText(gateway.verifiedAt, gateway.updatedAt, gateway.initiatedAt, payment.paidAt, payment.confirmedAt);
+}
+
+function formatReviewDateTime(value) {
+  const text = sanitizeReviewText(value);
+  if (!text) return "";
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T12:00:00` : text;
+  const when = formatOrderRowDateTime(normalized);
+  if (when.date === "—") return text;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return when.date;
+  return [when.date, when.time].filter(Boolean).join(" • ");
+}
+
+function renderReviewPaymentPreview(order) {
+  const method = paymentLabel(order);
+  const status = titleCaseLabel(order?.paymentStatusLabel || order?.paymentStatus, "");
+  const paid = isSettledPaidStatus(order?.paymentStatusLabel || order?.paymentStatus);
+  const amount = Number(order?.grandTotal || order?.total || 0);
+  const currency = pickReviewText(order?.currency) || "RWF";
+  const payment = coerceReviewObject(order?.payment);
+  const gateway = coerceReviewObject(payment.gateway);
+  const transaction = coerceReviewObject(payment.transaction);
+  const transactionId = pickReviewText(
+    order?.transactionId,
+    gateway.transRef,
+    payment.transactionId,
+    transaction.reference
+  );
+  const paymentRef = pickReviewText(
+    order?.paymentReference,
+    order?.transactionReference,
+    payment.reference,
+    gateway.companyRef
+  );
+  const refs = [];
+  if (transactionId) refs.push({ label: "Transaction ID", value: transactionId });
+  if (paymentRef && paymentRef !== transactionId) refs.push({ label: "Payment Reference", value: paymentRef });
+  const payerPhone = pickReviewText(order?.payerPhone, payment.payerPhone);
+  const note = pickReviewText(order?.paymentNote, payment.note);
+  const paidAt = formatReviewDateTime(resolveReviewPaymentTimestamp(order));
+  const mode = resolveAdminPaymentMode(order);
+  const fields = [
+    method && method !== "—" ? renderReviewField("Payment Method", method) : "",
+    status ? renderReviewField("Payment Status", status) : "",
+    Number.isFinite(amount) ? renderReviewField(paid ? "Amount Paid" : "Amount", formatCurrency(amount)) : "",
+    currency ? renderReviewField("Currency", currency) : "",
+    ...refs.map((row) => renderReviewField(row.label, row.value, "", { copyable: true })),
+    paidAt ? renderReviewField("Payment Date", paidAt) : "",
+    payerPhone ? renderReviewField("Payer Phone", payerPhone) : "",
+    mode && mode !== "—" ? renderReviewField("Mode", mode) : "",
+    note ? renderReviewField("Note", note) : ""
+  ].filter(Boolean);
+  if (!fields.length) return "";
+  return `
+    <section class="orders-review-section" data-review-section="payment">
+      <h3>Payment Details</h3>
+      <div class="orders-review-card">
+        <div class="orders-review-fields">${fields.join("")}</div>
+      </div>
+    </section>
+  `;
+}
+
+function resolveReviewDeliverySummary(order) {
+  const address = resolveReviewAddressRecord(order);
+  const line1 = [address.sector, address.district].filter(Boolean).join(", ");
+  const line2 = address.province;
+  return [line1, line2].filter(Boolean).join("\n");
+}
+
+function renderReviewDeliverySection(order) {
+  const method = pickReviewText(order?.deliveryLabel, order?.deliveryMethod === "delivery" ? "Home Delivery" : order?.deliveryMethod);
+  const status = titleCaseLabel(order?.deliveryStatus || order?.shippingStatus || order?.status || order?.orderStatus, "");
+  const shipping = Number(order?.shippingCost || order?.deliveryFee || order?.shippingFee || 0);
+  const addressSummary = resolveReviewDeliverySummary(order);
+  const tracking = pickReviewText(order?.trackingNumber);
+  const provider = pickReviewText(order?.deliveryProvider);
+  const meta = getOrderMeta(order?.orderId || order?.id);
+  const estimateRaw = pickReviewText(order?.deliveryEstimate, order?.estimatedDelivery, meta.estimatedDelivery);
+  const estimate = formatReviewDateTime(estimateRaw) || estimateRaw;
+  const deliveredAt = /deliver|complete/i.test(String(order?.status || order?.orderStatus || ""))
+    ? formatReviewDateTime(resolveCompletionDate(order))
+    : "";
+  const fields = [
+    method ? renderReviewField("Delivery Method", titleCaseLabel(method, method)) : "",
+    status ? renderReviewField("Delivery Status", status) : "",
+    addressSummary ? renderReviewField("Address", addressSummary) : "",
+    shipping > 0 ? renderReviewField("Shipping Fee", formatCurrency(shipping)) : "",
+    provider ? renderReviewField("Delivery Provider", provider) : "",
+    tracking ? renderReviewField("Tracking Number", tracking, "", { copyable: true }) : "",
+    estimate ? renderReviewField("Estimated Delivery", estimate) : "",
+    deliveredAt ? renderReviewField("Delivered", deliveredAt) : ""
+  ].filter(Boolean);
+  if (!fields.length) return "";
+  return `
+    <section class="orders-review-section" data-review-section="delivery">
+      <h3>Delivery Details</h3>
+      <div class="orders-review-card">
+        <div class="orders-review-fields">${fields.join("")}</div>
+      </div>
+    </section>
+  `;
+}
+
+function timelineLabelKey(label) {
+  return String(label || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function reviewEventTime(value, fallback = 0) {
+  const time = new Date(value || 0).getTime();
+  return Number.isFinite(time) && time > 0 ? time : fallback;
+}
+
+function buildReviewTimelineEvents(order) {
+  const events = [];
+  const seen = new Set();
+
+  const pushEvent = (event) => {
+    const key = timelineLabelKey(event.label);
+    if (!key) return;
+    if (event.state !== "upcoming" && seen.has(key)) return;
+    if (event.state !== "upcoming") seen.add(key);
+    events.push(event);
+  };
+
+  const placedAt = order?.createdAt || order?.date || "";
+  pushEvent({
+    label: "Order Placed",
+    timestamp: placedAt,
+    state: "done",
+    note: ""
+  });
+
+  const history = (Array.isArray(order?.statusHistory) ? order.statusHistory : [])
+    .map((entry) => ({
+      label: pickReviewText(entry.label, entry.status),
+      timestamp: entry.timestamp || entry.at || entry.createdAt || "",
+      note: pickReviewText(entry.note, entry.reason)
+    }))
+    .filter((entry) => entry.label)
+    .sort((a, b) => reviewEventTime(a.timestamp, reviewEventTime(placedAt)) - reviewEventTime(b.timestamp, reviewEventTime(placedAt)));
+
+  history.forEach((entry) => {
+    if (/^(creat|received|placed|pending|order received)/i.test(entry.label)) return;
+    pushEvent({
+      label: titleCaseLabel(entry.label, entry.label),
+      timestamp: entry.timestamp,
+      state: "done",
+      note: entry.note
+    });
+  });
+
+  const paymentStatus = order?.paymentStatusLabel || order?.paymentStatus || "";
+  if (isSettledPaidStatus(paymentStatus) && ![...seen].some((key) => /payment|paid/.test(key))) {
+    pushEvent({
+      label: "Payment Received",
+      timestamp: resolveReviewPaymentTimestamp(order),
+      state: "done",
+      note: ""
+    });
+  }
+
+  const status = String(order?.status || order?.orderStatus || "").toLowerCase();
+  const cancelled = status.includes("cancel");
+  const returned = status.includes("return") || status.includes("refund");
+  const progress = resolveAllOrdersProgress(order);
+  const hasPaymentEvent = [...seen].some((key) => /payment|paid/.test(key));
+  const currentStage = progress.find((stage) => stage.state === "current");
+  if (
+    currentStage
+    && currentStage.label !== "Order Placed"
+    && !seen.has(timelineLabelKey(currentStage.label))
+    && !(currentStage.key === "payment" && hasPaymentEvent)
+  ) {
+    const updatedAt = order?.updatedAt || "";
+    const updatedTime = reviewEventTime(updatedAt);
+    const placedTime = reviewEventTime(placedAt);
+    pushEvent({
+      label: currentStage.label,
+      timestamp: updatedTime > placedTime ? updatedAt : "",
+      state: "current",
+      note: ""
+    });
+  }
+
+  const upcoming = [];
+  if (!cancelled && !returned) {
+    progress.forEach((stage) => {
+      if (stage.state !== "upcoming") return;
+      if (seen.has(timelineLabelKey(stage.label))) return;
+      if (stage.key === "payment" && hasPaymentEvent) return;
+      if (stage.key === "placed") return;
+      upcoming.push({
+        label: stage.label,
+        timestamp: "",
+        state: "upcoming",
+        note: "Not completed"
+      });
+    });
+  }
+
+  const recorded = events.filter((event) => event.state !== "upcoming");
+  recorded.sort((a, b) => reviewEventTime(a.timestamp, reviewEventTime(placedAt)) - reviewEventTime(b.timestamp, reviewEventTime(placedAt)));
+  return recorded.concat(upcoming);
+}
+
+function renderReviewTimelineSection(order) {
+  const events = buildReviewTimelineEvents(order);
+  if (!events.length) return "";
+  return `
+    <section class="orders-review-section" data-review-section="timeline">
+      <h3>Order Timeline</h3>
+      <ol class="orders-review-timeline">
+        ${events.map((event) => {
+          const when = event.timestamp ? formatReviewDateTime(event.timestamp) : "";
+          const stateLabel = event.state === "upcoming"
+            ? "Not completed"
+            : event.state === "current"
+              ? "Current"
+              : "Completed";
+          return `
+            <li class="orders-review-timeline__item" data-state="${escapeHtml(event.state || "done")}">
+              <span class="orders-review-timeline__dot" aria-hidden="true"></span>
+              <div class="orders-review-timeline__copy">
+                <strong>${escapeHtml(event.label)}</strong>
+                ${event.note && event.state !== "upcoming" ? `<span>${escapeHtml(event.note)}</span>` : ""}
+                <small>${escapeHtml(when || (event.state === "upcoming" ? "Not completed" : stateLabel))}</small>
+              </div>
+            </li>
+          `;
+        }).join("")}
+      </ol>
+    </section>
+  `;
+}
+
+function renderReviewDrawerLoading() {
+  return `
+    <div class="orders-review-state" aria-busy="true">
+      <div class="orders-review-skeleton" aria-hidden="true">
+        <div class="orders-skeleton-line"></div>
+        <div class="orders-skeleton-line orders-skeleton-line--mid"></div>
+        <div class="orders-skeleton-line orders-skeleton-line--short"></div>
+        <div class="orders-review-skeleton-item">
+          <div class="orders-skeleton-line orders-skeleton-line--media"></div>
+          <div class="orders-skeleton-copy">
+            <div class="orders-skeleton-line"></div>
+            <div class="orders-skeleton-line orders-skeleton-line--short"></div>
+          </div>
+        </div>
+      </div>
+      <p>Loading order information...</p>
+    </div>
+  `;
+}
+
+function renderReviewDrawerError(orderId = "") {
+  return `
+    <div class="orders-review-state orders-review-state--error">
+      <h3>Unable to load order information.</h3>
+      <p>Please try again.</p>
+      <button type="button" class="orders-tool-btn orders-tool-btn--primary" data-review-retry data-order-id="${escapeHtml(orderId)}">Try again</button>
+    </div>
+  `;
+}
+
+function renderReviewActions(order) {
+  const ctx = getOrderActionContext(order);
+  const busy = Boolean(reviewDrawer.busy);
+  const disabled = busy ? "disabled" : "";
+  const primaryLabel = busy ? "Updating..." : (ctx.statusOptions.length === 1 && ctx.statusOptions[0] === "Pending" ? "Restore Order" : "Update Status");
+  const secondary = [
+    `<button type="button" class="orders-tool-btn" data-order-action="view-invoice" data-order-id="${escapeHtml(ctx.id)}" ${disabled}>View Invoice</button>`,
+    `<button type="button" class="orders-tool-btn" data-order-action="invoice" data-order-id="${escapeHtml(ctx.id)}" ${disabled}>Print</button>`,
+    ctx.telHref ? `<a class="orders-tool-btn" href="${escapeHtml(ctx.telHref)}">Call Customer</a>` : "",
+    ctx.mailHref ? `<a class="orders-tool-btn" href="${escapeHtml(ctx.mailHref)}">Email Customer</a>` : ""
+  ].filter(Boolean).join("");
+
+  return `
+    <section class="orders-review-section orders-review-actions" data-review-section="actions" aria-label="Order actions">
+      ${ctx.statusOptions.length ? `<button type="button" class="orders-tool-btn orders-tool-btn--primary orders-review-action-primary" data-order-action="update-status" data-order-id="${escapeHtml(ctx.id)}" ${disabled}>${escapeHtml(primaryLabel)}</button>` : ""}
+      ${secondary ? `<div class="orders-review-actions__secondary">${secondary}</div>` : ""}
+      ${ctx.canCancel ? `<button type="button" class="orders-tool-btn orders-tool-btn--danger orders-review-action-danger" data-order-action="cancel" data-order-id="${escapeHtml(ctx.id)}" ${disabled}>Cancel Order</button>` : ""}
+    </section>
+  `;
+}
+
+function renderReviewDrawerBody(order) {
+  return [
+    renderReviewOrderInformation(order),
+    renderReviewCustomerPreview(order),
+    renderReviewOrderItems(order),
+    renderReviewOrderSummary(order),
+    renderReviewPaymentPreview(order),
+    renderReviewDeliverySection(order),
+    renderReviewTimelineSection(order),
+    renderReviewActions(order)
+  ].join("");
+}
+
+function renderReviewDrawerMarkup(order, { loading = false, error = false } = {}) {
+  const orderNumber = order ? resolveOrderIdentifiers(order).orderNumber : reviewDrawer.orderId;
+  const when = order ? formatOrderRowDateTime(order.date || order.createdAt) : { date: "", time: "" };
+  const status = order ? (order.status || order.orderStatus || "") : "";
+  const subtitle = [when.date && when.date !== "—" ? when.date : "", when.time].filter(Boolean).join(" • ");
+  return `
+    <div class="orders-review-backdrop" data-review-close></div>
+    <aside class="orders-review-drawer" role="dialog" aria-modal="true" aria-labelledby="ordersReviewTitle" tabindex="-1"${loading || reviewDrawer.busy ? " aria-busy=\"true\"" : ""}>
+      <header class="orders-review-header">
+        <button type="button" class="orders-review-back" data-review-close aria-label="Back to orders list">←</button>
+        <div class="orders-review-header__copy">
+          <p class="orders-review-kicker">Order Details</p>
+          <h2 id="ordersReviewTitle">${orderNumber ? `#${escapeHtml(orderNumber)}` : "Order Details"}</h2>
+          ${subtitle ? `<p class="orders-review-header__meta">${escapeHtml(subtitle)}</p>` : ""}
+        </div>
+        <div class="orders-review-header__aside">
+          ${status ? renderOrderRowStatusBadge(status) : ""}
+          <button type="button" class="orders-review-close" data-review-close aria-label="Close order details">✕</button>
+        </div>
+      </header>
+      <div class="orders-review-body">
+        ${loading ? renderReviewDrawerLoading() : ""}
+        ${error && !loading ? renderReviewDrawerError(reviewDrawer.orderId) : ""}
+        ${order && !loading && !error ? renderReviewDrawerBody(order) : ""}
+      </div>
+    </aside>
+  `;
+}
+
+function ensureReviewDrawerHost() {
+  let host = document.getElementById("ordersReviewDrawerHost");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "ordersReviewDrawerHost";
+    host.className = "orders-review-host";
+    host.hidden = true;
+    document.body.appendChild(host);
+  }
+  if (host.dataset.bound !== "1") {
+    host.dataset.bound = "1";
+    host.addEventListener("click", (event) => {
+      if (event.target.closest("[data-review-retry]")) {
+        retryReviewDrawer();
+        return;
+      }
+      if (event.target.closest("[data-review-close]")) {
+        closeReviewDrawer();
+        return;
+      }
+      const actionBtn = event.target.closest("[data-order-action]");
+      if (actionBtn) {
+        const action = actionBtn.getAttribute("data-order-action");
+        const orderId = actionBtn.getAttribute("data-order-id");
+        if (actionBtn.hasAttribute("disabled") || reviewDrawer.busy) return;
+        if (typeof reviewDrawer.handleAction === "function") {
+          void reviewDrawer.handleAction(action, orderId);
+        }
+      }
+    });
+    host.addEventListener("keydown", (event) => {
+      if (event.key !== "Tab" || host.hidden) return;
+      const focusables = getReviewDrawerFocusables(host);
+      if (focusables.length < 2) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
+  }
+  return host;
+}
+
+function paintReviewDrawer({ order = null, loading = false, error = false, focus = true } = {}) {
+  const host = ensureReviewDrawerHost();
+  const previousBody = host.querySelector(".orders-review-body");
+  const scrollTop = !focus && previousBody ? previousBody.scrollTop : 0;
+  host.innerHTML = renderReviewDrawerMarkup(order, { loading, error });
+  host.hidden = false;
+  setReviewDrawerScrollLock(true);
+  if (!focus) {
+    const nextBody = host.querySelector(".orders-review-body");
+    if (nextBody) nextBody.scrollTop = scrollTop;
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    const closeBtn = host.querySelector(".orders-review-close");
+    (closeBtn || host.querySelector(".orders-review-drawer"))?.focus();
+  });
+}
+
+function closeReviewDrawer({ restoreFocus = true } = {}) {
+  const host = document.getElementById("ordersReviewDrawerHost");
+  if (host) {
+    host.hidden = true;
+    host.innerHTML = "";
+  }
+  reviewDrawer.orderId = "";
+  setReviewDrawerScrollLock(false);
+  const previous = reviewDrawer.previousFocus;
+  reviewDrawer.previousFocus = null;
+  if (restoreFocus && previous && typeof previous.focus === "function") {
+    try {
+      previous.focus();
+    } catch (_error) {
+      /* ignore */
+    }
+  }
+}
+
+function retryReviewDrawer() {
+  const orderId = reviewDrawer.orderId;
+  if (!orderId) return;
+  const resolved = typeof reviewDrawer.resolveOrder === "function" ? reviewDrawer.resolveOrder(orderId) : null;
+  if (resolved) {
+    paintReviewDrawer({ order: resolved });
+    return;
+  }
+  paintReviewDrawer({ loading: true, error: false });
+  if (typeof reviewDrawer.reloadAndResolve === "function") {
+    void reviewDrawer.reloadAndResolve(orderId);
+    return;
+  }
+  paintReviewDrawer({ error: true });
+}
+
+function openReviewDrawer(orderId, order = null) {
+  const id = String(orderId || "").trim();
+  if (!id) return;
+  reviewDrawer.orderId = id;
+  if (!reviewDrawer.previousFocus && document.activeElement instanceof HTMLElement) {
+    reviewDrawer.previousFocus = document.activeElement;
+  }
+  const resolved = order || (typeof reviewDrawer.resolveOrder === "function" ? reviewDrawer.resolveOrder(id) : null);
+  if (resolved) {
+    paintReviewDrawer({ order: resolved });
+    return;
+  }
+  paintReviewDrawer({ loading: true });
+  if (typeof reviewDrawer.reloadAndResolve === "function") {
+    void reviewDrawer.reloadAndResolve(id);
+    return;
+  }
+  paintReviewDrawer({ error: true });
+}
+
+function refreshOpenReviewDrawer() {
+  if (!isReviewDrawerOpen() || !reviewDrawer.orderId) return;
+  const resolved = typeof reviewDrawer.resolveOrder === "function" ? reviewDrawer.resolveOrder(reviewDrawer.orderId) : null;
+  if (resolved) {
+    paintReviewDrawer({ order: resolved, focus: false });
+    return;
+  }
+  const host = document.getElementById("ordersReviewDrawerHost");
+  const waiting = Boolean(host?.querySelector(".orders-review-state"));
+  if (waiting) paintReviewDrawer({ error: true, focus: false });
+}
+
+function renderAllOrdersProductStrip(items = []) {
   const list = Array.isArray(items) ? items : [];
   if (!list.length) {
     return `
-      <div class="order-card-product order-card-product--empty">
-        <div class="order-card-product-media">
-          <div class="order-card-product-ph" aria-hidden="true">—</div>
+      <div class="order-row-product order-row-product--empty">
+        <div class="order-row-product-media">
+          <div class="order-row-product-ph" aria-hidden="true">—</div>
         </div>
-        <div class="order-card-product-body">
-          <p class="order-card-product-name">No products</p>
-          <p class="order-card-product-variant">This order has no line items.</p>
-          ${orderId ? `<p class="order-card-order-ref">#${escapeHtml(orderId)}</p>` : ""}
+        <div class="order-row-product-body">
+          <p class="order-row-product-name">No products</p>
+          <p class="order-row-product-meta">This order has no line items.</p>
         </div>
       </div>
     `;
@@ -1102,71 +2495,58 @@ function renderAllOrdersProductStrip(items = [], orderId = "") {
 
   const primary = list[0] || {};
   const imageSrc = resolveProductImage(primary);
-  const image = imageSrc
-    ? `<img src="${escapeHtml(imageSrc)}" alt="${escapeHtml(primary.productName || "Product")}" loading="lazy" decoding="async" />`
-    : `<div class="order-card-product-ph" aria-hidden="true">${escapeHtml(String(primary.productName || "P").slice(0, 1).toUpperCase())}</div>`;
+  const productName = String(primary.productName || "Product").trim();
+  const sku = String(primary.sku || "").trim();
+  const productId = String(primary.productId || "").trim();
+  const identityLabel = sku ? `SKU ${sku}` : (productId ? `ID ${productId}` : "");
   const variant = resolveProductVariant(primary);
   const qty = Number(primary.quantity) || 1;
-  const unit = Number(primary.price) || 0;
-  const lineTotal = Number(primary.lineTotal != null ? primary.lineTotal : unit * qty) || 0;
   const extraCount = Math.max(0, list.length - 1);
+  const metaParts = [
+    identityLabel,
+    `Qty ${qty}`,
+    variant,
+    extraCount ? `+${extraCount} more` : ""
+  ].filter(Boolean);
+  const placeholderLetter = escapeHtml(productName.slice(0, 1).toUpperCase() || "P");
 
   return `
-    <div class="order-card-product">
-      <div class="order-card-product-media">
-        ${image}
-        ${extraCount ? `<span class="order-card-product-count" title="${extraCount} more item${extraCount === 1 ? "" : "s"}">+${extraCount}</span>` : ""}
+    <div class="order-row-product">
+      <div class="order-row-product-media">
+        ${imageSrc
+          ? `<img src="${escapeHtml(imageSrc)}" alt="${escapeHtml(productName)}" loading="lazy" decoding="async" onerror="this.hidden=true;this.nextElementSibling.hidden=false;">`
+          : ""}
+        <div class="order-row-product-ph" ${imageSrc ? "hidden" : ""} aria-hidden="true">${placeholderLetter}</div>
+        ${extraCount ? `<span class="order-row-product-count" title="${extraCount} more item${extraCount === 1 ? "" : "s"}">+${extraCount}</span>` : ""}
       </div>
-      <div class="order-card-product-body">
-        <p class="order-card-product-name">${escapeHtml(primary.productName || "Product")}</p>
-        <p class="order-card-product-variant">${escapeHtml(variant || "Standard")}</p>
-        <div class="order-card-product-pricing">
-          <span class="order-card-qty">Qty ${escapeHtml(qty)}</span>
-          <span class="order-card-unit">${formatCurrency(unit)}</span>
-          <strong class="order-card-total">${formatCurrency(lineTotal)}</strong>
-        </div>
-        ${orderId ? `<p class="order-card-order-ref">Order #${escapeHtml(orderId)}</p>` : ""}
+      <div class="order-row-product-body">
+        <p class="order-row-product-name" title="${escapeHtml(productName)}">${escapeHtml(productName)}</p>
+        <p class="order-row-product-meta" title="${escapeHtml(metaParts.join(" · "))}">${escapeHtml(metaParts.join(" · "))}</p>
       </div>
     </div>
   `;
 }
 
 function renderAllOrdersActions(order, expanded = false) {
-  const id = escapeHtml(order.orderId || order.id);
-  const phone = escapeHtml(order.customerPhone || order.shippingAddress?.phone || "");
-  const email = escapeHtml(order.customerEmail || "");
-  const mapLink = resolveMapLink(order);
+  const ctx = getOrderActionContext(order);
+  const id = escapeHtml(ctx.id);
   const detailsId = `order-details-${id}`;
-  const currentStatus = String(order.status || order.orderStatus || "Pending");
+  const restoreLabel = ctx.statusOptions.length === 1 && ctx.statusOptions[0] === "Pending" ? "Restore Order" : "Update Status";
 
   return `
-    <div class="order-card-actions" data-order-actions="${id}">
-      <div class="order-card-quick" role="group" aria-label="Quick actions">
-        <button type="button" class="order-quick-btn order-quick-btn--primary" data-order-action="toggle" data-order-id="${id}" aria-expanded="${expanded ? "true" : "false"}" aria-controls="${detailsId}" title="View details">${expanded ? "Hide" : "View"}</button>
-        ${phone ? `<a class="order-quick-btn" href="tel:${phone}" title="Contact customer">Call</a>` : ""}
-        ${phone ? `<button type="button" class="order-quick-btn" data-order-action="copy-phone" data-order-id="${id}" title="Copy phone">Phone</button>` : ""}
-        <button type="button" class="order-quick-btn" data-order-action="copy-address" data-order-id="${id}" title="Copy delivery address">Address</button>
-        ${mapLink ? `<a class="order-quick-btn" href="${escapeHtml(mapLink)}" target="_blank" rel="noopener noreferrer" title="Open Google Maps">Maps</a>` : ""}
-        <button type="button" class="order-quick-btn" data-order-action="invoice" data-order-id="${id}" title="Print invoice">Invoice</button>
-      </div>
-      <div class="order-card-status-quick">
-        <label class="sr-only" for="order-status-quick-${id}">Update status</label>
-        <select id="order-status-quick-${id}" class="order-status-quick-select" data-order-status="${id}" aria-label="Update order status">
-          ${STATUS_OPTIONS.map((status) => (
-            `<option value="${escapeHtml(status)}" ${status.toLowerCase() === currentStatus.toLowerCase() ? "selected" : ""}>${escapeHtml(status)}</option>`
-          )).join("")}
-        </select>
-      </div>
+    <div class="order-row-actions" data-order-actions="${id}">
       <details class="order-card-more">
-        <summary aria-label="More actions for order ${id}">⋮</summary>
+        <summary class="order-row-more-btn" aria-label="Actions for order ${id}" aria-haspopup="menu" title="Actions">⋮</summary>
         <div class="order-card-more-menu" role="menu">
+          <button type="button" role="menuitem" data-order-action="review" data-order-id="${id}">Review Information</button>
+          ${ctx.statusOptions.length ? `<button type="button" role="menuitem" data-order-action="update-status" data-order-id="${id}">${escapeHtml(restoreLabel)}</button>` : ""}
+          <button type="button" role="menuitem" data-order-action="view-invoice" data-order-id="${id}">View Invoice</button>
           <button type="button" role="menuitem" data-order-action="invoice" data-order-id="${id}">Print Invoice</button>
+          ${ctx.telHref ? `<a role="menuitem" href="${escapeHtml(ctx.telHref)}">Call Customer</a>` : ""}
+          ${ctx.mailHref ? `<a role="menuitem" href="${escapeHtml(ctx.mailHref)}">Email Customer</a>` : ""}
+          <button type="button" role="menuitem" data-order-action="toggle" data-order-id="${id}" aria-expanded="${expanded ? "true" : "false"}" aria-controls="${detailsId}">${expanded ? "Hide Details" : "View Details"}</button>
           <button type="button" role="menuitem" data-order-action="packing" data-order-id="${id}">Print Packing Slip</button>
-          <button type="button" role="menuitem" data-order-action="payment" data-order-id="${id}">View Payment Details</button>
-          <button type="button" role="menuitem" data-order-action="copy-customer" data-order-id="${id}">Copy Customer Info</button>
-          ${phone ? `<a role="menuitem" href="tel:${phone}">Contact Customer</a>` : ""}
-          ${email ? `<a role="menuitem" href="mailto:${email}">Email Customer</a>` : ""}
-          ${mapLink ? `<a role="menuitem" href="${escapeHtml(mapLink)}" target="_blank" rel="noopener noreferrer">Open Location in Maps</a>` : ""}
+          ${ctx.canCancel ? `<button type="button" role="menuitem" class="orders-danger-button" data-order-action="cancel" data-order-id="${id}">Cancel Order</button>` : ""}
           ${canBulkDeleteOrder(order) ? `<button type="button" role="menuitem" class="orders-danger-button" data-order-action="delete-one" data-order-id="${id}">Delete Order</button>` : ""}
         </div>
       </details>
@@ -1462,9 +2842,8 @@ function renderAllOrdersDetailProduct(item) {
 }
 
 function renderAllOrdersQuickActions(order) {
-  const id = escapeHtml(order.orderId || order.id);
-  const phone = escapeHtml(order.customerPhone || order.shippingAddress?.phone || "");
-  const email = escapeHtml(order.customerEmail || "");
+  const ctx = getOrderActionContext(order);
+  const id = escapeHtml(ctx.id);
   const mapLink = resolveMapLink(order);
 
   return `
@@ -1472,10 +2851,8 @@ function renderAllOrdersQuickActions(order) {
       <div class="order-details-actions__primary">
         <button type="button" class="order-qa-btn order-qa-btn--primary" data-order-action="invoice" data-order-id="${id}">Print Invoice</button>
         <button type="button" class="order-qa-btn" data-order-action="packing" data-order-id="${id}">Print Packing Slip</button>
-        ${phone ? `<a class="order-qa-btn" href="tel:${phone}">Contact Customer</a>` : `<button type="button" class="order-qa-btn" disabled aria-disabled="true">Contact Customer</button>`}
-        ${mapLink
-          ? `<a class="order-qa-btn" href="${escapeHtml(mapLink)}" target="_blank" rel="noopener noreferrer">Open in Maps</a>`
-          : `<button type="button" class="order-qa-btn" disabled aria-disabled="true">Open in Maps</button>`}
+        ${ctx.telHref ? `<a class="order-qa-btn" href="${escapeHtml(ctx.telHref)}">Call Customer</a>` : ""}
+        ${mapLink ? `<a class="order-qa-btn" href="${escapeHtml(mapLink)}" target="_blank" rel="noopener noreferrer">Open in Maps</a>` : ""}
         <button type="button" class="order-qa-btn" data-order-action="copy-customer" data-order-id="${id}">Copy Customer</button>
         <button type="button" class="order-qa-btn" data-order-action="copy-address" data-order-id="${id}">Copy Address</button>
         <button type="button" class="order-qa-btn" data-order-action="download-invoice" data-order-id="${id}">Download PDF</button>
@@ -1483,7 +2860,7 @@ function renderAllOrdersQuickActions(order) {
           <summary class="order-qa-btn" aria-label="More order actions">More</summary>
           <div class="order-qa-more-menu" role="menu">
             <button type="button" role="menuitem" data-order-action="payment" data-order-id="${id}">View Payment Details</button>
-            ${email ? `<a role="menuitem" href="mailto:${email}">Email Customer</a>` : ""}
+            ${ctx.mailHref ? `<a role="menuitem" href="${escapeHtml(ctx.mailHref)}">Email Customer</a>` : ""}
             <button type="button" role="menuitem" data-order-action="summary" data-order-id="${id}">Print Order Summary</button>
             <button type="button" role="menuitem" data-order-action="toggle" data-order-id="${id}">Hide Details</button>
           </div>
@@ -1743,15 +3120,19 @@ function renderTimeline(order, viewMode = "all") {
 }
 
 function renderStatusSelect(order) {
-  const current = String(order.status || order.orderStatus || "Pending");
-  const options = STATUS_OPTIONS.map((status) => (
+  const current = getOrderStatusLabel(order);
+  const allowed = [current, ...getValidStatusTransitions(order)].filter((status, index, list) => (
+    list.findIndex((item) => item.toLowerCase() === status.toLowerCase()) === index
+  ));
+  const locked = allowed.length <= 1;
+  const options = allowed.map((status) => (
     `<option value="${escapeHtml(status)}" ${status.toLowerCase() === current.toLowerCase() ? "selected" : ""}>${escapeHtml(status)}</option>`
   )).join("");
 
   return `
     <label class="orders-status-control">
       <span>Update Order Status</span>
-      <select data-order-status="${escapeHtml(order.orderId || order.id)}">${options}</select>
+      <select data-order-status="${escapeHtml(order.orderId || order.id)}" ${locked ? "disabled" : ""} aria-label="Update order status">${options}</select>
     </label>
   `;
 }
@@ -1823,31 +3204,62 @@ function renderActions(order, viewMode = "all") {
   `;
 }
 
-function renderAllOrdersGroupedList(orders = [], expandedId = "", selectedIds = []) {
-  const groups = groupOrdersByDate(orders);
-  if (!groups.length) return "";
+function renderAllOrdersGroupedList(orders = [], expandedId = "", selectedIds = [], { groupByDate = true, newestFirst = true } = {}) {
   const selectedSet = selectedIds instanceof Set
     ? selectedIds
     : new Set((Array.isArray(selectedIds) ? selectedIds : []).map(String));
+  if (!orders.length) return "";
 
-  return groups.map((group) => `
-    <section class="orders-date-group" data-date-group="${escapeHtml(group.key)}" aria-labelledby="orders-group-${escapeHtml(group.key)}">
-      <header class="orders-date-group__header">
-        <div class="orders-date-group__heading">
-          <h3 id="orders-group-${escapeHtml(group.key)}" class="orders-date-group__title">${escapeHtml(group.label)}</h3>
-          <span class="orders-date-group__count">${group.count} order${group.count === 1 ? "" : "s"}</span>
-        </div>
-        <div class="orders-date-group__rule" aria-hidden="true"></div>
-      </header>
-      <div class="orders-date-group__list">
-        ${group.orders.map((order) => renderOrderCard(order, {
-          expanded: String(order.orderId || order.id) === String(expandedId),
-          viewMode: "all",
-          selectedIds: selectedSet
-        })).join("")}
-      </div>
-    </section>
-  `).join("");
+  const listHead = `
+      <div class="orders-list-head" aria-hidden="true">
+        <span class="order-row-col order-row-col--check"></span>
+        <span class="order-row-col order-row-col--order">Order</span>
+        <span class="order-row-col order-row-col--customer">Customer</span>
+        <span class="order-row-col order-row-col--product">Product</span>
+        <span class="order-row-col order-row-col--total">Total</span>
+        <span class="order-row-col order-row-col--payment">Payment</span>
+        <span class="order-row-col order-row-col--status">Status</span>
+        <span class="order-row-col order-row-col--date">Date</span>
+        <span class="order-row-col order-row-col--actions"></span>
+      </div>`;
+
+  const renderCards = (list) => list.map((order) => renderOrderCard(order, {
+    expanded: String(order.orderId || order.id) === String(expandedId),
+    viewMode: "all",
+    selectedIds: selectedSet
+  })).join("");
+
+  if (!groupByDate) {
+    return `
+    <div class="orders-list-shell">
+      ${listHead}
+      <div class="orders-date-group__list">${renderCards(orders)}</div>
+    </div>
+  `;
+  }
+
+  const groups = groupOrdersByDate(orders, { newestFirst });
+  if (!groups.length) return "";
+
+  return `
+    <div class="orders-list-shell">
+      ${listHead}
+      ${groups.map((group) => `
+        <section class="orders-date-group" data-date-group="${escapeHtml(group.key)}" aria-labelledby="orders-group-${escapeHtml(group.key)}">
+          <header class="orders-date-group__header">
+            <div class="orders-date-group__heading">
+              <h3 id="orders-group-${escapeHtml(group.key)}" class="orders-date-group__title">${escapeHtml(group.label)}</h3>
+              <span class="orders-date-group__count">${group.count} order${group.count === 1 ? "" : "s"}</span>
+            </div>
+            <div class="orders-date-group__rule" aria-hidden="true"></div>
+          </header>
+          <div class="orders-date-group__list">
+            ${renderCards(group.orders)}
+          </div>
+        </section>
+      `).join("")}
+    </div>
+  `;
 }
 
 function renderAllOrdersBulkBar(selectedCount = 0, pageCount = 0, busy = false, pageSelectedCount = 0) {
@@ -1884,14 +3296,18 @@ function renderAllOrdersBulkBar(selectedCount = 0, pageCount = 0, busy = false, 
 
 function renderAllOrdersSkeleton() {
   return `
-    <div class="orders-skeleton" aria-hidden="true">
-      ${Array.from({ length: 4 }).map(() => `
+    <div class="orders-skeleton" aria-busy="true" aria-label="Loading orders">
+      ${Array.from({ length: 5 }).map(() => `
         <div class="orders-skeleton-card">
+          <div class="orders-skeleton-line orders-skeleton-line--check"></div>
           <div class="orders-skeleton-line orders-skeleton-line--media"></div>
           <div class="orders-skeleton-copy">
             <div class="orders-skeleton-line"></div>
             <div class="orders-skeleton-line orders-skeleton-line--short"></div>
+          </div>
+          <div class="orders-skeleton-copy orders-skeleton-copy--side">
             <div class="orders-skeleton-line orders-skeleton-line--mid"></div>
+            <div class="orders-skeleton-line orders-skeleton-line--short"></div>
           </div>
         </div>
       `).join("")}
@@ -1899,39 +3315,55 @@ function renderAllOrdersSkeleton() {
   `;
 }
 
-function renderAllOrdersEmptyState({ hasOrders = false, hasQuery = false, hasFilters = false } = {}) {
+function renderAllOrdersEmptyState({
+  hasOrders = false,
+  hasQuery = false,
+  hasAttributeFilters = false,
+  needsCustomRange = false,
+  dateTab = "all",
+  loadError = ""
+} = {}) {
+  if (loadError && !hasOrders) {
+    return `
+      <div class="orders-empty-state orders-empty-state--all orders-empty-state--smart">
+        <h3>Something went wrong.</h3>
+        <p>Please try again.</p>
+        <button type="button" class="orders-tool-btn orders-tool-btn--primary" id="ordersRefreshBtn">Try again</button>
+      </div>
+    `;
+  }
   if (!hasOrders) {
     return `
       <div class="orders-empty-state orders-empty-state--all orders-empty-state--smart">
         <h3>No orders yet</h3>
-        <p>New checkout orders will appear here automatically once customers place them.</p>
+        <p>Orders will appear here when customers place orders.</p>
         <button type="button" class="orders-tool-btn orders-tool-btn--primary" id="ordersRefreshBtn">Refresh Orders</button>
       </div>
     `;
   }
-  if (hasQuery) {
+  if (needsCustomRange) {
     return `
       <div class="orders-empty-state orders-empty-state--all orders-empty-state--smart">
-        <h3>No search results</h3>
-        <p>Nothing matched your search. Try another order number, customer name, phone, product, or SKU.</p>
-        <button type="button" class="orders-tool-btn" data-orders-toolbar-action="clear-filters">Clear Search &amp; Filters</button>
+        <h3>Select a custom date range</h3>
+        <p>Choose a start date and end date, then click Apply to view matching orders.</p>
       </div>
     `;
   }
-  if (hasFilters) {
+  const tab = normalizeDateTab(dateTab || "all");
+  if (!hasQuery && !hasAttributeFilters && tab !== "all") {
     return `
       <div class="orders-empty-state orders-empty-state--all orders-empty-state--smart">
-        <h3>No matching orders</h3>
-        <p>No orders match the current filters. Adjust status, payment, date range, or delivery filters to continue.</p>
+        <h3>No orders for this date</h3>
+        <p>Try another date range, or clear filters to see all orders.</p>
         <button type="button" class="orders-tool-btn" data-orders-toolbar-action="clear-filters">Clear Filters</button>
       </div>
     `;
   }
   return `
     <div class="orders-empty-state orders-empty-state--all orders-empty-state--smart">
-      <h3>No orders to show</h3>
-      <p>Try refreshing the list or clearing your current filters.</p>
-      <button type="button" class="orders-tool-btn orders-tool-btn--primary" id="ordersRefreshBtn">Refresh Orders</button>
+      <h3>No matching orders</h3>
+      <p>Try changing your search or filters.</p>
+      <button type="button" class="orders-tool-btn" data-orders-toolbar-action="clear-filters">Clear Filters</button>
     </div>
   `;
 }
@@ -1949,39 +3381,51 @@ function renderOrderCard(order, { expanded = false, viewMode = "all", selectedId
   if (viewMode === "all") {
     const orderId = order.orderId || order.id;
     const safeId = escapeHtml(orderId);
-    const location = resolveCustomerLocation(order);
-    const grandTotal = formatCurrency(order.total || 0);
+    const { orderNumber, internalId } = resolveOrderIdentifiers(order);
+    const customer = resolveOrderCustomer(order);
+    const grandTotal = formatCurrency(order.grandTotal || order.total || 0);
     const detailsId = `order-details-${safeId}`;
-    const meta = getOrderMeta(orderId);
+    const when = formatOrderRowDateTime(order.date || order.createdAt);
+    const orderStatus = order.status || order.orderStatus || "Pending";
     const selected = selectedIds instanceof Set
       ? selectedIds.has(String(orderId))
       : (Array.isArray(selectedIds) ? selectedIds : []).map(String).includes(String(orderId));
 
     return `
       <article class="order-card-enterprise${expanded ? " is-expanded" : ""}${selected ? " is-selected" : ""}" data-order-id="${safeId}" aria-label="Order ${safeId}">
-        <div class="order-card-select">
-          <label class="order-card-check">
-            <input type="checkbox" data-order-select="${safeId}" ${selected ? "checked" : ""} aria-label="Select order ${safeId}" />
-          </label>
-        </div>
-        <div class="order-card-main">
-          ${renderAllOrdersProductStrip(items, orderId)}
-          <div class="order-card-facts" aria-label="Order summary facts">
-            <div class="order-card-fact"><span>Customer</span><strong>${escapeHtml(order.customerName || "—")}</strong></div>
-            <div class="order-card-fact"><span>Phone</span><strong>${escapeHtml(order.customerPhone || "—")}</strong></div>
-            <div class="order-card-fact"><span>Location</span><strong>${escapeHtml(location)}</strong></div>
-            <div class="order-card-fact"><span>Date</span><strong>${formatDate(order.date || order.createdAt)}</strong></div>
-            <div class="order-card-fact"><span>Payment</span><strong>${escapeHtml(paymentLabel(order))}</strong></div>
-            <div class="order-card-fact order-card-fact--total"><span>Order Total</span><strong>${grandTotal}</strong></div>
+        <div class="order-row">
+          <div class="order-row-col order-row-col--check">
+            <label class="order-card-check">
+              <input type="checkbox" data-order-select="${safeId}" ${selected ? "checked" : ""} aria-label="Select order ${safeId}" />
+            </label>
           </div>
-          <div class="order-card-side">
-            <div class="order-card-badges">
-              ${renderPriorityBadge(meta.priority)}
-              ${badge(String(order.status || "Pending"), statusTone(order.status))}
-              ${badge(String(paymentStatus), statusTone(paymentStatus))}
-              ${meta.assignedStaff ? badge(meta.assignedStaff, "neutral") : ""}
-            </div>
-            ${meta.tags.length ? `<div class="order-card-tags">${meta.tags.slice(0, 3).map((tag) => `<span class="order-tag">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
+          <div class="order-row-col order-row-col--order">
+            <strong class="order-row-number" title="${escapeHtml(orderNumber)}">#${escapeHtml(orderNumber)}</strong>
+            ${internalId ? `<span class="order-row-id">ID: ${escapeHtml(internalId)}</span>` : ""}
+          </div>
+          <div class="order-row-col order-row-col--customer">
+            <strong class="order-row-customer-name" title="${escapeHtml(customer.name)}">${escapeHtml(customer.name)}</strong>
+            ${customer.phone ? `<span class="order-row-customer-phone" title="${escapeHtml(customer.phone)}">${escapeHtml(customer.phone)}</span>` : ""}
+          </div>
+          <div class="order-row-col order-row-col--product">
+            ${renderAllOrdersProductStrip(items)}
+          </div>
+          <div class="order-row-col order-row-col--total">
+            <strong class="order-row-total">${grandTotal}</strong>
+          </div>
+          <div class="order-row-col order-row-col--payment">
+            ${renderOrderRowPayment(order)}
+          </div>
+          <div class="order-row-col order-row-col--status">
+            ${renderOrderRowStatusBadge(orderStatus)}
+          </div>
+          <div class="order-row-col order-row-col--date">
+            <time datetime="${escapeHtml(order.date || order.createdAt || "")}">
+              <strong class="order-row-date">${escapeHtml(when.date)}</strong>
+              ${when.time ? `<span class="order-row-time">${escapeHtml(when.time)}</span>` : ""}
+            </time>
+          </div>
+          <div class="order-row-col order-row-col--actions">
             ${renderAllOrdersActions(order, expanded)}
           </div>
         </div>
@@ -2080,10 +3524,10 @@ function buildPrintRows(order) {
   ];
 }
 
-function printInvoice(order) {
+function openOrderInvoice(order, { autoPrint = true } = {}) {
   const rows = buildPrintRows(order);
   const items = Array.isArray(order.items) ? order.items : [];
-  openPrintableReport(`Invoice ${order.orderId || order.id}`, [
+  return openPrintableReport(`Invoice ${order.orderId || order.id}`, [
     {
       title: "Order Summary",
       content: `<table><tbody>${rows.map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`).join("")}</tbody></table>`
@@ -2101,7 +3545,15 @@ function printInvoice(order) {
         </tr>`).join("")
       }</tbody></table>`
     }
-  ]);
+  ], { autoPrint });
+}
+
+function printInvoice(order) {
+  return openOrderInvoice(order, { autoPrint: true });
+}
+
+function viewInvoice(order) {
+  return openOrderInvoice(order, { autoPrint: false });
 }
 
 function printPackingSlip(order) {
@@ -2321,32 +3773,51 @@ export async function renderOrders(container, options = {}) {
     document.removeEventListener("keydown", container._ordersKeydown);
     container._ordersKeydown = null;
   }
+  if (container?._ordersHashChange) {
+    window.removeEventListener("hashchange", container._ordersHashChange);
+    container._ordersHashChange = null;
+  }
   container?._ordersStickyObserver?.disconnect?.();
   container._ordersStickyObserver = null;
   closeOrdersUxDialog(false);
+  closeReviewDrawer({ restoreFocus: false });
+  reviewDrawer.resolveOrder = null;
+  reviewDrawer.reloadAndResolve = null;
+  reviewDrawer.handleAction = null;
+  reviewDrawer.busy = false;
   ordersPageApi = null;
 
   const hashQuery = readHashQuery();
+  const queueStatus = String(hashQuery.get("status") || "").trim().toLowerCase();
+  const queueModes = new Set(["pending", "completed", "cancelled", "returns"]);
+  const storedFilters = queueModes.has(queueStatus) ? null : readStoredListFilters();
+  const todayInput = formatLocalDateInput(new Date());
+  const monthStartInput = formatLocalDateInput(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const state = {
-    query: "",
-    statusFilter: hashQuery.get("status") || "",
-    paymentFilter: "",
-    paymentStatusFilter: "",
-    deliveryStatusFilter: "",
+    query: storedFilters?.query || "",
+    statusFilter: hashQuery.get("status") || storedFilters?.statusFilter || "",
+    paymentFilter: storedFilters?.paymentFilter || "",
+    paymentStatusFilter: storedFilters?.paymentStatusFilter || "",
+    deliveryStatusFilter: storedFilters?.deliveryStatusFilter || "",
     dateRangeFilter: "",
-    statBucket: "",
+    dateTab: normalizeDateTab(storedFilters?.dateTab || "all"),
+    customFrom: storedFilters?.customFrom || "",
+    customTo: storedFilters?.customTo || "",
+    customDraftFrom: storedFilters?.customDraftFrom || storedFilters?.customFrom || monthStartInput,
+    customDraftTo: storedFilters?.customDraftTo || storedFilters?.customTo || todayInput,
+    statBucket: storedFilters?.statBucket || "",
     sort: hashQuery.get("status") === "completed"
       ? "completed-desc"
       : hashQuery.get("status") === "cancelled"
         ? "cancelled-desc"
         : hashQuery.get("status") === "returns"
           ? "return-desc"
-          : "date-desc",
+          : (storedFilters?.sort || "date-desc"),
     cancelledByFilter: "",
     returnStatusFilter: "",
     refundStatusFilter: "",
-    page: 1,
-    pageSize: PAGE_SIZE,
+    page: Number(storedFilters?.page) > 0 ? Number(storedFilters.page) : 1,
+    pageSize: resolvePageSize({ pageSize: storedFilters?.pageSize || PAGE_SIZE }),
     expandedId: "",
     selectedIds: [],
     bulkBusy: false,
@@ -2354,8 +3825,10 @@ export async function renderOrders(container, options = {}) {
     loading: false,
     notice: null,
     busyOrderId: "",
+    loadError: "",
     stickyActive: false,
-    orderIndex: null
+    orderIndex: null,
+    filtersOpen: Boolean(storedFilters?.filtersOpen)
   };
 
   function findOrder(orderId) {
@@ -2508,8 +3981,13 @@ export async function renderOrders(container, options = {}) {
 
     if (isAllOrders) {
       const stats = computeAllOrdersStats(state.allOrders);
+      const dateCounts = computeDateTabCounts(state.allOrders, state);
       const disabled = state.loading ? "disabled" : "";
       const activeBucket = String(state.statBucket || "");
+      const activeDateTab = normalizeDateTab(state.dateTab || "all");
+      const chips = buildActiveFilterChips(state);
+      const hasFilters = hasActiveListFilters(state);
+      const todayMax = formatLocalDateInput(new Date());
       const statCards = [
         { key: "", label: "Total Orders", count: stats.total, icon: "#", tone: "neutral" },
         { key: "pending", label: "Pending", count: stats.pending, icon: "P", tone: "warn" },
@@ -2518,6 +3996,12 @@ export async function renderOrders(container, options = {}) {
         { key: "delivered", label: "Delivered", count: stats.delivered, icon: "D", tone: "success" },
         { key: "cancelled", label: "Cancelled", count: stats.cancelled, icon: "C", tone: "danger" }
       ];
+      const dateTabs = DATE_TABS.map((tab) => ({
+        ...tab,
+        count: tab.key === "custom"
+          ? (state.customFrom && state.customTo ? dateCounts.custom : null)
+          : dateCounts[tab.key]
+      }));
 
       return `
       <section class="orders-toolbar-panel glass-panel orders-toolbar-panel--all" aria-label="All Orders controls">
@@ -2556,70 +4040,99 @@ export async function renderOrders(container, options = {}) {
                 <span class="orders-stat-chip__icon" aria-hidden="true">${card.icon}</span>
                 <span class="orders-stat-chip__copy">
                   <span class="orders-stat-chip__label">${escapeHtml(card.label)}</span>
-                  <strong class="orders-stat-chip__count">${escapeHtml(card.count)}</strong>
+                  <strong class="orders-stat-chip__count">${escapeHtml(formatCount(card.count))}</strong>
                 </span>
               </button>
             `;
           }).join("")}
         </div>
 
+        <div class="orders-date-tabs" role="tablist" aria-label="Filter orders by date">
+          ${dateTabs.map((tab) => {
+            const active = activeDateTab === tab.key;
+            const countLabelText = tab.count == null ? "" : formatCount(tab.count);
+            return `
+              <button type="button" role="tab" class="orders-date-tab${active ? " is-active" : ""}" data-orders-date-tab="${escapeHtml(tab.key)}" aria-selected="${active ? "true" : "false"}" ${disabled}>
+                <span class="orders-date-tab__label">${escapeHtml(tab.label)}</span>
+                ${countLabelText ? `<span class="orders-date-tab__count">${escapeHtml(countLabelText)}</span>` : ""}
+              </button>
+            `;
+          }).join("")}
+        </div>
+
+        ${activeDateTab === "custom" ? `
+          <div class="orders-custom-range" role="group" aria-label="Custom date range">
+            <label class="orders-custom-range__field">
+              <span>From</span>
+              <input type="date" id="ordersCustomFrom" max="${escapeHtml(todayMax)}" value="${escapeHtml(state.customDraftFrom || state.customFrom || "")}" ${disabled} />
+            </label>
+            <label class="orders-custom-range__field">
+              <span>To</span>
+              <input type="date" id="ordersCustomTo" max="${escapeHtml(todayMax)}" value="${escapeHtml(state.customDraftTo || state.customTo || "")}" ${disabled} />
+            </label>
+            <button type="button" class="orders-tool-btn orders-tool-btn--primary" data-orders-toolbar-action="apply-custom-range" ${disabled}>Apply</button>
+            <button type="button" class="orders-tool-btn" data-orders-toolbar-action="clear-custom-range" ${disabled}>Clear range</button>
+            ${state.customFrom && state.customTo ? `<p class="orders-custom-range__applied">${escapeHtml(formatReadableDate(state.customFrom))} – ${escapeHtml(formatReadableDate(state.customTo))}</p>` : ""}
+          </div>
+        ` : ""}
+
         <div data-orders-notice-slot>${renderNotice()}</div>
 
         <div class="orders-toolbar-controls">
-          <label class="orders-search-field orders-search-field--all" for="ordersSearch">
-            <span class="sr-only">Search orders</span>
-            <span aria-hidden="true">⌕</span>
-            <input type="search" id="ordersSearch" placeholder="Search by order #, customer, phone, product, or SKU" value="${escapeHtml(state.query)}" autocomplete="off" ${disabled} />
-          </label>
+          <div class="orders-search-row">
+            <label class="orders-search-field orders-search-field--all" for="ordersSearch">
+              <span class="sr-only">Search orders</span>
+              <span aria-hidden="true">⌕</span>
+              <input type="search" id="ordersSearch" placeholder="Search Orders..." value="${escapeHtml(state.query)}" autocomplete="off" ${disabled} />
+            </label>
+            <div class="orders-search-row__tools">
+              <button type="button" class="orders-tool-btn orders-filters-toggle${state.filtersOpen ? " is-open" : ""}" data-orders-toolbar-action="toggle-filters" aria-expanded="${state.filtersOpen ? "true" : "false"}" aria-controls="ordersFilterPanel" ${disabled}>Filter</button>
+              <select id="ordersSort" class="input orders-filter-control orders-sort-control" aria-label="Sort orders" ${disabled}>
+                <option value="date-desc" ${state.sort === "date-desc" ? "selected" : ""}>Newest First</option>
+                <option value="date-asc" ${state.sort === "date-asc" ? "selected" : ""}>Oldest First</option>
+                <option value="total-desc" ${state.sort === "total-desc" ? "selected" : ""}>Highest Total</option>
+                <option value="total-asc" ${state.sort === "total-asc" ? "selected" : ""}>Lowest Total</option>
+                <option value="customer-asc" ${state.sort === "customer-asc" ? "selected" : ""}>Customer Name A–Z</option>
+                <option value="customer-desc" ${state.sort === "customer-desc" ? "selected" : ""}>Customer Name Z–A</option>
+                <option value="status" ${state.sort === "status" ? "selected" : ""}>Status</option>
+              </select>
+            </div>
+          </div>
 
-          <div class="orders-toolbar-filters orders-toolbar-filters--all">
+          <div id="ordersFilterPanel" class="orders-toolbar-filters orders-toolbar-filters--all${state.filtersOpen ? " is-open" : ""}">
             <select id="ordersStatusFilter" class="input orders-filter-control" aria-label="Filter by order status" ${disabled}>
-              <option value="" ${!state.statusFilter ? "selected" : ""}>Order status</option>
+              <option value="" ${!state.statusFilter ? "selected" : ""}>Order Status</option>
               ${STATUS_OPTIONS.map((status) => {
                 const value = `status:${status.toLowerCase()}`;
                 return `<option value="${escapeHtml(value)}" ${state.statusFilter === value ? "selected" : ""}>${escapeHtml(status)}</option>`;
               }).join("")}
             </select>
             <select id="ordersPaymentStatusFilter" class="input orders-filter-control" aria-label="Filter by payment status" ${disabled}>
-              <option value="" ${!state.paymentStatusFilter ? "selected" : ""}>Payment status</option>
-              <option value="pending" ${state.paymentStatusFilter === "pending" ? "selected" : ""}>Pending</option>
-              <option value="paid" ${state.paymentStatusFilter === "paid" ? "selected" : ""}>Paid</option>
-              <option value="failed" ${state.paymentStatusFilter === "failed" ? "selected" : ""}>Failed</option>
-              <option value="cancelled" ${state.paymentStatusFilter === "cancelled" ? "selected" : ""}>Cancelled</option>
-              <option value="refunded" ${state.paymentStatusFilter === "refunded" ? "selected" : ""}>Refunded</option>
+              <option value="" ${!state.paymentStatusFilter ? "selected" : ""}>Payment Status</option>
+              ${PAYMENT_STATUS_FILTERS.map((item) => (
+                `<option value="${escapeHtml(item.value)}" ${state.paymentStatusFilter === item.value ? "selected" : ""}>${escapeHtml(item.label)}</option>`
+              )).join("")}
             </select>
             <select id="ordersPaymentFilter" class="input orders-filter-control" aria-label="Filter by payment method" ${disabled}>
-              <option value="" ${!state.paymentFilter ? "selected" : ""}>Payment method</option>
-              <option value="mtn" ${state.paymentFilter === "mtn" ? "selected" : ""}>MTN MoMo</option>
-              <option value="card" ${state.paymentFilter === "card" ? "selected" : ""}>Card</option>
-              <option value="cod" ${state.paymentFilter === "cod" ? "selected" : ""}>Cash on Delivery</option>
-            </select>
-            <select id="ordersDateRangeFilter" class="input orders-filter-control" aria-label="Filter by date range" ${disabled}>
-              <option value="" ${!state.dateRangeFilter ? "selected" : ""}>Date range</option>
-              <option value="today" ${state.dateRangeFilter === "today" ? "selected" : ""}>Today</option>
-              <option value="yesterday" ${state.dateRangeFilter === "yesterday" ? "selected" : ""}>Yesterday</option>
-              <option value="7d" ${state.dateRangeFilter === "7d" ? "selected" : ""}>Last 7 days</option>
-              <option value="30d" ${state.dateRangeFilter === "30d" ? "selected" : ""}>Last 30 days</option>
-              <option value="month" ${state.dateRangeFilter === "month" ? "selected" : ""}>This month</option>
+              <option value="" ${!state.paymentFilter ? "selected" : ""}>Payment Method</option>
+              ${PAYMENT_METHOD_FILTERS.map((item) => (
+                `<option value="${escapeHtml(item.value)}" ${state.paymentFilter === item.value ? "selected" : ""}>${escapeHtml(item.label)}</option>`
+              )).join("")}
             </select>
             <select id="ordersDeliveryFilter" class="input orders-filter-control" aria-label="Filter by delivery status" ${disabled}>
-              <option value="" ${!state.deliveryStatusFilter ? "selected" : ""}>Delivery status</option>
-              <option value="pending" ${state.deliveryStatusFilter === "pending" ? "selected" : ""}>Pending</option>
-              <option value="processing" ${state.deliveryStatusFilter === "processing" ? "selected" : ""}>Processing</option>
-              <option value="shipped" ${state.deliveryStatusFilter === "shipped" ? "selected" : ""}>Shipped</option>
-              <option value="delivered" ${state.deliveryStatusFilter === "delivered" ? "selected" : ""}>Delivered</option>
-              <option value="cancelled" ${state.deliveryStatusFilter === "cancelled" ? "selected" : ""}>Cancelled</option>
-            </select>
-            <select id="ordersSort" class="input orders-filter-control" aria-label="Sort orders" ${disabled}>
-              <option value="date-desc" ${state.sort === "date-desc" ? "selected" : ""}>Newest first</option>
-              <option value="date-asc" ${state.sort === "date-asc" ? "selected" : ""}>Oldest first</option>
-              <option value="total-desc" ${state.sort === "total-desc" ? "selected" : ""}>Highest price</option>
-              <option value="total-asc" ${state.sort === "total-asc" ? "selected" : ""}>Lowest price</option>
-              <option value="customer-asc" ${state.sort === "customer-asc" ? "selected" : ""}>Customer name A–Z</option>
-              <option value="customer-desc" ${state.sort === "customer-desc" ? "selected" : ""}>Customer name Z–A</option>
-              <option value="status" ${state.sort === "status" ? "selected" : ""}>Status</option>
+              <option value="" ${!state.deliveryStatusFilter ? "selected" : ""}>Delivery Status</option>
+              ${DELIVERY_STATUS_FILTERS.map((item) => (
+                `<option value="${escapeHtml(item.value)}" ${state.deliveryStatusFilter === item.value ? "selected" : ""}>${escapeHtml(item.label)}</option>`
+              )).join("")}
             </select>
           </div>
+        </div>
+
+        <div class="orders-active-filters" aria-label="Active filters">
+          <div class="orders-active-filters__chips">
+            ${chips.map((chip) => `<span class="orders-filter-chip">${escapeHtml(chip.label)}</span>`).join("")}
+          </div>
+          <button type="button" class="orders-tool-btn" data-orders-toolbar-action="clear-filters" ${disabled || !hasFilters ? "disabled" : ""}>Clear Filters</button>
         </div>
       </section>
     `;
@@ -2799,7 +4312,7 @@ export async function renderOrders(container, options = {}) {
             <div class="orders-sticky-stack${state.stickyActive ? " is-stuck" : ""}">
               ${renderToolbar(0, 0)}
             </div>
-            ${renderAllOrdersEmptyState({ hasOrders: false })}
+            ${renderAllOrdersEmptyState({ hasOrders: false, loadError: state.loadError })}
           </div>
         `;
         bindStickyShell();
@@ -2820,14 +4333,16 @@ export async function renderOrders(container, options = {}) {
             : "No orders match your search or filters.";
 
     const hasQuery = Boolean(String(state.query || "").trim());
-    const hasFilters = Boolean(
-      state.statusFilter
+    const hasAttributeFilters = Boolean(
+      String(state.statusFilter || "").startsWith("status:")
       || state.paymentFilter
       || state.paymentStatusFilter
       || state.deliveryStatusFilter
-      || state.dateRangeFilter
       || state.statBucket
     );
+    const needsCustomRange = meta.mode === "all"
+      && normalizeDateTab(state.dateTab) === "custom"
+      && (!state.customFrom || !state.customTo);
 
     const pageIds = pageItems.map((order) => String(order.orderId || order.id));
     const knownIds = new Set(state.allOrders.map((order) => String(order.orderId || order.id)));
@@ -2837,7 +4352,10 @@ export async function renderOrders(container, options = {}) {
 
     const cards = pageItems.length
       ? (meta.mode === "all"
-        ? renderAllOrdersGroupedList(pageItems, state.expandedId, selectedSet)
+        ? renderAllOrdersGroupedList(pageItems, state.expandedId, selectedSet, {
+          groupByDate: shouldGroupOrdersByDate(state),
+          newestFirst: String(state.sort || "date-desc") !== "date-asc"
+        })
         : pageItems.map((order) => renderOrderCard(order, {
           expanded: String(order.orderId || order.id) === String(state.expandedId),
           viewMode: meta.mode
@@ -2846,7 +4364,9 @@ export async function renderOrders(container, options = {}) {
         ? renderAllOrdersEmptyState({
           hasOrders: true,
           hasQuery,
-          hasFilters
+          hasAttributeFilters,
+          needsCustomRange,
+          dateTab: state.dateTab
         })
         : `<div class="orders-empty-state">${emptyState(emptyCopy)}</div>`);
 
@@ -2859,7 +4379,7 @@ export async function renderOrders(container, options = {}) {
             <div data-orders-bulk-slot>${renderAllOrdersBulkBar(state.selectedIds.length, pageIds.length, state.bulkBusy, selectedOnPage.length)}</div>
           </div>
           <div class="orders-mobile-grid orders-mobile-grid--all">${cards}</div>
-          ${renderPagination(totalPages, filtered.length)}
+          ${filtered.length ? renderPagination(totalPages, filtered.length) : ""}
         </div>
       `;
       const selectAll = container.querySelector("#ordersSelectAllPage");
@@ -2870,6 +4390,7 @@ export async function renderOrders(container, options = {}) {
       bindStickyShell();
       markFreshCards();
       container.querySelector(".orders-page--all")?.setAttribute("aria-busy", state.loading ? "true" : "false");
+      writeStoredListFilters(state);
     } else {
       container.innerHTML = `
         <div class="orders-page-grid">
@@ -2900,38 +4421,101 @@ export async function renderOrders(container, options = {}) {
     paintFromState();
     try {
       state.allOrders = await getOrders({ ...query, force: query.force !== false });
+      state.loadError = "";
       invalidateOrderIndex();
-      if (query.resetFilter || readHashQuery().has("status")) {
-        state.statusFilter = readHashQuery().get("status") || (query.resetFilter ? "" : state.statusFilter);
+      if (readHashQuery().has("status")) {
+        state.statusFilter = readHashQuery().get("status") || "";
         if (query.resetFilter) state.page = 1;
+      } else if (query.resetFilter) {
+        const current = String(state.statusFilter || "").trim().toLowerCase();
+        if (queueModes.has(current)) {
+          state.statusFilter = "";
+          state.page = 1;
+        }
       }
     } catch (error) {
       console.error(error);
-      setNotice(error?.message || "Unable to load orders.", "danger");
+      state.loadError = error?.message || "Unable to load orders.";
+      setNotice(state.loadError, "danger");
     } finally {
       state.loading = false;
       paintFromState();
+      refreshOpenReviewDrawer();
     }
   }
 
+  function setReviewActionBusy(busy) {
+    reviewDrawer.busy = Boolean(busy);
+    if (!isReviewDrawerOpen() || !reviewDrawer.orderId) return;
+    const resolved = findOrder(reviewDrawer.orderId);
+    if (resolved) paintReviewDrawer({ order: resolved, focus: false });
+  }
+
+  function notifyWithoutRemount(message, tone) {
+    setNotice(message, tone);
+    if (!syncNoticeUi()) paintFromState();
+  }
+
   async function applyStatusChange(orderId, nextStatus, successMessage, options = {}) {
-    if (!orderId || !nextStatus || state.busyOrderId) return;
+    if (!orderId || !nextStatus || state.busyOrderId) return false;
     const keepExpanded = String(state.expandedId) === String(orderId);
     state.busyOrderId = String(orderId);
-    setNotice(`Updating order ${orderId}...`, "warn");
-    paintFromState();
+    setReviewActionBusy(true);
+    notifyWithoutRemount("Updating...", "warn");
     try {
       await updateOrderStatus(orderId, nextStatus, options);
-      setNotice(successMessage || `Order ${orderId} updated to ${nextStatus}.`, "success");
-      state.expandedId = keepExpanded ? String(orderId) : "";
+      notifyWithoutRemount(successMessage || "Order status updated successfully.", "success");
+      if (keepExpanded) state.expandedId = String(orderId);
       await loadOrders({ force: true });
+      return true;
     } catch (error) {
       console.error(error);
-      setNotice(error?.message || "Unable to update order status.", "danger");
-      paintFromState();
+      notifyWithoutRemount(error?.message || "Unable to update order status. Please try again.", "danger");
+      return false;
     } finally {
       state.busyOrderId = "";
+      reviewDrawer.busy = false;
+      if (isReviewDrawerOpen()) refreshOpenReviewDrawer();
     }
+  }
+
+  async function promptAndApplyStatus(order) {
+    if (!order || state.busyOrderId || reviewDrawer.busy) return;
+    const options = getFulfillmentTransitions(order);
+    if (!options.length) {
+      notifyWithoutRemount("No valid status changes for this order.", "warn");
+      return;
+    }
+    const picked = await openOrdersStatusDialog({ order, options });
+    if (!picked) return;
+    const from = getOrderStatusLabel(order);
+    if (picked.toLowerCase() === from.toLowerCase()) return;
+    await applyStatusChange(order.orderId || order.id, picked, "Order status updated successfully.", {
+      reason: `Status changed from ${from} to ${picked}`
+    });
+  }
+
+  async function promptAndCancelOrder(order) {
+    if (!order || state.busyOrderId || reviewDrawer.busy) return;
+    if (!canCancelOrder(order)) {
+      notifyWithoutRemount("This order cannot be cancelled.", "warn");
+      return;
+    }
+    const result = await openOrdersCancelDialog(order);
+    if (!result?.confirmed) return;
+    await applyStatusChange(order.orderId || order.id, "Cancelled", "Order status updated successfully.", {
+      reason: result.reason || "Cancelled by administrator",
+      cancellationReason: result.reason || "Cancelled by administrator"
+    });
+  }
+
+  function openOrderInvoiceAction(order, { autoPrint = true } = {}) {
+    const opened = autoPrint ? printInvoice(order) : viewInvoice(order);
+    if (opened) {
+      notifyWithoutRemount(autoPrint ? `Print invoice opened for ${order.orderId || order.id}.` : `Invoice opened for ${order.orderId || order.id}.`, "success");
+      return;
+    }
+    notifyWithoutRemount("Unable to open invoice. Allow pop-ups and try again.", "danger");
   }
 
   function getSelectedOrders() {
@@ -2964,12 +4548,34 @@ export async function renderOrders(container, options = {}) {
         paintFromState();
         return;
       }
+      const eligible = selected.filter((order) => (
+        getValidStatusTransitions(order).some((item) => item.toLowerCase() === status.toLowerCase())
+      ));
+      if (!eligible.length) {
+        setNotice(`None of the selected orders can change to ${status}.`, "warn");
+        paintFromState();
+        return;
+      }
+      const confirmed = await openOrdersConfirmDialog({
+        title: "Change order status?",
+        message: `Update ${eligible.length} eligible order${eligible.length === 1 ? "" : "s"} to ${status}? Orders without a valid transition will be skipped.`,
+        details: [
+          ["Selected", String(selected.length)],
+          ["Eligible", String(eligible.length)],
+          ["To", status]
+        ],
+        confirmLabel: "Confirm Status Change",
+        cancelLabel: "Keep Status",
+        tone: status === "Cancelled" ? "danger" : "warn"
+      });
+      if (!confirmed) return;
       state.bulkBusy = true;
-      setNotice(`Updating ${selected.length} order${selected.length === 1 ? "" : "s"}…`, "warn");
+      setNotice(`Updating ${eligible.length} order${eligible.length === 1 ? "" : "s"}…`, "warn");
       paintFromState();
       try {
-        await bulkUpdateOrderStatus(state.selectedIds, status);
-        setNotice(`Updated ${selected.length} order${selected.length === 1 ? "" : "s"} to ${status}.`, "success");
+        const ids = eligible.map((order) => order.orderId || order.id);
+        await bulkUpdateOrderStatus(ids, status);
+        setNotice(`Updated ${ids.length} order${ids.length === 1 ? "" : "s"} to ${status}.`, "success");
         state.selectedIds = [];
         await loadOrders({ force: true });
       } catch (error) {
@@ -3086,6 +4692,32 @@ export async function renderOrders(container, options = {}) {
     }
   }
 
+  reviewDrawer.resolveOrder = findOrder;
+  reviewDrawer.reloadAndResolve = async (orderId) => {
+    const id = String(orderId || "").trim();
+    if (!id) return;
+    await loadOrders({ force: true });
+  };
+  reviewDrawer.handleAction = async (action, orderId) => {
+    const order = findOrder(orderId);
+    if (!order) return;
+    if (action === "update-status") {
+      await promptAndApplyStatus(order);
+      return;
+    }
+    if (action === "view-invoice") {
+      openOrderInvoiceAction(order, { autoPrint: false });
+      return;
+    }
+    if (action === "invoice") {
+      openOrderInvoiceAction(order, { autoPrint: true });
+      return;
+    }
+    if (action === "cancel") {
+      await promptAndCancelOrder(order);
+    }
+  };
+
   await loadOrders({ force: true, resetFilter: true });
 
   let searchPaintTimer = 0;
@@ -3178,8 +4810,19 @@ export async function renderOrders(container, options = {}) {
       return;
     }
 
+    if (target.id === "ordersCustomFrom") {
+      state.customDraftFrom = target.value;
+      return;
+    }
+
+    if (target.id === "ordersCustomTo") {
+      state.customDraftTo = target.value;
+      return;
+    }
+
     if (target.id === "ordersDateRangeFilter") {
-      state.dateRangeFilter = target.value;
+      state.dateTab = normalizeDateTab(target.value || "all");
+      state.dateRangeFilter = "";
       state.page = 1;
       paintFromState();
       return;
@@ -3210,8 +4853,48 @@ export async function renderOrders(container, options = {}) {
     if (!select) return;
     const orderId = select.getAttribute("data-order-status");
     const nextStatus = select.value;
+    const order = findOrder(orderId);
+    if (!order || !nextStatus) return;
+    const from = getOrderStatusLabel(order);
+    if (nextStatus.toLowerCase() === from.toLowerCase()) return;
+    const allowed = getValidStatusTransitions(order).some((item) => item.toLowerCase() === nextStatus.toLowerCase());
+    if (!allowed) {
+      notifyWithoutRemount("That status change is not allowed for this order.", "warn");
+      paintFromState();
+      return;
+    }
+    if (nextStatus === "Cancelled") {
+      select.disabled = true;
+      const result = await openOrdersCancelDialog(order);
+      if (!result?.confirmed) {
+        paintFromState();
+        return;
+      }
+      await applyStatusChange(orderId, "Cancelled", "Order status updated successfully.", {
+        reason: result.reason || "Cancelled by administrator",
+        cancellationReason: result.reason || "Cancelled by administrator"
+      });
+      return;
+    }
+    const confirmed = await openOrdersConfirmDialog({
+      title: "Change order status?",
+      details: [
+        ["Order", `#${resolveOrderIdentifiers(order).orderNumber || orderId}`],
+        ["From", from],
+        ["To", nextStatus]
+      ],
+      confirmLabel: "Confirm Status Change",
+      cancelLabel: "Keep Status",
+      tone: "warn"
+    });
+    if (!confirmed) {
+      paintFromState();
+      return;
+    }
     select.disabled = true;
-    await applyStatusChange(orderId, nextStatus, `Order ${orderId} status set to ${nextStatus}.`);
+    await applyStatusChange(orderId, nextStatus, "Order status updated successfully.", {
+      reason: `Status changed from ${from} to ${nextStatus}`
+    });
   };
 
   container.onsubmit = (event) => {
@@ -3309,16 +4992,7 @@ export async function renderOrders(container, options = {}) {
         return;
       }
       if (action === "clear-filters") {
-        state.query = "";
-        state.statusFilter = "";
-        state.paymentFilter = "";
-        state.paymentStatusFilter = "";
-        state.deliveryStatusFilter = "";
-        state.dateRangeFilter = "";
-        state.statBucket = "";
-        state.sort = "date-desc";
-        state.page = 1;
-        state.selectedIds = [];
+        resetAllOrdersListFilters(state);
         if (String(window.location.hash || "").includes("status=")) {
           window.location.hash = "#/orders";
           return;
@@ -3327,6 +5001,60 @@ export async function renderOrders(container, options = {}) {
         paintFromState();
         return;
       }
+      if (action === "toggle-filters") {
+        state.filtersOpen = !state.filtersOpen;
+        paintFromState();
+        return;
+      }
+      if (action === "apply-custom-range") {
+        const fromValue = container.querySelector("#ordersCustomFrom")?.value || state.customDraftFrom;
+        const toValue = container.querySelector("#ordersCustomTo")?.value || state.customDraftTo;
+        const from = parseLocalDateInput(fromValue);
+        const to = parseLocalDateInput(toValue);
+        if (!from || !to) {
+          setNotice("Select a start date and end date.", "warn");
+          paintFromState();
+          return;
+        }
+        const start = from.getTime() <= to.getTime() ? fromValue : toValue;
+        const end = from.getTime() <= to.getTime() ? toValue : fromValue;
+        state.dateTab = "custom";
+        state.customFrom = start;
+        state.customTo = end;
+        state.customDraftFrom = start;
+        state.customDraftTo = end;
+        state.page = 1;
+        paintFromState();
+        return;
+      }
+      if (action === "clear-custom-range") {
+        state.dateTab = "all";
+        state.customFrom = "";
+        state.customTo = "";
+        state.customDraftFrom = formatLocalDateInput(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+        state.customDraftTo = formatLocalDateInput(new Date());
+        state.page = 1;
+        paintFromState();
+        return;
+      }
+    }
+
+    const dateTabBtn = event.target?.closest?.("[data-orders-date-tab]");
+    if (dateTabBtn) {
+      const nextTab = normalizeDateTab(dateTabBtn.getAttribute("data-orders-date-tab") || "all");
+      state.dateTab = nextTab;
+      state.dateRangeFilter = "";
+      if (nextTab === "custom") {
+        if (!state.customDraftFrom) {
+          state.customDraftFrom = formatLocalDateInput(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+        }
+        if (!state.customDraftTo) {
+          state.customDraftTo = formatLocalDateInput(new Date());
+        }
+      }
+      state.page = 1;
+      paintFromState();
+      return;
     }
 
     const statBtn = event.target?.closest?.("[data-orders-stat]");
@@ -3355,19 +5083,55 @@ export async function renderOrders(container, options = {}) {
       return;
     }
 
+    const moreToggle = event.target?.closest?.(".order-card-more > summary");
+    if (moreToggle) {
+      const current = moreToggle.closest(".order-card-more");
+      container.querySelectorAll(".order-card-more[open]").forEach((el) => {
+        if (el !== current) el.removeAttribute("open");
+      });
+    }
+
     const actionBtn = event.target?.closest?.("[data-order-action]");
     if (!actionBtn) return;
     const orderId = actionBtn.getAttribute("data-order-id");
     const action = actionBtn.getAttribute("data-order-action");
     const order = findOrder(orderId);
+
+    if (action === "review") {
+      actionBtn.closest(".order-card-more")?.removeAttribute("open");
+      openReviewDrawer(orderId, order || null);
+      return;
+    }
+    if (action === "update-status") {
+      actionBtn.closest(".order-card-more")?.removeAttribute("open");
+      if (!order) return;
+      await promptAndApplyStatus(order);
+      return;
+    }
+    if (action === "view-invoice") {
+      actionBtn.closest(".order-card-more")?.removeAttribute("open");
+      if (!order) return;
+      openOrderInvoiceAction(order, { autoPrint: false });
+      return;
+    }
+    if (action === "cancel") {
+      actionBtn.closest(".order-card-more")?.removeAttribute("open");
+      if (!order) return;
+      await promptAndCancelOrder(order);
+      return;
+    }
+
     if (!order) return;
     const isAllMode = getOrdersViewMeta(state.statusFilter).mode === "all";
 
     if (action === "toggle") {
-      const opening = String(state.expandedId) !== String(orderId);
-      state.expandedId = opening ? String(orderId) : "";
-      paintFromState();
-      if (opening) {
+      const alreadyOpen = String(state.expandedId) === String(orderId);
+      const nextExpanded = alreadyOpen ? "" : String(orderId);
+      if (String(state.expandedId) !== String(nextExpanded)) {
+        state.expandedId = nextExpanded;
+        paintFromState();
+      }
+      if (nextExpanded) {
         window.requestAnimationFrame(() => {
           const card = Array.from(container.querySelectorAll(".order-card-enterprise, .order-mobile-card"))
             .find((el) => String(el.getAttribute("data-order-id")) === String(orderId));
@@ -3377,9 +5141,8 @@ export async function renderOrders(container, options = {}) {
       return;
     }
     if (action === "invoice") {
-      printInvoice(order);
-      setNotice(`Invoice opened for ${orderId}.`, "success");
-      paintFromState();
+      actionBtn.closest(".order-card-more")?.removeAttribute("open");
+      openOrderInvoiceAction(order, { autoPrint: true });
       return;
     }
     if (action === "receipt") {
@@ -3629,25 +5392,36 @@ export async function renderOrders(container, options = {}) {
       return;
     }
     if (action === "accept") {
-      void applyStatusChange(orderId, "Confirmed", `Order ${orderId} accepted and moved out of Pending Orders.`);
+      const confirmed = await openOrdersConfirmDialog({
+        title: "Change order status?",
+        details: [
+          ["Order", `#${resolveOrderIdentifiers(order).orderNumber || orderId}`],
+          ["From", getOrderStatusLabel(order)],
+          ["To", "Confirmed"]
+        ],
+        confirmLabel: "Confirm Status Change",
+        cancelLabel: "Keep Status",
+        tone: "warn"
+      });
+      if (!confirmed) return;
+      void applyStatusChange(orderId, "Confirmed", "Order status updated successfully.");
       return;
     }
     if (action === "process") {
-      void applyStatusChange(orderId, "Processing", `Order ${orderId} is now processing.`);
-      return;
-    }
-    if (action === "cancel") {
-      const reason = window.prompt(`Cancel order ${orderId}?\n\nOptional cancellation reason:`, "Cancelled by administrator") || "";
       const confirmed = await openOrdersConfirmDialog({
-        title: "Cancel order",
-        message: `Confirm cancellation of order ${orderId}? Stock will be restored. Paid orders are prepared for Returns & Refunds.`,
-        confirmLabel: "Cancel Order",
-        tone: "danger"
+        title: "Change order status?",
+        details: [
+          ["Order", `#${resolveOrderIdentifiers(order).orderNumber || orderId}`],
+          ["From", getOrderStatusLabel(order)],
+          ["To", "Processing"]
+        ],
+        confirmLabel: "Confirm Status Change",
+        cancelLabel: "Keep Status",
+        tone: "warn"
       });
       if (!confirmed) return;
-      void applyStatusChange(orderId, "Cancelled", `Order ${orderId} cancelled.`, {
-        reason: reason.trim() || "Cancelled by administrator"
-      });
+      void applyStatusChange(orderId, "Processing", "Order status updated successfully.");
+      return;
     }
   };
 
@@ -3656,6 +5430,17 @@ export async function renderOrders(container, options = {}) {
     const host = document.getElementById("ordersUxOverlayHost");
     if (host && !host.hidden) {
       closeOrdersUxDialog(false);
+      event.preventDefault();
+      return;
+    }
+    const openMenu = container.querySelector(".order-card-more[open], .order-qa-more[open], .orders-tool-more[open]");
+    if (openMenu) {
+      openMenu.removeAttribute("open");
+      event.preventDefault();
+      return;
+    }
+    if (isReviewDrawerOpen()) {
+      closeReviewDrawer();
       event.preventDefault();
       return;
     }
@@ -3669,6 +5454,17 @@ export async function renderOrders(container, options = {}) {
   }
   document.addEventListener("keydown", onOrdersKeydown);
   container._ordersKeydown = onOrdersKeydown;
+
+  const onOrdersHashChange = () => {
+    if (!/#\/orders/i.test(window.location.hash || "")) {
+      closeReviewDrawer({ restoreFocus: false });
+    }
+  };
+  if (container._ordersHashChange) {
+    window.removeEventListener("hashchange", container._ordersHashChange);
+  }
+  window.addEventListener("hashchange", onOrdersHashChange);
+  container._ordersHashChange = onOrdersHashChange;
 
   unsubscribeLive = subscribeToLiveFeeds("orders", () => {
     void loadOrders({ preferCache: false, force: true });

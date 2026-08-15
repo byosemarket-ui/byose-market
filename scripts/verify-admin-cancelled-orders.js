@@ -67,7 +67,7 @@ function main() {
   assert(ordersJs.includes('ordersCancelledByFilter'), 'must support cancelled-by filter');
   assert(ordersJs.includes('cancelled-desc'), 'must support cancellation sorting');
   assert(ordersJs.includes('resolveCancellationDate'), 'must derive cancellation date');
-  assert(ordersJs.includes('window.confirm'), 'restore/cancel must use confirmation dialogs');
+  assert(ordersJs.includes('openOrdersConfirmDialog') && ordersJs.includes('openOrdersCancelDialog'), 'restore/cancel must use confirmation dialogs');
 
   assert(data.includes('cancellationReason'), 'normalizeOrder must expose cancellation reason');
   assert(data.includes('cancelledBy'), 'normalizeOrder must expose cancelled by');

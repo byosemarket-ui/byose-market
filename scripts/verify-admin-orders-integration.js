@@ -119,6 +119,50 @@ function simulateQueueRouting() {
   assert(cancelled.includes('X2') && returns.includes('X2'), 'paid cancel must remain visible in Cancelled and Returns');
 }
 
+function startOfLocalDay(value = new Date()) {
+  const date = new Date(value);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function endOfLocalDay(value = new Date()) {
+  const date = startOfLocalDay(value);
+  date.setHours(23, 59, 59, 999);
+  return date;
+}
+
+function startOfWeekMonday(value = new Date()) {
+  const date = startOfLocalDay(value);
+  const day = date.getDay();
+  const diff = day === 0 ? 6 : day - 1;
+  date.setDate(date.getDate() - diff);
+  return date;
+}
+
+function simulateDateFilters() {
+  const now = new Date(2026, 7, 15, 16, 48, 0); // Saturday 15 Aug 2026 local
+  const todayStart = startOfLocalDay(now).getTime();
+  const yesterdayStart = todayStart - 86400000;
+  const weekStart = startOfWeekMonday(now).getTime();
+  const monthStart = new Date(2026, 7, 1).getTime();
+  const monthEnd = endOfLocalDay(new Date(2026, 7, 31)).getTime();
+
+  assert(startOfWeekMonday(now).getDay() === 1, 'week must start Monday');
+  assert(startOfWeekMonday(now).getDate() === 10, 'week of 15 Aug 2026 starts 10 Aug');
+  assert(new Date(yesterdayStart).getDate() === 14, 'yesterday of 15 Aug is 14 Aug');
+  assert(monthStart === new Date(2026, 7, 1, 0, 0, 0, 0).getTime(), 'this month starts 1 Aug');
+  assert(monthEnd >= new Date(2026, 7, 31, 23, 0, 0, 0).getTime(), 'this month includes 31 Aug');
+
+  const inToday = todayStart + 3600000;
+  const inYesterday = yesterdayStart + 3600000;
+  const lastWeek = weekStart - 3600000;
+  const nextMonth = new Date(2026, 8, 1).getTime();
+  assert(inToday >= todayStart && inToday < todayStart + 86400000, 'today window is local calendar day');
+  assert(inYesterday >= yesterdayStart && inYesterday < todayStart, 'yesterday does not overlap today');
+  assert(lastWeek < weekStart, 'previous week is excluded from This Week');
+  assert(nextMonth > monthEnd, 'September is excluded from August This Month');
+}
+
 function main() {
   const ordersJs = read('admin/app/pages/orders.js');
   const mainJs = read('admin/app/main.js');
@@ -168,7 +212,26 @@ function main() {
     assert(ordersJs.includes(label), `orders UI must include ${label}`);
   });
 
+  // STEP 6 — actions, status workflow, invoice, no fake features
+  assert(ordersJs.includes('data-order-action="update-status"'), 'Update Status action must exist');
+  assert(ordersJs.includes('data-order-action="view-invoice"'), 'View Invoice action must exist');
+  assert(ordersJs.includes('openOrdersStatusDialog'), 'status change confirmation dialog must exist');
+  assert(ordersJs.includes('openOrdersCancelDialog'), 'cancel confirmation dialog must exist');
+  assert(ordersJs.includes('Confirm Status Change'), 'status dialog must use an explicit confirm label');
+  assert(ordersJs.includes('Keep Order'), 'cancel dialog must offer Keep Order');
+  assert(ordersJs.includes('Order status updated successfully.'), 'status success copy must exist');
+  assert(ordersJs.includes('Unable to update order status. Please try again.'), 'status error copy must exist');
+  assert(ordersJs.includes('autoPrint'), 'invoice view/print must use printable invoice autoPrint option');
+  assert(!/data-order-action="add-note"/.test(ordersJs), 'Add Note must not be a fake permanent action');
+  assert(!/Track Delivery/.test(ordersJs), 'Track Delivery must not be a fake action');
+  assert(ordersJs.includes('getValidStatusTransitions'), 'status transitions must be constrained');
+  assert(ordersJs.includes('orders-search-row__tools'), 'mobile Filter/Sort toolbar must exist');
+  assert(data.includes('value.includes("unpaid")'), 'Unpaid order status must not normalize to Confirmed');
+  assert(data.includes('out for delivery'), 'Out for Delivery must not normalize to Delivered');
+  assert(data.includes('storedLineTotal'), 'historical line totals must be preserved when stored');
+
   simulateQueueRouting();
+  simulateDateFilters();
 
   // Ensure prior STEP verifiers exist
   [

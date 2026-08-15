@@ -54,7 +54,7 @@ function main() {
   assert(ordersJs.includes('Accept Order'), 'must support Accept Order');
   assert(ordersJs.includes('Start Processing'), 'must support Start Processing');
   assert(ordersJs.includes('Cancel Order'), 'must support Cancel Order');
-  assert(ordersJs.includes('window.confirm'), 'cancel must require confirmation');
+  assert(ordersJs.includes('openOrdersCancelDialog'), 'cancel must require confirmation');
   assert(ordersJs.includes('Open Customer Location in Google Maps') || ordersJs.includes('Open Google Maps Location'), 'must support maps action');
   assert(ordersJs.includes('Print Invoice'), 'must support invoice print');
   assert(ordersJs.includes('Print Packing Slip'), 'must support packing slip');

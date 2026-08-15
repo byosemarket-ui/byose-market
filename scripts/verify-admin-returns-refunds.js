@@ -102,7 +102,7 @@ function main() {
   assert(ordersJs.includes('ordersRefundStatusFilter'), 'must support refund status filter');
   assert(ordersJs.includes('return-desc'), 'must support return sorting');
   assert(ordersJs.includes('applyReturnAction'), 'must process return actions');
-  assert(ordersJs.includes('window.confirm'), 'return/refund actions must use confirmation dialogs');
+  assert(ordersJs.includes('openOrdersConfirmDialog'), 'return/refund actions must use confirmation dialogs');
   assert(ordersJs.includes('refund_required') || ordersJs.includes('refundRequired'), 'must include refund-required orders');
 
   assert(data.includes('returnWorkflow'), 'normalizeOrder must expose return workflow');

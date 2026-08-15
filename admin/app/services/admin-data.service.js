@@ -73,6 +73,7 @@ function normalizeText(value, fallback = "") {
 
 function normalizeStatus(status) {
   const value = normalizeText(status, "Pending").toLowerCase();
+  if (value.includes("out for delivery") || value.includes("out_for_delivery")) return "Shipping";
   if (value.includes("deliver")) return "Delivered";
   if (value.includes("complete")) return "Completed";
   if (value.includes("ship")) return "Shipping";
@@ -81,7 +82,8 @@ function normalizeStatus(status) {
   if (value.includes("return")) return "Returned";
   if (value.includes("pack")) return "Packed";
   if (value.includes("process")) return "Processing";
-  if (value.includes("confirm") || value.includes("paid")) return "Confirmed";
+  if (value.includes("unpaid") || value.includes("awaiting") || value.includes("fail")) return "Pending";
+  if (value.includes("confirm") || value === "paid") return "Confirmed";
   return "Pending";
 }
 
@@ -356,12 +358,13 @@ function normalizeOrder(order) {
     const sku = normalizeText(item?.sku || item?.variantSku || attrs.SKU);
     const quantity = Math.max(1, toNumber(item?.quantity || item?.qty || 1));
     const price = toNumber(item?.price);
+    const storedLineTotal = item?.lineTotal != null && item?.lineTotal !== "" ? toNumber(item.lineTotal) : 0;
     return {
       productId: normalizeText(item?.productId || item?.id),
       productName: normalizeText(item?.productName || item?.name || "Product"),
       quantity,
       price,
-      lineTotal: price * quantity,
+      lineTotal: storedLineTotal > 0 ? storedLineTotal : price * quantity,
       image: normalizeText(item?.image || item?.colorImage || attrs.colorImage),
       color,
       colorName: color,
@@ -370,6 +373,8 @@ function normalizeOrder(order) {
       sku,
       variantSku: sku,
       variantKey: normalizeText(item?.variantKey || attrs.variantKey),
+      model: normalizeText(item?.model || attrs.Model || attrs.model),
+      storage: normalizeText(item?.storage || attrs.Storage || attrs.storage),
       attributeSummary: normalizeText(item?.attributeSummary || [color, size].filter(Boolean).join(" · ")),
       category: normalizeText(item?.category || attrs.Category),
       productUrl: normalizeText(item?.productUrl || item?.productLink || attrs.productUrl || attrs.productLink)
@@ -422,6 +427,7 @@ function normalizeOrder(order) {
   return {
     id: normalizeText(order?.id || order?.orderId || order?._id),
     orderId: normalizeText(order?.orderId || order?.id || order?._id),
+    recordId: Number(order?.recordId) > 0 ? Number(order.recordId) : undefined,
     status,
     orderStatus: status,
     total,
@@ -459,9 +465,47 @@ function normalizeOrder(order) {
     payerPhone: normalizeText(payment.payerPhone || order?.payerPhone),
     paymentNote: normalizeText(payment.note || order?.paymentNote),
     paymentType: normalizeText(payment.type || order?.paymentType),
+    paymentReference: normalizeText(order?.paymentReference || payment.reference || payment.gateway?.transRef || order?.transactionReference || order?.transactionId),
+    transactionId: normalizeText(order?.transactionId || order?.transactionReference || payment.transactionId || payment.gateway?.transRef),
+    transactionReference: normalizeText(order?.transactionReference || order?.paymentReference || payment.gateway?.transRef),
+    currency: normalizeText(order?.currency, "RWF") || "RWF",
+    couponCode: normalizeText(order?.couponCode),
+    couponDiscount: toNumber(order?.couponDiscount),
+    payment: {
+      type: normalizeText(payment.type || order?.paymentType),
+      method: normalizeText(payment.method || order?.paymentMethod),
+      methodLabel: normalizeText(payment.methodLabel || order?.paymentMethodLabel),
+      status: normalizeText(payment.status || paymentStatusValue),
+      statusLabel: normalizeText(payment.statusLabel || order?.paymentStatusLabel),
+      payerPhone: normalizeText(payment.payerPhone || order?.payerPhone),
+      note: normalizeText(payment.note || order?.paymentNote),
+      reference: normalizeText(payment.reference || order?.paymentReference),
+      transactionId: normalizeText(payment.transactionId || order?.transactionId),
+      gateway: {
+        provider: normalizeText(payment.gateway?.provider),
+        mode: normalizeText(payment.gateway?.mode),
+        transRef: normalizeText(payment.gateway?.transRef),
+        companyRef: normalizeText(payment.gateway?.companyRef),
+        lastResult: normalizeText(payment.gateway?.lastResult),
+        lastOutcome: normalizeText(payment.gateway?.lastOutcome),
+        verifiedAt: payment.gateway?.verifiedAt || "",
+        updatedAt: payment.gateway?.updatedAt || "",
+        initiatedAt: payment.gateway?.initiatedAt || "",
+        serviceType: normalizeText(payment.gateway?.serviceType)
+      },
+      transaction: {
+        state: normalizeText(payment.transaction?.state),
+        reference: normalizeText(payment.transaction?.reference),
+        provider: normalizeText(payment.transaction?.provider)
+      }
+    },
     paymentCancellation,
     deliveryMethod: normalizeText(order?.deliveryMethod),
     deliveryLabel: normalizeText(order?.deliveryLabel),
+    deliveryEstimate: normalizeText(order?.deliveryEstimate || order?.estimatedDelivery),
+    deliveryMethodKey: normalizeText(order?.deliveryMethodKey),
+    trackingNumber: normalizeText(order?.trackingNumber || order?.tracking?.number || order?.trackingCode),
+    deliveryProvider: normalizeText(order?.deliveryProvider || order?.courier || order?.shippingProvider),
     shippingStatus: status,
     deliveryStatus: status,
     shippingAddress,
