@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="checkout.css?v=20260815-step1-two-step">
+  <link rel="stylesheet" href="checkout.css?v=20260815-step2-review-pay">
 </head>
 <body>
   <div class="ck-shell">
@@ -26,8 +26,10 @@
           <div id="productList"></div>
           <div id="totalsBlock"></div>
           <form id="reviewForm">
-            <div class="ck-actions">
+            <div class="ck-actions ck-actions--review-pay">
               <a class="ck-btn ck-btn--ghost" href="shipping.html">Back</a>
+              <button type="button" class="ck-btn ck-btn--cod" id="codPayBtn">Cash on Delivery</button>
+              <button type="button" class="ck-btn ck-btn--primary ck-btn--online" id="onlinePayBtn">Online Payment</button>
             </div>
           </form>
         </article>
@@ -37,6 +39,6 @@
   </div>
   <div id="stickyBar"></div>
   <script src="../config/runtime-api-bootstrap.js"></script>
-  <script type="module" src="checkout.js?v=20260815-step1-two-step"></script>
+  <script type="module" src="checkout.js?v=20260815-step2-review-pay"></script>
 </body>
 </html>

@@ -61,19 +61,26 @@ function main() {
   assert(!checkoutHtml.includes('couponBlock'), 'Review must not include coupon container');
   assert(!checkoutHtml.includes('Continue to Payment'), 'Continue to Payment must be removed');
   assert(!checkoutHtml.includes('payment.html'), 'Review must not navigate to payment.html');
+  assert(checkoutHtml.includes('id="codPayBtn"'), 'Review must include Cash on Delivery');
+  assert(checkoutHtml.includes('id="onlinePayBtn"'), 'Review must include Online Payment');
+  assert(checkoutHtml.includes('Cash on Delivery'), 'Cash on Delivery label required');
+  assert(checkoutHtml.includes('Online Payment'), 'Online Payment label required');
   assert(checkoutHtml.includes('id="shippingSummary"'), 'customer/shipping summary remains');
   assert(checkoutHtml.includes('id="productList"'), 'product list remains');
   assert(checkoutHtml.includes('id="totalsBlock"'), 'totals remain');
   assert(checkoutHtml.includes('href="shipping.html"'), 'Back to Shipping remains');
 
+  assert(checkoutJs.includes("window.__ckStep = 'review'"), 'Review still sets the checkout step');
+  assert(checkoutJs.includes('Cash on Delivery'), 'Review must expose Cash on Delivery');
+  assert(checkoutJs.includes('Online Payment'), 'Review must expose Online Payment');
+  assert(checkoutJs.includes('initiateDpoPayment'), 'Online Payment must use existing DPO initiate');
+  assert(checkoutJs.includes("setPaymentMethod('cod')"), 'Cash on Delivery must set the existing COD method');
   assert(!checkoutJs.includes('payment.html'), 'checkout.js must not send customers to payment.html');
   assert(!checkoutJs.includes('setStep(\'payment\')'), 'checkout.js must not enter a Payment step');
   assert(!checkoutJs.includes('Continue to Payment'), 'checkout.js must not keep Continue to Payment');
   assert(!checkoutJs.includes('bindCouponPanel'), 'coupon event wiring must be removed');
   assert(!checkoutJs.includes('applyCheckoutCoupon'), 'Review must not apply coupons from this page');
   assert(!checkoutJs.includes('renderCouponPanel'), 'Review must not render coupon UI');
-  assert(checkoutJs.includes("window.__ckStep = 'review'"), 'Review still sets the checkout step');
-  assert(checkoutJs.includes('hideAction: true'), 'Review sticky bar must not keep a dead continue button');
 
   assert(shippingHtml.includes('Step 1 of 2'), 'Shipping must be Step 1 of 2');
   assert(!shippingHtml.includes('Step 1 of 4'), 'Shipping must not still say Step 1 of 4');

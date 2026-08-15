@@ -165,13 +165,27 @@ export function renderStickyBar(label, buttonId, options = {}) {
   const state = getState();
   const disabled = Boolean(options.disabled || state.isSubmitting);
   const hideAction = Boolean(options.hideAction);
+  const actions = Array.isArray(options.actions) ? options.actions : [];
+  const actionHtml = actions.length
+    ? `<div class="ck-sticky-actions">${actions.map((action) => {
+        const className = escapeHtml(action.className || 'ck-btn ck-btn--primary');
+        return `<button type="button" class="${className}" id="${escapeHtml(action.id)}" ${disabled ? 'disabled' : ''}>${escapeHtml(action.label)}</button>`;
+      }).join('')}</div>`
+    : (hideAction
+      ? ''
+      : `<button type="button" class="ck-btn ck-btn--primary" id="stickyContinueBtn" ${disabled ? 'disabled' : ''}>${escapeHtml(label)}</button>`);
+  const stickyClass = [
+    'ck-sticky',
+    hideAction && !actions.length ? 'ck-sticky--total-only' : '',
+    actions.length ? 'ck-sticky--review-pay' : ''
+  ].filter(Boolean).join(' ');
   return `
-    <div class="ck-sticky${hideAction ? ' ck-sticky--total-only' : ''}">
+    <div class="${stickyClass}">
       <div class="ck-sticky-total">
         <span>Total</span>
         <strong>${formatCurrency(state.totals.total)}</strong>
       </div>
-      ${hideAction ? '' : `<button type="button" class="ck-btn ck-btn--primary" id="stickyContinueBtn" ${disabled ? 'disabled' : ''}>${escapeHtml(label)}</button>`}
+      ${actionHtml}
     </div>
   `;
 }

@@ -439,6 +439,12 @@ async function runBrowserFlow(browser, flow, payload) {
   if (await page.locator('#reviewContinueBtn').count()) {
     throw new Error(`${flow}: Continue to Payment is still on Review`);
   }
+  if (!(await page.locator('#codPayBtn, #stickyCodBtn').count())) {
+    throw new Error(`${flow}: Cash on Delivery is missing on Review & Pay`);
+  }
+  if (!(await page.locator('#onlinePayBtn, #stickyOnlineBtn').count())) {
+    throw new Error(`${flow}: Online Payment is missing on Review & Pay`);
+  }
   const progressText = await page.locator('#progress').innerText();
   if (/Payment/i.test(progressText) && !/Review & Pay/i.test(progressText)) {
     throw new Error(`${flow}: progress still has a separate Payment step: ${progressText}`);
@@ -478,6 +484,8 @@ async function runDesktopLayoutCheck(browser, payload) {
   const stickyVisible = await page.locator('.ck-sticky').isVisible().catch(() => false);
   const backVisible = await page.locator('a[href="shipping.html"]').first().isVisible();
   const continueCount = await page.locator('#reviewContinueBtn').count();
+  const codVisible = await page.locator('#codPayBtn').isVisible();
+  const onlineVisible = await page.locator('#onlinePayBtn').isVisible();
   const totals = await page.locator('#totalsBlock').innerText();
   const heading = await page.locator('h1').innerText();
   await context.close();
@@ -489,6 +497,9 @@ async function runDesktopLayoutCheck(browser, payload) {
   }
   if (continueCount) {
     throw new Error('Desktop review still has Continue to Payment');
+  }
+  if (!codVisible || !onlineVisible) {
+    throw new Error('Desktop review must show Cash on Delivery and Online Payment');
   }
   if (!/Review & Pay/i.test(heading)) {
     throw new Error(`Desktop review heading missing Review & Pay: ${heading}`);

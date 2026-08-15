@@ -159,6 +159,8 @@ function checkPaymentLifecycle() {
 
     assert(checkoutHtml.includes('Review & Pay'), 'Review page is titled Review & Pay');
     assert(checkoutHtml.includes('Step 2 of 2'), 'checkout has two steps');
+    assert(checkoutHtml.includes('id="codPayBtn"'), 'Review must include Cash on Delivery');
+    assert(checkoutHtml.includes('id="onlinePayBtn"'), 'Review must include Online Payment');
     assert(!checkoutHtml.includes('couponBlock'), 'Review must not show a Coupon section');
     assert(/location\.replace\(\s*'checkout.html'/.test(paymentHtml), 'old Payment URL must redirect to Review & Pay');
     assert(!paymentHtml.includes('payment.js'), 'old Payment page must not load Payment-step JS');

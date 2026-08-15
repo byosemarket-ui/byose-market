@@ -89,6 +89,8 @@ function checkCustomerPaymentUi() {
     const paymentHtml = read('orders/payment.html');
     const checkoutHtml = read('orders/checkout.html');
     assert(checkoutHtml.includes('Review & Pay'), 'live Review page is Review & Pay');
+    assert(checkoutHtml.includes('id="codPayBtn"'), 'Review must include Cash on Delivery');
+    assert(checkoutHtml.includes('id="onlinePayBtn"'), 'Review must include Online Payment');
     assert(!checkoutHtml.includes('Continue to Payment'), 'Continue to Payment must be removed');
     assert(/location\.replace\(\s*'checkout.html'/.test(paymentHtml), 'old Payment URL must redirect to Review & Pay');
     assert(!paymentHtml.includes('id="paymentMethods"'), 'payment.html must no longer be a Payment step');

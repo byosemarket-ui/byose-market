@@ -48,9 +48,16 @@ function checkPaymentUi() {
 
     assert(checkoutHtml.includes('Review & Pay'), 'Review page is titled Review & Pay');
     assert(checkoutHtml.includes('Step 2 of 2'), 'Review is Step 2 of 2');
+    assert(checkoutHtml.includes('id="codPayBtn"'), 'Review must include Cash on Delivery');
+    assert(checkoutHtml.includes('id="onlinePayBtn"'), 'Review must include Online Payment');
     assert(!checkoutHtml.includes('Continue to Payment'), 'Continue to Payment must be removed');
     assert(!checkoutHtml.includes('couponBlock'), 'Review must not show a Coupon section');
     assert(!checkoutJs.includes('payment.html'), 'Review must not navigate to payment.html');
+    assert(checkoutJs.includes('initiateDpoPayment'), 'Online Payment uses official DPO initiate');
+    assert(checkoutJs.includes("setPaymentMethod('cod')"), 'COD uses the existing order-creation method');
+    assert(checkoutJs.includes('actionInFlight'), 'Review duplicate-click lock required');
+    assert(checkoutJs.includes('Connecting to secure payment...'), 'Online Payment must show a connecting state');
+    assert(checkoutJs.includes('choose Cash on Delivery'), 'Online Payment failure must offer Cash on Delivery');
     assert(/location\.replace\(\s*'checkout.html'/.test(paymentHtml), 'old Payment URL must redirect to Review & Pay');
     assert(!paymentHtml.includes('payment.js'), 'old Payment page must not load Payment-step JS');
     assert(!/Airtel Money|Bank Transfer|TEST Service Type|Sandbox/i.test(paymentHtml + checkoutHtml), 'TEST/Airtel/Bank must not appear on checkout pages');

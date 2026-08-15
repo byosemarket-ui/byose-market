@@ -50,26 +50,30 @@ const ALL_BLOCKABLE_PAYMENTS = Object.freeze(['CC', 'MO', 'PP', 'BT', 'XP']);
 /**
  * Official createToken hosted-page defaults.
  * DefaultPayment / DefaultPaymentCountry / DefaultPaymentMNO / BlockPayment
- * are documented DPO API v6 fields. They pre-select the method and hide
- * unused options so customers are not asked for details BYOSE already has.
+ * are documented DPO API v6 fields.
+ * BYOSE Review & Pay sends customers to DPO with both Card (CC) and Mobile
+ * Money (MO) available. Unused methods (PP, BT, XP) stay blocked.
  * BlockPayment codes are the official v6 set: CC, DD, BT, PP, XP, MO.
  * Do not send undocumented codes such as SE — LIVE DPO returns Result 930.
  */
 function resolveHostedPaymentOptions(method) {
     const id = normalizeText(method).toLowerCase();
+    // Review & Pay no longer asks MTN vs Card on BYOSE Market.
+    // Keep both Card (CC) and Mobile Money (MO) available on the DPO hosted page.
+    const blockPayments = ALL_BLOCKABLE_PAYMENTS.filter((code) => code !== 'CC' && code !== 'MO');
     if (id === 'mtn') {
         return {
             defaultPayment: 'MO',
             defaultPaymentCountry: 'rwanda',
             defaultPaymentMno: 'MTN',
-            blockPayments: ALL_BLOCKABLE_PAYMENTS.filter((code) => code !== 'MO')
+            blockPayments
         };
     }
     return {
         defaultPayment: 'CC',
         defaultPaymentCountry: '',
         defaultPaymentMno: '',
-        blockPayments: ALL_BLOCKABLE_PAYMENTS.filter((code) => code !== 'CC')
+        blockPayments
     };
 }
 

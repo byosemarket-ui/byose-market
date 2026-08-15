@@ -316,6 +316,69 @@ a { color: var(--ck-accent); text-decoration: none; }
   }
 }
 
+.ck-actions--review-pay {
+  align-items: stretch;
+}
+
+.ck-actions--review-pay .ck-btn--ghost {
+  flex: 0 0 auto;
+  min-width: 88px;
+}
+
+.ck-btn--cod {
+  background: #fff;
+  border-color: var(--ck-border);
+  color: var(--ck-text);
+  flex: 1;
+}
+
+.ck-btn--cod:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: var(--ck-text);
+}
+
+.ck-btn--online {
+  flex: 1;
+  box-shadow: 0 8px 18px rgba(225, 29, 72, 0.18);
+}
+
+.ck-btn--online:hover {
+  box-shadow: 0 10px 22px rgba(190, 18, 60, 0.22);
+}
+
+@media (max-width: 719px) {
+  .ck-actions--review-pay {
+    flex-direction: column;
+  }
+
+  .ck-actions--review-pay .ck-btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .ck-actions--review-pay .ck-btn--ghost {
+    order: 3;
+  }
+}
+
+@media (max-width: 899px) {
+  .ck-actions--review-pay .ck-btn--cod,
+  .ck-actions--review-pay .ck-btn--online {
+    display: none;
+  }
+
+  .ck-shell {
+    padding-bottom: 168px;
+  }
+}
+
+@media (max-width: 539px) {
+  .ck-shell {
+    padding-bottom: 196px;
+  }
+}
+
 /* GPS card */
 .ck-gps-card {
   display: flex;
@@ -1025,6 +1088,40 @@ a { color: var(--ck-accent); text-decoration: none; }
   white-space: normal;
   text-align: center;
   line-height: 1.25;
+}
+
+.ck-sticky--review-pay {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ck-sticky-actions {
+  display: flex;
+  gap: 8px;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.ck-sticky-actions .ck-btn {
+  margin-left: 0;
+  min-height: 46px;
+}
+
+@media (max-width: 539px) {
+  .ck-sticky--review-pay {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ck-sticky-actions {
+    flex: 1 1 auto;
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .ck-sticky-actions .ck-btn {
+    width: 100%;
+  }
 }
 
 /* Success page */

@@ -148,7 +148,7 @@ function renderSuccess(confirmation, resolvedId) {
   };
 
   const paymentNote = isCod
-    ? 'Pay when your order arrives. This order is not paid online.'
+    ? 'Your order was created. This order is not paid online. Please pay when the order is delivered.'
     : (paid
       ? 'Payment confirmed. Thank you — your order is paid.'
       : 'Complete the payment with the official payment provider. Your order stays awaiting payment until confirmed.');

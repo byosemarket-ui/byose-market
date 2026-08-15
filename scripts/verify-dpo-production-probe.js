@@ -89,6 +89,8 @@ async function main() {
     const reviewHtml = await request('GET', '/orders/checkout.html');
     assert(/Review & Pay/i.test(reviewHtml.raw), 'review page must be titled Review & Pay');
     assert(/Step 2 of 2/i.test(reviewHtml.raw), 'review page must be Step 2 of 2');
+    assert(/id=["']codPayBtn["']/.test(reviewHtml.raw), 'review page must include Cash on Delivery');
+    assert(/id=["']onlinePayBtn["']/.test(reviewHtml.raw), 'review page must include Online Payment');
     assert(!/Continue to Payment/i.test(reviewHtml.raw), 'review page must not continue to a Payment step');
     assert(!/id=["']couponBlock["']/.test(reviewHtml.raw), 'review page must not show a Coupon section');
 

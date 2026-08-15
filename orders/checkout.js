@@ -1,11 +1,29 @@
+import { initiateDpoPayment, submitOrder } from './core/order.js';
 import {
-  getState, guardStep, initCheckout, refreshBackendDeliveryQuote, subscribe, updateProductQty
+  getState,
+  guardStep,
+  initCheckout,
+  isCodAvailable,
+  loadGatewayPaymentConfig,
+  refreshBackendDeliveryQuote,
+  setPaymentMethod,
+  setPaymentPhone,
+  setSubmitting,
+  subscribe,
+  updateProductQty
 } from './core/state.js';
 import {
   renderDeliveryInfo, renderProgress, renderProductList, renderShippingSummary, renderSidebar,
   renderStickyBar, renderTotals, showMessage
 } from './ui/layout.js';
 import { validateProducts } from './core/validation.js';
+import {
+  readAwaitingGatewayOrderId,
+  writeAwaitingGatewayOrderId
+} from './checkout-session.js';
+
+const ONLINE_GATEWAY_METHOD = 'card';
+const ONLINE_START_ERROR = 'Online payment could not be started. Please try again or choose Cash on Delivery.';
 
 const progressEl = document.getElementById('progress');
 const sidebarEl = document.getElementById('sidebar');
@@ -15,6 +33,51 @@ const deliveryInfoEl = document.getElementById('deliveryInfo');
 const productListEl = document.getElementById('productList');
 const totalsBlockEl = document.getElementById('totalsBlock');
 const messageEl = document.getElementById('message');
+const form = document.getElementById('reviewForm');
+
+let createdGatewayOrderId = readAwaitingGatewayOrderId();
+let actionInFlight = false;
+let busyKind = '';
+
+function rememberGatewayOrder(orderId) {
+  createdGatewayOrderId = String(orderId || '').trim();
+  if (createdGatewayOrderId) writeAwaitingGatewayOrderId(createdGatewayOrderId);
+}
+
+function applyBusyState() {
+  const onlineLabel = busyKind === 'online' ? 'Connecting to secure payment...' : 'Online Payment';
+  const codLabel = busyKind === 'cod' ? 'Placing order...' : 'Cash on Delivery';
+  const ids = ['codPayBtn', 'onlinePayBtn', 'stickyCodBtn', 'stickyOnlineBtn'];
+  ids.forEach((id) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    const isOnline = id === 'onlinePayBtn' || id === 'stickyOnlineBtn';
+    btn.textContent = isOnline ? onlineLabel : codLabel;
+  });
+  syncActionAvailability();
+}
+
+function syncActionAvailability() {
+  const state = getState();
+  const busy = actionInFlight || Boolean(state.isSubmitting);
+  const codOk = isCodAvailable();
+  const onlineOk = !state.gateway?.loaded || Boolean(state.gateway?.dpoEnabled);
+  [
+    ['codPayBtn', !codOk, 'Cash on Delivery is only available in Kigali.'],
+    ['stickyCodBtn', !codOk, 'Cash on Delivery is only available in Kigali.'],
+    ['onlinePayBtn', !onlineOk, 'Online payment is not available right now.'],
+    ['stickyOnlineBtn', !onlineOk, 'Online payment is not available right now.']
+  ].forEach(([id, blocked, title]) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    if (busy) {
+      btn.disabled = true;
+      return;
+    }
+    btn.disabled = blocked;
+    btn.title = blocked ? title : '';
+  });
+}
 
 function render() {
   const state = getState();
@@ -24,7 +87,124 @@ function render() {
   productListEl.innerHTML = renderProductList(state.products, { editable: true });
   totalsBlockEl.innerHTML = renderTotals(state.totals);
   sidebarEl.innerHTML = renderSidebar(state.products, state.totals);
-  stickyEl.innerHTML = renderStickyBar('', 'reviewContinueBtn', { hideAction: true });
+  stickyEl.innerHTML = renderStickyBar('', 'reviewContinueBtn', {
+    actions: [
+      { id: 'stickyCodBtn', label: 'Cash on Delivery', className: 'ck-btn ck-btn--cod' },
+      { id: 'stickyOnlineBtn', label: 'Online Payment', className: 'ck-btn ck-btn--primary ck-btn--online' }
+    ]
+  });
+  applyBusyState();
+}
+
+function releaseActionLock() {
+  actionInFlight = false;
+  busyKind = '';
+  setSubmitting(false);
+  applyBusyState();
+}
+
+function beginAction(kind) {
+  if (actionInFlight || getState().isSubmitting) return false;
+  actionInFlight = true;
+  busyKind = kind;
+  applyBusyState();
+  return true;
+}
+
+function productsReady() {
+  const check = validateProducts(getState().products);
+  if (!check.valid) {
+    showMessage(messageEl, check.message);
+    return false;
+  }
+  showMessage(messageEl, '');
+  return true;
+}
+
+async function startGatewayPayment(orderId) {
+  applyBusyState();
+  const payment = await initiateDpoPayment(orderId);
+  if (payment.alreadyPaid) {
+    window.location.href = `order-success.html?orderId=${encodeURIComponent(orderId)}`;
+    return true;
+  }
+  if (!payment.success || (!payment.paymentUrl && !payment.redirectUrl)) {
+    showMessage(messageEl, ONLINE_START_ERROR);
+    return false;
+  }
+  window.location.href = payment.paymentUrl || payment.redirectUrl;
+  return true;
+}
+
+async function handleCashOnDelivery(event) {
+  event?.preventDefault?.();
+  if (!productsReady()) return;
+  if (!isCodAvailable()) {
+    showMessage(messageEl, 'Cash on Delivery is only available in Kigali.');
+    return;
+  }
+  if (createdGatewayOrderId) {
+    showMessage(
+      messageEl,
+      'This order is already created for online payment. Complete Online Payment for the same order, or return later. Cash on Delivery cannot replace a started online payment.'
+    );
+    return;
+  }
+  if (!beginAction('cod')) return;
+
+  try {
+    setPaymentMethod('cod');
+    const result = await submitOrder();
+    if (!result.valid) {
+      showMessage(messageEl, result.message || result.errors?.method || 'Unable to place order.');
+      releaseActionLock();
+      return;
+    }
+    window.location.href = `order-success.html?orderId=${encodeURIComponent(result.orderId)}`;
+  } catch (_error) {
+    showMessage(messageEl, 'Something went wrong. Please try again.');
+    releaseActionLock();
+  }
+}
+
+async function handleOnlinePayment(event) {
+  event?.preventDefault?.();
+  if (!productsReady()) return;
+  if (!getState().gateway?.loaded) {
+    await loadGatewayPaymentConfig();
+    syncActionAvailability();
+  }
+  if (!getState().gateway?.dpoEnabled) {
+    showMessage(messageEl, ONLINE_START_ERROR);
+    return;
+  }
+  if (!beginAction('online')) return;
+
+  try {
+    setPaymentMethod(ONLINE_GATEWAY_METHOD);
+    const shippingPhone = getState().shipping?.phone || getState().customer?.phone || '';
+    if (shippingPhone) setPaymentPhone(shippingPhone);
+
+    if (createdGatewayOrderId) {
+      const started = await startGatewayPayment(createdGatewayOrderId);
+      if (!started) releaseActionLock();
+      return;
+    }
+
+    const result = await submitOrder();
+    if (!result.valid) {
+      showMessage(messageEl, result.message || result.errors?.method || result.errors?.phone || 'Unable to place order.');
+      releaseActionLock();
+      return;
+    }
+
+    rememberGatewayOrder(result.orderId);
+    const started = await startGatewayPayment(result.orderId);
+    if (!started) releaseActionLock();
+  } catch (_error) {
+    showMessage(messageEl, ONLINE_START_ERROR);
+    releaseActionLock();
+  }
 }
 
 productListEl.addEventListener('click', (e) => {
@@ -45,6 +225,22 @@ productListEl.addEventListener('click', (e) => {
   showMessage(messageEl, '');
 });
 
+form?.addEventListener('submit', (event) => event.preventDefault());
+form?.addEventListener('click', (event) => {
+  if (event.target.closest('#codPayBtn')) {
+    void handleCashOnDelivery(event);
+  } else if (event.target.closest('#onlinePayBtn')) {
+    void handleOnlinePayment(event);
+  }
+});
+stickyEl?.addEventListener('click', (event) => {
+  if (event.target.closest('#stickyCodBtn')) {
+    void handleCashOnDelivery(event);
+  } else if (event.target.closest('#stickyOnlineBtn')) {
+    void handleOnlinePayment(event);
+  }
+});
+
 subscribe(() => render());
 
 await initCheckout('review');
@@ -56,4 +252,6 @@ if (!access.ok) {
   render();
   window.__ckStep = 'review';
   void refreshBackendDeliveryQuote();
+  await loadGatewayPaymentConfig();
+  render();
 }
