@@ -191,10 +191,11 @@ function computeStock(product) {
 
 function buildSpecs(product, profile) {
   const discount = getDiscount(product.price, product.oldPrice);
+  const stockCount = computeStock(product);
   const derivedSpecs = [
     ['SKU', `BM-${String(product.id).padStart(4, '0')}`],
     ['Category', profile.label],
-    ['Availability', `${computeStock(product)} units ready`],
+    ['Availability', stockCount > 0 ? `${stockCount} units ready` : 'Out of stock'],
     ['Discount', discount > 0 ? `${discount}% off` : 'Best value pricing']
   ];
 
@@ -359,7 +360,7 @@ export async function loadProductData() {
     rating,
     reviewCount,
     stockCount,
-    stockLabel: stockCount > 0 ? `${stockCount} in stock` : 'Limited stock',
+    stockLabel: stockCount > 0 ? `${stockCount} in stock` : 'Out of stock',
     discount,
     discountPercent: discount,
     shortDescription: mergedProduct.shortDescription || mergedProduct.description || profile.description,

@@ -213,6 +213,11 @@
   flex-wrap: wrap;
 }
 
+.purchase-option-banner--oos {
+  background: #fff4f4;
+  border-color: rgba(224, 25, 51, 0.18);
+}
+
 .purchase-option-banner__lead {
   display: grid;
   gap: 4px;

@@ -300,6 +300,43 @@ export function isColorSizeInventory(product) {
   return extractColorVariantsFromProduct(product).some((entry) => entry.sizes.length > 0);
 }
 
+export function countInStockColors(product) {
+  return extractColorVariantsFromProduct(product)
+    .filter((entry) => Number(entry.totalStock) > 0)
+    .length;
+}
+
+/**
+ * True when the customer can actually purchase at least one variant.
+ * Color/size products use matrix stock, not a stale product-level count.
+ */
+export function hasPurchasableVariant(product) {
+  if (!product || typeof product !== "object") {
+    return false;
+  }
+
+  const colorVariants = extractColorVariantsFromProduct(product);
+  if (colorVariants.length) {
+    return colorVariants.some((entry) => Number(entry.totalStock) > 0);
+  }
+
+  const stockCandidates = [
+    product.stock,
+    product.availableStock,
+    product.stockCount,
+    product.inventory?.available
+  ];
+
+  for (const candidate of stockCandidates) {
+    const value = Number(candidate);
+    if (Number.isFinite(value)) {
+      return value > 0;
+    }
+  }
+
+  return true;
+}
+
 export function buildFlatInventoryItems(colorVariants = []) {
   return normalizeColorVariants(colorVariants).flatMap((color) =>
     color.sizes.map((sizeRow) => {
@@ -340,13 +377,18 @@ export function buildAttributesFromColorVariants(colorVariants = []) {
   normalized.forEach((color) => {
     color.sizes.forEach((sizeRow) => {
       const value = slugify(sizeRow.size) || sizeRow.size;
-      if (!uniqueSizes.has(value)) {
+      const sizeStock = Math.max(0, Math.floor(toNumber(sizeRow.stock, 0)));
+      const existing = uniqueSizes.get(value);
+      if (!existing) {
         uniqueSizes.set(value, {
           label: sizeRow.size,
           value,
-          stock: 0,
-          availability: "future"
+          stock: sizeStock,
+          availability: sizeStock > 0 ? "available" : "out_of_stock"
         });
+      } else {
+        existing.stock += sizeStock;
+        existing.availability = existing.stock > 0 ? "available" : "out_of_stock";
       }
     });
   });

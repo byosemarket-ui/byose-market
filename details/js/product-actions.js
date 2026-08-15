@@ -1,5 +1,5 @@
 import { buildVariantKey, normalizeProductAttributes } from './product-attributes.js';
-import { enrichProductColorVariants, resolveMatrixStock } from '../../js/color-variant-inventory.js';
+import { enrichProductColorVariants, hasPurchasableVariant, resolveMatrixStock } from '../../js/color-variant-inventory.js';
 import { buildVariantCartPayload, validateVariantSelection } from '../../js/variant-cart-payload.js';
 import { normalizeStorefrontAssetUrl } from '../../services/storefront-asset-url.js';
 import { startBuyNowSession } from '../../orders/checkout-session.js';
@@ -128,6 +128,33 @@ function validateRequestedQuantity(product, quantity, attributes = {}) {
   };
 }
 
+function setPurchaseButtonAvailability(button, enabled, outOfStockLabel) {
+  if (!button) {
+    return;
+  }
+
+  button.disabled = !enabled;
+  button.classList.toggle('btn-disabled', !enabled);
+  button.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+  if (!enabled) {
+    button.setAttribute('title', 'This product is currently out of stock.');
+    const label = button.querySelector('span');
+    if (label) {
+      label.textContent = outOfStockLabel;
+    } else {
+      button.textContent = outOfStockLabel;
+    }
+  }
+}
+
+function applyPurchaseAvailability(product, buttons = []) {
+  const purchasable = hasPurchasableVariant(product);
+  buttons.forEach((button) => {
+    setPurchaseButtonAvailability(button, purchasable, 'Out of Stock');
+  });
+  return purchasable;
+}
+
 function startDirectCheckout(itemsInput) {
   const items = (Array.isArray(itemsInput) ? itemsInput : [itemsInput]).filter(Boolean);
   if (!items.length) {
@@ -161,6 +188,13 @@ export function initProductActions(options) {
   }
 
   const attributes = normalizeProductAttributes(product);
+  const purchasable = applyPurchaseAvailability(product, [
+    addToCartButton,
+    buyNowButton,
+    document.getElementById('stickyAddToCartBtn'),
+    document.getElementById('stickyBuyNowBtn')
+  ]);
+
   const modal = createProductModal({
     product,
     attributes,
@@ -203,9 +237,11 @@ export function initProductActions(options) {
   renderProductOptionPreview(optionsPreviewRoot, attributes, product);
 
   if (purchaseCaption) {
-    purchaseCaption.textContent = attributes.length
-      ? 'Choose your color and size in the purchase modal. Stock updates automatically.'
-      : 'Adjust quantity before adding to cart.';
+    purchaseCaption.textContent = !purchasable
+      ? 'This product is currently out of stock.'
+      : (attributes.length
+        ? 'Choose your color and size in the purchase modal. Stock updates automatically.'
+        : 'Adjust quantity before adding to cart.');
   }
 
   function readQuantity() {
@@ -218,6 +254,11 @@ export function initProductActions(options) {
   }
 
   function handleSimpleAction(action) {
+    if (!purchasable) {
+      showToast?.('This product is currently out of stock.');
+      return;
+    }
+
     const qty = readQuantity();
 
     if (attributes.length) {
@@ -251,21 +292,30 @@ export function initProductActions(options) {
   }
 
   decreaseButton?.addEventListener('click', () => {
+    if (!purchasable) return;
     syncQuantity(readQuantity() - 1);
   });
 
   increaseButton?.addEventListener('click', () => {
+    if (!purchasable) return;
     syncQuantity(readQuantity() + 1);
   });
 
   quantityInput.addEventListener('change', () => {
     syncQuantity(readQuantity());
   });
+  quantityInput.disabled = !purchasable;
+  if (decreaseButton) decreaseButton.disabled = !purchasable;
+  if (increaseButton) increaseButton.disabled = !purchasable;
 
   addToCartButton?.addEventListener('click', () => handleSimpleAction('add'));
   buyNowButton?.addEventListener('click', () => handleSimpleAction('buy'));
 
   optionsPreviewRoot?.querySelector('[data-open-config-modal]')?.addEventListener('click', () => {
+    if (!purchasable) {
+      showToast?.('This product is currently out of stock.');
+      return;
+    }
     modal.open({ action: 'add', initialQuantity: readQuantity() });
   });
 }

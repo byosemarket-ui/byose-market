@@ -11,6 +11,7 @@ import {
   buildInventoryInfoPanel,
   buildStockAwareQuantityStepper
 } from './availability-renderer.js';
+import { hasPurchasableVariant } from '../../js/color-variant-inventory.js';
 
 /**
  * Initialize inventory display on product detail page
@@ -199,8 +200,7 @@ export function disablePurchaseIfOutOfStock(product, options = {}) {
   };
   
   const opts = { ...defaults, ...options };
-  const inventory = product.inventory || {};
-  const isOutOfStock = !inventory.available || inventory.available <= 0;
+  const isOutOfStock = !hasPurchasableVariant(product);
   
   if (isOutOfStock) {
     if (opts.addToCartBtn) {
@@ -263,8 +263,11 @@ export function isLowStock(inventory) {
 /**
  * Check if product is out of stock
  */
-export function isOutOfStock(inventory) {
-  return !inventory.available || inventory.available <= 0;
+export function isOutOfStock(inventory, product = null) {
+  if (product) {
+    return !hasPurchasableVariant(product);
+  }
+  return !inventory?.available || inventory.available <= 0;
 }
 
 /**

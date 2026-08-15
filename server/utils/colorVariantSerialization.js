@@ -82,6 +82,27 @@ function computeProductTotalStock(colorVariants = [], fallbackQuantity = 0) {
     return colorVariants.reduce((sum, entry) => sum + Math.max(0, Number(entry?.totalStock) || 0), 0);
 }
 
+function buildFlatInventoryItems(colorVariants = []) {
+    return (Array.isArray(colorVariants) ? colorVariants : []).flatMap((color) =>
+        (Array.isArray(color?.sizes) ? color.sizes : []).map((sizeRow) => {
+            const sizeValue = slugify(sizeRow.size) || sizeRow.size;
+            const stock = Math.max(0, Math.floor(toNumber(sizeRow.stock, 0)));
+            return {
+                id: `${color.id}-${sizeValue}`,
+                key: `Color:${color.id}|Size:${sizeValue}`,
+                colorId: color.id,
+                colorName: color.colorName,
+                size: sizeRow.size,
+                sizeValue,
+                label: `${color.colorName} / ${sizeRow.size}`,
+                image: color.image,
+                stock,
+                available: stock
+            };
+        })
+    );
+}
+
 function buildAttributesFromColorVariants(colorVariants = []) {
     if (!Array.isArray(colorVariants) || !colorVariants.length) {
         return [];
@@ -100,13 +121,18 @@ function buildAttributesFromColorVariants(colorVariants = []) {
     colorVariants.forEach((color) => {
         color.sizes.forEach((sizeRow) => {
             const value = slugify(sizeRow.size) || sizeRow.size;
-            if (!uniqueSizes.has(value)) {
+            const sizeStock = Math.max(0, Math.floor(toNumber(sizeRow.stock, 0)));
+            const existing = uniqueSizes.get(value);
+            if (!existing) {
                 uniqueSizes.set(value, {
                     label: sizeRow.size,
                     value,
-                    stock: 0,
-                    availability: 'future'
+                    stock: sizeStock,
+                    availability: sizeStock > 0 ? 'available' : 'out_of_stock'
                 });
+            } else {
+                existing.stock += sizeStock;
+                existing.availability = existing.stock > 0 ? 'available' : 'out_of_stock';
             }
         });
     });
@@ -160,10 +186,13 @@ function enrichSerializedProductColorVariants(payload, normalizeUrl) {
             enabled: variants.enabled !== false,
             inventoryReady: true,
             imagePerColor: true,
-            colorVariants
+            colorVariants,
+            items: buildFlatInventoryItems(colorVariants)
         },
         metadata: {
             ...metadata,
+            variantStockTotal: totalStock,
+            stockStatus: totalStock <= 0 ? 'out_of_stock' : (totalStock <= 5 ? 'low_stock' : 'in_stock'),
             colorVariants: colorVariants.map((entry) => ({
                 id: entry.id,
                 clientKey: entry.clientKey || entry.id,

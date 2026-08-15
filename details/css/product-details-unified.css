@@ -416,8 +416,21 @@
   box-shadow: var(--shadow-medium);
 }
 
-.action-btn-secondary:hover {
-  background: rgba(18, 33, 39, 0.9);
+.action-btn:disabled,
+.action-btn.btn-disabled,
+.action-btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+  background: #8a969b;
+}
+
+.action-btn:disabled:hover,
+.action-btn.btn-disabled:hover,
+.action-btn[aria-disabled="true"]:hover {
+  transform: none;
+  box-shadow: none;
 }
 
 /* ========== TRUST PILLS ========== */

@@ -3,6 +3,10 @@
  * Run: node scripts/validate-color-inventory.js
  */
 
+import { createRequire } from 'node:module';
+
+const { enrichSerializedProductColorVariants } = createRequire(import.meta.url)('../server/utils/colorVariantSerialization.js');
+
 const {
   buildAttributesFromColorVariants,
   buildFlatInventoryItems,
@@ -10,6 +14,7 @@ const {
   computeProductTotalStock,
   getSizesForColor,
   getStockForColorSize,
+  hasPurchasableVariant,
   normalizeColorVariants,
   resolveMatrixStock,
   resolveSmartColorSizeSelection
@@ -75,7 +80,8 @@ const checks = [
   ['white includes zero-stock size', whiteSizes.some((entry) => entry.label === '43' && entry.stock === 0)],
   ['black size 41 stock', getStockForColorSize(product, blackId, '41') === 5],
   ['white size 41 stock', getStockForColorSize(product, whiteId, '41') === 4],
-  ['matrix stock resolution', resolveMatrixStock(product, { Color: whiteId, Size: '41' }) === 4]
+  ['matrix stock resolution', resolveMatrixStock(product, { Color: whiteId, Size: '41' }) === 4],
+  ['purchasable when a variant has stock', hasPurchasableVariant(product) === true]
 ];
 
 const singleColorProduct = {
@@ -153,6 +159,44 @@ checks.push(
   ['preserves valid manual size', (() => {
     const sel = resolveSmartColorSizeSelection(product, { Color: whiteId, Size: '41' });
     return sel.Color === whiteId && sel.Size === '41';
+  })()],
+  ['size attribute stock is summed across colors', attributes[1]?.options?.find((entry) => entry.value === '40')?.stock === 16],
+  ['size attribute not marked future when in stock', attributes[1]?.options?.every((entry) => entry.availability !== 'future')],
+  ['fully out-of-stock product is not purchasable', hasPurchasableVariant({
+    stock: 12,
+    variants: {
+      mode: 'color_size',
+      colorVariants: normalizeColorVariants([{
+        colorName: 'White -Navy- Red',
+        sizes: [{ size: '40', stock: 0 }]
+      }]),
+      items: [{ stock: 1, available: 1, colorId: 'white-navy-red', size: '40' }]
+    }
+  }) === false],
+  ['partially available product stays purchasable', hasPurchasableVariant({
+    stock: 0,
+    variants: {
+      mode: 'color_size',
+      colorVariants: normalizeColorVariants([
+        { colorName: 'Out Color', sizes: [{ size: '40', stock: 0 }] },
+        { colorName: 'In Color', sizes: [{ size: '41', stock: 2 }] }
+      ])
+    }
+  }) === true],
+  ['serialization rebuilds stale variant items from color stock', (() => {
+    const serialized = enrichSerializedProductColorVariants({
+      stock: 12,
+      variants: {
+        mode: 'color_size',
+        colorVariants: [{ id: 'white-navy-red', colorName: 'White -Navy- Red', sizes: [{ size: '40', stock: 0 }] }],
+        items: [{ id: 'white-navy-red-40', stock: 1, available: 1 }]
+      },
+      metadata: { variantStockTotal: 1, stockStatus: 'low_stock' }
+    }, (value) => value);
+    return serialized.stock === 0
+      && serialized.variants.items[0].stock === 0
+      && serialized.metadata.stockStatus === 'out_of_stock'
+      && serialized.attributes[0].options[0].availability === 'out_of_stock';
   })()]
 );
 

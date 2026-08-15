@@ -5,6 +5,7 @@
 
 import { normalizeStorefrontAssetUrl, resolveProductImageUrl } from '../services/storefront-asset-url.js';
 import { formatDiscountBadgeLabel, resolveProductDiscount } from './storefront-discount.js';
+import { hasPurchasableVariant } from './color-variant-inventory.js';
 
 export const ProductCardSystem = (() => {
   'use strict';
@@ -183,9 +184,13 @@ export const ProductCardSystem = (() => {
     const eager = Boolean(options && options.eager);
     const loadingAttr = eager ? 'eager' : 'lazy';
     const fetchPriorityAttr = eager ? ' fetchpriority="high"' : '';
+    const outOfStock = !hasPurchasableVariant(product);
+    const oosBadge = outOfStock
+      ? '<span class="byose-product-badge byose-product-badge--oos" aria-label="Out of stock">Out of stock</span>'
+      : '';
 
     return `
-      <article class="byose-product-card" data-product-id="${escapeHtml(productId)}">
+      <article class="byose-product-card${outOfStock ? ' is-out-of-stock' : ''}" data-product-id="${escapeHtml(productId)}">
         <div class="byose-product-image-wrapper">
           <a class="byose-product-image-link" href="${productDetailUrl}" aria-label="View ${productName}">
             <img class="byose-product-image"
@@ -198,6 +203,7 @@ export const ProductCardSystem = (() => {
           </a>
           ${discountBadge}
           ${highlightBadge}
+          ${oosBadge}
           ${wishlistButton}
         </div>
         <a class="byose-product-content-link" href="${productDetailUrl}">

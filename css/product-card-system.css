@@ -170,6 +170,32 @@
   background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
 }
 
+.byose-product-badge--oos {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: rgba(17, 24, 39, 0.82);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.byose-product-card.is-out-of-stock .byose-product-image {
+  filter: grayscale(0.28);
+  opacity: 0.88;
+}
+
 /* Wishlist — top right */
 .byose-product-wishlist {
   position: absolute;

@@ -44,6 +44,8 @@ function checkSourceGuards() {
 
   const actions = read('details/js/product-actions.js');
   assert(actions.includes('startBuyNowSession'), 'Buy Now must start an isolated direct session');
+  assert(actions.includes('hasPurchasableVariant'), 'Buy Now/Add to Cart must respect variant inventory');
+  assert(actions.includes('Out of Stock'), 'unavailable products must show Out of Stock');
 
   const utils = read('js/utils.js');
   assert(utils.includes('mergeCartItemLists'), 'storefront sync must merge guest/remote carts');

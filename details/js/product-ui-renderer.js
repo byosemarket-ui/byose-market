@@ -2,9 +2,11 @@ import { buildAttributeSummary, getPrimarySelectionImage, isSelectionComplete } 
 import {
   COLOR_ATTR_NAME,
   SIZE_ATTR_NAME,
+  countInStockColors,
   enrichProductColorVariants,
   extractColorVariantsFromProduct,
   getSizesForColor,
+  hasPurchasableVariant,
   isColorSizeInventory
 } from '../../js/color-variant-inventory.js';
 import { normalizeStorefrontAssetUrl } from '../../services/storefront-asset-url.js';
@@ -64,8 +66,22 @@ export function renderProductOptionPreview(root, attributes, product = null) {
   }
 
   const colorCount = isColorSizeInventory(enrichedProduct)
-    ? extractColorVariantsFromProduct(enrichedProduct).length
-    : (attributes.find((entry) => entry.name === COLOR_ATTR_NAME)?.options?.length || 0);
+    ? countInStockColors(enrichedProduct)
+    : (attributes.find((entry) => entry.name === COLOR_ATTR_NAME)?.options?.filter((option) => Number(option.stock) > 0).length || 0);
+  const purchasable = hasPurchasableVariant(enrichedProduct || product);
+
+  if (!purchasable) {
+    root.innerHTML = `
+      <div class="purchase-option-banner purchase-option-banner--oos">
+        <div class="purchase-option-banner__lead">
+          <span class="purchase-option-banner__eyebrow">Unavailable</span>
+          <strong>Out of stock</strong>
+          <p>No purchasable color or size is available right now.</p>
+        </div>
+      </div>
+    `;
+    return;
+  }
 
   root.innerHTML = `
     <div class="purchase-option-banner purchase-option-banner--inventory">
