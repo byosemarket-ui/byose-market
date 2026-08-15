@@ -292,6 +292,7 @@ if (confirmationMatches && resolvedId && !confirmationIsCod) {
     clearAwaitingGatewayOrderId();
     clearActiveCheckoutKeys();
   } else {
-    window.location.replace(`payment-result.html?status=pending&orderId=${encodeURIComponent(resolvedId)}`);
+    const status = verifiedOutcome || 'pending';
+    window.location.replace(`payment-result.html?status=${encodeURIComponent(status)}&orderId=${encodeURIComponent(resolvedId)}`);
   }
 }

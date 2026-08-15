@@ -8,7 +8,7 @@ function customerSafePaymentMessage(error, statusCode) {
         return 'Cash on Delivery does not use online payment.';
     }
     if (code === 'UNSUPPORTED_PAYMENT_METHOD') {
-        return 'That payment method is not available. Choose MTN MoMo, Card, or Cash on Delivery.';
+        return 'That payment method is not available. Please try Online Payment or Cash on Delivery.';
     }
     if (code === 'ORDER_NOT_FOUND') {
         return 'We could not find this order.';

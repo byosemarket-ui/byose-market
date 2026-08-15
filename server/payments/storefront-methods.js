@@ -58,7 +58,7 @@ function resolveStorefrontPaymentMethod(value) {
         return {
             ok: false,
             code: 'UNSUPPORTED_PAYMENT_METHOD',
-            message: 'That payment method is no longer available. Choose MTN MoMo, Card, or Cash on Delivery.'
+            message: 'That payment method is no longer available. Please try Online Payment or Cash on Delivery.'
         };
     }
 
@@ -67,7 +67,7 @@ function resolveStorefrontPaymentMethod(value) {
         return {
             ok: false,
             code: 'UNSUPPORTED_PAYMENT_METHOD',
-            message: 'That payment method is not supported. Choose MTN MoMo, Card, or Cash on Delivery.'
+            message: 'That payment method is not supported. Please try Online Payment or Cash on Delivery.'
         };
     }
 

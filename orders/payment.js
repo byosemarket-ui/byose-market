@@ -198,7 +198,7 @@ async function handlePlaceOrder(e) {
     }
 
     if (!usesCod && !usesGateway) {
-      showMessage(messageEl, 'Select MTN MoMo, Card, or Cash on Delivery.');
+      showMessage(messageEl, 'Choose Online Payment or Cash on Delivery.');
       releasePlaceLock();
       return;
     }

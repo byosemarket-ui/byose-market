@@ -815,7 +815,15 @@ async function verifyHttpInProcess() {
 }
 
 async function main() {
-    console.log('[verify-dpo-payment-test] starting STEP 2 verification');
+    const requested = [process.argv[2], process.env.BYOSE_SITE_ORIGIN, process.env.APP_BASE_URL]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+    if (requested.some((value) => /byosemarket\.com/i.test(value))) {
+        console.error('[verify-dpo-payment-test] REFUSED: this script mocks DPO success and must not run against production.');
+        process.exit(1);
+    }
+
+    console.log('[verify-dpo-payment-test] starting isolated local verification');
 
     [
         'server/payments/dpo/client.js',

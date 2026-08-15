@@ -70,7 +70,7 @@ function main() {
     assert(!success.includes("status === 'authorized'"), 'RULE 3: authorized must not display as Payment Successful');
 
     // RULE 4 — failed cannot become PAID
-    assert(result.includes('Payment was not completed. Please try again or choose another payment method.'), 'RULE 4: failed copy required');
+    assert(result.includes('Payment was not completed. Please try again or choose Cash on Delivery.'), 'RULE 4: failed copy required');
     assert(status.includes("status === 'paid'"), 'RULE 4: settled paid helper remains strict');
 
     // RULE 5 — cancelled cannot become PAID

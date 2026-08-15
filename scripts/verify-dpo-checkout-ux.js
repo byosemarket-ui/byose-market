@@ -84,7 +84,7 @@ function checkPaymentUi() {
     assert(success.includes('PROCESSING'), 'success must show PROCESSING after paid online orders');
     assert(success.includes('This order is not paid online.'), 'COD must not look paid');
 
-    assert(result.includes('Payment was not completed. Please try again or choose another payment method.'), 'failed copy required');
+    assert(result.includes('Payment was not completed. Please try again or choose Cash on Delivery.'), 'failed copy required');
     assert(result.includes('Payment was cancelled.'), 'cancelled copy required');
     assert(result.includes("href: 'checkout.html'"), 'failed payment returns to Review & Pay');
 }

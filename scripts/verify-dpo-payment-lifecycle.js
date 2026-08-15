@@ -43,10 +43,11 @@ function checkServerAuthority() {
     assert(success.includes('verifyPaidStatus'), 'success page must verify with the backend');
     assert(success.includes('Confirming payment'), 'success page must not flash PAID from localStorage');
     assert(success.includes("payment-result.html?status="), 'unverified online success must not stay on the success page');
+    assert(success.includes('verifiedOutcome'), 'success must pass the verified DPO outcome, not always pending');
     assert(!success.includes("status === 'authorized'"), 'authorized must not display as Payment Successful');
 
     assert(result.includes("outcome: 'pending'"), 'network errors on result page must stay pending');
-    assert(result.includes('Payment was not completed. Please try again or choose another payment method.'), 'failed copy required');
+    assert(result.includes('Payment was not completed. Please try again or choose Cash on Delivery.'), 'failed copy required');
     assert(result.includes('Payment was cancelled.'), 'cancelled copy required');
 
     assert(status.includes("status === 'paid'"), 'settled paid helper remains');

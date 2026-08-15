@@ -68,7 +68,7 @@ export function renderPaymentPanel({ method, totals = {}, shipping = {}, payment
 
   return `
     <section class="ck-pay-panel">
-      <p>Select MTN MoMo, Card, or Cash on Delivery.</p>
+      <p>Choose Online Payment or Cash on Delivery on Review &amp; Pay.</p>
     </section>
   `;
 }

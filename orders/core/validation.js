@@ -31,7 +31,7 @@ export function validatePayment(payment = {}, shippingAddress = {}) {
   }
 
   if (!isCodPaymentMethod(method) && !isGatewayPaymentMethod(method)) {
-    errors.method = 'Select MTN MoMo, Card, or Cash on Delivery.';
+    errors.method = 'Choose Online Payment or Cash on Delivery.';
     return { valid: false, errors };
   }
 

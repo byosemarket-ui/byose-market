@@ -54,7 +54,7 @@ function assertOrderEligibleForDpo(order) {
     }
     if (orderMethod === 'airtel' || orderMethod === 'bank') {
         throw ValidationError(
-            'That payment method is no longer available. Choose MTN MoMo, Card, or Cash on Delivery.',
+            'That payment method is no longer available. Please try Online Payment or Cash on Delivery.',
             { paymentMethod: orderMethod },
             'UNSUPPORTED_PAYMENT_METHOD',
             400

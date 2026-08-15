@@ -137,7 +137,7 @@ async function boot() {
     },
     failed: {
       title: 'Payment failed',
-      message: 'Payment was not completed. Please try again or choose another payment method.',
+      message: 'Payment was not completed. Please try again or choose Cash on Delivery.',
       tone: 'error'
     }
   };

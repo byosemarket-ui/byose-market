@@ -170,7 +170,7 @@ function checkPaymentLifecycle() {
     assert(controller.includes('never trusts') || controller.includes('Never trusts') || /never trusts the/i.test(controller), 'callback must not trust POST body');
     assert(success.includes('verifyPaidStatus'), 'success page must verify with backend');
     assert(success.includes('Confirming payment'), 'success must not flash PAID from the browser');
-    assert(result.includes('Payment was not completed. Please try again or choose another payment method.'), 'failed copy required');
+    assert(result.includes('Payment was not completed. Please try again or choose Cash on Delivery.'), 'failed copy required');
     assert(result.includes('Payment was cancelled.'), 'cancelled copy required');
     assert(!/status === 'authorized'/.test(status), 'authorized must not count as PAID');
 

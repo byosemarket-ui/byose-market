@@ -62,7 +62,8 @@ function checkSource() {
   const success = read('orders/order-success.js');
   assert(success.includes('fetchServerConfirmation'), 'Success must fall back to server confirmation');
   assert(success.includes('/orders/confirmation/'), 'Success confirmation endpoint path');
-  assert(success.includes('Pay when your order arrives'), 'COD success must not claim online payment completed');
+  assert(success.includes('This order is not paid online'), 'COD success must not claim online payment completed');
+  assert(success.includes('verifiedOutcome'), 'unverified online payment must keep the DPO outcome');
 
   const paymentResult = read('orders/payment-result.js');
   assert(paymentResult.includes('../shop/shop.html'), 'failed-payment shop link must point at shop.html');
@@ -81,10 +82,11 @@ function checkSource() {
   assert(layout.includes('<dt>Delivery</dt>'), 'Review must show delivery fee');
   assert(layout.includes('ck-totals-total'), 'Review must show final total');
 
-  const paymentJs = read('orders/payment.js');
-  assert(paymentJs.includes('isGatewayPaymentMethod'), 'MTN/Card use DPO');
-  assert(paymentJs.includes('isCodPaymentMethod'), 'COD is a separate path');
-  assert(paymentJs.includes('initiateDpoPayment'), 'gateway checkout starts DPO after order create');
+  const checkoutJs = read('orders/checkout.js');
+  assert(checkoutJs.includes('handleOnlinePayment'), 'Review & Pay Online Payment starts DPO');
+  assert(checkoutJs.includes('initiateDpoPayment'), 'Online Payment uses existing DPO initiate');
+  assert(checkoutJs.includes('handleCashOnDelivery'), 'Review & Pay Cash on Delivery remains');
+  assert(!checkoutJs.includes('payment.html'), 'Review & Pay must not open a Payment step');
 }
 
 function simulateTotals() {
