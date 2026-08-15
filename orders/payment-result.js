@@ -1,5 +1,5 @@
 import { resolveApiOrigin } from './utils.js';
-import { initiateDpoPayment } from './core/order.js';
+import { initiateDpoPayment, ONLINE_PAYMENT_START_ERROR } from './core/order.js';
 
 const contentEl = document.getElementById('paymentResultContent');
 
@@ -79,7 +79,7 @@ async function retryExistingPayment(orderId) {
   if (retryBtn) retryBtn.disabled = true;
   if (messageEl) {
     messageEl.hidden = false;
-    messageEl.textContent = 'Starting a secure payment session...';
+    messageEl.textContent = 'Connecting to secure payment...';
   }
 
   try {
@@ -88,17 +88,17 @@ async function retryExistingPayment(orderId) {
       window.location.replace(`order-success.html?orderId=${encodeURIComponent(orderId)}`);
       return;
     }
-    if (!payment.success || (!payment.paymentUrl && !payment.redirectUrl)) {
+    if (!payment.success || !payment.paymentUrl) {
       if (messageEl) {
-        messageEl.textContent = payment.message || 'Unable to restart payment. Please try again shortly.';
+        messageEl.textContent = ONLINE_PAYMENT_START_ERROR;
       }
       if (retryBtn) retryBtn.disabled = false;
       return;
     }
-    window.location.href = payment.paymentUrl || payment.redirectUrl;
+    window.location.replace(payment.paymentUrl);
   } catch (_error) {
     if (messageEl) {
-      messageEl.textContent = 'Payment is temporarily unavailable. Please try again shortly.';
+      messageEl.textContent = ONLINE_PAYMENT_START_ERROR;
     }
     if (retryBtn) retryBtn.disabled = false;
   }

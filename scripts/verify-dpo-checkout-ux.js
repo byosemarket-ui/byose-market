@@ -57,7 +57,7 @@ function checkPaymentUi() {
     assert(checkoutJs.includes("setPaymentMethod('cod')"), 'COD uses the existing order-creation method');
     assert(checkoutJs.includes('actionInFlight'), 'Review duplicate-click lock required');
     assert(checkoutJs.includes('Connecting to secure payment...'), 'Online Payment must show a connecting state');
-    assert(checkoutJs.includes('choose Cash on Delivery'), 'Online Payment failure must offer Cash on Delivery');
+    assert(checkoutJs.includes('ONLINE_PAYMENT_START_ERROR') || checkoutJs.includes('choose Cash on Delivery'), 'Online Payment failure must offer Cash on Delivery');
     assert(/location\.replace\(\s*'checkout.html'/.test(paymentHtml), 'old Payment URL must redirect to Review & Pay');
     assert(!paymentHtml.includes('payment.js'), 'old Payment page must not load Payment-step JS');
     assert(!/Airtel Money|Bank Transfer|TEST Service Type|Sandbox/i.test(paymentHtml + checkoutHtml), 'TEST/Airtel/Bank must not appear on checkout pages');

@@ -1,4 +1,4 @@
-import { initiateDpoPayment, submitOrder } from './core/order.js';
+import { initiateDpoPayment, ONLINE_PAYMENT_START_ERROR, submitOrder } from './core/order.js';
 import {
   getState,
   guardStep,
@@ -16,14 +16,13 @@ import {
   renderDeliveryInfo, renderProgress, renderProductList, renderShippingSummary, renderSidebar,
   renderStickyBar, renderTotals, showMessage
 } from './ui/layout.js';
-import { validateProducts } from './core/validation.js';
+import { validateProducts, validateShipping } from './core/validation.js';
 import {
   readAwaitingGatewayOrderId,
   writeAwaitingGatewayOrderId
 } from './checkout-session.js';
 
 const ONLINE_GATEWAY_METHOD = 'card';
-const ONLINE_START_ERROR = 'Online payment could not be started. Please try again or choose Cash on Delivery.';
 
 const progressEl = document.getElementById('progress');
 const sidebarEl = document.getElementById('sidebar');
@@ -111,10 +110,16 @@ function beginAction(kind) {
   return true;
 }
 
-function productsReady() {
-  const check = validateProducts(getState().products);
-  if (!check.valid) {
-    showMessage(messageEl, check.message);
+function checkoutReady() {
+  const productsCheck = validateProducts(getState().products);
+  if (!productsCheck.valid) {
+    showMessage(messageEl, productsCheck.message);
+    return false;
+  }
+  const shippingCheck = validateShipping(getState().shipping);
+  if (!shippingCheck.valid) {
+    showMessage(messageEl, 'Please complete your delivery address.');
+    window.location.href = 'shipping.html';
     return false;
   }
   showMessage(messageEl, '');
@@ -125,20 +130,20 @@ async function startGatewayPayment(orderId) {
   applyBusyState();
   const payment = await initiateDpoPayment(orderId);
   if (payment.alreadyPaid) {
-    window.location.href = `order-success.html?orderId=${encodeURIComponent(orderId)}`;
+    window.location.replace(`order-success.html?orderId=${encodeURIComponent(orderId)}`);
     return true;
   }
-  if (!payment.success || (!payment.paymentUrl && !payment.redirectUrl)) {
-    showMessage(messageEl, ONLINE_START_ERROR);
+  if (!payment.success || !payment.paymentUrl) {
+    showMessage(messageEl, ONLINE_PAYMENT_START_ERROR);
     return false;
   }
-  window.location.href = payment.paymentUrl || payment.redirectUrl;
+  window.location.replace(payment.paymentUrl);
   return true;
 }
 
 async function handleCashOnDelivery(event) {
   event?.preventDefault?.();
-  if (!productsReady()) return;
+  if (!checkoutReady()) return;
   if (!isCodAvailable()) {
     showMessage(messageEl, 'Cash on Delivery is only available in Kigali.');
     return;
@@ -169,18 +174,19 @@ async function handleCashOnDelivery(event) {
 
 async function handleOnlinePayment(event) {
   event?.preventDefault?.();
-  if (!productsReady()) return;
-  if (!getState().gateway?.loaded) {
-    await loadGatewayPaymentConfig();
-    syncActionAvailability();
-  }
-  if (!getState().gateway?.dpoEnabled) {
-    showMessage(messageEl, ONLINE_START_ERROR);
-    return;
-  }
+  if (!checkoutReady()) return;
   if (!beginAction('online')) return;
 
   try {
+    if (!getState().gateway?.loaded) {
+      await loadGatewayPaymentConfig();
+    }
+    if (!getState().gateway?.dpoEnabled) {
+      showMessage(messageEl, ONLINE_PAYMENT_START_ERROR);
+      releaseActionLock();
+      return;
+    }
+
     setPaymentMethod(ONLINE_GATEWAY_METHOD);
     const shippingPhone = getState().shipping?.phone || getState().customer?.phone || '';
     if (shippingPhone) setPaymentPhone(shippingPhone);
@@ -202,7 +208,7 @@ async function handleOnlinePayment(event) {
     const started = await startGatewayPayment(result.orderId);
     if (!started) releaseActionLock();
   } catch (_error) {
-    showMessage(messageEl, ONLINE_START_ERROR);
+    showMessage(messageEl, ONLINE_PAYMENT_START_ERROR);
     releaseActionLock();
   }
 }

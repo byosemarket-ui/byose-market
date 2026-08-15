@@ -366,6 +366,8 @@ export async function submitOrder() {
   }
 }
 
+export const ONLINE_PAYMENT_START_ERROR = 'Online payment could not be started. Please try again or choose Cash on Delivery.';
+
 function getPaymentsApiUrl(path) {
   const base = resolveApiOrigin();
   if (!base) return '';
@@ -373,10 +375,22 @@ function getPaymentsApiUrl(path) {
   return `${root}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
+export function isOfficialDpoHostedPaymentUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    return parsed.protocol === 'https:'
+      && parsed.hostname === 'secure.3gdirectpay.com'
+      && /\/payv3\.php$/i.test(parsed.pathname)
+      && Boolean(parsed.searchParams.get('ID'));
+  } catch (_error) {
+    return false;
+  }
+}
+
 export async function initiateDpoPayment(orderId) {
   const endpoint = getPaymentsApiUrl('/payments/dpo/initiate');
   if (!endpoint) {
-    return { success: false, message: 'Payment API is unavailable. Please refresh and try again.' };
+    return { success: false, message: ONLINE_PAYMENT_START_ERROR };
   }
 
   const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
@@ -394,16 +408,26 @@ export async function initiateDpoPayment(orderId) {
   if (!response.ok || !payload?.success) {
     return {
       success: false,
-      message: payload?.message || `Unable to start online payment (${response.status})`,
+      message: ONLINE_PAYMENT_START_ERROR,
       code: payload?.code || ''
+    };
+  }
+
+  const alreadyPaid = Boolean(payload.alreadyPaid);
+  const paymentUrl = payload.paymentUrl || payload.redirectUrl || '';
+  if (!alreadyPaid && !isOfficialDpoHostedPaymentUrl(paymentUrl)) {
+    return {
+      success: false,
+      message: ONLINE_PAYMENT_START_ERROR,
+      code: 'DPO_INVALID_PAYMENT_URL'
     };
   }
 
   return {
     success: true,
-    paymentUrl: payload.paymentUrl || payload.redirectUrl || '',
-    alreadyPaid: Boolean(payload.alreadyPaid),
-    redirectUrl: payload.redirectUrl || payload.paymentUrl || '',
+    paymentUrl,
+    alreadyPaid,
+    redirectUrl: payload.redirectUrl || paymentUrl,
     payment: payload.payment || null
   };
 }

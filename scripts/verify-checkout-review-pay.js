@@ -59,7 +59,8 @@ function main() {
   assert(checkoutJs.includes("setPaymentMethod('cod')"), 'COD must set existing COD method');
   assert(checkoutJs.includes('actionInFlight'), 'duplicate-click lock required');
   assert(checkoutJs.includes('Connecting to secure payment...'), 'Online Payment loading copy required');
-  assert(checkoutJs.includes('Online payment could not be started. Please try again or choose Cash on Delivery.'), 'customer-safe online failure copy required');
+  assert(checkoutJs.includes('ONLINE_PAYMENT_START_ERROR'), 'Review must use the customer-safe online payment error');
+  assert(orderJs.includes('Online payment could not be started. Please try again or choose Cash on Delivery.'), 'customer-safe online failure copy required');
   assert(!checkoutJs.includes('payment.html'), 'checkout.js must not open payment.html');
   assert(!/paymentStatus\s*=\s*['"]paid['"]/i.test(checkoutJs), 'browser must not mark PAID');
   assert(!/name=["']cardNumber["']/i.test(checkoutJs), 'no card number field');
