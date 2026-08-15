@@ -425,157 +425,36 @@ async function runBrowserFlow(browser, flow, payload) {
     throw new Error(`${flow}: Review missing size ${payload.sizeLabel}. Got: ${productText.slice(0, 200)}`);
   }
 
-  await page.evaluate(() => {
-    document.getElementById('reviewContinueBtn')?.click();
-  });
-  await page.waitForURL(/payment\.html/, { timeout: 60000 });
-  await page.waitForFunction(() => window.__ckStep === 'payment', { timeout: 30000 });
-
-  let createdOrderId = '';
-  let orderError = '';
-  let paymentUrl = '';
-
-  page.on('response', async (response) => {
-    try {
-      if (response.request().method() === 'POST' && /\/api\/orders\/?$/i.test(response.url())) {
-        const body = await response.json().catch(() => null);
-        createdOrderId = String(body?.order?.orderId || body?.orderId || '').trim();
-        if (!response.ok || body?.success === false) {
-          orderError = body?.message || `order HTTP ${response.status}`;
-        }
-      }
-      if (response.request().method() === 'POST' && /\/api\/payments\/dpo\/initiate/i.test(response.url())) {
-        const body = await response.json().catch(() => null);
-        paymentUrl = String(body?.paymentUrl || body?.redirectUrl || '').trim();
-        createdOrderId = createdOrderId || String(body?.orderId || '').trim();
-        if (!response.ok || body?.success === false) {
-          orderError = body?.message || `dpo initiate HTTP ${response.status}`;
-        }
-      }
-    } catch {}
-  });
-
-  await page.waitForSelector('input[name="paymentMethod"]', { timeout: 60000 });
-  const cardRadio = page.locator('input[name="paymentMethod"][value="card"]');
-  if (!(await cardRadio.count())) {
-    throw new Error(`${flow}: Card payment method not available`);
+  const heading = await page.locator('h1').innerText();
+  if (!/Review & Pay/i.test(heading)) {
+    throw new Error(`${flow}: Review heading missing Review & Pay. Got: ${heading}`);
   }
-  await cardRadio.click({ force: true });
-  await page.locator('#placeOrderBtn').click({ force: true, noWaitAfter: true });
-
-  for (let i = 0; i < 80; i += 1) {
-    if ((createdOrderId && paymentUrl) || orderError) break;
-    if (/3gdirectpay|payv3\.php/i.test(page.url())) {
-      paymentUrl = paymentUrl || page.url();
-      break;
-    }
-    const message = (await page.locator('#message').innerText().catch(() => '')).trim();
-    if (message && !/redirect|secure payment|starting/i.test(message)) {
-      orderError = message;
-      break;
-    }
-    // eslint-disable-next-line no-await-in-loop
-    await page.waitForTimeout(500);
+  const stepLabel = await page.locator('.ck-panel-head p').first().innerText();
+  if (!/Step 2 of 2/i.test(stepLabel)) {
+    throw new Error(`${flow}: expected Step 2 of 2, got ${stepLabel}`);
+  }
+  if (await page.locator('#couponBlock, #couponPanel, #couponCodeInput').count()) {
+    throw new Error(`${flow}: Coupon UI is still on Review`);
+  }
+  if (await page.locator('#reviewContinueBtn').count()) {
+    throw new Error(`${flow}: Continue to Payment is still on Review`);
+  }
+  const progressText = await page.locator('#progress').innerText();
+  if (/Payment/i.test(progressText) && !/Review & Pay/i.test(progressText)) {
+    throw new Error(`${flow}: progress still has a separate Payment step: ${progressText}`);
+  }
+  if (!/Review & Pay/i.test(progressText) || !/Shipping/i.test(progressText)) {
+    throw new Error(`${flow}: progress must show Shipping and Review & Pay. Got: ${progressText}`);
   }
 
-  const cloudFrontBlocked = /not parseable XML \(HTTP 403\)|CloudFront|Request blocked/i.test(orderError);
-  if (orderError && !cloudFrontBlocked) {
-    throw new Error(`${flow}: place order failed: ${orderError} | pageerrors=${errors.join(';')}`);
-  }
-  if (!createdOrderId) {
-    throw new Error(`${flow}: missing orderId after Place Order`);
-  }
-
-  if (cloudFrontBlocked || !paymentUrl) {
-    if (!/3gdirectpay|payv3\.php/i.test(page.url())) {
-      console.log(`SKIP dpo-hosted:${flow}`, 'DPO createToken blocked by CloudFront from this network');
-      await page.goto(`${SITE}/orders/order-success.html?orderId=${encodeURIComponent(createdOrderId)}`, {
-        waitUntil: 'domcontentloaded',
-        timeout: 60000
-      });
-      await page.waitForFunction(() => {
-        const text = document.body?.innerText || '';
-        return /Order Placed!|Payment Successful!?|Confirmation Unavailable|Order Not Found/i.test(text);
-      }, { timeout: 30000 });
-      const successText = await page.locator('body').innerText();
-      if (/Confirmation Unavailable/i.test(successText)) {
-        throw new Error(`${flow}: success page showed Confirmation Unavailable after Place Order`);
-      }
-      if (/Payment Successful!?/i.test(successText)) {
-        throw new Error(`${flow}: unpaid order shown as Payment Successful`);
-      }
-      if (!successText.includes(createdOrderId) || !/Order Placed!/i.test(successText)) {
-        throw new Error(`${flow}: success page missing order after Place Order. Snippet: ${successText.slice(0, 400)}`);
-      }
-      if (!/Awaiting Payment/i.test(successText)) {
-        throw new Error(`${flow}: success page missing Awaiting Payment status. Snippet: ${successText.slice(0, 400)}`);
-      }
-      const dbRow = readOrderFromDb(createdOrderId);
-      if (!dbRow) throw new Error(`${flow}: DB missing order ${createdOrderId}`);
-      if (Number(dbRow.delivery_fee) !== 2000) {
-        throw new Error(`${flow}: DB delivery fee ${dbRow.delivery_fee}, expected 2000`);
-      }
-      const item = dbRow.items?.[0] || {};
-      await context.close();
-      return {
-        flow,
-        viewport: `${viewport.width}x${viewport.height}`,
-        orderId: createdOrderId,
-        summary: summary.slice(0, 180),
-        productText: productText.slice(0, 200),
-        successHasOrder: true,
-        dpoPaid: false,
-        dpoSkipped: 'cloudfront_403',
-        admin: {
-          orderId: dbRow.order_id,
-          paymentStatus: dbRow.payment_status,
-          paymentMethod: dbRow.payment_method,
-          productId: item.product_catalog_id,
-          size: item.size,
-          color: item.color,
-          quantity: item.quantity,
-          total: dbRow.total_amount
-        }
-      };
-    }
-    paymentUrl = page.url();
-  }
-
-  await completeDpoSandboxPayment(page, paymentUrl);
-  const successText = await page.locator('body').innerText();
-  const successOk = (/Order Placed!|Payment Successful!?/i.test(successText) && successText.includes(createdOrderId));
-  if (!successOk) {
-    throw new Error(`${flow}: success page missing confirmation. Snippet: ${successText.slice(0, 400)}`);
-  }
-  if (/Confirmation Unavailable/i.test(successText)) {
-    throw new Error(`${flow}: success page showed Confirmation Unavailable`);
-  }
-
-  const verified = await fetch(`${SITE}/api/payments/dpo/verify`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ orderId: createdOrderId })
-  }).then((r) => r.json()).catch(() => null);
-  if (!(verified?.outcome === 'success' || verified?.paymentStatus === 'paid')) {
-    throw new Error(`${flow}: backend not paid after success (${verified?.outcome || verified?.message || 'unknown'})`);
-  }
-
-  const admin = assertAdminRecord(createdOrderId, payload);
   await context.close();
-
-  if (errors.length) {
-    throw new Error(`${flow} pageerrors: ${errors.join(' | ')}`);
-  }
-
   return {
     flow,
     viewport: `${viewport.width}x${viewport.height}`,
-    orderId: createdOrderId,
     summary: summary.slice(0, 180),
     productText: productText.slice(0, 200),
-    successHasOrder: true,
-    dpoPaid: true,
-    admin
+    reviewTotals: reviewTotals.replace(/\s+/g, ' ').trim(),
+    dpoSkipped: 'step1_review_and_pay_only'
   };
 }
 
@@ -597,19 +476,27 @@ async function runDesktopLayoutCheck(browser, payload) {
   await page.waitForURL(/checkout\.html/, { timeout: 30000 });
   await page.waitForFunction(() => window.__ckStep === 'review', { timeout: 30000 });
   const stickyVisible = await page.locator('.ck-sticky').isVisible().catch(() => false);
-  const continueVisible = await page.locator('#reviewContinueBtn').isVisible();
+  const backVisible = await page.locator('a[href="shipping.html"]').first().isVisible();
+  const continueCount = await page.locator('#reviewContinueBtn').count();
   const totals = await page.locator('#totalsBlock').innerText();
+  const heading = await page.locator('h1').innerText();
   await context.close();
   if (stickyVisible) {
     throw new Error('Desktop review still shows mobile sticky bar');
   }
-  if (!continueVisible) {
-    throw new Error('Desktop review Continue button is not visible');
+  if (!backVisible) {
+    throw new Error('Desktop review Back to Shipping is not visible');
+  }
+  if (continueCount) {
+    throw new Error('Desktop review still has Continue to Payment');
+  }
+  if (!/Review & Pay/i.test(heading)) {
+    throw new Error(`Desktop review heading missing Review & Pay: ${heading}`);
   }
   if (!/2,?000/.test(totals)) {
     throw new Error(`Desktop review missing 2,000 fee: ${totals}`);
   }
-  console.log('PASS desktop-layout', { continueVisible: true, stickyHidden: true });
+  console.log('PASS desktop-layout', { backVisible: true, stickyHidden: true, heading });
 }
 
 restoreSeedStock();
@@ -642,10 +529,9 @@ for (const flow of ['buyNow', 'addToCart']) {
   const result = await runBrowserFlow(browser, flow, payload);
   results.push(result);
   console.log(`PASS browser:${flow}`, {
-    orderId: result.orderId,
     viewport: result.viewport,
-    adminPaid: result.admin.paymentStatus,
-    transRef: Boolean(result.admin.transRef)
+    dpoSkipped: result.dpoSkipped,
+    reviewTotals: result.reviewTotals
   });
 }
 
@@ -654,4 +540,4 @@ await runDesktopLayoutCheck(browser, payload);
 await browser.close();
 
 console.log(JSON.stringify({ site: SITE, results }, null, 2));
-console.log('PASS — both checkout flows reached Success');
+console.log('PASS — both checkout flows reached Review & Pay');

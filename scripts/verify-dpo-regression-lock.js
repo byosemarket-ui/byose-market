@@ -110,6 +110,8 @@ function main() {
     const client = read('server/payments/dpo/client.js');
     const paymentHtml = read('orders/payment.html');
     const paymentJs = read('orders/payment.js');
+    const checkoutHtml = read('orders/checkout.html');
+    const checkoutJs = read('orders/checkout.js');
 
     assert(classifier.includes('isLiveGatewayActivity'), 'TEST history classifier must keep TEST out of LIVE activity');
     assert(docs.includes('Admin → Payment Management'), 'handover documentation must describe Admin Payment Management');
@@ -117,8 +119,11 @@ function main() {
     assert(!/Company Token:\s*[A-Za-z0-9-]{12,}/.test(docs), 'handover documentation must not include a Company Token value');
     assert(client.includes("['CC', 'MO', 'PP', 'BT', 'XP']"), 'BlockPayment must use official DPO v6 codes only');
     assert(!/ALL_BLOCKABLE_PAYMENTS = Object\.freeze\(\[[^\]]*SE/.test(client), 'BlockPayment must not include undocumented SE');
-    assert(!paymentHtml.includes('couponBlock'), 'payment page must not show a Coupon section');
+    assert(!paymentHtml.includes('couponBlock'), 'old Payment URL must not show a Coupon section');
+    assert(!checkoutHtml.includes('couponBlock'), 'Review must not show a Coupon section');
+    assert(!checkoutJs.includes('bindCouponPanel'), 'Review must not bind coupon UI');
     assert(!paymentJs.includes('renderCouponPanel'), 'payment.js must not render coupon UI');
+    assert(/location\.replace\(\s*'checkout.html'/.test(paymentHtml), 'old Payment URL must redirect to Review & Pay');
 
     if (failures.length) {
         console.error('[verify-dpo-regression-lock] FAIL:');

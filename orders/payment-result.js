@@ -149,7 +149,7 @@ async function boot() {
   if (orderId) {
     actions.unshift({ label: 'Try payment again', retry: true, primary: true });
   } else {
-    actions.unshift({ label: 'Return to checkout', href: 'payment.html', primary: true });
+    actions.unshift({ label: 'Return to checkout', href: 'checkout.html', primary: true });
   }
 
   renderResult({

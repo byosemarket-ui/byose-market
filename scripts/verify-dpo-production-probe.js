@@ -76,7 +76,8 @@ async function main() {
 
     const pages = [
         ['/', 'HOME'],
-        ['/orders/payment.html', 'PAYMENT'],
+        ['/orders/checkout.html', 'REVIEW'],
+        ['/orders/payment.html', 'PAYMENT_REDIRECT'],
         ['/orders/order-success.html', 'SUCCESS'],
         ['/admin/', 'ADMIN']
     ];
@@ -85,10 +86,17 @@ async function main() {
         assert(page.status === 200, `${label} expected 200, got ${page.status}`);
     }
 
+    const reviewHtml = await request('GET', '/orders/checkout.html');
+    assert(/Review & Pay/i.test(reviewHtml.raw), 'review page must be titled Review & Pay');
+    assert(/Step 2 of 2/i.test(reviewHtml.raw), 'review page must be Step 2 of 2');
+    assert(!/Continue to Payment/i.test(reviewHtml.raw), 'review page must not continue to a Payment step');
+    assert(!/id=["']couponBlock["']/.test(reviewHtml.raw), 'review page must not show a Coupon section');
+
     const paymentHtml = await request('GET', '/orders/payment.html');
-    assert(/MTN MoMo, Card, or Cash on Delivery/i.test(paymentHtml.raw), 'payment page must list MTN MoMo, Card, COD');
-    assert(!/id=["']couponBlock["']/.test(paymentHtml.raw), 'payment page must not show a Coupon section');
-    assert(!/Airtel Money|Sandbox|TEST Service Type/i.test(paymentHtml.raw), 'payment page must not show TEST/Airtel');
+    assert(/checkout\.html/i.test(paymentHtml.raw), 'old Payment URL must send customers to Review & Pay');
+    assert(!/Step 3 of 4/i.test(paymentHtml.raw), 'Step 3 of 4 must be gone');
+    assert(!/id=["']couponBlock["']/.test(paymentHtml.raw), 'payment redirect must not show a Coupon section');
+    assert(!/Airtel Money|Sandbox|TEST Service Type/i.test(paymentHtml.raw + reviewHtml.raw), 'checkout pages must not show TEST/Airtel');
 
     const adminPay = await request('GET', '/api/admin/payment');
     assert(adminPay.status === 401, `ADMIN_PAY_API expected 401 without auth, got ${adminPay.status}`);

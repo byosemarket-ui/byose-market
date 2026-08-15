@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Review Order | Byose Market</title>
+  <title>Review & Pay | Byose Market</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="checkout.css">
+  <link rel="stylesheet" href="checkout.css?v=20260815-step1-two-step">
 </head>
 <body>
   <div class="ck-shell">
@@ -16,20 +16,18 @@
         <div class="ck-progress" id="progress"></div>
         <article class="ck-panel">
           <header class="ck-panel-head">
-            <p>Step 2 of 4</p>
-            <h1>Review Order</h1>
-            <p>Confirm your items and delivery details.</p>
+            <p>Step 2 of 2</p>
+            <h1>Review & Pay</h1>
+            <p>Review your order, then choose how you want to complete payment.</p>
           </header>
           <div id="message" hidden></div>
           <div id="shippingSummary"></div>
           <div id="deliveryInfo"></div>
           <div id="productList"></div>
-          <div id="couponBlock"></div>
           <div id="totalsBlock"></div>
           <form id="reviewForm">
             <div class="ck-actions">
               <a class="ck-btn ck-btn--ghost" href="shipping.html">Back</a>
-              <button type="button" class="ck-btn ck-btn--primary" id="reviewContinueBtn">Continue to Payment</button>
             </div>
           </form>
         </article>
@@ -39,6 +37,6 @@
   </div>
   <div id="stickyBar"></div>
   <script src="../config/runtime-api-bootstrap.js"></script>
-  <script type="module" src="checkout.js?v=20260813-step4-lifecycle"></script>
+  <script type="module" src="checkout.js?v=20260815-step1-two-step"></script>
 </body>
 </html>

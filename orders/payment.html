@@ -3,46 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Payment | Byose Market</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="checkout.css?v=20260814-step2-payment-ux">
+  <title>Review & Pay | Byose Market</title>
+  <meta http-equiv="refresh" content="0; url=checkout.html">
+  <link rel="canonical" href="checkout.html">
+  <script>
+    location.replace('checkout.html' + (location.search || '') + (location.hash || ''));
+  </script>
 </head>
 <body>
-  <div class="ck-shell">
-    <div class="ck-layout">
-      <main>
-        <div class="ck-progress" id="progress"></div>
-        <article class="ck-panel">
-          <header class="ck-panel-head">
-            <p>Step 3 of 4</p>
-            <h1>Payment</h1>
-            <p>Choose MTN MoMo, Card, or Cash on Delivery.</p>
-          </header>
-          <div id="message" hidden></div>
-          <form id="paymentForm" class="ck-payment-form">
-            <div id="paymentShippingSummary"></div>
-            <section class="ck-pay-section" aria-labelledby="payMethodsTitle">
-              <h2 class="ck-pay-section__title" id="payMethodsTitle">Payment method</h2>
-              <div class="ck-pay-grid" id="paymentMethods" role="radiogroup" aria-labelledby="payMethodsTitle"></div>
-            </section>
-            <div id="paymentMethodPanel" class="ck-payment-method-panel"></div>
-            <div id="totalsBlock" class="ck-payment-totals"></div>
-            <div class="ck-actions">
-              <a class="ck-btn ck-btn--ghost" href="checkout.html">Back</a>
-              <button type="submit" class="ck-btn ck-btn--primary" id="placeOrderBtn">Place Order</button>
-            </div>
-          </form>
-        </article>
-      </main>
-      <aside class="ck-sidebar" id="sidebar"></aside>
-    </div>
-  </div>
-  <div id="stickyBar"></div>
-  <script src="../config/runtime-api-bootstrap.js"></script>
-  <script src="../services/authservice.js"></script>
-  <script src="../services/wishlist-client.js"></script>
-  <script type="module" src="payment.js?v=20260814-live-blockpayment"></script>
+  <p>Checkout no longer has a separate Payment step. Continue on Review &amp; Pay.</p>
+  <p><a href="checkout.html">Go to Review &amp; Pay</a></p>
 </body>
 </html>

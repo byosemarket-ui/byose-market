@@ -48,9 +48,12 @@ function checkReviewPaymentUi() {
   assert(layout.includes('totals.tax'), 'totals must support tax when present');
 
   const paymentHtml = read('orders/payment.html');
+  const checkoutHtml = read('orders/checkout.html');
   const paymentJs = read('orders/payment.js');
-  assert(paymentHtml.includes('paymentShippingSummary'), 'Payment page must include shipping summary mount');
-  assert(paymentJs.includes('renderShippingSummary'), 'Payment must render same shipping summary as Review');
+  assert(checkoutHtml.includes('id="shippingSummary"'), 'Review page must include shipping summary mount');
+  assert(checkoutHtml.includes('Review & Pay'), 'Review page is titled Review & Pay');
+  assert(/location\.replace\(\s*'checkout.html'/.test(paymentHtml), 'old Payment URL must redirect to Review & Pay');
+  assert(paymentJs.includes('initiateDpoPayment'), 'DPO initiate helper remains available for online payment');
 
   const success = read('orders/order-success.js');
   assert(success.includes('renderShippingSummary'), 'Success page must reuse shipping summary with Maps');
@@ -99,8 +102,8 @@ function checkGpsPipeline() {
     'state.js must not redeclare resolveApiOrigin (module load crash)'
   );
   const payment = read('orders/payment.js');
-  assert(payment.includes("window.__ckStep = 'payment'"), 'payment must set __ckStep');
-  assert(/initCheckout\('payment'\)[\s\S]*guardStep\('payment'\)/.test(payment), 'payment must init before guard');
+  assert(payment.includes('initiateDpoPayment'), 'payment helper must keep DPO initiate');
+  assert(payment.includes('isCodPaymentMethod'), 'COD path must remain explicit');
 
   const headers = read('server/middleware/securityheaders.js');
   assert(headers.includes('geolocation=(self)'), 'geolocation must be allowed for GPS');

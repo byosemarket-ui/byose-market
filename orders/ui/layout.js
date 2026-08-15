@@ -1,10 +1,10 @@
 import { escapeHtml, formatCurrency, resolveCheckoutAsset, resolveOrderItemImage } from '../utils.js';
-import { DELIVERY_FEE, STEPS } from '../core/constants.js';
-import { getState, getStepIndex } from '../core/state.js';
+import { CHECKOUT_PROGRESS_STEPS, DELIVERY_FEE } from '../core/constants.js';
+import { getState } from '../core/state.js';
 
 export function renderProgress(currentStepId) {
-  const currentIndex = getStepIndex(currentStepId);
-  return STEPS.slice(0, 3).map((step, index) => {
+  const currentIndex = CHECKOUT_PROGRESS_STEPS.findIndex((step) => step.id === currentStepId);
+  return CHECKOUT_PROGRESS_STEPS.map((step, index) => {
     const cls = index < currentIndex ? 'ck-step is-done' : index === currentIndex ? 'ck-step is-active' : 'ck-step';
     return `<div class="${cls}"><span class="ck-step-num">${index + 1}</span><strong>${escapeHtml(step.label)}</strong></div>`;
   }).join('');
@@ -151,23 +151,6 @@ export function renderTotals(totals) {
   `;
 }
 
-export function renderCouponPanel(coupon = {}) {
-  const code = String(coupon.code || '');
-  const applied = Boolean(code && Number(coupon.discountAmount || 0) > 0);
-  return `
-    <section class="ck-coupon" id="couponPanel">
-      <h2 class="ck-pay-section__title">Coupon</h2>
-      <div class="ck-coupon__row">
-        <input type="text" id="couponCodeInput" maxlength="40" placeholder="Enter coupon code" value="${escapeHtml(code)}" ${applied ? 'readonly' : ''}>
-        ${applied
-          ? '<button type="button" class="ck-btn ck-btn--ghost" id="couponClearBtn">Remove</button>'
-          : '<button type="button" class="ck-btn ck-btn--primary" id="couponApplyBtn">Apply</button>'}
-      </div>
-      <p class="ck-coupon__message" id="couponMessage">${applied ? `Applied: ${escapeHtml(coupon.title || code)} (−${formatCurrency(coupon.discountAmount)})` : 'Have a code? Apply it before placing your order.'}</p>
-    </section>
-  `;
-}
-
 export function renderSidebar(products, totals) {
   return `
     <div class="ck-sidebar-card">
@@ -181,13 +164,14 @@ export function renderSidebar(products, totals) {
 export function renderStickyBar(label, buttonId, options = {}) {
   const state = getState();
   const disabled = Boolean(options.disabled || state.isSubmitting);
+  const hideAction = Boolean(options.hideAction);
   return `
-    <div class="ck-sticky">
+    <div class="ck-sticky${hideAction ? ' ck-sticky--total-only' : ''}">
       <div class="ck-sticky-total">
         <span>Total</span>
         <strong>${formatCurrency(state.totals.total)}</strong>
       </div>
-      <button type="button" class="ck-btn ck-btn--primary" id="stickyContinueBtn" ${disabled ? 'disabled' : ''}>${escapeHtml(label)}</button>
+      ${hideAction ? '' : `<button type="button" class="ck-btn ck-btn--primary" id="stickyContinueBtn" ${disabled ? 'disabled' : ''}>${escapeHtml(label)}</button>`}
     </div>
   `;
 }

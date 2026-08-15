@@ -87,10 +87,12 @@ function checkCustomerPaymentUi() {
     assert(!/DPO Pay/i.test(layout), 'DPO Pay must not appear in payment layout');
 
     const paymentHtml = read('orders/payment.html');
-    assert(paymentHtml.includes('id="paymentMethods"'), 'live Payment Step is orders/payment.html');
-    assert(paymentHtml.includes('payment.js'), 'payment.html must load payment.js');
-    assert(paymentHtml.includes('id="paymentMethodPanel"'), 'selected-method panel must exist');
-    assert(!paymentHtml.includes('id="paymentPhoneField"'), 'duplicate hidden payment phone field must be removed');
+    const checkoutHtml = read('orders/checkout.html');
+    assert(checkoutHtml.includes('Review & Pay'), 'live Review page is Review & Pay');
+    assert(!checkoutHtml.includes('Continue to Payment'), 'Continue to Payment must be removed');
+    assert(/location\.replace\(\s*'checkout.html'/.test(paymentHtml), 'old Payment URL must redirect to Review & Pay');
+    assert(!paymentHtml.includes('id="paymentMethods"'), 'payment.html must no longer be a Payment step');
+    assert(!paymentHtml.includes('payment.js'), 'payment.html must not load Payment-step JS');
 
     const panel = read('orders/ui/payment-panel.js');
     assert(panel.includes('momoPhoneInput'), 'MTN panel must collect the authorizing mobile number');

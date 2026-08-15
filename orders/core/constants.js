@@ -1,9 +1,10 @@
 export const STEPS = [
   { id: 'shipping', label: 'Shipping', file: 'shipping.html' },
-  { id: 'review', label: 'Review', file: 'checkout.html' },
-  { id: 'payment', label: 'Payment', file: 'payment.html' },
+  { id: 'review', label: 'Review & Pay', file: 'checkout.html' },
   { id: 'success', label: 'Success', file: 'order-success.html' }
 ];
+
+export const CHECKOUT_PROGRESS_STEPS = STEPS.filter((step) => step.id !== 'success');
 
 export const DELIVERY_FEE = 2000;
 // Fallback only — live checkout uses Delivery Settings via /api/shipping/calculate.

@@ -141,6 +141,7 @@ function checkPaymentLifecycle() {
     const result = read('orders/payment-result.js');
     const panel = read('orders/ui/payment-panel.js');
     const paymentHtml = read('orders/payment.html');
+    const checkoutHtml = read('orders/checkout.html');
     const session = read('orders/checkout-session.js');
     const status = read('server/payments/payment-status.js');
     const adminOrders = read('admin/app/pages/orders.js');
@@ -156,8 +157,11 @@ function checkPaymentLifecycle() {
     assert(!constants.includes('bank_transfer'), 'Bank Transfer must not be a customer method');
     assert(!/id:\s*'dpo'/.test(constants), 'generic DPO Pay must not be a customer method');
 
-    assert(paymentHtml.includes('MTN MoMo, Card, or Cash on Delivery'), 'payment page copy must list only the three methods');
-    assert(!paymentHtml.includes('couponBlock'), 'payment page must not show a Coupon section');
+    assert(checkoutHtml.includes('Review & Pay'), 'Review page is titled Review & Pay');
+    assert(checkoutHtml.includes('Step 2 of 2'), 'checkout has two steps');
+    assert(!checkoutHtml.includes('couponBlock'), 'Review must not show a Coupon section');
+    assert(/location\.replace\(\s*'checkout.html'/.test(paymentHtml), 'old Payment URL must redirect to Review & Pay');
+    assert(!paymentHtml.includes('payment.js'), 'old Payment page must not load Payment-step JS');
     assert(panel.includes('We never ask for your PIN'), 'MTN panel must not collect PIN');
     assert(panel.includes('Card number and CVV stay with the payment provider'), 'card secrets stay with DPO');
 

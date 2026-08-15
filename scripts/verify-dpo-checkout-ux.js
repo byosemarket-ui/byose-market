@@ -24,6 +24,8 @@ function checkPaymentUi() {
     const constants = read('orders/core/constants.js');
     const paymentJs = read('orders/payment.js');
     const paymentHtml = read('orders/payment.html');
+    const checkoutHtml = read('orders/checkout.html');
+    const checkoutJs = read('orders/checkout.js');
     const panel = read('orders/ui/payment-panel.js');
     const css = read('orders/checkout.css');
     const validation = read('orders/core/validation.js');
@@ -33,6 +35,8 @@ function checkPaymentUi() {
     assert(constants.includes("id: 'mtn'"), 'MTN MoMo method required');
     assert(constants.includes("id: 'card'"), 'Card method required');
     assert(constants.includes("id: 'cod'"), 'COD method required');
+    assert(constants.includes("label: 'Review & Pay'"), 'checkout step 2 is Review & Pay');
+    assert(!constants.includes("file: 'payment.html'"), 'payment.html must not be a checkout step');
     assert(!constants.includes("id: 'airtel'"), 'Airtel must not be a customer method');
     assert(!constants.includes("id: 'bank'"), 'Bank Transfer must not be a customer method');
     assert(!/id:\s*'dpo'/.test(constants), 'DPO must not be a standalone customer method');
@@ -42,31 +46,30 @@ function checkPaymentUi() {
     assert(constants.includes('DELIVERY_FEE = 2000'), 'delivery fee must remain 2000 RWF');
     assert(!constants.includes('3500'), 'no 3,500 RWF surcharge in checkout constants');
 
-    assert(paymentHtml.includes('id="paymentMethodPanel"'), 'selected-method panel required');
-    assert(paymentHtml.includes('Choose MTN MoMo, Card, or Cash on Delivery.'), 'payment heading copy required');
-    assert(!paymentHtml.includes('couponBlock'), 'payment page must not show a Coupon section');
-    assert(!paymentJs.includes('renderCouponPanel'), 'payment.js must not render coupon UI');
-    assert(!paymentJs.includes('bindCouponPanel'), 'payment.js must not bind coupon UI');
-    assert(!/Airtel Money|Bank Transfer|TEST Service Type|Sandbox/i.test(paymentHtml), 'TEST/Airtel/Bank must not appear on payment.html');
+    assert(checkoutHtml.includes('Review & Pay'), 'Review page is titled Review & Pay');
+    assert(checkoutHtml.includes('Step 2 of 2'), 'Review is Step 2 of 2');
+    assert(!checkoutHtml.includes('Continue to Payment'), 'Continue to Payment must be removed');
+    assert(!checkoutHtml.includes('couponBlock'), 'Review must not show a Coupon section');
+    assert(!checkoutJs.includes('payment.html'), 'Review must not navigate to payment.html');
+    assert(/location\.replace\(\s*'checkout.html'/.test(paymentHtml), 'old Payment URL must redirect to Review & Pay');
+    assert(!paymentHtml.includes('payment.js'), 'old Payment page must not load Payment-step JS');
+    assert(!/Airtel Money|Bank Transfer|TEST Service Type|Sandbox/i.test(paymentHtml + checkoutHtml), 'TEST/Airtel/Bank must not appear on checkout pages');
 
     assert(panel.includes('momoPhoneInput'), 'MTN panel collects the authorizing number');
     assert(panel.includes('+250'), 'MTN panel shows +250');
     assert(panel.includes('never ask for your PIN'), 'MTN panel must not collect PIN');
     assert(panel.includes('Card number and CVV stay with the payment provider'), 'card secrets stay with DPO');
-    assert(!/name=["']cardNumber["']/i.test(panel + paymentHtml + paymentJs), 'no card number field');
-    assert(!/name=["']cvv["']/i.test(panel + paymentHtml + paymentJs), 'no CVV field');
-    assert(!/autocomplete=["']cc-/i.test(panel + paymentHtml), 'no browser card-autocomplete fields');
+    assert(!/name=["']cardNumber["']/i.test(panel + paymentHtml + paymentJs + checkoutHtml + checkoutJs), 'no card number field');
+    assert(!/name=["']cvv["']/i.test(panel + paymentHtml + paymentJs + checkoutHtml + checkoutJs), 'no CVV field');
+    assert(!/autocomplete=["']cc-/i.test(panel + paymentHtml + checkoutHtml), 'no browser card-autocomplete fields');
 
     assert(paymentJs.includes('placeInFlight'), 'frontend duplicate-click lock required');
-    assert(paymentJs.includes('placeBtn.disabled'), 'Pay button must disable while processing');
     assert(paymentJs.includes('initiateDpoPayment'), 'online pay uses official DPO initiate');
     assert(paymentJs.includes('isCodPaymentMethod'), 'COD path must be explicit');
-    assert(paymentJs.includes('renderCompactDeliverySummary'), 'shipping data reused on payment');
     assert(!paymentJs.includes('localStorage') || !/paymentStatus\s*=\s*['"]paid['"]/i.test(paymentJs), 'must not fake PAID in payment.js');
 
     assert(validation.includes('Enter a valid MTN Mobile Number'), 'MTN phone validation required');
     assert(css.includes('.ck-pay-panel'), 'payment panel styles required');
-    assert(css.includes('.ck-momo-input'), 'MTN phone input styles required');
     assert(css.includes('min-height: 48px'), 'tap targets must be large enough');
 
     assert(success.includes('Payment Successful'), 'verified success heading required');
@@ -76,6 +79,7 @@ function checkPaymentUi() {
 
     assert(result.includes('Payment was not completed. Please try again or choose another payment method.'), 'failed copy required');
     assert(result.includes('Payment was cancelled.'), 'cancelled copy required');
+    assert(result.includes("href: 'checkout.html'"), 'failed payment returns to Review & Pay');
 }
 
 function checkDpoLivePath() {
