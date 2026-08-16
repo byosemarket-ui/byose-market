@@ -88,6 +88,7 @@
       const payload = await response.json().catch(() => ({}));
       const settings = payload?.settings || payload || {};
       const storeName = text(settings.storeName) || "BYOSE Market";
+      document.title = `Invoice Verification | ${storeName}`;
       if (storeEl) storeEl.textContent = storeName;
       const logo = text(settings.branding?.logos?.mainLogo || settings.branding?.logos?.emailLogo);
       if (logo && logoEl) logoEl.src = logo;
