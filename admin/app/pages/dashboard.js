@@ -1,7 +1,7 @@
 import { errorState, panel, table } from "../components/ui.js";
 import { getActivityLogs, getAnalytics, getCarts, getCustomers, getDashboard, getOrders, getProducts } from "../services/admin-data.service.js";
 import { buildDashboardMarkup, buildDashboardModel } from "./dashboard-view.js";
-import { startRealtimeSync, subscribeToRealtimeEvents } from "../services/realtime-sync.service.js";
+import { startRealtimeSync } from "../services/realtime-sync.service.js";
 import { startLiveFeeds, subscribeToLiveFeeds } from "../services/live-feeds.service.js";
 
 function skeletonTable(columns) {
@@ -49,11 +49,15 @@ export async function renderDashboard(container) {
 
   renderLoading(container);
 
-  // Start realtime synchronization
-  const realtimeService = await startRealtimeSync();
-  
-  // Start live feeds handler
-  const liveFeeds = startLiveFeeds();
+  // Realtime/live feeds must never block the first dashboard paint.
+  void startRealtimeSync().catch((error) => {
+    console.warn("[Dashboard] Realtime sync unavailable:", error?.message || error);
+  });
+  try {
+    startLiveFeeds();
+  } catch (error) {
+    console.warn("[Dashboard] Live feeds unavailable:", error?.message || error);
+  }
 
   let unsubscribers = [];
 
@@ -181,6 +185,9 @@ async function refreshDashboard(container, unsubscribers) {
     container._dashboardLastRefreshAt = Date.now();
   } catch (error) {
     console.error("[Dashboard] Refresh error:", error);
+    if (!container._dashboardHasRendered) {
+      container.innerHTML = errorState("Unable to load Dashboard data. Please refresh or try again.");
+    }
   } finally {
     container._dashboardRefreshInFlight = false;
   }

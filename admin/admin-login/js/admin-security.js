@@ -450,10 +450,15 @@
   }
 
   function redirectToLogin() {
-    var loginUrl = getLoginUrl();
-    if (normalizeAbsoluteUrl(window.location.href) !== normalizeAbsoluteUrl(loginUrl)) {
-      window.location.replace(loginUrl);
+    if (isLoginPage()) {
+      return;
     }
+
+    // location.replace() already replaces the current history entry.
+    // Do not history.replaceState() to the login URL first — that changes
+    // the address bar without loading login.html and can skip navigation,
+    // leaving the admin shell with an empty content pane.
+    window.location.replace(getLoginUrl());
   }
 
   function redirectToDashboard() {
@@ -488,13 +493,6 @@
     }
 
     clearAuth();
-
-    try {
-      window.history.replaceState(null, "", getLoginUrl());
-    } catch (_error) {
-      // Ignore history errors and continue with redirect safety.
-    }
-
     redirectToLogin();
     return true;
   }

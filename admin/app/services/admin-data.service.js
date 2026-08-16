@@ -391,12 +391,22 @@ function normalizeOrder(order) {
     timestamp: entry?.timestamp || entry?.at || entry?.createdAt || ""
   })).filter((entry) => entry.status || entry.label);
 
-  const resolvedAddress = resolveOrderAddress(order);
-  const resolvedLocation = resolveOrderLocation(order);
-  const canonical = applyCanonicalAddress(order, resolvedAddress, resolvedLocation);
-  const shippingAddress = canonical.shippingAddress;
-  const fullAddress = canonical.fullAddress;
-  const gpsLocation = canonical.gpsLocation;
+  let shippingAddress;
+  let fullAddress;
+  let gpsLocation;
+  try {
+    const resolvedAddress = resolveOrderAddress(order);
+    const resolvedLocation = resolveOrderLocation(order);
+    const canonical = applyCanonicalAddress(order, resolvedAddress, resolvedLocation);
+    shippingAddress = canonical.shippingAddress;
+    fullAddress = canonical.fullAddress;
+    gpsLocation = canonical.gpsLocation;
+  } catch (error) {
+    console.error("[Admin Data] Order address normalization failed:", error);
+    shippingAddress = asObject(order?.shippingAddress);
+    fullAddress = asObject(order?.fullAddress);
+    gpsLocation = asObject(order?.gpsLocation);
+  }
   const paymentCancellation = asObject(payment.cancellation);
   const returnWorkflowRaw = asObject(payment.returnWorkflow || order?.returnWorkflow);
   const cancelHistory = [...statusHistory].reverse().find((entry) => /cancel/i.test(`${entry.status} ${entry.label}`));
@@ -2471,7 +2481,9 @@ function installVisibilitySync() {
     }
 
     pendingVisibilityRefresh = window.setTimeout(() => {
-      void refreshRealtimeIntelligence();
+      void refreshRealtimeIntelligence().catch((error) => {
+        console.error("[Admin Data] Visibility intelligence refresh failed:", error);
+      });
     }, TAB_SYNC_DEBOUNCE_MS);
   };
 
@@ -2500,7 +2512,9 @@ export function startRealtimeAnalyticsSync(options = {}) {
   syncFailureStreak = 0;
 
   removeVisibilitySync = installVisibilitySync();
-  void refreshRealtimeIntelligence();
+  void refreshRealtimeIntelligence().catch((error) => {
+    console.error("[Admin Data] Initial realtime intelligence refresh failed:", error);
+  });
   scheduleNextSync();
 
   return () => stopRealtimeAnalyticsSync();

@@ -142,7 +142,7 @@ function handleBootstrapFailure(message, error) {
 
 function installGlobalRuntimeGuards() {
   const onWindowError = (event) => {
-    if (bootstrapFailureHandled) {
+    if (bootstrapFailureHandled || activeRouteKey) {
       return;
     }
 
@@ -151,7 +151,8 @@ function installGlobalRuntimeGuards() {
   };
 
   const onUnhandledRejection = (event) => {
-    if (bootstrapFailureHandled) {
+    if (bootstrapFailureHandled || activeRouteKey) {
+      console.error("[Admin] Unhandled promise rejection:", event?.reason);
       return;
     }
 
@@ -180,12 +181,7 @@ async function renderRoute(routeKey, store, options = {}) {
   const content = document.getElementById("appPageContent");
   const pageSurface = document.getElementById("appPageSurface");
   if (!contentShell || !content || !pageSurface) {
-    return;
-  }
-
-  const validSession = await validateActiveSession();
-  if (!validSession) {
-    logout();
+    handleBootstrapFailure("The admin content viewport is missing. Please reload the page.");
     return;
   }
 
@@ -200,6 +196,13 @@ async function renderRoute(routeKey, store, options = {}) {
   const hasExistingContent = Boolean(content.childElementCount);
   if (!softRefresh || !hasExistingContent) {
     content.innerHTML = loadingState(`Loading ${route.label}...`);
+  }
+
+  const validSession = await validateActiveSession();
+  if (!validSession) {
+    content.innerHTML = errorState("Your admin session expired or could not be verified. Redirecting to login...");
+    logout();
+    return;
   }
 
   try {
@@ -293,7 +296,11 @@ async function bootstrap() {
   installSessionRefreshGuard();
   installSyncGuards(store);
   installAutoRefresh(store);
-  stopRealtimeSync = startRealtimeAnalyticsSync({ intervalMs: 25000 });
+  try {
+    stopRealtimeSync = startRealtimeAnalyticsSync({ intervalMs: 25000 });
+  } catch (error) {
+    console.error("[Admin] Realtime analytics sync failed to start:", error);
+  }
 }
 
 window.addEventListener("beforeunload", () => {

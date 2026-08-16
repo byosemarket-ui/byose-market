@@ -30,7 +30,7 @@ body.admin-nav-locked {
 .admin-main-shell {
   min-width: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(min-content, 1fr);
   gap: clamp(0.58rem, 1vw, 0.9rem);
   width: 100%;
   max-width: calc(var(--app-content-max) + (var(--app-shell-gutter) * 2));
@@ -147,6 +147,7 @@ body.admin-nav-locked {
 
 .admin-page-content {
   min-width: 0;
+  min-height: min-content;
   display: grid;
   gap: clamp(0.75rem, 1.1vw, 1rem);
 }
