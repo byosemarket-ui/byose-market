@@ -25,7 +25,24 @@ async function resolveUser(req) {
 }
 
 function normalizeText(value) {
-    return String(value || '').trim();
+    return String(value == null ? '' : value).trim();
+}
+
+function locationText(...values) {
+    for (let i = 0; i < values.length; i += 1) {
+        const value = values[i];
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+            const nested = locationText(value.name, value.label, value.value, value.title, value.text, value.displayName);
+            if (nested) return nested;
+            continue;
+        }
+        const text = normalizeText(value);
+        if (!text) continue;
+        const lower = text.toLowerCase();
+        if (lower === 'undefined' || lower === 'null' || lower === '[object object]') continue;
+        return text;
+    }
+    return '';
 }
 
 function normalizeEmail(value) {
@@ -147,7 +164,15 @@ function maybeConfirmCodPaymentOnDelivery(order, nextStatus) {
 function validateShippingAddress(shippingAddress = {}, paymentMethod = '') {
     const errors = [];
     REQUIRED_SHIPPING_FIELDS.forEach((field) => {
-        if (!normalizeText(shippingAddress[field] || (field === 'provinceCity' ? shippingAddress.city : ''))) {
+        const fallback = field === 'provinceCity'
+            ? locationText(shippingAddress.city, shippingAddress.province)
+            : '';
+        const aliases = field === 'cell'
+            ? locationText(shippingAddress.cellName, shippingAddress.cell_name)
+            : field === 'village'
+                ? locationText(shippingAddress.villageName, shippingAddress.village_name)
+                : '';
+        if (!locationText(shippingAddress[field], fallback, aliases)) {
             errors.push(`${field} is required`);
         }
     });
@@ -460,7 +485,24 @@ function normalizeStorefrontOrder(payload, user) {
         || customer.phone
         || user?.phone
     );
-    const createdAt = source.createdAt || source.date || source.timestamp || new Date().toISOString();
+    const incomingFull = source.fullAddress && typeof source.fullAddress === 'object' ? source.fullAddress : {};
+    const incomingGps = source.gpsLocation && typeof source.gpsLocation === 'object' ? source.gpsLocation : {};
+    const provinceCity = locationText(
+        shippingAddress.provinceCity,
+        shippingAddress.city,
+        shippingAddress.province,
+        incomingFull.provinceCity,
+        incomingFull.province,
+        incomingFull.city
+    );
+    const district = locationText(shippingAddress.district, shippingAddress.districtName, incomingFull.district, incomingFull.districtName);
+    const sector = locationText(shippingAddress.sector, shippingAddress.sectorName, incomingFull.sector, incomingFull.sectorName);
+    const cell = locationText(shippingAddress.cell, shippingAddress.cellName, shippingAddress.cell_name, incomingFull.cell, incomingFull.cellName);
+    const village = locationText(shippingAddress.village, shippingAddress.villageName, shippingAddress.village_name, incomingFull.village, incomingFull.villageName);
+    const landmark = locationText(shippingAddress.note, shippingAddress.landmark, incomingFull.note, incomingFull.landmark);
+    const latitude = locationText(incomingGps.latitude, shippingAddress.latitude);
+    const longitude = locationText(incomingGps.longitude, shippingAddress.longitude);
+    const mapLink = locationText(incomingGps.googleMapsLink, incomingGps.mapLink, shippingAddress.mapLink);
     const subtotal = items.reduce(
         (sum, item) => sum + item.price * item.quantity,
         0
@@ -482,6 +524,7 @@ function normalizeStorefrontOrder(payload, user) {
     const paymentStatus = isCodPaymentMethod(paymentMethod) ? 'awaiting_delivery_payment' : 'awaiting_payment';
     const paymentStatusLabel = isCodPaymentMethod(paymentMethod) ? 'Awaiting Delivery Payment' : 'Awaiting Payment';
     const deliveryMethodKey = 'homeDelivery';
+    const createdAt = source.createdAt || source.date || source.timestamp || new Date().toISOString();
 
     return {
         id: normalizeText(source.id || source.orderId),
@@ -495,7 +538,7 @@ function normalizeStorefrontOrder(payload, user) {
         customerEmail,
         customerPhone,
         phoneNumber: customerPhone,
-        customerName: normalizeText(shippingAddress.fullName || source.customerName || customer.name || user?.name) || 'Guest Customer',
+        customerName: locationText(shippingAddress.fullName, source.customerName, customer.name, user?.name) || 'Guest Customer',
         customerImage: normalizeText(source.customerImage || customer.avatar || customer.image || user?.avatar),
         status: 'Pending',
         orderStatus: 'pending',
@@ -522,26 +565,38 @@ function normalizeStorefrontOrder(payload, user) {
         products: items,
         shippingAddress: {
             ...shippingAddress,
-            fullName: normalizeText(shippingAddress.fullName || source.customerName || customer.name || user?.name),
+            fullName: locationText(shippingAddress.fullName, source.customerName, customer.name, user?.name),
             phone: customerPhone,
-            country: normalizeText(shippingAddress.country || 'Rwanda'),
-            provinceCity: normalizeText(shippingAddress.provinceCity || shippingAddress.city),
-            city: normalizeText(shippingAddress.provinceCity || shippingAddress.city),
-            district: normalizeText(shippingAddress.district),
-            sector: normalizeText(shippingAddress.sector),
-            cell: normalizeText(shippingAddress.cell),
-            village: normalizeText(shippingAddress.village),
-            note: normalizeText(shippingAddress.note)
+            country: locationText(shippingAddress.country) || 'Rwanda',
+            provinceCity,
+            city: provinceCity,
+            district,
+            sector,
+            cell,
+            village,
+            note: landmark,
+            latitude,
+            longitude,
+            mapLink
         },
-        fullAddress: source.fullAddress && typeof source.fullAddress === 'object' ? source.fullAddress : {
-            province: normalizeText(shippingAddress.provinceCity || shippingAddress.city),
-            district: normalizeText(shippingAddress.district),
-            sector: normalizeText(shippingAddress.sector),
-            cell: normalizeText(shippingAddress.cell),
-            village: normalizeText(shippingAddress.village),
-            note: normalizeText(shippingAddress.note)
+        fullAddress: {
+            ...incomingFull,
+            province: provinceCity,
+            district,
+            sector,
+            cell,
+            village,
+            note: landmark
         },
-        gpsLocation: source.gpsLocation && typeof source.gpsLocation === 'object' ? source.gpsLocation : {},
+        gpsLocation: {
+            ...incomingGps,
+            latitude,
+            longitude,
+            googleMapsLink: mapLink,
+            mapLink,
+            accuracy: locationText(incomingGps.accuracy, shippingAddress.locationAccuracy),
+            capturedAt: locationText(incomingGps.capturedAt, shippingAddress.locationCapturedAt)
+        },
         payment: {
             type: paymentType,
             method: paymentMethod,
@@ -553,7 +608,7 @@ function normalizeStorefrontOrder(payload, user) {
         },
         customer: {
             id: customerId,
-            name: normalizeText(shippingAddress.fullName || source.customerName || customer.name || user?.name) || 'Guest Customer',
+            name: locationText(shippingAddress.fullName, source.customerName, customer.name, user?.name) || 'Guest Customer',
             email: customerEmail,
             phone: customerPhone,
             isGuest: !customerId
@@ -1177,19 +1232,19 @@ function toPublicOrderConfirmation(order) {
             mode: isCod ? '' : normalizeText(gateway.mode)
         },
         shippingAddress: {
-            fullName: normalizeText(shipping.fullName || order.customerName),
-            phone: normalizeText(shipping.phone || order.customerPhone),
-            provinceCity: normalizeText(shipping.provinceCity || shipping.city),
-            district: normalizeText(shipping.district),
-            sector: normalizeText(shipping.sector),
-            cell: normalizeText(shipping.cell),
-            village: normalizeText(shipping.village),
-            note: normalizeText(shipping.note)
+            fullName: locationText(shipping.fullName, order.customerName),
+            phone: locationText(shipping.phone, order.customerPhone),
+            provinceCity: locationText(shipping.provinceCity, shipping.city),
+            district: locationText(shipping.district, shipping.districtName),
+            sector: locationText(shipping.sector, shipping.sectorName),
+            cell: locationText(shipping.cell, shipping.cellName),
+            village: locationText(shipping.village, shipping.villageName),
+            note: locationText(shipping.note, shipping.landmark)
         },
         gpsLocation: {
-            latitude: gps.latitude || '',
-            longitude: gps.longitude || '',
-            googleMapsLink: gps.googleMapsLink || gps.mapLink || ''
+            latitude: locationText(gps.latitude, shipping.latitude),
+            longitude: locationText(gps.longitude, shipping.longitude),
+            googleMapsLink: locationText(gps.googleMapsLink, gps.mapLink, shipping.mapLink)
         },
         createdAt: order.createdAt || null,
         updatedAt: order.updatedAt || null

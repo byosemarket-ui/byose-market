@@ -2,6 +2,7 @@ import * as api from "../core/api.js";
 import { publishRealtime } from "../core/realtime-adapter.js";
 import productCatalogService from "../../../services/centralized-products.service.js";
 import { publishHeroSlidesBump } from "../../../services/hero-slides.service.js";
+import { applyCanonicalAddress, resolveOrderAddress, resolveOrderLocation } from "../utils/order-address.js";
 
 const CACHE_PREFIX = "byose_admin_api_cache_v2";
 const DEFAULT_RETRY_COUNT = 2;
@@ -390,9 +391,12 @@ function normalizeOrder(order) {
     timestamp: entry?.timestamp || entry?.at || entry?.createdAt || ""
   })).filter((entry) => entry.status || entry.label);
 
-  const shippingAddress = asObject(order?.shippingAddress);
-  const fullAddress = asObject(order?.fullAddress);
-  const gpsLocation = asObject(order?.gpsLocation);
+  const resolvedAddress = resolveOrderAddress(order);
+  const resolvedLocation = resolveOrderLocation(order);
+  const canonical = applyCanonicalAddress(order, resolvedAddress, resolvedLocation);
+  const shippingAddress = canonical.shippingAddress;
+  const fullAddress = canonical.fullAddress;
+  const gpsLocation = canonical.gpsLocation;
   const paymentCancellation = asObject(payment.cancellation);
   const returnWorkflowRaw = asObject(payment.returnWorkflow || order?.returnWorkflow);
   const cancelHistory = [...statusHistory].reverse().find((entry) => /cancel/i.test(`${entry.status} ${entry.label}`));

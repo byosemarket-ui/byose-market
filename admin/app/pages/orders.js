@@ -3,6 +3,7 @@ import { bulkDeleteOrders, bulkUpdateOrderStatus, deleteOrder, getAdminBranding,
 import { downloadCsvFile, openPrintableReport } from "../services/enterprise-intelligence.service.js";
 import { openInvoiceDocument, resolveInvoiceCompany } from "../services/invoice-document.service.js";
 import { subscribeToLiveFeeds } from "../services/live-feeds.service.js";
+import { resolveOrderAddress, resolveOrderCustomer, resolveOrderLocation, resolveOrderNotes } from "../utils/order-address.js";
 
 const STATUS_OPTIONS = [
   "Pending",
@@ -1679,15 +1680,6 @@ function coerceReviewObject(value) {
   return {};
 }
 
-function uniqueReviewText(value, used) {
-  const text = sanitizeReviewText(value);
-  if (!text) return "";
-  const key = text.replace(/\s+/g, " ").trim().toLowerCase();
-  if (used.has(key)) return "";
-  used.add(key);
-  return text;
-}
-
 function formatReviewPhoneHref(phone, protocol) {
   const compact = String(phone || "").replace(/[^\d+]/g, "");
   return compact ? `${protocol}:${compact}` : "";
@@ -1728,102 +1720,35 @@ function renderReviewContactActions(phone, email) {
 }
 
 function resolveReviewCustomerRecord(order) {
-  const ship = coerceReviewObject(order?.shippingAddress || order?.deliveryAddress);
-  const customer = coerceReviewObject(order?.customer);
-  const name = pickReviewText(ship.fullName, order?.customerName, customer.name, customer.fullName);
-  const phone = pickReviewText(ship.phone, order?.customerPhone, order?.phoneNumber, customer.phone);
-  const email = pickReviewText(order?.customerEmail, order?.userEmail, customer.email, ship.email);
-  const customerId = pickReviewText(order?.customerId, customer.id, customer.customerId);
-  const isGuest = !customerId;
+  const customer = resolveOrderCustomer(order);
+  const name = customer.name;
+  const isGuest = !customer.customerId;
   return {
     name: name || (isGuest ? "Guest Customer" : "Not provided"),
-    phone,
-    email,
-    customerId,
+    phone: customer.phone,
+    email: customer.email,
+    customerId: customer.customerId,
     isGuest,
     initial: (name || "G").slice(0, 1).toUpperCase()
   };
 }
 
 function resolveReviewAddressRecord(order) {
-  const ship = coerceReviewObject(order?.shippingAddress || order?.deliveryAddress);
-  const full = coerceReviewObject(order?.fullAddress);
-  const used = new Set();
-  const province = uniqueReviewText(pickReviewText(
-    ship.provinceCity, ship.province, ship.city, full.provinceCity, full.province, full.city, order?.provinceCity
-  ), used);
-  const district = uniqueReviewText(pickReviewText(ship.district, full.district), used);
-  const sector = uniqueReviewText(pickReviewText(ship.sector, full.sector), used);
-  const cell = uniqueReviewText(pickReviewText(ship.cell, full.cell), used);
-  const village = uniqueReviewText(pickReviewText(ship.village, full.village), used);
-  const street = uniqueReviewText(pickReviewText(ship.street, ship.line1, full.street, full.line1), used);
-  const house = uniqueReviewText(pickReviewText(ship.houseNumber, ship.houseNo, ship.house, full.houseNumber, full.house), used);
-  const building = uniqueReviewText(pickReviewText(ship.building, full.building), used);
-  const apartment = uniqueReviewText(pickReviewText(ship.apartment, ship.apt, full.apartment), used);
-  const postal = uniqueReviewText(pickReviewText(ship.postalCode, ship.postal, ship.zip, full.postalCode, full.postal), used);
-  const additional = uniqueReviewText(pickReviewText(
-    ship.additionalAddress, ship.additional, full.additionalAddress, ship.addressLine, full.addressLine, full.street
-  ), used);
-  const landmark = uniqueReviewText(pickReviewText(ship.note, full.note, ship.landmark, full.landmark), used);
-  return {
-    province,
-    district,
-    sector,
-    cell,
-    village,
-    street,
-    house,
-    building,
-    apartment,
-    postal,
-    additional,
-    landmark,
-    hasHierarchy: Boolean(province || district || sector || cell || village),
-    hasAny: Boolean(province || district || sector || cell || village || street || house || building || apartment || postal || additional || landmark)
-  };
+  return resolveOrderAddress(order);
 }
 
 function resolveReviewLocationRecord(order) {
-  const gps = coerceReviewObject(order?.gpsLocation);
-  const ship = coerceReviewObject(order?.shippingAddress || order?.deliveryAddress);
-  const latitude = pickReviewText(gps.latitude, ship.latitude, order?.latitude);
-  const longitude = pickReviewText(gps.longitude, ship.longitude, order?.longitude);
-  const explicitLink = pickReviewText(gps.googleMapsLink, gps.mapLink, ship.mapLink);
-  const locationName = pickReviewText(gps.name, gps.locationName, gps.displayName, ship.locationName);
-  const accuracy = pickReviewText(gps.accuracy, ship.locationAccuracy);
-  const capturedAt = pickReviewText(gps.capturedAt, ship.locationCapturedAt);
-  const latNum = Number(latitude);
-  const lngNum = Number(longitude);
-  const hasCoords = latitude !== "" && longitude !== ""
-    && Number.isFinite(latNum)
-    && Number.isFinite(lngNum)
-    && !(latNum === 0 && lngNum === 0);
-  const mapLink = explicitLink || (hasCoords ? resolveMapLink(order) : "");
+  const location = resolveOrderLocation(order);
+  const mapLink = location.mapLink || (location.latitude && location.longitude ? resolveMapLink(order) : "");
   return {
-    latitude: hasCoords ? latitude : "",
-    longitude: hasCoords ? longitude : "",
+    ...location,
     mapLink,
-    locationName,
-    accuracy,
-    capturedAt,
-    hasAny: Boolean((hasCoords && latitude) || mapLink || locationName)
+    hasAny: Boolean(location.hasAny || mapLink)
   };
 }
 
 function resolveReviewCustomerNotes(order, address) {
-  const ship = coerceReviewObject(order?.shippingAddress || order?.deliveryAddress);
-  const used = new Set();
-  [address?.landmark, address?.additional].forEach((value) => {
-    const key = sanitizeReviewText(value).replace(/\s+/g, " ").trim().toLowerCase();
-    if (key) used.add(key);
-  });
-  const instructions = uniqueReviewText(pickReviewText(
-    ship.deliveryInstructions, order?.deliveryInstructions, ship.instructions
-  ), used);
-  const notes = uniqueReviewText(pickReviewText(
-    order?.customerMessage, order?.orderNotes, order?.checkoutNotes, ship.customerNotes, order?.buyerNotes
-  ), used);
-  return { instructions, notes };
+  return resolveOrderNotes(order, address);
 }
 
 function renderReviewCustomerIdentity(order) {
@@ -2443,14 +2368,11 @@ function retryReviewDrawer() {
   const resolved = typeof reviewDrawer.resolveOrder === "function" ? reviewDrawer.resolveOrder(orderId) : null;
   if (resolved) {
     paintReviewDrawer({ order: resolved });
+    void refreshReviewDrawerFromApi(orderId);
     return;
   }
   paintReviewDrawer({ loading: true, error: false });
-  if (typeof reviewDrawer.reloadAndResolve === "function") {
-    void reviewDrawer.reloadAndResolve(orderId);
-    return;
-  }
-  paintReviewDrawer({ error: true });
+  void refreshReviewDrawerFromApi(orderId);
 }
 
 function openReviewDrawer(orderId, order = null) {
@@ -2463,14 +2385,29 @@ function openReviewDrawer(orderId, order = null) {
   const resolved = order || (typeof reviewDrawer.resolveOrder === "function" ? reviewDrawer.resolveOrder(id) : null);
   if (resolved) {
     paintReviewDrawer({ order: resolved });
+    void refreshReviewDrawerFromApi(id);
     return;
   }
   paintReviewDrawer({ loading: true });
-  if (typeof reviewDrawer.reloadAndResolve === "function") {
-    void reviewDrawer.reloadAndResolve(id);
-    return;
+  void refreshReviewDrawerFromApi(id);
+}
+
+async function refreshReviewDrawerFromApi(orderId) {
+  const id = String(orderId || "").trim();
+  if (!id) return;
+  try {
+    const fresh = await getOrderById(id);
+    if (String(reviewDrawer.orderId || "").trim() !== id) return;
+    if (typeof reviewDrawer.replaceOrder === "function") {
+      reviewDrawer.replaceOrder(fresh);
+    }
+    paintReviewDrawer({ order: fresh, focus: false });
+  } catch (_error) {
+    if (String(reviewDrawer.orderId || "").trim() !== id) return;
+    if (isReviewDrawerOpen() && document.getElementById("ordersReviewDrawerHost")?.querySelector(".orders-review-state")) {
+      paintReviewDrawer({ error: true, focus: false });
+    }
   }
-  paintReviewDrawer({ error: true });
 }
 
 function refreshOpenReviewDrawer() {
@@ -2717,7 +2654,9 @@ function buildCustomerInfoText(order) {
     `Email: ${order?.customerEmail || "—"}`,
     `Province: ${ship.provinceCity || ship.province || full.province || full.provinceCity || "—"}`,
     `District: ${ship.district || full.district || "—"}`,
-    `Sector: ${ship.sector || full.sector || "—"}`
+    `Sector: ${ship.sector || full.sector || "—"}`,
+    `Cell: ${ship.cell || full.cell || "—"}`,
+    `Village: ${ship.village || full.village || "—"}`
   ].join("\n");
 }
 
@@ -4772,10 +4711,26 @@ export async function renderOrders(container, options = {}) {
   }
 
   reviewDrawer.resolveOrder = findOrder;
+  reviewDrawer.replaceOrder = (fresh) => {
+    if (!fresh) return;
+    const requested = String(reviewDrawer.orderId || fresh.orderId || fresh.id || "").trim();
+    if (!requested) return;
+    let exists = false;
+    const next = (state.allOrders || []).map((item) => {
+      const keys = [item.orderId, item.id, item.recordId]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean);
+      if (!keys.includes(requested)) return item;
+      exists = true;
+      return fresh;
+    });
+    state.allOrders = exists ? next : [fresh, ...next];
+    invalidateOrderIndex();
+  };
   reviewDrawer.reloadAndResolve = async (orderId) => {
     const id = String(orderId || "").trim();
     if (!id) return;
-    await loadOrders({ force: true });
+    await refreshReviewDrawerFromApi(id);
   };
   reviewDrawer.handleAction = async (action, orderId) => {
     const order = findOrder(orderId);

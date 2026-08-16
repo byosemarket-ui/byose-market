@@ -35,6 +35,7 @@ function main() {
   assert(ordersJs.includes('orders-pagination') || ordersJs.includes('data-page-action'), 'must include pagination');
   assert(ordersJs.includes('Customer Information'), 'must show customer information');
   assert(ordersJs.includes('Province / City'), 'must show province/city');
+  assert(ordersJs.includes('from "../utils/order-address.js"'), 'must use shared order address resolver');
   assert(ordersJs.includes('Google Maps'), 'must show Google Maps action');
   assert(ordersJs.includes('Order Timeline'), 'must show timeline');
   assert(ordersJs.includes('Print Invoice'), 'must support invoice print');

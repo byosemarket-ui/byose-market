@@ -240,7 +240,8 @@ function main() {
     'scripts/verify-admin-pending-orders.js',
     'scripts/verify-admin-completed-orders.js',
     'scripts/verify-admin-cancelled-orders.js',
-    'scripts/verify-admin-returns-refunds.js'
+    'scripts/verify-admin-returns-refunds.js',
+    'scripts/verify-admin-order-address.js'
   ].forEach((rel) => {
     assert(fs.existsSync(path.join(root, rel)), `missing verifier ${rel}`);
   });

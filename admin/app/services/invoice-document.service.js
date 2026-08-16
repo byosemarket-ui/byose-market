@@ -1,4 +1,5 @@
 import { buildQrSvg } from "../utils/qr-svg.js";
+import { resolveOrderAddress, resolveOrderCustomer, resolveOrderLocation, resolveOrderNotes } from "../utils/order-address.js";
 
 const STOREFRONT_DEFAULTS = Object.freeze({
   storeName: "BYOSE Market",
@@ -29,15 +30,6 @@ function text(value) {
   if (!raw) return "";
   const lower = raw.toLowerCase();
   if (lower === "undefined" || lower === "null" || lower === "[object object]") return "";
-  return raw;
-}
-
-function uniqueText(value, used) {
-  const raw = text(value);
-  if (!raw) return "";
-  const key = raw.replace(/\s+/g, " ").trim().toLowerCase();
-  if (!key || used.has(key)) return "";
-  used.add(key);
   return raw;
 }
 
@@ -234,76 +226,19 @@ export function resolveInvoiceCompany(settings = {}, branding = {}) {
 }
 
 function resolveCustomer(order) {
-  const ship = asObject(order?.shippingAddress || order?.deliveryAddress);
-  const customer = asObject(order?.customer);
-  return {
-    name: pickText(ship.fullName, order?.customerName, customer.name, customer.fullName),
-    phone: pickText(ship.phone, order?.customerPhone, order?.phoneNumber, customer.phone),
-    email: pickText(order?.customerEmail, order?.userEmail, customer.email, ship.email),
-    customerId: pickText(order?.customerId, customer.id, customer.customerId)
-  };
+  return resolveOrderCustomer(order);
 }
 
 function resolveAddress(order) {
-  const ship = asObject(order?.shippingAddress || order?.deliveryAddress);
-  const full = asObject(order?.fullAddress);
-  const used = new Set();
-  const province = uniqueText(pickText(ship.provinceCity, ship.province, ship.city, full.provinceCity, full.province, full.city, order?.provinceCity), used);
-  const district = uniqueText(pickText(ship.district, full.district), used);
-  const sector = uniqueText(pickText(ship.sector, full.sector), used);
-  const cell = uniqueText(pickText(ship.cell, full.cell), used);
-  const village = uniqueText(pickText(ship.village, full.village), used);
-  const street = uniqueText(pickText(ship.street, ship.line1, full.street, full.line1), used);
-  const house = uniqueText(pickText(ship.houseNumber, ship.houseNo, ship.house, full.houseNumber, full.house), used);
-  const building = uniqueText(pickText(ship.building, full.building), used);
-  const apartment = uniqueText(pickText(ship.apartment, ship.apt, full.apartment), used);
-  const additional = uniqueText(pickText(ship.additionalAddress, ship.additional, full.additionalAddress, ship.addressLine, full.addressLine), used);
-  const landmark = uniqueText(pickText(ship.note, full.note, ship.landmark, full.landmark), used);
-  return {
-    province,
-    district,
-    sector,
-    cell,
-    village,
-    street,
-    house,
-    building,
-    apartment,
-    additional,
-    landmark,
-    hasAny: Boolean(province || district || sector || cell || village || street || house || building || apartment || additional || landmark)
-  };
+  return resolveOrderAddress(order);
 }
 
 function resolveNotes(order, address) {
-  const ship = asObject(order?.shippingAddress || order?.deliveryAddress);
-  const used = new Set();
-  [address?.landmark, address?.additional].forEach((value) => {
-    const key = text(value).replace(/\s+/g, " ").trim().toLowerCase();
-    if (key) used.add(key);
-  });
-  return {
-    instructions: uniqueText(pickText(ship.deliveryInstructions, order?.deliveryInstructions, ship.instructions), used),
-    notes: uniqueText(pickText(order?.customerMessage, order?.orderNotes, order?.checkoutNotes, ship.customerNotes, order?.buyerNotes), used)
-  };
+  return resolveOrderNotes(order, address);
 }
 
 function resolveLocation(order) {
-  const gps = asObject(order?.gpsLocation);
-  const ship = asObject(order?.shippingAddress || order?.deliveryAddress);
-  const latitude = pickText(gps.latitude, ship.latitude, order?.latitude);
-  const longitude = pickText(gps.longitude, ship.longitude, order?.longitude);
-  const explicit = pickText(gps.googleMapsLink, gps.mapLink, ship.mapLink);
-  const latNum = Number(latitude);
-  const lngNum = Number(longitude);
-  const hasCoords = latitude !== "" && longitude !== "" && Number.isFinite(latNum) && Number.isFinite(lngNum) && !(latNum === 0 && lngNum === 0);
-  const mapLink = explicit || (hasCoords ? `https://www.google.com/maps?q=${encodeURIComponent(`${latitude},${longitude}`)}` : "");
-  return {
-    latitude: hasCoords ? latitude : "",
-    longitude: hasCoords ? longitude : "",
-    mapLink,
-    hasAny: Boolean(hasCoords || mapLink)
-  };
+  return resolveOrderLocation(order);
 }
 
 function resolveItems(order, origin) {
