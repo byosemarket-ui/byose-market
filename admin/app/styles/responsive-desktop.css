@@ -1,18 +1,12 @@
 @media (min-width: 1025px) {
-  .admin-main {
-    padding: clamp(0.72rem, 1.1vw, 1rem);
-  }
-
   .admin-content {
     width: 100%;
   }
 
-  .header-actions {
-    justify-self: end;
-  }
-
   .header-search-shell {
-    max-width: 400px;
+    max-width: 520px;
+    justify-self: center;
+    width: 100%;
   }
 
   .analytics-grid,
@@ -23,16 +17,12 @@
 }
 
 @media (min-width: 1025px) and (max-width: 1366px) {
-  .header-breadcrumbs {
+  .header-status {
     display: none;
   }
 
-  .header-route-summary {
-    display: none;
-  }
-
-  .header-search-caption {
-    display: none;
+  .admin-header {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1fr) auto;
   }
 }
 

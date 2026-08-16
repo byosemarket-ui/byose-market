@@ -1,6 +1,9 @@
 import { errorState, panel, table } from "../components/ui.js";
 import { getActivityLogs, getAnalytics, getCarts, getCustomers, getDashboard, getOrders, getProducts } from "../services/admin-data.service.js";
 import { buildDashboardMarkup, buildDashboardModel } from "./dashboard-view.js";
+import { bindOverviewActions, buildOverviewMarkup, buildOverviewModel, renderOverviewLoading } from "./dashboard-overview.js";
+import { bindStatisticsActions, buildStatisticsMarkup, buildStatisticsModel, renderStatisticsLoading } from "./dashboard-statistics.js";
+import { bindQuickAnalyticsActions, buildQuickAnalyticsMarkup, buildQuickAnalyticsModel, renderQuickAnalyticsLoading } from "./dashboard-quick-analytics.js";
 import { startRealtimeSync } from "../services/realtime-sync.service.js";
 import { startLiveFeeds, subscribeToLiveFeeds } from "../services/live-feeds.service.js";
 
@@ -9,7 +12,45 @@ function skeletonTable(columns) {
   return table(columns, rows);
 }
 
+function getDashboardPanel() {
+  const hash = String(window.location.hash || "");
+  const queryStart = hash.indexOf("?");
+  if (queryStart < 0) {
+    return "overview";
+  }
+  const requested = String(new URLSearchParams(hash.slice(queryStart + 1)).get("panel") || "overview").trim().toLowerCase();
+  return requested || "overview";
+}
+
+function isOverviewPanel() {
+  const requested = getDashboardPanel();
+  return requested === "overview" || requested === "";
+}
+
+function isStatisticsPanel() {
+  return getDashboardPanel() === "statistics";
+}
+
+function isQuickAnalyticsPanel() {
+  return getDashboardPanel() === "quick-analytics";
+}
+
 function renderLoading(container) {
+  if (isOverviewPanel()) {
+    container.innerHTML = renderOverviewLoading();
+    return;
+  }
+
+  if (isStatisticsPanel()) {
+    container.innerHTML = renderStatisticsLoading();
+    return;
+  }
+
+  if (isQuickAnalyticsPanel()) {
+    container.innerHTML = renderQuickAnalyticsLoading();
+    return;
+  }
+
   container.innerHTML = `
     <section class="hero-overview hero-overview-skeleton card">
       <div>
@@ -49,7 +90,6 @@ export async function renderDashboard(container) {
 
   renderLoading(container);
 
-  // Realtime/live feeds must never block the first dashboard paint.
   void startRealtimeSync().catch((error) => {
     console.warn("[Dashboard] Realtime sync unavailable:", error?.message || error);
   });
@@ -61,46 +101,38 @@ export async function renderDashboard(container) {
 
   let unsubscribers = [];
 
-  // Subscribe to live updates
   unsubscribers.push(
     subscribeToLiveFeeds("orders", async () => {
-      console.log("[Dashboard] Live order update received");
       await refreshDashboard(container, unsubscribers);
     })
   );
 
   unsubscribers.push(
     subscribeToLiveFeeds("products", async () => {
-      console.log("[Dashboard] Live product update received");
       await refreshDashboard(container, unsubscribers);
     })
   );
 
   unsubscribers.push(
     subscribeToLiveFeeds("carts", async () => {
-      console.log("[Dashboard] Live cart update received");
       await refreshDashboard(container, unsubscribers);
     })
   );
 
   unsubscribers.push(
     subscribeToLiveFeeds("customers", async () => {
-      console.log("[Dashboard] Live customer update received");
       await refreshDashboard(container, unsubscribers);
     })
   );
 
   unsubscribers.push(
     subscribeToLiveFeeds("activity", async () => {
-      console.log("[Dashboard] Live activity update received");
       await refreshDashboard(container, unsubscribers);
     })
   );
 
-  // Initial dashboard render
-  await refreshDashboard(container, unsubscribers);
+  await refreshDashboard(container, unsubscribers, { force: true });
 
-  // Store cleanup function on container for later cleanup
   container._dashboardCleanup = () => {
     unsubscribers.forEach((unsub) => {
       try {
@@ -115,27 +147,28 @@ export async function renderDashboard(container) {
 
 const DASHBOARD_MIN_REFRESH_MS = 15000;
 
-async function refreshDashboard(container, unsubscribers) {
+async function refreshDashboard(container, unsubscribers, options = {}) {
   if (container._dashboardRefreshInFlight) {
     return;
   }
 
   const now = Date.now();
-  if (container._dashboardHasRendered && container._dashboardLastRefreshAt
+  if (!options.force && container._dashboardHasRendered && container._dashboardLastRefreshAt
     && (now - container._dashboardLastRefreshAt) < DASHBOARD_MIN_REFRESH_MS) {
     return;
   }
 
   container._dashboardRefreshInFlight = true;
   try {
+    const wantsLegacyFallback = !isOverviewPanel() && !isStatisticsPanel() && !isQuickAnalyticsPanel();
     const [snapshotResult, analyticsResult, ordersResult, customersResult, productsResult, logsResult, cartsResult] = await Promise.allSettled([
       getDashboard({ emit: false, silent: true }),
-      getAnalytics({ emit: false, silent: true }),
+      isOverviewPanel() ? getAnalytics({ emit: false, silent: true }) : Promise.resolve({}),
       getOrders({ emit: false }),
       getCustomers({ emit: false }),
       getProducts({ emit: false }),
       getActivityLogs({ emit: false }),
-      getCarts({ emit: false })
+      wantsLegacyFallback ? getCarts({ emit: false }) : Promise.resolve([])
     ]);
 
     const failedSources = [
@@ -158,7 +191,7 @@ async function refreshDashboard(container, unsubscribers) {
     const activityLogs = normalizeSettledPayload(logsResult) || [];
     const carts = normalizeSettledPayload(cartsResult) || [];
 
-    const model = buildDashboardModel({
+    const payload = {
       snapshot,
       analytics,
       orders,
@@ -167,22 +200,47 @@ async function refreshDashboard(container, unsubscribers) {
       activityLogs,
       carts,
       failedSources
-    });
+    };
 
-    // Update dashboard container with new markup
-    container.innerHTML = buildDashboardMarkup(model);
+    if (isOverviewPanel()) {
+      const range = container._overviewRange || "week";
+      const overviewModel = buildOverviewModel(payload, range);
+      container.innerHTML = buildOverviewMarkup(overviewModel);
+      bindOverviewActions(container, {
+        payload,
+        onRefresh: (refreshOptions) => refreshDashboard(container, unsubscribers, refreshOptions)
+      });
+    } else if (isStatisticsPanel()) {
+      const period = container._statisticsPeriod || { key: "month", from: "", to: "" };
+      const statisticsModel = buildStatisticsModel(payload, period);
+      container.innerHTML = buildStatisticsMarkup(statisticsModel);
+      bindStatisticsActions(container, {
+        payload,
+        onRefresh: (refreshOptions) => refreshDashboard(container, unsubscribers, refreshOptions)
+      });
+    } else if (isQuickAnalyticsPanel()) {
+      const periodKey = container._quickPeriod || "today";
+      const quickModel = buildQuickAnalyticsModel(payload, periodKey);
+      container.innerHTML = buildQuickAnalyticsMarkup(quickModel);
+      bindQuickAnalyticsActions(container, {
+        payload,
+        onRefresh: (refreshOptions) => refreshDashboard(container, unsubscribers, refreshOptions)
+      });
+    } else {
+      const model = buildDashboardModel(payload);
+      container.innerHTML = buildDashboardMarkup(model);
+      addRealtimeStatusIndicator(container);
 
-    // Add realtime status indicator
-    addRealtimeStatusIndicator(container);
-
-    if (!snapshotResult || snapshotResult.status === "rejected") {
-      const errorBanner = document.createElement("div");
-      errorBanner.innerHTML = errorState("Dashboard snapshot API is currently unavailable. Showing best available centralized data feeds.");
-      container.prepend(errorBanner.firstElementChild);
+      if (!snapshotResult || snapshotResult.status === "rejected") {
+        const errorBanner = document.createElement("div");
+        errorBanner.innerHTML = errorState("Dashboard snapshot API is currently unavailable. Showing best available centralized data feeds.");
+        container.prepend(errorBanner.firstElementChild);
+      }
     }
 
     container._dashboardHasRendered = true;
     container._dashboardLastRefreshAt = Date.now();
+    container._overviewPayload = payload;
   } catch (error) {
     console.error("[Dashboard] Refresh error:", error);
     if (!container._dashboardHasRendered) {

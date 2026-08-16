@@ -16,6 +16,20 @@ function normalizeHash(hash) {
   return normalized.startsWith("#") ? normalized : `#${normalized}`;
 }
 
+function stripTransientHashParams(hash) {
+  const normalized = normalizeHash(hash);
+  if (!normalized.includes("?")) {
+    return normalized;
+  }
+
+  const queryStart = normalized.indexOf("?");
+  const path = normalized.slice(0, queryStart);
+  const params = new URLSearchParams(normalized.slice(queryStart + 1));
+  ["q", "search"].forEach((key) => params.delete(key));
+  const next = params.toString();
+  return next ? `${path}?${next}` : path;
+}
+
 function routeFromHash(hash) {
   const clean = String(hash || "")
     .replace(/^#\/?/, "")
@@ -120,7 +134,9 @@ export function matchesNavigationEntry(entry, location) {
     ? entry.matchRoutes.map(normalizeRouteKey).filter(Boolean)
     : [];
 
-  if (matchHashes.length && matchHashes.includes(location.hash)) {
+  const locationHash = stripTransientHashParams(location.hash);
+
+  if (matchHashes.length && matchHashes.map(stripTransientHashParams).includes(locationHash)) {
     return true;
   }
 
@@ -134,7 +150,7 @@ export function matchesNavigationEntry(entry, location) {
 
   if (entry?.href) {
     if (String(entry.href).trim().startsWith("#")) {
-      return normalizeHash(entry.href) === location.hash;
+      return stripTransientHashParams(entry.href) === locationHash;
     }
 
     return normalizeMatchPath(entry.href) === location.pathname;
@@ -271,4 +287,30 @@ export function persistExpandedBranchIds(ids) {
   } catch (_error) {
     // Ignore storage failures.
   }
+}
+
+export function flattenNavigationDestinations(navigation) {
+  const items = [];
+
+  function visit(entries, groupLabel, parentLabel) {
+    (entries || []).forEach((entry) => {
+      if (entry?.href && entry.action !== "logout") {
+        items.push({
+          id: entry.id,
+          label: entry.label,
+          href: entry.href,
+          group: groupLabel,
+          parent: parentLabel,
+          description: entry.description || ""
+        });
+      }
+
+      if (Array.isArray(entry?.children) && entry.children.length) {
+        visit(entry.children, groupLabel, entry.label);
+      }
+    });
+  }
+
+  (navigation || []).forEach((group) => visit(group.items || [], group.label, ""));
+  return items;
 }

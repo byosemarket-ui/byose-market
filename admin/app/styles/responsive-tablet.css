@@ -3,8 +3,22 @@
     grid-template-columns: 1fr;
   }
 
-  .admin-main {
-    padding: 0.62rem;
+  .admin-header {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 1fr) auto;
+    gap: 0.7rem;
+    padding: 0.6rem 0.9rem;
+  }
+
+  .menu-toggle {
+    display: inline-flex;
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .header-status,
+  .header-search-shortcut,
+  .admin-page-badge {
+    display: none;
   }
 
   .admin-sidebar {
@@ -13,16 +27,16 @@
     left: 0;
     bottom: 0;
     z-index: 60;
-    width: min(78vw, 380px);
-    max-width: calc(100% - 1.5rem);
+    width: min(72vw, 340px);
+    max-width: calc(100% - 1.2rem);
     height: auto;
     max-height: 100svh;
     padding: 0.9rem 0.85rem 1rem;
     overflow: hidden;
     pointer-events: none;
     transform: translateX(-104%);
-    box-shadow: 28px 0 52px rgba(2, 10, 9, 0.28);
-    transition: transform 0.24s ease;
+    box-shadow: 22px 0 44px rgba(2, 10, 9, 0.26);
+    transition: transform 0.22s ease;
   }
 
   .admin-sidebar.sidebar-open {
@@ -30,92 +44,13 @@
     pointer-events: auto;
   }
 
-  .menu-toggle {
-    display: inline-flex;
-    min-width: 40px;
-    min-height: 36px;
-  }
-
-  .admin-header {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 0.52rem;
-    padding: 0.58rem 0.66rem;
-  }
-
-  .admin-header-leading {
-    gap: 0.52rem;
-  }
-
-  .header-title-block,
-  .admin-page-container {
-    width: 100%;
-  }
-
-  .header-breadcrumbs {
-    display: none;
-  }
-
-  .header-search-shell,
-  .header-actions {
-    width: 100%;
-  }
-
-  .header-actions {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    justify-content: flex-start;
-    gap: 0.4rem;
-  }
-
-  .header-search-meta {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .header-search-caption,
-  .header-search-shortcut,
-  .header-route-badge {
-    display: none;
-  }
-
-  .header-profile {
-    min-width: 0;
-    flex: 1 1 240px;
-  }
-
-  .header-panel {
-    position: static;
-    width: 100%;
-    margin-top: 0.42rem;
-  }
-
-  .sidebar-menu-heading {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
   .nav-branch-trigger,
   .nav-sublink {
-    min-height: 46px;
+    min-height: 44px;
   }
 
-  .nav-branch-trigger {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    padding: 0.56rem 0.62rem;
-  }
-
-  .nav-sublink {
-    padding: 0.52rem 0.62rem;
-  }
-
-  .brand-summary {
-    font-size: 0.72rem;
-  }
-
-  .nav-submenu {
-    margin-left: 0.85rem;
-    padding-left: 0.75rem;
+  .admin-page-scroll {
+    padding: 1rem 1rem 1.75rem;
   }
 
   .content-grid.two-col,

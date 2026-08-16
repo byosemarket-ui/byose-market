@@ -1,6 +1,14 @@
-import { ADMIN_NAVIGATION, NAVIGATION_CATEGORY_TOTAL, NAVIGATION_DESTINATION_TOTAL, ROUTE_METADATA } from "../core/navigation.js";
+import { ADMIN_NAVIGATION, ROUTE_METADATA } from "../core/navigation.js";
 import { logout } from "../core/auth.js";
-import { collectActiveTrail, getNavigationLocation, persistExpandedBranchIds, readExpandedBranchIds, resolveAdminHref, resolveNavigationContext } from "../core/sidebar-navigation.js";
+import {
+  collectActiveTrail,
+  flattenNavigationDestinations,
+  getNavigationLocation,
+  persistExpandedBranchIds,
+  readExpandedBranchIds,
+  resolveAdminHref,
+  resolveNavigationContext
+} from "../core/sidebar-navigation.js";
 import { modalTemplate } from "./ui.js";
 import { getNotificationCenter, getNotificationSettings, markAllNotificationsRead, markNotificationRead } from "../services/admin-data.service.js";
 import { startRealtimeSync, subscribeToRealtimeEvents } from "../services/realtime-sync.service.js";
@@ -16,6 +24,14 @@ const HEADER_QUICK_ACTIONS = [
   { id: "quick-settings", label: "Admin Settings", href: "#/settings?panel=notifications", detail: "Notification and access controls" }
 ];
 
+const PAGE_SEARCH_SELECTORS = [
+  "#ordersSearch",
+  "#customersSearch",
+  "#enterpriseSearchInput",
+  "[data-hs-search]",
+  "#loginHistorySearch"
+];
+
 let headerNotificationsState = {
   unreadCount: 0,
   items: [],
@@ -24,6 +40,7 @@ let headerNotificationsState = {
 
 let headerNotificationsRealtimeBound = false;
 let headerNotificationsRefreshTimer = null;
+let headerSearchIndex = [];
 
 function scheduleHeaderNotificationsRefresh(delayMs = 180) {
   if (headerNotificationsRefreshTimer) {
@@ -50,7 +67,6 @@ function bindHeaderNotificationsRealtime() {
     const payload = event?.payload || {};
     const notification = payload.notification;
     if (type === "notification:created" && notification && typeof notification === "object") {
-      // Silent/audit-only notifications (in-app channel disabled) stay out of the header feed.
       if (notification?.metadata?.silent || notification?.metadata?.inAppChannelDisabled) {
         scheduleHeaderNotificationsRefresh(1200);
         return;
@@ -74,7 +90,6 @@ function bindHeaderNotificationsRealtime() {
       if (areNotificationPrefsReady()) {
         announceIncomingNotification(notification);
       }
-      // Debounced soft reconcile — avoid immediate full refetch on every event.
       scheduleHeaderNotificationsRefresh(1500);
       return;
     }
@@ -101,40 +116,23 @@ function iconSvg(iconName) {
   return iconMap[iconName] || iconMap.grid;
 }
 
-function countLeafDestinations(entries) {
-  return entries.reduce((count, entry) => {
-    const childEntries = Array.isArray(entry.children) ? entry.children : [];
-    if (!childEntries.length) {
-      return count + 1;
-    }
-
-    return count + countLeafDestinations(childEntries);
-  }, 0);
-}
-
 function navDestination(item, depth) {
   const destinationClass = depth > 1 ? "nav-sublink nav-sublink-nested" : "nav-sublink";
-  const descriptionMarkup = item.description ? `<small>${item.description}</small>` : "";
+  const title = item.description ? `${item.label} — ${item.description}` : item.label;
 
   if (item.action === "logout") {
     return `
-      <button class="${destinationClass} nav-sublink-action" type="button" data-admin-logout data-nav-destination-id="${item.id}" title="${item.label}">
+      <button class="${destinationClass} nav-sublink-action" type="button" data-admin-logout data-nav-destination-id="${item.id}" title="${escapeHeaderText(title)}">
         <span class="nav-sublink-dot" aria-hidden="true"></span>
-        <span class="nav-sublink-copy">
-          <strong>${item.label}</strong>
-          ${descriptionMarkup}
-        </span>
+        <span class="nav-sublink-copy">${escapeHeaderText(item.label)}</span>
       </button>
     `;
   }
 
   return `
-    <a class="${destinationClass}" data-nav-destination-id="${item.id}" href="${resolveAdminHref(item.href)}" title="${item.label}">
+    <a class="${destinationClass}" data-nav-destination-id="${item.id}" href="${resolveAdminHref(item.href)}" title="${escapeHeaderText(title)}">
       <span class="nav-sublink-dot" aria-hidden="true"></span>
-      <span class="nav-sublink-copy">
-        <strong>${item.label}</strong>
-        ${descriptionMarkup}
-      </span>
+      <span class="nav-sublink-copy">${escapeHeaderText(item.label)}</span>
     </a>
   `;
 }
@@ -145,7 +143,7 @@ function navBranch(item, depth = 0) {
     return navDestination(item, depth);
   }
 
-  const descriptionMarkup = item.description ? `<small>${item.description}</small>` : "";
+  const title = item.description ? `${item.label} — ${item.description}` : item.label;
   const iconMarkup = depth === 0
     ? `
       <span class="nav-branch-icon" aria-hidden="true">
@@ -156,16 +154,10 @@ function navBranch(item, depth = 0) {
 
   return `
     <section class="nav-branch nav-depth-${depth}" data-nav-branch data-branch-id="${item.id}">
-      <button class="nav-branch-trigger" type="button" data-nav-branch-trigger aria-expanded="false" aria-controls="nav-panel-${item.id}" title="${item.label}" aria-label="${item.label}">
+      <button class="nav-branch-trigger" type="button" data-nav-branch-trigger aria-expanded="false" aria-controls="nav-panel-${item.id}" title="${escapeHeaderText(title)}" aria-label="${escapeHeaderText(item.label)}">
         ${iconMarkup}
-        <span class="nav-branch-copy">
-          <strong>${item.label}</strong>
-          ${descriptionMarkup}
-        </span>
-        <span class="nav-branch-meta">
-          <span class="nav-branch-summary">${countLeafDestinations(childEntries)} items</span>
-          <span class="nav-branch-chevron" aria-hidden="true"></span>
-        </span>
+        <span class="nav-branch-copy">${escapeHeaderText(item.label)}</span>
+        <span class="nav-branch-chevron" aria-hidden="true"></span>
       </button>
       <div class="nav-branch-panel" id="nav-panel-${item.id}" data-nav-branch-panel aria-hidden="true">
         <div class="nav-branch-panel-inner">
@@ -180,9 +172,9 @@ function navBranch(item, depth = 0) {
 
 function navGroup(group) {
   return `
-    <section class="nav-group" aria-label="${group.label}">
+    <section class="nav-group" aria-label="${escapeHeaderText(group.label)}">
       <div class="nav-group-header">
-        <span class="nav-group-title">${group.label}</span>
+        <span class="nav-group-title">${escapeHeaderText(group.label)}</span>
       </div>
       <div class="nav-group-items">
         ${group.items.map((item) => navBranch(item)).join("")}
@@ -198,10 +190,25 @@ function utilityIconSvg(iconName) {
     spark: "M12 3v5m0 8v5m9-9h-5M8 12H3m15.36-6.36-3.54 3.54M8.18 15.82l-3.54 3.54m0-13.72 3.54 3.54m7.64 7.64 3.54 3.54",
     settings: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm8 4 .94 1.77-1.68 2.9-2.02-.37a7.94 7.94 0 0 1-1.52.88l-.29 2.03H8.57l-.29-2.03a7.94 7.94 0 0 1-1.52-.88l-2.02.37-1.68-2.9L4 12l-.94-1.77 1.68-2.9 2.02.37c.47-.36.98-.65 1.52-.88L8.57 4.8h6.86l.29 2.03c.54.23 1.05.52 1.52.88l2.02-.37 1.68 2.9L20 12Z",
     chevron: "M9 6l6 6-6 6",
-    shield: "M12 3l7 3v5c0 4.4-3 8.2-7 10-4-1.8-7-5.6-7-10V6l7-3Z"
+    shield: "M12 3l7 3v5c0 4.4-3 8.2-7 10-4-1.8-7-5.6-7-10V6l7-3Z",
+    logout: "M15 8l4 4-4 4M19 12H9M11 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5"
   };
 
   return iconMap[iconName] || iconMap.search;
+}
+
+function formatAdminRole(role) {
+  const value = String(role || "admin").trim();
+  if (!value) return "Administrator";
+  const mapped = {
+    admin: "Administrator",
+    super_admin: "Super Administrator",
+    superadmin: "Super Administrator",
+    owner: "Owner"
+  };
+  const key = value.toLowerCase().replace(/\s+/g, "_");
+  if (mapped[key]) return mapped[key];
+  return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function readAdminSessionProfile() {
@@ -210,13 +217,14 @@ function readAdminSessionProfile() {
       ? window.AdminSecurity.getSessionSnapshot()
       : null;
     const profile = snapshot && snapshot.profile && typeof snapshot.profile === "object" ? snapshot.profile : null;
-    const email = String(profile?.email || snapshot?.email || "admin@byosemarket.com").trim() || "admin@byosemarket.com";
+    const email = String(profile?.email || snapshot?.email || "").trim();
     const fullName = String(profile?.name || "").trim();
-    const firstName = String(profile?.firstName || fullName.split(/\s+/)[0] || "Central").trim() || "Central";
+    const emailName = email.includes("@") ? email.split("@")[0] : "";
+    const firstName = String(profile?.firstName || fullName.split(/\s+/)[0] || emailName || "Administrator").trim() || "Administrator";
     const lastName = String(
       profile?.lastName
-      || (fullName.includes(" ") ? fullName.split(/\s+/).slice(1).join(" ") : "Admin")
-    ).trim() || "Admin";
+      || (fullName.includes(" ") ? fullName.split(/\s+/).slice(1).join(" ") : "")
+    ).trim();
     const role = String(profile?.role || "admin").trim() || "admin";
     const avatarUrl = String(profile?.avatarUrl || "").trim();
     const avatar = String(profile?.avatar || "").trim();
@@ -224,23 +232,56 @@ function readAdminSessionProfile() {
       || (avatar
         ? (/^https?:\/\//i.test(avatar) || avatar.startsWith("/") ? avatar : `/uploads/${avatar.replace(/^\/+/, "")}`)
         : "");
+    const resolvedName = fullName || [firstName, lastName].filter(Boolean).join(" ") || email || "Administrator";
+    const initialsSource = `${firstName.charAt(0)}${(lastName || emailName || "A").charAt(0)}`;
 
     return {
-      fullName: fullName || `${firstName} ${lastName}`.trim(),
+      fullName: resolvedName,
       email,
       role,
+      roleLabel: formatAdminRole(role),
       avatarUrl: resolvedAvatar,
-      initials: `${firstName.charAt(0)}${lastName.charAt(0)}`.replace(/[^A-Za-z0-9]/g, "").toUpperCase() || "CA"
+      initials: initialsSource.replace(/[^A-Za-z0-9]/g, "").toUpperCase() || "AD"
     };
   } catch (_error) {
     return {
-      fullName: "Central Admin",
-      email: "admin@byosemarket.com",
+      fullName: "Administrator",
+      email: "",
       role: "admin",
+      roleLabel: "Administrator",
       avatarUrl: "",
-      initials: "CA"
+      initials: "AD"
     };
   }
+}
+
+function readAdminSessionStatus() {
+  const security = window.AdminSecurity;
+  const snapshot = security && typeof security.getSessionSnapshot === "function"
+    ? security.getSessionSnapshot()
+    : null;
+  const authenticated = Boolean(
+    (security && typeof security.isAuthenticated === "function" && security.isAuthenticated())
+    || snapshot?.authenticated
+  );
+  const hasToken = Boolean(String(snapshot?.token || "").trim());
+  const jwtProtected = authenticated && hasToken;
+  const online = typeof navigator === "undefined" ? true : navigator.onLine !== false;
+
+  return {
+    authenticated,
+    jwtProtected,
+    online,
+    label: jwtProtected ? "Secure session" : (authenticated ? "Session active" : "Session unavailable"),
+    detail: jwtProtected ? "JWT validation active" : (authenticated ? "Token not available" : "Sign-in required")
+  };
+}
+
+function avatarMarkup(profile, extraClass = "") {
+  if (profile.avatarUrl) {
+    return `<img src="${escapeHeaderText(profile.avatarUrl)}" alt="" />`;
+  }
+  return `<span class="${extraClass}">${escapeHeaderText(profile.initials)}</span>`;
 }
 
 function escapeHeaderText(value) {
@@ -296,6 +337,31 @@ function syncHeaderNotificationBadge() {
   if (panelBadge) {
     panelBadge.textContent = count ? `${count} unread` : "All caught up";
   }
+}
+
+function syncSessionStatusChrome() {
+  const status = readAdminSessionStatus();
+  const headerStatus = document.getElementById("headerSessionStatus");
+  const headerStatusLabel = document.getElementById("headerSessionLabel");
+  const sidebarStatus = document.getElementById("sidebarSessionStatus");
+  const sidebarDetail = document.getElementById("sidebarSessionDetail");
+  const sidebarLabel = document.getElementById("sidebarSessionLabel");
+  const profileStatus = document.getElementById("sidebarProfileStatus");
+
+  headerStatus?.classList.toggle("is-secure", status.jwtProtected);
+  headerStatus?.classList.toggle("is-offline", !status.online);
+  if (headerStatusLabel) {
+    headerStatusLabel.textContent = status.online ? status.label : "Offline";
+  }
+
+  sidebarStatus?.classList.toggle("is-secure", status.jwtProtected);
+  sidebarStatus?.classList.toggle("is-offline", !status.online);
+  if (sidebarLabel) sidebarLabel.textContent = status.label;
+  if (sidebarDetail) sidebarDetail.textContent = status.detail;
+
+  profileStatus?.classList.toggle("is-online", status.online && status.authenticated);
+  profileStatus?.setAttribute("title", status.online && status.authenticated ? "Online" : "Offline");
+  profileStatus?.setAttribute("aria-label", status.online && status.authenticated ? "Online" : "Offline");
 }
 
 async function refreshHeaderNotifications(options = {}) {
@@ -354,58 +420,176 @@ function quickActionItemsMarkup() {
   `).join("");
 }
 
+function applyProfileToChrome(profile) {
+  const nameNodes = ["headerProfileName", "headerProfilePanelDetail", "sidebarProfileName"];
+  const roleNodes = ["headerProfileRole", "sidebarProfileRole"];
+  const emailNode = document.getElementById("headerProfileEmailDetail");
+  const avatars = ["headerProfileAvatar", "headerProfileAvatarLarge", "sidebarProfileAvatar"];
+
+  nameNodes.forEach((id) => {
+    const node = document.getElementById(id);
+    if (node) node.textContent = profile.fullName;
+  });
+  roleNodes.forEach((id) => {
+    const node = document.getElementById(id);
+    if (node) node.textContent = profile.roleLabel;
+  });
+  if (emailNode) {
+    emailNode.textContent = profile.email;
+    emailNode.hidden = !profile.email;
+  }
+
+  const safeAvatarUrl = String(profile.avatarUrl || "").replace(/"/g, "");
+  const avatarHtml = safeAvatarUrl
+    ? `<img src="${safeAvatarUrl}${safeAvatarUrl.includes("?") ? "&" : "?"}v=${Date.now()}" alt="" />`
+    : escapeHeaderText(profile.initials);
+  avatars.forEach((id) => {
+    const node = document.getElementById(id);
+    if (node) node.innerHTML = avatarHtml;
+  });
+}
+
+function filterSearchDestinations(query) {
+  const needle = String(query || "").trim().toLowerCase();
+  if (!needle) return [];
+  return headerSearchIndex.filter((item) => {
+    const haystack = `${item.label} ${item.parent} ${item.group} ${item.description}`.toLowerCase();
+    return haystack.includes(needle);
+  }).slice(0, 8);
+}
+
+function renderSearchResults(query) {
+  const list = document.getElementById("adminShellSearchResults");
+  if (!list) return [];
+  const matches = filterSearchDestinations(query);
+  if (!String(query || "").trim()) {
+    list.hidden = true;
+    list.innerHTML = "";
+    return [];
+  }
+
+  if (!matches.length) {
+    list.hidden = false;
+    list.innerHTML = `<div class="header-search-empty">No matching admin pages. Press Enter to search records.</div>`;
+    return [];
+  }
+
+  list.hidden = false;
+  list.innerHTML = matches.map((item, index) => `
+    <a class="header-search-result${index === 0 ? " is-active" : ""}" href="${resolveAdminHref(item.href)}" data-search-index="${index}">
+      <strong>${escapeHeaderText(item.label)}</strong>
+      <small>${escapeHeaderText([item.parent, item.group].filter(Boolean).join(" · "))}</small>
+    </a>
+  `).join("");
+  return matches;
+}
+
+function closeSearchResults() {
+  const list = document.getElementById("adminShellSearchResults");
+  if (!list) return;
+  list.hidden = true;
+}
+
+function applyQueryToPageSearch(query) {
+  const field = PAGE_SEARCH_SELECTORS
+    .map((selector) => document.querySelector(selector))
+    .find(Boolean);
+  if (!field) return false;
+  field.value = query;
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  field.focus();
+  return true;
+}
+
+function submitAdminSearch(query, matches = []) {
+  const value = String(query || "").trim();
+  closeSearchResults();
+  if (!value) return;
+
+  const activeResult = document.querySelector(".header-search-result.is-active");
+  if (activeResult) {
+    const href = String(activeResult.getAttribute("href") || "").trim();
+    if (href.startsWith("#")) {
+      window.location.hash = href;
+    } else if (href) {
+      window.location.href = href;
+    }
+    return;
+  }
+
+  if (matches[0]?.href) {
+    const href = resolveAdminHref(matches[0].href);
+    if (href.startsWith("#")) {
+      window.location.hash = href;
+    } else {
+      window.location.href = href;
+    }
+    return;
+  }
+
+  if (applyQueryToPageSearch(value)) {
+    return;
+  }
+
+  window.location.hash = `#/enterprise?q=${encodeURIComponent(value)}`;
+}
+
 export function renderAppShell(rootElement) {
   const adminProfile = readAdminSessionProfile();
+  const sessionStatus = readAdminSessionStatus();
+  headerSearchIndex = flattenNavigationDestinations(ADMIN_NAVIGATION);
 
   rootElement.innerHTML = `
     <a class="skip-link" href="#appPageContent">Skip to dashboard content</a>
-    <div class="admin-app" id="adminAppShell" data-layout="enterprise-admin">
+    <div class="admin-app" id="adminAppShell" data-layout="byose-admin">
       <div class="admin-sidebar-backdrop" id="adminSidebarBackdrop" hidden></div>
       <aside class="admin-sidebar" id="adminSidebar" aria-label="Primary admin sidebar">
         <div class="admin-sidebar-inner">
-          <div class="sidebar-shell">
-            <div class="sidebar-brand-panel">
+          <div class="sidebar-brand">
+            <a class="sidebar-brand-panel" href="#/dashboard" aria-label="BYOSE Market Admin">
               <div class="sidebar-brand-mark" aria-hidden="true"><span>BM</span></div>
-              <div class="sidebar-brand-copy brand-block">
-                <p class="brand-kicker">Centralized Commerce</p>
-                <h1>Byose Admin</h1>
-                <p class="brand-summary">Professional operations workspace for orders, customers, catalog, and platform oversight.</p>
+              <div class="sidebar-brand-copy">
+                <strong class="sidebar-brand-name">BYOSE Market</strong>
+                <span class="sidebar-brand-role">Admin</span>
               </div>
-            </div>
-            <div class="sidebar-shell-actions">
-              <span class="sidebar-shell-tag">Shell Foundation</span>
-              <button class="sidebar-collapse-toggle" type="button" id="sidebarCollapseToggle" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">
-                <span></span>
-                <span></span>
-              </button>
-            </div>
+            </a>
+            <button class="sidebar-collapse-toggle" type="button" id="sidebarCollapseToggle" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">
+              <span></span>
+              <span></span>
+            </button>
           </div>
-          <div class="sidebar-meta" aria-label="Workspace state">
-            <span class="sidebar-meta-pill">JWT secured</span>
-            <span class="sidebar-meta-pill">Central APIs</span>
-            <span class="sidebar-meta-pill">Responsive shell</span>
-          </div>
+
+          <a class="sidebar-profile" href="#/settings?panel=profile" aria-label="Open admin profile">
+            <span class="sidebar-profile-avatar" id="sidebarProfileAvatar">${avatarMarkup(adminProfile)}</span>
+            <span class="sidebar-profile-copy">
+              <strong id="sidebarProfileName">${escapeHeaderText(adminProfile.fullName)}</strong>
+              <span id="sidebarProfileRole">${escapeHeaderText(adminProfile.roleLabel)}</span>
+            </span>
+            <span class="sidebar-profile-status${sessionStatus.online && sessionStatus.authenticated ? " is-online" : ""}" id="sidebarProfileStatus" aria-label="${sessionStatus.online && sessionStatus.authenticated ? "Online" : "Offline"}"></span>
+          </a>
+
           <div class="sidebar-menu-region">
-            <div class="sidebar-menu-heading">
-              <div>
-                <p>Workspace navigation</p>
-                <strong>${NAVIGATION_CATEGORY_TOTAL} categories / ${NAVIGATION_DESTINATION_TOTAL} destinations</strong>
-              </div>
-              <span class="sidebar-menu-status">Live</span>
-            </div>
             <div class="sidebar-nav-scroll">
               <nav class="admin-nav" aria-label="Admin sections">
                 ${ADMIN_NAVIGATION.map(navGroup).join("")}
               </nav>
             </div>
           </div>
+
           <div class="sidebar-admin-region">
             <div class="sidebar-footer">
-              <div class="sidebar-footer-card">
-                <p>Admin session protected</p>
-                <strong>JWT validation active</strong>
+              <div class="sidebar-session${sessionStatus.jwtProtected ? " is-secure" : ""}" id="sidebarSessionStatus">
+                <span class="status-dot" aria-hidden="true"></span>
+                <div>
+                  <p id="sidebarSessionLabel">${escapeHeaderText(sessionStatus.label)}</p>
+                  <strong id="sidebarSessionDetail">${escapeHeaderText(sessionStatus.detail)}</strong>
+                </div>
               </div>
-              <button class="btn btn-secondary" data-admin-logout type="button">Logout</button>
+              <a class="sidebar-store-link" href="../index.html">View storefront</a>
+              <button class="btn btn-secondary sidebar-logout-btn" data-admin-logout type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="${utilityIconSvg("logout")}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                <span>Logout</span>
+              </button>
             </div>
           </div>
         </div>
@@ -420,33 +604,24 @@ export function renderAppShell(rootElement) {
                 <span>Menu</span>
               </button>
               <div class="header-title-block">
-                <nav class="header-breadcrumbs" aria-label="Current page path">
-                  <span class="header-breadcrumb-chip">Admin Console</span>
-                  <span class="header-breadcrumb-divider" aria-hidden="true">/</span>
-                  <span class="header-breadcrumb-node" id="routeGroup">Core Operations</span>
-                  <span class="header-breadcrumb-divider" aria-hidden="true">/</span>
-                  <span class="header-breadcrumb-current" id="routeSection">Dashboard</span>
-                </nav>
-                <p class="header-kicker" id="routeKicker">Overview</p>
-                <div class="header-title-row">
-                  <h2 id="routeTitle">Dashboard</h2>
-                  <span class="header-route-badge" id="routeBadge">Live workspace</span>
-                </div>
-                <p class="header-route-summary" id="routeDescription">Central snapshot and storefront health</p>
+                <p class="header-kicker" id="headerSectionLabel">Core Operations</p>
+                <h2 id="headerPageTitle">Dashboard</h2>
               </div>
             </div>
-            <div class="header-search-shell" aria-label="Admin search foundation">
-              <label class="header-search-field" for="adminShellSearch">
-                <span class="header-search-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24"><path d="${utilityIconSvg("search")}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
-                </span>
-                <input id="adminShellSearch" type="search" placeholder="Search orders, customers, products" autocomplete="off" disabled aria-disabled="true">
-              </label>
-              <div class="header-search-meta">
-                <p class="header-search-caption">Search foundation prepared for enterprise command and discovery workflows.</p>
-                <span class="header-search-shortcut">Press / for search</span>
-              </div>
+
+            <div class="header-search-shell">
+              <form class="header-search-form" id="adminShellSearchForm" role="search" action="#/enterprise" method="get">
+                <label class="header-search-field" for="adminShellSearch">
+                  <span class="header-search-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path d="${utilityIconSvg("search")}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                  </span>
+                  <input id="adminShellSearch" name="q" type="search" placeholder="Search orders, customers, products..." autocomplete="off" aria-autocomplete="list" aria-controls="adminShellSearchResults" aria-expanded="false">
+                  <kbd class="header-search-shortcut" aria-hidden="true">/</kbd>
+                </label>
+                <div class="header-search-results" id="adminShellSearchResults" role="listbox" hidden></div>
+              </form>
             </div>
+
             <div class="header-actions">
               <div class="header-action-cluster">
                 <div class="header-panel-anchor">
@@ -468,7 +643,7 @@ export function renderAppShell(rootElement) {
                   </section>
                 </div>
                 <div class="header-panel-anchor">
-                  <button class="header-utility-btn" type="button" aria-label="Quick actions foundation" data-header-panel-toggle="actions" aria-expanded="false" aria-controls="headerQuickActionsPanel">
+                  <button class="header-utility-btn" type="button" aria-label="Quick actions" data-header-panel-toggle="actions" aria-expanded="false" aria-controls="headerQuickActionsPanel">
                     <svg viewBox="0 0 24 24"><path d="${utilityIconSvg("spark")}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
                   </button>
                   <section class="header-panel" id="headerQuickActionsPanel" data-header-panel="actions" hidden>
@@ -483,44 +658,36 @@ export function renderAppShell(rootElement) {
                     </div>
                   </section>
                 </div>
-                <button class="header-utility-btn header-settings-btn" type="button" aria-label="Quick settings placeholder">
+                <a class="header-utility-btn header-settings-btn" href="#/settings" aria-label="Admin settings">
                   <svg viewBox="0 0 24 24"><path d="${utilityIconSvg("settings")}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
-                </button>
+                </a>
               </div>
-              <div class="header-status">
-                <span class="status-dot"></span>
-                <span>Secure session live</span>
+              <div class="header-status${sessionStatus.jwtProtected ? " is-secure" : ""}" id="headerSessionStatus">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span id="headerSessionLabel">${escapeHeaderText(sessionStatus.label)}</span>
               </div>
               <div class="header-panel-anchor header-profile-anchor">
-                <button class="header-profile" type="button" aria-label="Admin profile area" data-header-panel-toggle="profile" aria-expanded="false" aria-controls="headerProfilePanel">
-                  <span class="header-profile-avatar" id="headerProfileAvatar">
-                    ${adminProfile.avatarUrl
-                      ? `<img src="${adminProfile.avatarUrl}" alt="" />`
-                      : adminProfile.initials}
-                  </span>
+                <button class="header-profile" type="button" aria-label="Admin profile menu" data-header-panel-toggle="profile" aria-expanded="false" aria-controls="headerProfilePanel">
+                  <span class="header-profile-avatar" id="headerProfileAvatar">${avatarMarkup(adminProfile)}</span>
                   <span class="header-profile-copy">
-                    <strong id="headerProfileName">${adminProfile.fullName}</strong>
-                    <span id="headerProfileRole">${adminProfile.role}</span>
+                    <strong id="headerProfileName">${escapeHeaderText(adminProfile.fullName)}</strong>
+                    <span id="headerProfileRole">${escapeHeaderText(adminProfile.roleLabel)}</span>
                   </span>
                 </button>
                 <section class="header-panel header-profile-panel" id="headerProfilePanel" data-header-panel="profile" hidden>
                   <div class="header-panel-header header-profile-panel-header">
-                    <span class="header-profile-avatar header-profile-avatar-large" id="headerProfileAvatarLarge">
-                      ${adminProfile.avatarUrl
-                        ? `<img src="${adminProfile.avatarUrl}" alt="" />`
-                        : adminProfile.initials}
-                    </span>
+                    <span class="header-profile-avatar header-profile-avatar-large" id="headerProfileAvatarLarge">${avatarMarkup(adminProfile)}</span>
                     <div>
                       <p>Signed in as</p>
-                      <strong id="headerProfilePanelDetail">${adminProfile.fullName}</strong>
-                      <small id="headerProfileEmailDetail">${adminProfile.email}</small>
+                      <strong id="headerProfilePanelDetail">${escapeHeaderText(adminProfile.fullName)}</strong>
+                      <small id="headerProfileEmailDetail"${adminProfile.email ? "" : " hidden"}>${escapeHeaderText(adminProfile.email)}</small>
                     </div>
                   </div>
                   <div class="header-panel-body header-panel-links">
                     <a class="header-panel-link" href="#/settings?panel=profile">
                       <span class="header-panel-link-copy">
                         <strong>Account access</strong>
-                        <small>Profile, role, and admin identity foundation</small>
+                        <small>Profile, role, and admin identity</small>
                       </span>
                       <span class="header-panel-link-icon" aria-hidden="true">
                         <svg viewBox="0 0 24 24"><path d="${utilityIconSvg("chevron")}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
@@ -551,6 +718,18 @@ export function renderAppShell(rootElement) {
             <section class="admin-content-shell" aria-label="Dashboard content viewport">
               <div class="admin-page-scroll">
                 <div class="admin-page-container">
+                  <header class="admin-page-heading" id="adminPageHeading">
+                    <p class="admin-page-kicker" id="routeGroup">Core Operations</p>
+                    <div class="admin-page-heading-row">
+                      <div>
+                        <p class="admin-page-section" id="routeSection">Dashboard</p>
+                        <h1 id="routeTitle">Overview</h1>
+                        <p class="admin-page-description" id="routeDescription">Central snapshot and storefront health</p>
+                      </div>
+                      <span class="admin-page-badge" id="routeBadge">Overview</span>
+                    </div>
+                    <p class="visually-hidden" id="routeKicker">Core Operations</p>
+                  </header>
                   <section class="admin-page-surface" id="appPageSurface">
                     <div class="admin-page-content" id="appPageContent"></div>
                   </section>
@@ -576,6 +755,9 @@ export function bindLayoutActions() {
   const headerPanelToggles = Array.from(document.querySelectorAll("[data-header-panel-toggle]"));
   const headerPanels = Array.from(document.querySelectorAll("[data-header-panel]"));
   const logoutButtons = Array.from(document.querySelectorAll("[data-admin-logout]"));
+  const searchForm = document.getElementById("adminShellSearchForm");
+  const searchInput = document.getElementById("adminShellSearch");
+  const searchResults = document.getElementById("adminShellSearchResults");
   const drawerMediaQuery = window.matchMedia("(max-width: 1024px)");
   let responsiveSyncFrame = 0;
 
@@ -791,6 +973,7 @@ export function bindLayoutActions() {
       const panelKey = toggleButton.dataset.headerPanelToggle || "";
       const isExpanded = toggleButton.getAttribute("aria-expanded") === "true";
       closeHeaderPanels(isExpanded ? "" : panelKey);
+      closeSearchResults();
     });
   });
 
@@ -837,6 +1020,7 @@ export function bindLayoutActions() {
   navDestinationLinks.forEach((link) => {
     link.addEventListener("click", () => {
       closeHeaderPanels();
+      closeSearchResults();
       if (isDrawerMode()) {
         closeMobileSidebar();
       }
@@ -847,9 +1031,35 @@ export function bindLayoutActions() {
     backdrop.addEventListener("click", closeMobileSidebar);
   }
 
+  searchInput?.addEventListener("input", () => {
+    const matches = renderSearchResults(searchInput.value);
+    searchInput.setAttribute("aria-expanded", matches.length || String(searchInput.value || "").trim() ? "true" : "false");
+  });
+
+  searchInput?.addEventListener("focus", () => {
+    if (String(searchInput.value || "").trim()) {
+      renderSearchResults(searchInput.value);
+    }
+  });
+
+  searchForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitAdminSearch(searchInput?.value || "", filterSearchDestinations(searchInput?.value || ""));
+  });
+
+  searchResults?.addEventListener("mousemove", (event) => {
+    const result = event.target?.closest?.(".header-search-result");
+    if (!result) return;
+    searchResults.querySelectorAll(".header-search-result").forEach((node) => node.classList.toggle("is-active", node === result));
+  });
+
   document.addEventListener("click", (event) => {
     if (!event.target.closest("[data-header-panel-toggle]") && !event.target.closest("[data-header-panel]")) {
       closeHeaderPanels();
+    }
+
+    if (!event.target.closest(".header-search-shell")) {
+      closeSearchResults();
     }
 
     if (!sidebar || !isDrawerMode() || !shell?.classList.contains("sidebar-drawer-open")) {
@@ -864,9 +1074,33 @@ export function bindLayoutActions() {
   });
 
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
+    const key = String(event.key || "");
+    const target = event.target;
+    const typingInField = Boolean(target?.closest?.("input, textarea, select, [contenteditable='true']"));
+
+    if ((key === "/" || (key.toLowerCase() === "k" && (event.ctrlKey || event.metaKey))) && !typingInField) {
+      event.preventDefault();
+      searchInput?.focus();
+      searchInput?.select?.();
+      return;
+    }
+
+    if (key === "Escape") {
       closeHeaderPanels();
+      closeSearchResults();
       closeMobileSidebar();
+      searchInput?.blur();
+      return;
+    }
+
+    if (document.activeElement === searchInput && (key === "ArrowDown" || key === "ArrowUp")) {
+      const results = Array.from(document.querySelectorAll(".header-search-result"));
+      if (!results.length) return;
+      event.preventDefault();
+      const current = results.findIndex((node) => node.classList.contains("is-active"));
+      const delta = key === "ArrowDown" ? 1 : -1;
+      const next = results[(current + delta + results.length) % results.length];
+      results.forEach((node) => node.classList.toggle("is-active", node === next));
     }
   });
 
@@ -875,15 +1109,22 @@ export function bindLayoutActions() {
 
   window.addEventListener("hashchange", () => {
     closeHeaderPanels();
+    closeSearchResults();
     if (isDrawerMode()) {
       closeMobileSidebar();
     }
     syncNavigationState();
+    syncSessionStatusChrome();
   });
+
+  window.addEventListener("online", syncSessionStatusChrome);
+  window.addEventListener("offline", syncSessionStatusChrome);
+  window.addEventListener("focus", syncSessionStatusChrome);
 
   syncResponsiveShellMode();
   syncNavigationState();
   syncCollapsedChrome();
+  syncSessionStatusChrome();
 
   const syncHeaderProfileFromEvent = (event) => {
     const next = readAdminSessionProfile();
@@ -892,24 +1133,15 @@ export function bindLayoutActions() {
     const role = String(detailProfile?.role || next.role || "admin");
     const email = String(detailProfile?.email || next.email || "");
     const avatarUrl = String(detailProfile?.avatarUrl || next.avatarUrl || "").trim();
-    const initials = next.initials;
-
-    const nameNode = document.getElementById("headerProfileName");
-    const roleNode = document.getElementById("headerProfileRole");
-    const detailName = document.getElementById("headerProfilePanelDetail");
-    const detailEmail = document.getElementById("headerProfileEmailDetail");
-    const avatarNode = document.getElementById("headerProfileAvatar");
-    const avatarLarge = document.getElementById("headerProfileAvatarLarge");
-
-    if (nameNode) nameNode.textContent = fullName;
-    if (roleNode) roleNode.textContent = role;
-    if (detailName) detailName.textContent = fullName;
-    if (detailEmail) detailEmail.textContent = email;
-
-    const safeAvatarUrl = avatarUrl.replace(/"/g, "");
-    const avatarHtml = safeAvatarUrl ? `<img src="${safeAvatarUrl}?v=${Date.now()}" alt="" />` : initials;
-    if (avatarNode) avatarNode.innerHTML = avatarHtml;
-    if (avatarLarge) avatarLarge.innerHTML = avatarHtml;
+    applyProfileToChrome({
+      fullName,
+      email,
+      role,
+      roleLabel: formatAdminRole(role),
+      avatarUrl,
+      initials: next.initials
+    });
+    syncSessionStatusChrome();
   };
 
   window.addEventListener("byose:admin-profile-updated", syncHeaderProfileFromEvent);
@@ -960,8 +1192,12 @@ export function bindLayoutActions() {
 
 export function setRouteTitle(title) {
   const node = document.getElementById("routeTitle");
+  const headerTitle = document.getElementById("headerPageTitle");
   if (node) {
     node.textContent = title || "Dashboard";
+  }
+  if (headerTitle && !document.getElementById("routeTitle")) {
+    headerTitle.textContent = title || "Dashboard";
   }
 }
 
@@ -974,30 +1210,23 @@ export function setActiveNav(routeKey) {
   const titleNode = document.getElementById("routeTitle");
   const badgeNode = document.getElementById("routeBadge");
   const descriptionNode = document.getElementById("routeDescription");
+  const headerSection = document.getElementById("headerSectionLabel");
+  const headerTitle = document.getElementById("headerPageTitle");
 
-  if (groupNode) {
-    groupNode.textContent = navigationContext.group || metadata.group || "Operations";
-  }
+  const groupLabel = navigationContext.group || metadata.group || "Operations";
+  const sectionLabel = navigationContext.section || metadata.section || metadata.title || "Dashboard";
+  const pageTitle = navigationContext.title || metadata.title || "Dashboard";
+  const pageDescription = navigationContext.description || metadata.description || "Central snapshot and storefront health";
+  const pageBadge = navigationContext.badge || metadata.section || "Live workspace";
 
-  if (sectionNode) {
-    sectionNode.textContent = navigationContext.section || metadata.section || metadata.title || "Dashboard";
-  }
-
-  if (kickerNode) {
-    kickerNode.textContent = navigationContext.group || metadata.group || "Overview";
-  }
-
-  if (titleNode) {
-    titleNode.textContent = navigationContext.title || metadata.title || "Dashboard";
-  }
-
-  if (badgeNode) {
-    badgeNode.textContent = navigationContext.badge || metadata.section || "Live workspace";
-  }
-
-  if (descriptionNode) {
-    descriptionNode.textContent = navigationContext.description || metadata.description || "Central snapshot and storefront health";
-  }
+  if (groupNode) groupNode.textContent = groupLabel;
+  if (sectionNode) sectionNode.textContent = sectionLabel;
+  if (kickerNode) kickerNode.textContent = groupLabel;
+  if (titleNode) titleNode.textContent = pageTitle;
+  if (badgeNode) badgeNode.textContent = pageBadge;
+  if (descriptionNode) descriptionNode.textContent = pageDescription;
+  if (headerSection) headerSection.textContent = groupLabel;
+  if (headerTitle) headerTitle.textContent = pageTitle;
 
   const { activeBranchIds, activeItemIds } = collectActiveTrail(ADMIN_NAVIGATION, getNavigationLocation(routeKey));
   const expandedBranchIds = new Set([...readExpandedBranchIds(), ...activeBranchIds]);

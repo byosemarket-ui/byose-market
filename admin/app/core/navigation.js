@@ -55,10 +55,10 @@ export const ADMIN_NAVIGATION = [
         routeKey: ROUTES.dashboard.key,
         description: "Overview, statistics, and quick executive analytics.",
         children: [
-          routeLink("dashboard-overview", "Overview", "dashboard", { description: "Primary admin overview and health snapshot." }),
-          routeLink("dashboard-statistics", "Statistics", "dashboard", { query: "?panel=statistics", description: "Revenue, customer, and order signals." }),
-          routeLink("dashboard-quick-analytics", "Quick Analytics", "dashboard", { query: "?panel=quick-analytics", description: "Fast KPI and trend review." }),
-          routeLink("dashboard-enterprise", "Enterprise Console", "enterprise", { description: "Executive operations and command workflows." })
+          routeLink("dashboard-overview", "Overview", "dashboard", { description: "Your business performance and operational overview." }),
+          routeLink("dashboard-statistics", "Statistics", "dashboard", { query: "?panel=statistics", description: "Detailed revenue, order, customer and product performance." }),
+          routeLink("dashboard-quick-analytics", "Quick Analytics", "dashboard", { query: "?panel=quick-analytics", description: "Fast business insights and actions." }),
+          routeLink("dashboard-enterprise", "Enterprise Console", "enterprise", { description: "Operational and system control center." })
         ]
       },
       {

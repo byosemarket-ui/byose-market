@@ -38,13 +38,13 @@ export function applyAdminBranding(branding) {
     }
   });
 
-  const adminLogo = assetUrl(logos.adminLogo) || assetUrl(logos.mainLogo) || assetUrl(logos.darkLogo);
+  const adminLogo = assetUrl(logos.adminLogo) || assetUrl(logos.whiteLogo) || assetUrl(logos.mainLogo) || assetUrl(logos.darkLogo);
   const mark = document.querySelector(".sidebar-brand-mark");
   if (mark && adminLogo) {
-    mark.innerHTML = `<img src="${adminLogo.replace(/"/g, "&quot;")}" alt="Admin logo" />`;
+    mark.innerHTML = `<img src="${adminLogo.replace(/"/g, "&quot;")}" alt="" />`;
   }
 
-  const brandTitle = document.querySelector(".sidebar-brand-copy h1");
+  const brandTitle = document.querySelector(".sidebar-brand-copy .sidebar-brand-name");
   if (brandTitle && identity.slogan) {
     brandTitle.setAttribute("title", identity.slogan);
   }
