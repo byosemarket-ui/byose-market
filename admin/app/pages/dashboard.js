@@ -109,21 +109,29 @@ export async function renderDashboard(container) {
   };
 }
 
+const DASHBOARD_MIN_REFRESH_MS = 15000;
+
 async function refreshDashboard(container, unsubscribers) {
   if (container._dashboardRefreshInFlight) {
+    return;
+  }
+
+  const now = Date.now();
+  if (container._dashboardHasRendered && container._dashboardLastRefreshAt
+    && (now - container._dashboardLastRefreshAt) < DASHBOARD_MIN_REFRESH_MS) {
     return;
   }
 
   container._dashboardRefreshInFlight = true;
   try {
     const [snapshotResult, analyticsResult, ordersResult, customersResult, productsResult, logsResult, cartsResult] = await Promise.allSettled([
-      getDashboard(),
-      getAnalytics(),
-      getOrders(),
-      getCustomers(),
-      getProducts(),
-      getActivityLogs(),
-      getCarts()
+      getDashboard({ emit: false, silent: true }),
+      getAnalytics({ emit: false, silent: true }),
+      getOrders({ emit: false }),
+      getCustomers({ emit: false }),
+      getProducts({ emit: false }),
+      getActivityLogs({ emit: false }),
+      getCarts({ emit: false })
     ]);
 
     const failedSources = [
@@ -168,6 +176,9 @@ async function refreshDashboard(container, unsubscribers) {
       errorBanner.innerHTML = errorState("Dashboard snapshot API is currently unavailable. Showing best available centralized data feeds.");
       container.prepend(errorBanner.firstElementChild);
     }
+
+    container._dashboardHasRendered = true;
+    container._dashboardLastRefreshAt = Date.now();
   } catch (error) {
     console.error("[Dashboard] Refresh error:", error);
   } finally {

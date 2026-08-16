@@ -69,6 +69,27 @@
 
   migrateStoredApiBase(normalizeApiBase(global.BYOSE_API_BASE_URL || resolvedApiBase));
 
+  // Start the public catalog request in <head> so Home/Shop do not wait for
+  // the ES-module waterfall before products can render.
+  if (!global.__BYOSE_CATALOG_PREFETCH__ && typeof global.fetch === "function") {
+    try {
+      var catalogUrl = normalizeApiBase(global.BYOSE_API_BASE_URL || resolvedApiBase) + "/products?limit=120&fields=card";
+      global.__BYOSE_CATALOG_PREFETCH__ = global.fetch(catalogUrl, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+        cache: "default"
+      }).then(function parseCatalogPrefetch(response) {
+        if (!response || !response.ok) {
+          throw new Error("catalog_prefetch_http_" + (response && response.status ? response.status : "0"));
+        }
+        return response.json();
+      });
+    } catch (_error) {
+      global.__BYOSE_CATALOG_PREFETCH__ = null;
+    }
+  }
+
   if (typeof global.localStorage !== "undefined") {
     LEGACY_CATALOG_KEYS.forEach(function purgeCatalogKey(key) {
       try {

@@ -19,7 +19,7 @@ const STOREFRONT_CATALOG_STORAGE_KEY = "byose_market_products_catalog_v4";
 purgeLegacyStorefrontCatalogCache(STOREFRONT_CATALOG_STORAGE_KEY);
 const STALE_THRESHOLD_MS = 120000;
 const DEFAULT_RETRY_COUNT = 1;
-const DEFAULT_TIMEOUT_MS = 15000;
+const DEFAULT_TIMEOUT_MS = 8000;
 const LIVE_SYNC_INTERVAL_MS = 90000;
 const STOREFRONT_CATALOG_QUERY = "products?limit=120&fields=card";
 
@@ -222,14 +222,19 @@ function createTimeoutError(label, timeoutMs) {
   return error;
 }
 
-async function withTimeout(label, promise, timeoutMs = DEFAULT_TIMEOUT_MS) {
+async function withTimeout(label, promise, timeoutMs = DEFAULT_TIMEOUT_MS, onTimeout) {
   let timerId = null;
 
   try {
     return await Promise.race([
       promise,
       new Promise((_, reject) => {
-        timerId = window.setTimeout(() => reject(createTimeoutError(label, timeoutMs)), timeoutMs);
+        timerId = window.setTimeout(() => {
+          if (typeof onTimeout === "function") {
+            onTimeout();
+          }
+          reject(createTimeoutError(label, timeoutMs));
+        }, timeoutMs);
       })
     ]);
   } finally {
@@ -298,12 +303,20 @@ async function apiRequest(path, options = {}) {
   };
 
   const method = options.method || "GET";
+  if (options.signal && controller) {
+    if (options.signal.aborted) {
+      controller.abort();
+    } else if (typeof options.signal.addEventListener === "function") {
+      options.signal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+  }
+
   const requestPromise = fetch(url, {
     method,
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
     signal: controller?.signal,
-    cache: options.cache || (method === "GET" ? "no-store" : "default")
+    cache: options.cache || "default"
   }).then(async (response) => {
     const contentType = String(response.headers.get("content-type") || "").toLowerCase();
     const payload = contentType.includes("application/json")
@@ -329,8 +342,9 @@ async function apiRequest(path, options = {}) {
 
   return withTimeout(
     `API request ${options.method || "GET"} ${path}`,
-    requestPromise.finally(() => controller?.abort()),
-    timeoutMs
+    requestPromise,
+    timeoutMs,
+    () => controller?.abort()
   );
 }
 
@@ -600,6 +614,10 @@ async function withRetry(label, action, retryCount = DEFAULT_RETRY_COUNT) {
       return await action(attempt);
     } catch (error) {
       lastError = error;
+      const status = Number(error?.status || 0);
+      if (status === 429 || status === 401 || status === 403 || status === 404) {
+        break;
+      }
     }
   }
 
@@ -859,9 +877,33 @@ function buildApiPayload(productData, previousProduct = {}) {
   };
 }
 
+async function consumeCatalogPrefetch() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const pending = window.__BYOSE_CATALOG_PREFETCH__;
+  if (!pending || typeof pending.then !== "function") {
+    return null;
+  }
+
+  window.__BYOSE_CATALOG_PREFETCH__ = null;
+  try {
+    const payload = await pending;
+    if (payload && payload.success !== false && Array.isArray(payload.products)) {
+      return payload;
+    }
+  } catch (_error) {
+    // Fall through to a normal catalog request.
+  }
+
+  return null;
+}
+
 async function fetchCatalogSnapshot(signal) {
   traceStorefrontStage("api-request", { path: STOREFRONT_CATALOG_QUERY });
-  const response = await apiRequest(STOREFRONT_CATALOG_QUERY, {
+  const prefetched = await consumeCatalogPrefetch();
+  const response = prefetched || await apiRequest(STOREFRONT_CATALOG_QUERY, {
     method: "GET",
     timeoutMs: DEFAULT_TIMEOUT_MS,
     signal
@@ -870,7 +912,8 @@ async function fetchCatalogSnapshot(signal) {
   traceStorefrontStage("api-response", {
     path: STOREFRONT_CATALOG_QUERY,
     success: Boolean(response?.success),
-    count: products.length
+    count: products.length,
+    prefetched: Boolean(prefetched)
   });
 
   return publishProducts(products, "api-refresh");

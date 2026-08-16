@@ -1123,10 +1123,10 @@ export async function getAnalytics(options = {}) {
 
   try {
     const [snapshot, orders, customers, activity] = await Promise.all([
-      getDashboard({ silent: true }),
-      getOrders(),
-      getCustomers(),
-      getActivityLogs()
+      getDashboard({ silent: true, emit: false }),
+      getOrders({ emit: false }),
+      getCustomers({ emit: false }),
+      getActivityLogs({ emit: false })
     ]);
 
     const analytics = asObject(snapshot?.analytics);
@@ -1166,7 +1166,9 @@ export async function getAnalytics(options = {}) {
     };
 
     writeCache(scope, normalized);
-    emitSync(scope, normalized);
+    if (options?.emit !== false) {
+      emitSync(scope, normalized);
+    }
     return normalized;
   } catch (error) {
     const cached = readCache(scope);

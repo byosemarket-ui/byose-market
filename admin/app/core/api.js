@@ -76,7 +76,7 @@ function shouldRetry(error) {
     return true;
   }
 
-  return status === 408 || status === 429 || status >= 500;
+  return status === 408 || status >= 500;
 }
 
 function buildUrl(path) {

@@ -297,7 +297,7 @@
     }
 
     const cardSystem = await loadProductCardSystem();
-    return cardSystem.renderCards(items, { eagerCount: 8 });
+    return cardSystem.renderCards(items, { eagerCount: 2 });
   }
 
   function applyStorefrontGridClasses(targetGrid) {

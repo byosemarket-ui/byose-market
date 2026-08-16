@@ -18,8 +18,8 @@ import {
   ADMIN_SYNC_EVENT
 } from "./admin-data.service.js";
 
-const DEBOUNCE_TIME_MS = 500;
-const MIN_SCOPE_REFRESH_INTERVAL_MS = 900;
+const DEBOUNCE_TIME_MS = 1500;
+const MIN_SCOPE_REFRESH_INTERVAL_MS = 15000;
 
 class LiveFeedsHandler {
   constructor() {
