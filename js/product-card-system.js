@@ -198,6 +198,8 @@ export const ProductCardSystem = (() => {
                  data-product-image-src="${escapeHtml(productImage || '')}"
                  data-has-product-image="${productImage ? 'true' : 'false'}"
                  alt="${productName}"
+                 width="640"
+                 height="640"
                  loading="${loadingAttr}"
                  decoding="async"${fetchPriorityAttr}>
           </a>

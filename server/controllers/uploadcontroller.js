@@ -1,9 +1,15 @@
 const { getUploadFoundationSnapshot, resolveUploadBucket } = require('../services/storage-foundation.service');
 const { buildPublicUploadUrl, buildRelativeUploadPath, deleteManagedFiles, parsePathCollection } = require('../services/uploadstorage.service');
+const productCardImage = require('../services/product-card-image.service');
 
 function serializeUploadedFile(file, bucket) {
     const relativePath = buildRelativeUploadPath(bucket.key, file.filename);
     const publicUrl = buildPublicUploadUrl(bucket.key, file.filename);
+    let thumbnailUrl = publicUrl;
+    if (String(bucket.key || '').toLowerCase() === 'products') {
+        productCardImage.ensureCardImage(relativePath);
+        thumbnailUrl = productCardImage.resolveCardPublicUrl(relativePath) || publicUrl;
+    }
 
     return {
         fieldName: String(file.fieldname || '').trim(),
@@ -16,7 +22,7 @@ function serializeUploadedFile(file, bucket) {
         storagePath: relativePath,
         url: publicUrl,
         publicUrl,
-        thumbnailUrl: publicUrl
+        thumbnailUrl
     };
 }
 

@@ -12,6 +12,7 @@ const {
 } = require('../utils/product-visibility');
 const { enrichSerializedProductColorVariants } = require('../utils/colorVariantSerialization');
 const { hasUsableProductImageValue } = require('../services/uploadstorage.service');
+const productCardImage = require('../services/product-card-image.service');
 
 const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
 const DEFAULT_SITE_ORIGIN = 'https://byosemarket.com';
@@ -651,10 +652,15 @@ function serializeProductCard(product, options = {}) {
     const rawMainImage = hasUsableProductImageValue(source.mainImage)
         ? source.mainImage
         : (hasUsableProductImageValue(source.image) ? source.image : (rawGallery[0] || ''));
-    const mainImage = absolutizePublicAssetUrl(rawMainImage);
-    const gallery = absolutizePublicAssetList(
+    const originalMainImage = absolutizePublicAssetUrl(rawMainImage);
+    const cardImage = absolutizePublicAssetUrl(productCardImage.resolveCardPublicUrl(rawMainImage || originalMainImage))
+        || originalMainImage;
+    const originalGallery = absolutizePublicAssetList(
         (rawGallery.slice(0, 1).concat(rawMainImage ? [rawMainImage] : []))
     ).slice(0, 1);
+    const gallery = originalGallery.map((entry) => (
+        absolutizePublicAssetUrl(productCardImage.resolveCardPublicUrl(entry)) || entry
+    ));
     const placements = Array.isArray(metadataObject.placements) && metadataObject.placements.length
         ? metadataObject.placements
         : (Array.isArray(metadataObject.placement) ? metadataObject.placement : []);
@@ -673,9 +679,11 @@ function serializeProductCard(product, options = {}) {
         compareAtPrice: resolvedOldPrice,
         discountPercent,
         stock: toNonNegativeNumber(source.stock, 0),
-        mainImage,
-        image: mainImage,
-        thumbnail: mainImage,
+        mainImage: cardImage,
+        image: cardImage,
+        thumbnail: cardImage,
+        cardImage,
+        originalImage: originalMainImage,
         gallery,
         visibility: normalizeVisibility(source.visibility),
         priority: normalizePriority(source.priority),

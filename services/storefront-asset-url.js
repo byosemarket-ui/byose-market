@@ -83,6 +83,7 @@ export function collectProductImageCandidates(product) {
   const galleryStoragePaths = Array.isArray(product.galleryStoragePaths) ? product.galleryStoragePaths : [];
 
   return [
+    product.cardImage,
     product.mainImage,
     product.image,
     product.thumbnail,

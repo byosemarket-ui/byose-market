@@ -377,6 +377,8 @@ function resolveProductImages(source) {
     .filter((entry) => entry && !isCompanyLogoUrl(entry));
 
   const resolvedMainImage = firstNonEmpty(
+    source.cardImage,
+    source.card_image,
     source.main_image,
     source.mainImage,
     source.image,

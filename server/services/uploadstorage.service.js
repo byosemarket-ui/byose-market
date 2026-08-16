@@ -148,8 +148,14 @@ function deleteManagedFiles(values = []) {
     const candidates = Array.isArray(values) ? values : [values];
     const deleted = [];
     const seen = new Set();
+    let cardDerivatives = [];
+    try {
+        cardDerivatives = require('./product-card-image.service').collectCardDerivativePaths(candidates);
+    } catch (_error) {
+        cardDerivatives = [];
+    }
 
-    candidates.forEach((value) => {
+    [...candidates, ...cardDerivatives].forEach((value) => {
         const normalized = normalizeManagedPath(value);
         if (!normalized || seen.has(normalized)) {
             return;
