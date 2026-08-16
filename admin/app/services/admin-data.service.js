@@ -41,7 +41,9 @@ function ensureProductCatalogSync() {
   removeProductCatalogSync = productCatalogService.subscribeToProducts((products) => {
     const normalized = syncLocalProductCaches(products, { emit: false });
     emitSync("products", normalized);
-    publishGlobalProductSync(normalized);
+    // Do not re-dispatch byose:products-synchronized here. This callback is
+    // itself triggered by that event, and republishing it recurses until
+    // "Maximum call stack size exceeded".
   }, (error) => {
     console.error("[Admin Data] Product catalog sync failed:", error);
   });
@@ -2536,21 +2538,28 @@ export function stopRealtimeAnalyticsSync() {
  * storefront receives global synchronization events.
  */
 
+let publishingGlobalProductSync = false;
+
 function publishGlobalProductSync(products) {
-  if (typeof window !== 'undefined' && window.dispatchEvent) {
-    // Publish to storefront rendering layer
-    window.dispatchEvent(new CustomEvent('byose:products-synchronized', {
+  if (publishingGlobalProductSync || typeof window === "undefined" || !window.dispatchEvent) {
+    return;
+  }
+
+  publishingGlobalProductSync = true;
+  try {
+    window.dispatchEvent(new CustomEvent("byose:products-synchronized", {
       detail: {
         products: Array.isArray(products) ? products : [],
         syncedAt: new Date().toISOString(),
-        source: 'admin'
+        source: "admin"
       }
     }));
 
-    // Also publish the legacy event for backwards compatibility
-    window.dispatchEvent(new CustomEvent('byose:products-changed', {
+    window.dispatchEvent(new CustomEvent("byose:products-changed", {
       detail: { products: Array.isArray(products) ? products : [] }
     }));
+  } finally {
+    publishingGlobalProductSync = false;
   }
 }
 

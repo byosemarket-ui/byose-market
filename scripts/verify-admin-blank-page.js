@@ -90,6 +90,12 @@ async function main() {
 
   assert(layoutCss.includes("minmax(min-content, 1fr)"), "admin main shell must not collapse the content row to zero height");
   assert(dataJs.includes("refreshRealtimeIntelligence().catch"), "startup intelligence refresh must not become an unhandled rejection");
+  const catalogSyncFn = sliceBetween(dataJs, "function ensureProductCatalogSync", "function asArray");
+  assert(catalogSyncFn.includes("subscribeToProducts"), "admin data service must subscribe to the product catalog");
+  assert(
+    !catalogSyncFn.includes("publishGlobalProductSync("),
+    "product catalog subscriber must not re-dispatch byose:products-synchronized (that recursion blanks or crashes Admin)"
+  );
   assert(
     nginxStatic.includes("^/(?:admin\\.js$|admin/.*\\.(?:js|mjs|css)$)")
       || nginxStatic.includes("admin.js$|admin/"),
