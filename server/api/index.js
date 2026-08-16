@@ -37,6 +37,7 @@ const storesRoutes = require('../routes/stores');
 const customerNotificationRoutes = require('../routes/customernotifications');
 const uploadRoutes = require('./routes/uploads');
 const publicSettingsRoutes = require('../routes/publicsettings');
+const invoiceRoutes = require('../routes/invoices');
 const publicShippingRoutes = require('../routes/publicshipping');
 const dpoPaymentRoutes = require('../routes/dpopayments');
 
@@ -99,6 +100,7 @@ function createApiRouter() {
     router.use('/customer-notifications', requireDatabase, customerNotificationRoutes);
     router.use('/realtime', realtimeRateLimiter, realtimeRoutes);
     router.use('/settings', publicSettingsRoutes);
+    router.use('/invoices', invoiceRoutes);
     router.use('/shipping', publicShippingRoutes);
     router.use('/payments/dpo', dpoPaymentRoutes);
     router.use('/uploads', uploadRoutes);

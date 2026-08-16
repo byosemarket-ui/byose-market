@@ -222,6 +222,7 @@ function main() {
   assert(ordersJs.includes('Order status updated successfully.'), 'status success copy must exist');
   assert(ordersJs.includes('Unable to update order status. Please try again.'), 'status error copy must exist');
   assert(ordersJs.includes('autoPrint'), 'invoice view/print must use printable invoice autoPrint option');
+  assert(ordersJs.includes('invoice-document.service'), 'View Invoice must use the professional invoice document');
   assert(!/data-order-action="add-note"/.test(ordersJs), 'Add Note must not be a fake permanent action');
   assert(!/Track Delivery/.test(ordersJs), 'Track Delivery must not be a fake action');
   assert(ordersJs.includes('getValidStatusTransitions'), 'status transitions must be constrained');

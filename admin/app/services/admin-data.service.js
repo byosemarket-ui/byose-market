@@ -2137,6 +2137,33 @@ export async function updateOrderStatus(orderId, status, options = {}) {
   return payload?.order || payload || null;
 }
 
+export async function getOrderById(orderId) {
+  const id = normalizeText(orderId);
+  if (!id) {
+    throw new Error("Order id is required.");
+  }
+  const payload = await api.get(`admin/orders/${encodeURIComponent(id)}`);
+  const normalized = normalizeOrder(payload?.order || payload);
+  const requested = id.toLowerCase();
+  const matches = [normalized.orderId, normalized.id, normalized.recordId]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean)
+    .includes(requested);
+  if (!matches) {
+    throw new Error("Order lookup did not return the requested order.");
+  }
+  return normalized;
+}
+
+export async function getInvoiceVerification(orderId) {
+  const id = normalizeText(orderId);
+  if (!id) {
+    throw new Error("Order id is required.");
+  }
+  const payload = await api.get(`admin/orders/${encodeURIComponent(id)}/verification`);
+  return asObject(payload?.verification || payload);
+}
+
 export async function deleteOrder(orderId) {
   const id = normalizeText(orderId);
   if (!id) {

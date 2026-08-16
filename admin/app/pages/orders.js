@@ -1,6 +1,7 @@
 import { badge, emptyState, formatCurrency, formatDate, panel } from "../components/ui.js";
-import { bulkDeleteOrders, bulkUpdateOrderStatus, deleteOrder, getOrders, updateOrderStatus } from "../services/admin-data.service.js";
+import { bulkDeleteOrders, bulkUpdateOrderStatus, deleteOrder, getAdminBranding, getInvoiceVerification, getOrderById, getOrders, getSettings, updateOrderStatus } from "../services/admin-data.service.js";
 import { downloadCsvFile, openPrintableReport } from "../services/enterprise-intelligence.service.js";
+import { openInvoiceDocument, resolveInvoiceCompany } from "../services/invoice-document.service.js";
 import { subscribeToLiveFeeds } from "../services/live-feeds.service.js";
 
 const STATUS_OPTIONS = [
@@ -3531,28 +3532,83 @@ function buildPrintRows(order) {
   ];
 }
 
+let invoiceCompanyCache = { company: null, at: 0 };
+
+async function loadInvoiceCompany() {
+  if (invoiceCompanyCache.company && (Date.now() - invoiceCompanyCache.at) < 60000) {
+    return invoiceCompanyCache.company;
+  }
+  const [settings, branding] = await Promise.all([
+    getSettings().catch(() => ({})),
+    getAdminBranding().catch(() => ({}))
+  ]);
+  const company = resolveInvoiceCompany(settings, branding);
+  invoiceCompanyCache = { company, at: Date.now() };
+  return company;
+}
+
+function invoiceOrderMatchesRequested(order, requestedId) {
+  const requested = String(requestedId || "").trim().toLowerCase();
+  if (!requested || !order) return false;
+  return [order.orderId, order.id, order.recordId]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean)
+    .includes(requested);
+}
+
+function buildInvoiceVerificationUrl(verification) {
+  const ref = String(verification?.ref || "").trim();
+  const signature = String(verification?.signature || "").trim();
+  const origin = String(window.location?.origin || "").replace(/\/+$/, "");
+  if (ref && signature && /^https?:/i.test(origin)) {
+    return `${origin}/invoice-verify.html?ref=${encodeURIComponent(ref)}&sig=${encodeURIComponent(signature)}`;
+  }
+  return String(verification?.url || "").trim();
+}
+
+async function prepareAndOpenInvoice(order, { autoPrint = true } = {}) {
+  if (!order) return false;
+  const invoiceWindow = window.open("", "_blank", "width=1200,height=900");
+  if (!invoiceWindow) return false;
+  try {
+    invoiceWindow.document.open();
+    invoiceWindow.document.write("<!doctype html><title>Loading invoice</title><p style=\"font-family:Manrope,Segoe UI,sans-serif;padding:24px;color:#10261c\">Loading invoice...</p>");
+    invoiceWindow.document.close();
+  } catch (_error) {
+    // Some browsers restrict writes until the window is ready.
+  }
+
+  const orderId = String(order.orderId || order.id || "").trim();
+  const [freshResult, verificationResult, company] = await Promise.all([
+    orderId ? getOrderById(orderId).then((fresh) => ({ ok: true, fresh })).catch(() => ({ ok: false, fresh: null })) : Promise.resolve({ ok: false, fresh: null }),
+    orderId ? getInvoiceVerification(orderId).catch(() => ({})) : Promise.resolve({}),
+    loadInvoiceCompany()
+  ]);
+
+  let selectedOrder = order;
+  if (freshResult.ok && invoiceOrderMatchesRequested(freshResult.fresh, orderId)) {
+    selectedOrder = freshResult.fresh;
+  }
+
+  const verificationUrl = buildInvoiceVerificationUrl(verificationResult);
+  const serverUrl = String(verificationResult?.url || "").trim();
+  const qrSvg = verificationUrl && serverUrl && verificationUrl === serverUrl
+    ? String(verificationResult?.qrSvg || "")
+    : "";
+  const meta = getOrderMeta(selectedOrder.orderId || selectedOrder.id || orderId);
+  return openInvoiceDocument(selectedOrder, {
+    autoPrint,
+    company,
+    verificationUrl,
+    qrSvg,
+    assignedStaff: meta.assignedStaff,
+    estimatedDelivery: meta.estimatedDelivery,
+    targetWindow: invoiceWindow
+  });
+}
+
 function openOrderInvoice(order, { autoPrint = true } = {}) {
-  const rows = buildPrintRows(order);
-  const items = Array.isArray(order.items) ? order.items : [];
-  return openPrintableReport(`Invoice ${order.orderId || order.id}`, [
-    {
-      title: "Order Summary",
-      content: `<table><tbody>${rows.map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`).join("")}</tbody></table>`
-    },
-    {
-      title: "Products",
-      content: `<table><thead><tr><th>Product</th><th>SKU</th><th>Variant</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead><tbody>${
-        items.map((item) => `<tr>
-          <td>${escapeHtml(item.productName)}</td>
-          <td>${escapeHtml(item.sku || "—")}</td>
-          <td>${escapeHtml(item.attributeSummary || [item.color, item.size].filter(Boolean).join(" · ") || "—")}</td>
-          <td>${escapeHtml(item.quantity || 1)}</td>
-          <td>${formatCurrency(item.price || 0)}</td>
-          <td>${formatCurrency(item.lineTotal || ((Number(item.price) || 0) * (Number(item.quantity) || 1)))}</td>
-        </tr>`).join("")
-      }</tbody></table>`
-    }
-  ], { autoPrint });
+  return prepareAndOpenInvoice(order, { autoPrint });
 }
 
 function printInvoice(order) {
@@ -3842,10 +3898,15 @@ export async function renderOrders(container, options = {}) {
     if (!state.orderIndex) {
       state.orderIndex = new Map();
       state.allOrders.forEach((order) => {
-        state.orderIndex.set(String(order.orderId || order.id), order);
+        [order.orderId, order.id, order.recordId]
+          .map((value) => String(value || "").trim())
+          .filter(Boolean)
+          .forEach((key) => {
+            if (!state.orderIndex.has(key)) state.orderIndex.set(key, order);
+          });
       });
     }
-    return state.orderIndex.get(String(orderId));
+    return state.orderIndex.get(String(orderId || "").trim());
   }
 
   function invalidateOrderIndex() {
@@ -4517,8 +4578,9 @@ export async function renderOrders(container, options = {}) {
     });
   }
 
-  function openOrderInvoiceAction(order, { autoPrint = true } = {}) {
-    const opened = autoPrint ? printInvoice(order) : viewInvoice(order);
+  async function openOrderInvoiceAction(order, { autoPrint = true } = {}) {
+    if (!order) return;
+    const opened = await (autoPrint ? printInvoice(order) : viewInvoice(order));
     if (opened) {
       notifyWithoutRemount(autoPrint ? `Print invoice opened for ${order.orderId || order.id}.` : `Invoice opened for ${order.orderId || order.id}.`, "success");
       return;
@@ -4598,7 +4660,7 @@ export async function renderOrders(container, options = {}) {
     }
 
     if (action === "print-invoices") {
-      selected.forEach((order) => printInvoice(order));
+      await Promise.all(selected.map((order) => printInvoice(order)));
       setNotice(`Opened ${selected.length} invoice${selected.length === 1 ? "" : "s"}.`, "success");
       paintFromState();
       return;

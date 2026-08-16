@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Invoice Verification | BYOSE Market</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="img/logo.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --inv: #00B894; --text: #1f2a37; --muted: #5b6b7c; --line: #e5e7eb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Manrope, "Segoe UI", sans-serif; background: #f4f7f6; color: var(--text); }
+    .iv-wrap { max-width: 560px; margin: 0 auto; padding: 32px 18px 48px; }
+    .iv-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+    .iv-brand img { width: 48px; height: 48px; object-fit: contain; }
+    .iv-brand strong { display: block; font-size: 18px; }
+    .iv-brand span { color: var(--muted); font-size: 13px; }
+    .iv-card { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+    h1 { margin: 0 0 8px; font-size: 22px; color: #0f3d2e; }
+    .iv-kicker { margin: 0 0 18px; color: var(--muted); font-size: 13px; }
+    .iv-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 14px; }
+    .iv-row span { color: var(--muted); }
+    .iv-row strong { text-align: right; overflow-wrap: anywhere; }
+    .iv-status { margin-top: 16px; padding: 12px 14px; border-radius: 10px; font-weight: 700; }
+    .iv-status.is-ok { background: #e7f8ee; color: #0f7a43; }
+    .iv-status.is-bad { background: #fdecec; color: #b42318; }
+    .iv-note { margin: 16px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    a { color: #0f3d2e; }
+  </style>
+</head>
+<body>
+  <main class="iv-wrap">
+    <div class="iv-brand">
+      <img src="img/logo.png" alt="BYOSE Market logo" id="ivLogo">
+      <div>
+        <strong id="ivStore">BYOSE Market</strong>
+        <span>Invoice verification</span>
+      </div>
+    </div>
+    <section class="iv-card" id="ivCard">
+      <h1>Verifying document…</h1>
+      <p class="iv-kicker">Please wait while we confirm this invoice reference.</p>
+    </section>
+  </main>
+  <script src="config/runtime-api-bootstrap.js"></script>
+  <script src="js/storefront-settings.js"></script>
+  <script src="invoice-verify.js"></script>
+</body>
+</html>

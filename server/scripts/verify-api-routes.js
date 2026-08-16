@@ -30,6 +30,7 @@ const ROUTES = [
   { method: "POST", path: "/api/products/search/visual", expect: [400, 503] },
   { method: "GET", path: "/api/admin/dashboard", expect: [401, 403] },
   { method: "GET", path: "/api/admin/orders", expect: [401, 403] },
+  { method: "GET", path: "/api/invoices/verify", expect: [404, 503] },
   { method: "GET", path: "/api/admin/customers", expect: [401, 403] },
   { method: "GET", path: "/api/admin/activity?limit=120", expect: [401, 403] },
   { method: "GET", path: "/api/admin/messages?limit=120", expect: [401, 403] },
