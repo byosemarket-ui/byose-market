@@ -3559,11 +3559,20 @@ function invoiceOrderMatchesRequested(order, requestedId) {
 function buildInvoiceVerificationUrl(verification) {
   const ref = String(verification?.ref || "").trim();
   const signature = String(verification?.signature || "").trim();
-  const origin = String(window.location?.origin || "").replace(/\/+$/, "");
-  if (ref && signature && /^https?:/i.test(origin)) {
-    return `${origin}/invoice-verify.html?ref=${encodeURIComponent(ref)}&sig=${encodeURIComponent(signature)}`;
+  if (ref && signature) {
+    return `https://byosemarket.com/invoice-verify.html?ref=${encodeURIComponent(ref)}&sig=${encodeURIComponent(signature)}`;
   }
-  return String(verification?.url || "").trim();
+  const fallback = String(verification?.url || "").trim();
+  if (!fallback) return "";
+  try {
+    const parsed = new URL(fallback);
+    parsed.protocol = "https:";
+    parsed.host = "byosemarket.com";
+    parsed.pathname = "/invoice-verify.html";
+    return parsed.toString();
+  } catch (_error) {
+    return fallback;
+  }
 }
 
 async function prepareAndOpenInvoice(order, { autoPrint = true } = {}) {

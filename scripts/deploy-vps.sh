@@ -135,6 +135,8 @@ sync_storefront_static() {
     categories.html
     order-success.html
     admin.html
+    invoice-verify.html
+    invoice-verify.js
     shop.css
     mobile-nav.css
     contact.css
@@ -155,6 +157,12 @@ sync_storefront_static() {
   for file in "${files[@]}"; do
     if [[ -f "${DEPLOY_DIR}/${file}" ]]; then
       cp -f "${DEPLOY_DIR}/${file}" "${WEB_ROOT}/${file}"
+    fi
+  done
+
+  for required in invoice-verify.html invoice-verify.js; do
+    if [[ ! -f "${WEB_ROOT}/${required}" ]]; then
+      fail "Required public invoice verification file was not published to ${WEB_ROOT}/${required}"
     fi
   done
 

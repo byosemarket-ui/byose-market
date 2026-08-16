@@ -93,7 +93,12 @@ async function main() {
   const controller = read('server/controllers/invoicecontroller.js');
   const routes = read('server/routes/adminorders.js');
 
-  assert(ordersJs.includes('data-order-action="view-invoice"'), 'View Invoice action must remain');
+  const deploySh = read('scripts/deploy-vps.sh');
+  assert(deploySh.includes('invoice-verify.html'), 'VPS deploy must publish invoice-verify.html to the Nginx web root');
+  assert(deploySh.includes('invoice-verify.js'), 'VPS deploy must publish invoice-verify.js to the Nginx web root');
+  assert(deploySh.includes('Required public invoice verification file'), 'deploy must fail if the verification page is not published');
+  assert(ordersJs.includes('https://byosemarket.com/invoice-verify.html'), 'printed QR URLs must use the live HTTPS domain');
+  assert(!ordersJs.includes('${origin}/invoice-verify.html'), 'QR URLs must not follow the Admin origin (localhost/IP)');
   assert(ordersJs.includes('prepareAndOpenInvoice'), 'selected-order invoice opener must exist');
   assert(ordersJs.includes('invoiceOrderMatchesRequested'), 'fresh order lookup must match the clicked order');
   assert(ordersJs.includes('getOrderById'), 'invoice must refresh the selected order');

@@ -1,5 +1,4 @@
 const crypto = require('crypto');
-const config = require('../config/env');
 const { getSecret } = require('../utils/token');
 
 const SIG_HEX_LENGTH = 32;
@@ -44,25 +43,7 @@ function isLocalHost(host) {
     return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
 }
 
-function resolvePublicOrigin(req) {
-    const appBase = normalizeText(config.appBaseUrl).replace(/\/+$/, '');
-    if (appBase) {
-        try {
-            return new URL(appBase).origin;
-        } catch (_error) {
-            if (/^https?:\/\//i.test(appBase)) {
-                return appBase.replace(/\/+$/, '');
-            }
-        }
-    }
-
-    const proto = normalizeText(req?.headers?.['x-forwarded-proto'] || req?.protocol || 'https').split(',')[0];
-    const host = normalizeText(req?.headers?.['x-forwarded-host'] || req?.headers?.host);
-    if (host) {
-        const scheme = proto === 'http' ? 'http' : 'https';
-        return `${scheme}://${host}`.replace(/\/+$/, '');
-    }
-
+function resolvePublicOrigin(_req) {
     return PRODUCTION_ORIGIN;
 }
 
