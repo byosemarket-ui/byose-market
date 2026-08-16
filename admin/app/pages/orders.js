@@ -32,6 +32,14 @@ const DATE_TABS = [
   { key: "month", label: "This Month" },
   { key: "custom", label: "Custom Range" }
 ];
+const DATE_TAB_SHORT = {
+  all: "All",
+  today: "Today",
+  yesterday: "Yesterday",
+  week: "This Week",
+  month: "This Month",
+  custom: "Custom"
+};
 const PAYMENT_METHOD_FILTERS = [
   { value: "mtn", label: "MTN MoMo" },
   { value: "card", label: "Card" },
@@ -677,7 +685,6 @@ function buildActiveFilterChips(state = {}) {
   if (String(state.query || "").trim()) {
     chips.push({ key: "query", label: `Search: ${String(state.query).trim()}` });
   }
-  chips.push({ key: "sort", label: SORT_LABELS[state.sort] || "Newest First" });
   return chips;
 }
 
@@ -3989,7 +3996,7 @@ export async function renderOrders(container, options = {}) {
       const hasFilters = hasActiveListFilters(state);
       const todayMax = formatLocalDateInput(new Date());
       const statCards = [
-        { key: "", label: "Total Orders", count: stats.total, icon: "#", tone: "neutral" },
+        { key: "", label: "Total", count: stats.total, icon: "#", tone: "neutral" },
         { key: "pending", label: "Pending", count: stats.pending, icon: "P", tone: "warn" },
         { key: "processing", label: "Processing", count: stats.processing, icon: "R", tone: "info" },
         { key: "shipped", label: "Shipped", count: stats.shipped, icon: "S", tone: "info" },
@@ -4007,8 +4014,7 @@ export async function renderOrders(container, options = {}) {
       <section class="orders-toolbar-panel glass-panel orders-toolbar-panel--all" aria-label="All Orders controls">
         <div class="orders-toolbar-header-all">
           <div class="orders-toolbar-copy orders-toolbar-copy--all">
-            <h2>${escapeHtml(meta.title)}</h2>
-            <p class="orders-toolbar-meta-line">${escapeHtml(countLabel)}</p>
+            <h2>${escapeHtml(meta.title)} <span class="orders-toolbar-count">${escapeHtml(state.loading ? "…" : formatCount(filteredCount))}</span></h2>
           </div>
           <div class="orders-toolbar-top-actions" role="toolbar" aria-label="Order actions">
             <label class="orders-select-all">
@@ -4053,7 +4059,7 @@ export async function renderOrders(container, options = {}) {
             const countLabelText = tab.count == null ? "" : formatCount(tab.count);
             return `
               <button type="button" role="tab" class="orders-date-tab${active ? " is-active" : ""}" data-orders-date-tab="${escapeHtml(tab.key)}" aria-selected="${active ? "true" : "false"}" ${disabled}>
-                <span class="orders-date-tab__label">${escapeHtml(tab.label)}</span>
+                <span class="orders-date-tab__label">${escapeHtml(DATE_TAB_SHORT[tab.key] || tab.label)}</span>
                 ${countLabelText ? `<span class="orders-date-tab__count">${escapeHtml(countLabelText)}</span>` : ""}
               </button>
             `;
@@ -4125,15 +4131,17 @@ export async function renderOrders(container, options = {}) {
                 `<option value="${escapeHtml(item.value)}" ${state.deliveryStatusFilter === item.value ? "selected" : ""}>${escapeHtml(item.label)}</option>`
               )).join("")}
             </select>
+            <button type="button" class="orders-tool-btn orders-clear-filters" data-orders-toolbar-action="clear-filters" ${disabled || !hasFilters ? "disabled" : ""}>Clear Filters</button>
           </div>
         </div>
 
-        <div class="orders-active-filters" aria-label="Active filters">
-          <div class="orders-active-filters__chips">
-            ${chips.map((chip) => `<span class="orders-filter-chip">${escapeHtml(chip.label)}</span>`).join("")}
+        ${chips.length ? `
+          <div class="orders-active-filters" aria-label="Active filters">
+            <div class="orders-active-filters__chips">
+              ${chips.map((chip) => `<span class="orders-filter-chip">${escapeHtml(chip.label)}</span>`).join("")}
+            </div>
           </div>
-          <button type="button" class="orders-tool-btn" data-orders-toolbar-action="clear-filters" ${disabled || !hasFilters ? "disabled" : ""}>Clear Filters</button>
-        </div>
+        ` : ""}
       </section>
     `;
     }
