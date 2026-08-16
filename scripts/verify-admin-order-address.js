@@ -26,6 +26,7 @@ async function main() {
   const utilJs = read('admin/app/utils/order-address.js');
 
   assert(ordersJs.includes('from "../utils/order-address.js"'), 'Review Information must use the shared address resolver');
+  assert(!/function\s+resolveOrderCustomer\s*\(/.test(ordersJs), 'orders.js must not redeclare imported resolveOrderCustomer');
   assert(invoiceJs.includes('from "../utils/order-address.js"'), 'View Invoice must use the shared address resolver');
   assert(dataJs.includes('applyCanonicalAddress'), 'Admin order normalization must apply canonical address fields');
   assert(utilJs.includes('ship.cellName') && utilJs.includes('full.cellName'), 'resolver must accept cell aliases');

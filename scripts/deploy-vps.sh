@@ -200,6 +200,18 @@ sync_storefront_static() {
     " "${WEB_ROOT}/index.html" "${asset_version}"
   fi
 
+  if [[ -f "${WEB_ROOT}/admin/dashboard.html" ]]; then
+    node -e "
+      const fs = require('fs');
+      const file = process.argv[1];
+      const version = process.argv[2];
+      let html = fs.readFileSync(file, 'utf8');
+      html = html.replace(/src=([\"'])(?:\\.\\.\\/)?admin\\.js(?:\\?[^\"']*)?\\1/g, 'src=\$1../admin.js?v=' + version + '\$1');
+      fs.writeFileSync(file, html);
+      console.log('Admin asset version stamped:', version);
+    " "${WEB_ROOT}/admin/dashboard.html" "${asset_version}"
+  fi
+
   log "Storefront static sync complete."
 }
 

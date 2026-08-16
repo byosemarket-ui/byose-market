@@ -18,6 +18,40 @@ function read(rel) {
   return fs.readFileSync(path.join(root, rel), "utf8");
 }
 
+function walkJsFiles(dir, acc = []) {
+  if (!fs.existsSync(dir)) return acc;
+  fs.readdirSync(dir, { withFileTypes: true }).forEach((entry) => {
+    const abs = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      walkJsFiles(abs, acc);
+      return;
+    }
+    if (entry.isFile() && entry.name.endsWith(".js")) {
+      acc.push(abs);
+    }
+  });
+  return acc;
+}
+
+function findDuplicateImportBindings(source, rel) {
+  const imported = new Set();
+  const importRe = /import\s+\{([^}]+)\}\s+from/g;
+  let match;
+  while ((match = importRe.exec(source))) {
+    String(match[1] || "").split(",").forEach((part) => {
+      const name = part.trim().split(/\s+as\s+/).pop().replace(/\s+/g, "");
+      if (name) imported.add(name);
+    });
+  }
+  imported.forEach((name) => {
+    if (!/^[A-Za-z_$][\w$]*$/.test(name)) return;
+    const local = new RegExp(`(?:function|const|let|class)\\s+${name}\\b`);
+    if (local.test(source)) {
+      assert(false, `${rel} redeclares imported binding '${name}', which blanks the Admin console`);
+    }
+  });
+}
+
 function sliceBetween(source, startToken, endToken) {
   const start = source.indexOf(startToken);
   const end = source.indexOf(endToken, start + startToken.length);
@@ -31,6 +65,7 @@ async function main() {
   const dashboardJs = read("admin/app/pages/dashboard.js");
   const layoutCss = read("admin/app/styles/layout.css");
   const dataJs = read("admin/app/services/admin-data.service.js");
+  const nginxStatic = read("deploy/nginx-snippet-static-assets.conf");
 
   const logoutFn = sliceBetween(security, "function logout()", "function handleUnauthorized");
   assert(logoutFn.includes("redirectToLogin()"), "logout must still redirect to login");
@@ -55,6 +90,22 @@ async function main() {
 
   assert(layoutCss.includes("minmax(min-content, 1fr)"), "admin main shell must not collapse the content row to zero height");
   assert(dataJs.includes("refreshRealtimeIntelligence().catch"), "startup intelligence refresh must not become an unhandled rejection");
+  assert(
+    nginxStatic.includes("^/(?:admin\\.js$|admin/.*\\.(?:js|mjs|css)$)")
+      || nginxStatic.includes("admin.js$|admin/"),
+    "nginx must revalidate Admin JS/CSS so a stale module cannot blank the console"
+  );
+
+  walkJsFiles(path.join(root, "admin", "app")).forEach((abs) => {
+    const rel = path.relative(root, abs).replace(/\\/g, "/");
+    findDuplicateImportBindings(read(rel), rel);
+  });
+
+  try {
+    await import("../admin/app/pages/orders.js");
+  } catch (error) {
+    assert(false, `orders.js module failed to evaluate: ${error && error.message ? error.message : error}`);
+  }
 
   const { buildDashboardMarkup, buildDashboardModel } = await import("../admin/app/pages/dashboard-view.js");
   const model = buildDashboardModel({
@@ -81,6 +132,7 @@ async function main() {
   console.log(" - Logout cannot fake-navigate to login.html");
   console.log(" - Router paints content before session validation");
   console.log(" - Dashboard still renders when APIs fail");
+  console.log(" - Admin page modules do not redeclare imported bindings");
 }
 
 main().catch((error) => {

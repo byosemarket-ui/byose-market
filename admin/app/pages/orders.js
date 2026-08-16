@@ -1524,13 +1524,6 @@ function resolveOrderIdentifiers(order) {
   return { orderNumber, internalId };
 }
 
-function resolveOrderCustomer(order) {
-  const ship = order?.shippingAddress || {};
-  const name = String(ship.fullName || order?.customerName || "").trim() || "—";
-  const phone = String(ship.phone || order?.customerPhone || order?.phoneNumber || "").trim();
-  return { name, phone };
-}
-
 function formatOrderRowDateTime(value) {
   const date = new Date(value || 0);
   if (!Number.isFinite(date.getTime()) || date.getTime() <= 0) {
@@ -3330,6 +3323,7 @@ function renderOrderCard(order, { expanded = false, viewMode = "all", selectedId
     const safeId = escapeHtml(orderId);
     const { orderNumber, internalId } = resolveOrderIdentifiers(order);
     const customer = resolveOrderCustomer(order);
+    const customerName = String(customer.name || "").trim() || "—";
     const grandTotal = formatCurrency(order.grandTotal || order.total || 0);
     const detailsId = `order-details-${safeId}`;
     const when = formatOrderRowDateTime(order.date || order.createdAt);
@@ -3351,7 +3345,7 @@ function renderOrderCard(order, { expanded = false, viewMode = "all", selectedId
             ${internalId ? `<span class="order-row-id">ID: ${escapeHtml(internalId)}</span>` : ""}
           </div>
           <div class="order-row-col order-row-col--customer">
-            <strong class="order-row-customer-name" title="${escapeHtml(customer.name)}">${escapeHtml(customer.name)}</strong>
+            <strong class="order-row-customer-name" title="${escapeHtml(customerName)}">${escapeHtml(customerName)}</strong>
             ${customer.phone ? `<span class="order-row-customer-phone" title="${escapeHtml(customer.phone)}">${escapeHtml(customer.phone)}</span>` : ""}
           </div>
           <div class="order-row-col order-row-col--product">
