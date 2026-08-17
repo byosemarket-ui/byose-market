@@ -848,11 +848,25 @@
   }
 }
 
-html.details-theme-lock,
+html.details-theme-lock {
+  overflow-x: clip;
+}
+
 html.details-theme-lock body.details-page {
-  overflow-x: hidden;
+  overflow-x: clip;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+}
+
+/*
+ * Keep the existing storefront header in view while Product Details scrolls.
+ * Visual design is unchanged. overflow-x: clip is used instead of hidden so
+ * sticky positioning is not broken by html/body scroll containment.
+ */
+html.details-theme-lock body.details-page > .main-header {
+  position: sticky;
+  top: 0;
+  z-index: 120;
 }
 
 .details-page .product-details-page img {
