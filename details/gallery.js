@@ -1,8 +1,46 @@
+import {
+  productImagesMatch,
+  resolveProductDisplayImage,
+  toProductCardImageUrl
+} from '../services/storefront-asset-url.js';
+
+const FALLBACK_IMAGE = '../img/logo.png';
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function uniqueImages(mainImage, gallery) {
   return Array.from(new Set([
     mainImage,
     ...(Array.isArray(gallery) ? gallery : [])
   ].filter(Boolean)));
+}
+
+function uniqueImageEntries(mainImage, gallery, cardImage, galleryCardImages) {
+  const originals = uniqueImages(mainImage, gallery);
+  const cards = Array.isArray(galleryCardImages) ? galleryCardImages : [];
+  const seen = new Set();
+  const entries = [];
+
+  originals.forEach((original, index) => {
+    const display = resolveProductDisplayImage(original, cards[index] || (index === 0 ? cardImage : ''));
+    const key = String(display.original || display.preview || '').split('?')[0].split('/').pop()?.replace(/\.[a-z0-9]+$/i, '').toLowerCase();
+    if (key && seen.has(key)) {
+      return;
+    }
+    if (key) {
+      seen.add(key);
+    }
+    entries.push(display);
+  });
+
+  return entries.length ? entries : [resolveProductDisplayImage(mainImage, cardImage)];
 }
 
 function wrapIndex(index, length) {
@@ -13,49 +51,113 @@ function wrapIndex(index, length) {
   return (index + length) % length;
 }
 
-function buildMainSlides(images, name) {
-  return images.map((image, index) => `
-    <div class="gallery-slide" data-index="${index}" aria-hidden="${index === 0 ? 'false' : 'true'}">
-      <button type="button" class="gallery-slide__button" data-gallery-open="${index}" aria-label="Open ${name} image ${index + 1} fullscreen">
+function bindGalleryImageFallback(container) {
+  if (!container || container.dataset.galleryFallbackBound === 'true') {
+    return;
+  }
+
+  container.dataset.galleryFallbackBound = 'true';
+  container.addEventListener('error', (event) => {
+    const img = event.target;
+    if (!(img instanceof HTMLImageElement) || img.dataset.fallbackApplied === 'true') {
+      return;
+    }
+
+    const full = String(img.getAttribute('data-full') || '').trim();
+    const current = String(img.currentSrc || img.getAttribute('src') || '').trim();
+    if (full && current !== full && img.dataset.retried !== 'true') {
+      img.dataset.retried = 'true';
+      img.removeAttribute('srcset');
+      img.src = full;
+      return;
+    }
+
+    img.dataset.fallbackApplied = 'true';
+    img.removeAttribute('srcset');
+    img.src = FALLBACK_IMAGE;
+  }, true);
+}
+
+function buildMainSlides(entries, name) {
+  const productName = String(name || 'Product').trim() || 'Product';
+
+  return entries.map((entry, index) => {
+    const preview = entry.preview || entry.original || FALLBACK_IMAGE;
+    const original = entry.original || preview;
+    const alt = index === 0 ? productName : `${productName} — image ${index + 1}`;
+    const isMain = index === 0;
+    const srcset = isMain && preview && original && preview !== original
+      ? `srcset="${escapeHtml(preview)} 640w"`
+      : '';
+    const sizes = isMain
+      ? 'sizes="(max-width: 599px) 92vw, (max-width: 1023px) 46vw, 480px"'
+      : '';
+
+    return `
+    <div class="gallery-slide" data-index="${index}" aria-hidden="${isMain ? 'false' : 'true'}">
+      <button type="button" class="gallery-slide__button" data-gallery-open="${index}" aria-label="Open ${escapeHtml(productName)} image ${index + 1} fullscreen">
         <div class="gallery-slide__media">
           <img
-            src="${image}"
-            alt="${name} image ${index + 1}"
+            ${isMain ? `src="${escapeHtml(preview)}"` : ""}
+            data-src="${escapeHtml(preview)}"
+            ${srcset}
+            ${sizes}
+            data-full="${escapeHtml(original)}"
+            alt="${escapeHtml(alt)}"
+            width="640"
+            height="640"
             draggable="false"
-            loading="${index === 0 ? 'eager' : 'lazy'}"
+            loading="${isMain ? 'eager' : 'lazy'}"
             decoding="async"
-            ${index === 0 ? 'fetchpriority="high"' : ''}
+            ${isMain ? 'fetchpriority="high"' : 'fetchpriority="low"'}
           >
         </div>
       </button>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
-function buildThumbs(images, name) {
-  return images.map((image, index) => `
+function buildThumbs(entries, name) {
+  const productName = String(name || 'Product').trim() || 'Product';
+
+  return entries.map((entry, index) => {
+    const thumb = entry.thumb || entry.preview || entry.original || FALLBACK_IMAGE;
+    const original = entry.original || thumb;
+
+    return `
     <button
       type="button"
       class="gallery-thumb${index === 0 ? ' is-active' : ''}"
       data-index="${index}"
-      aria-label="Show ${name} image ${index + 1}"
+      aria-label="Show ${escapeHtml(productName)} image ${index + 1}"
       aria-pressed="${index === 0 ? 'true' : 'false'}"
     >
-      <img src="${image}" alt="${name} thumbnail ${index + 1}" loading="lazy" decoding="async">
+      <img
+        src="${escapeHtml(thumb)}"
+        data-full="${escapeHtml(original)}"
+        alt="${escapeHtml(productName)} thumbnail ${index + 1}"
+        width="80"
+        height="80"
+        loading="lazy"
+        decoding="async"
+        fetchpriority="low"
+      >
     </button>
-  `).join('');
+  `;
+  }).join('');
 }
 
-function buildLightboxSlides(images, name) {
+function buildLightboxSlides(entries, name) {
+  const productName = String(name || 'Product').trim() || 'Product';
+
   return `
     <div class="lightbox-viewport" id="lightboxViewport">
       <div class="lightbox-track" id="lightboxTrack">
-        ${images.map((image, index) => `
+        ${entries.map((entry, index) => `
           <div class="lightbox-slide" data-index="${index}" aria-hidden="${index === 0 ? 'false' : 'true'}">
-            <button type="button" class="lightbox-slide__button" data-lightbox-zoom="${index}" aria-label="Tap to zoom ${name} image ${index + 1}">
-              <div class="lightbox-slide__media">
-                <img src="${image}" alt="${name} fullscreen image ${index + 1}" loading="${index === 0 ? 'eager' : 'lazy'}" decoding="async" draggable="false">
-              </div>
+            <button type="button" class="lightbox-slide__button" data-lightbox-zoom="${index}" aria-label="Tap to zoom ${escapeHtml(productName)} image ${index + 1}">
+              <div class="lightbox-slide__media"></div>
             </button>
           </div>
         `).join('')}
@@ -201,6 +303,8 @@ export function initProductGallery(options) {
   const {
     mainImage,
     gallery,
+    cardImage,
+    galleryCardImages,
     name,
     root,
     track,
@@ -218,24 +322,95 @@ export function initProductGallery(options) {
     viewport
   } = options;
 
-  const images = uniqueImages(mainImage, gallery);
-  if (!track || !thumbs || !viewport || !lightbox || !lightboxStage || !images.length) {
+  const entries = uniqueImageEntries(mainImage, gallery, cardImage, galleryCardImages);
+  if (!track || !thumbs || !viewport || !lightbox || !lightboxStage || !entries.length) {
     return { getActiveIndex: () => 0 };
   }
 
-  track.innerHTML = buildMainSlides(images, name);
-  thumbs.innerHTML = buildThumbs(images, name);
-  lightboxStage.innerHTML = buildLightboxSlides(images, name);
+  const images = entries.map((entry) => entry.original || entry.preview);
+  bindGalleryImageFallback(root || track);
+  bindGalleryImageFallback(thumbs);
+  bindGalleryImageFallback(lightboxStage);
+
+  track.innerHTML = buildMainSlides(entries, name);
+  thumbs.innerHTML = buildThumbs(entries, name);
 
   const thumbButtons = Array.from(thumbs.querySelectorAll('.gallery-thumb'));
   const mainSlides = Array.from(track.children);
-  const lightboxViewport = lightboxStage.querySelector('#lightboxViewport');
-  const lightboxTrack = lightboxStage.querySelector('#lightboxTrack');
-  const lightboxSlides = Array.from(lightboxTrack?.children || []);
+
+  function hydrateMainSlide(index) {
+    const slideIndex = wrapIndex(index, mainSlides.length);
+    const img = mainSlides[slideIndex]?.querySelector('img');
+    const preview = img?.getAttribute('data-src');
+    if (!img || !preview || img.getAttribute('src')) {
+      return;
+    }
+    img.src = preview;
+  }
+  let lightboxViewport = null;
+  let lightboxTrack = null;
+  let lightboxSlides = [];
+  let lightboxSlider = {
+    snap() {},
+    shouldBlockClick() {
+      return false;
+    },
+    destroy() {}
+  };
+  let lightboxBuilt = false;
 
   let activeIndex = 0;
   let isLightboxOpen = false;
   let zoomedIndex = null;
+
+  function hydrateLightboxImage(index) {
+    const slide = lightboxSlides[index];
+    const media = slide?.querySelector('.lightbox-slide__media');
+    if (!media) {
+      return;
+    }
+
+    let image = media.querySelector('img');
+    const full = String(entries[index]?.original || entries[index]?.preview || FALLBACK_IMAGE).trim();
+    if (!image) {
+      image = document.createElement('img');
+      image.alt = `${String(name || 'Product').trim() || 'Product'} fullscreen image ${index + 1}`;
+      image.decoding = 'async';
+      image.draggable = false;
+      image.width = 1200;
+      image.height = 1200;
+      image.setAttribute('data-full', full);
+      media.appendChild(image);
+    }
+
+    if (full && image.getAttribute('src') !== full) {
+      image.loading = index === activeIndex ? 'eager' : 'lazy';
+      image.src = full;
+    }
+  }
+
+  function ensureLightbox() {
+    if (lightboxBuilt) {
+      return;
+    }
+
+    lightboxStage.innerHTML = buildLightboxSlides(entries, name);
+    lightboxViewport = lightboxStage.querySelector('#lightboxViewport');
+    lightboxTrack = lightboxStage.querySelector('#lightboxTrack');
+    lightboxSlides = Array.from(lightboxTrack?.children || []);
+    lightboxSlider = createSlider({
+      viewport: lightboxViewport,
+      track: lightboxTrack,
+      getCount: () => entries.length,
+      getIndex: () => activeIndex,
+      onCommit: direction => {
+        resetZoom();
+        setActiveIndex(activeIndex + direction);
+      },
+      getLocked: () => zoomedIndex !== null
+    });
+    lightboxBuilt = true;
+  }
 
   function syncCounters() {
     const label = `${activeIndex + 1} / ${images.length}`;
@@ -278,11 +453,19 @@ export function initProductGallery(options) {
   }
 
   function preloadNearby() {
-    [activeIndex - 1, activeIndex, activeIndex + 1].forEach(index => {
-      const safeIndex = wrapIndex(index, images.length);
-      const image = new Image();
-      image.src = images[safeIndex];
-    });
+    const nextIndex = wrapIndex(activeIndex + 1, entries.length);
+    if (nextIndex === activeIndex) {
+      return;
+    }
+
+    const preview = entries[nextIndex]?.preview;
+    if (!preview) {
+      return;
+    }
+
+    const image = new Image();
+    image.decoding = 'async';
+    image.src = preview;
   }
 
   function updateNavigationVisibility() {
@@ -303,16 +486,24 @@ export function initProductGallery(options) {
     }
 
     mainSlider.snap(!immediate);
-    lightboxSlider.snap(!immediate);
+    if (lightboxBuilt) {
+      hydrateLightboxImage(activeIndex);
+      lightboxSlider.snap(!immediate);
+    }
     syncCounters();
     syncSlides();
     syncThumbs();
+    hydrateMainSlide(activeIndex);
+    hydrateMainSlide(activeIndex + 1);
+    hydrateMainSlide(activeIndex - 1);
     preloadNearby();
   }
 
   function openLightbox(index = activeIndex) {
+    ensureLightbox();
     activeIndex = wrapIndex(index, images.length);
     isLightboxOpen = true;
+    hydrateLightboxImage(activeIndex);
     lightbox.classList.add('is-open');
     lightbox.setAttribute('aria-hidden', 'false');
     document.body.style.overflow = 'hidden';
@@ -365,18 +556,6 @@ export function initProductGallery(options) {
     getIndex: () => activeIndex,
     onCommit: direction => setActiveIndex(activeIndex + direction),
     getLocked: () => false
-  });
-
-  const lightboxSlider = createSlider({
-    viewport: lightboxViewport,
-    track: lightboxTrack,
-    getCount: () => images.length,
-    getIndex: () => activeIndex,
-    onCommit: direction => {
-      resetZoom();
-      setActiveIndex(activeIndex + direction);
-    },
-    getLocked: () => zoomedIndex !== null
   });
 
   thumbs.addEventListener('click', event => {
@@ -477,6 +656,34 @@ export function initProductGallery(options) {
 
   return {
     getActiveIndex: () => activeIndex,
+    showImage(url) {
+      const target = String(url || '').trim();
+      if (!target) {
+        return;
+      }
+
+      const index = entries.findIndex((entry) => (
+        productImagesMatch(entry.original, target)
+        || productImagesMatch(entry.preview, target)
+        || String(entry.original || '').trim() === target
+        || String(entry.preview || '').trim() === target
+      ));
+
+      if (index >= 0) {
+        setActiveIndex(index);
+        return;
+      }
+
+      const activeSlide = mainSlides[activeIndex];
+      const image = activeSlide?.querySelector('img');
+      if (image) {
+        const display = resolveProductDisplayImage(target, toProductCardImageUrl(target));
+        image.dataset.retried = '';
+        image.dataset.fallbackApplied = '';
+        image.setAttribute('data-full', display.original || target);
+        image.src = display.preview || target;
+      }
+    },
     destroy() {
       window.removeEventListener('resize', onResize);
       document.removeEventListener('keydown', onKeyDown);

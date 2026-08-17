@@ -1,5 +1,13 @@
-import { buildVariantKey, normalizeProductAttributes } from './product-attributes.js';
-import { enrichProductColorVariants, hasPurchasableVariant, resolveMatrixStock } from '../../js/color-variant-inventory.js';
+import { buildVariantKey, getPrimarySelectionImage, getSelectionStock, normalizeProductAttributes } from './product-attributes.js';
+import {
+  COLOR_ATTR_NAME,
+  SIZE_ATTR_NAME,
+  enrichProductColorVariants,
+  hasPurchasableVariant,
+  isColorSizeInventory,
+  resolveMatrixStock,
+  resolveSmartColorSizeSelection
+} from '../../js/color-variant-inventory.js';
 import { buildVariantCartPayload, validateVariantSelection } from '../../js/variant-cart-payload.js';
 import { normalizeStorefrontAssetUrl } from '../../services/storefront-asset-url.js';
 import { startBuyNowSession } from '../../orders/checkout-session.js';
@@ -180,7 +188,8 @@ export function initProductActions(options) {
     buyNowButton,
     showToast,
     purchaseCaption,
-    optionsPreviewRoot
+    optionsPreviewRoot,
+    gallery
   } = options;
 
   if (!product || !quantityInput) {
@@ -188,12 +197,18 @@ export function initProductActions(options) {
   }
 
   const attributes = normalizeProductAttributes(product);
+  const enrichedProduct = enrichProductColorVariants(product, normalizeStorefrontAssetUrl);
+  const usesColorSize = isColorSizeInventory(enrichedProduct);
   const purchasable = applyPurchaseAvailability(product, [
     addToCartButton,
     buyNowButton,
     document.getElementById('stickyAddToCartBtn'),
     document.getElementById('stickyBuyNowBtn')
   ]);
+
+  let selectedAttributes = usesColorSize
+    ? resolveSmartColorSizeSelection(enrichedProduct, {})
+    : {};
 
   const modal = createProductModal({
     product,
@@ -234,41 +249,120 @@ export function initProductActions(options) {
     }
   });
 
-  renderProductOptionPreview(optionsPreviewRoot, attributes, product);
-
-  if (purchaseCaption) {
-    purchaseCaption.textContent = !purchasable
-      ? 'This product is currently out of stock.'
-      : (attributes.length
-        ? 'Choose your color and size in the purchase modal. Stock updates automatically.'
-        : 'Adjust quantity before adding to cart.');
-  }
-
   function readQuantity() {
     const quantity = Number(quantityInput.value || 1);
     return Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
   }
 
-  function syncQuantity(value) {
-    quantityInput.value = String(Math.max(1, Number(value) || 1));
+  function getSelectionMax() {
+    if (usesColorSize && selectedAttributes[COLOR_ATTR_NAME] && selectedAttributes[SIZE_ATTR_NAME]) {
+      return getSelectionStock(enrichedProduct, attributes, selectedAttributes);
+    }
+
+    return resolveAvailableQuantity(product, selectedAttributes);
   }
 
-  function handleSimpleAction(action) {
-    if (!purchasable) {
-      showToast?.('This product is currently out of stock.');
+  function syncQuantity(value) {
+    const max = getSelectionMax();
+    let next = Math.max(1, Number(value) || 1);
+    if (Number.isFinite(max) && max >= 1) {
+      next = Math.min(next, max);
+    } else if (Number.isFinite(max) && max <= 0) {
+      next = 1;
+    }
+    quantityInput.value = String(next);
+  }
+
+  function updateStockHint() {
+    const hint = document.getElementById('purchaseStockHint');
+    const stockEl = document.getElementById('productStock');
+    const colorId = selectedAttributes[COLOR_ATTR_NAME];
+    const sizeValue = selectedAttributes[SIZE_ATTR_NAME];
+    let label = product.stockLabel || '';
+    let isLow = false;
+    let isOos = !purchasable;
+
+    if (usesColorSize && colorId && sizeValue) {
+      const stock = getSelectionStock(enrichedProduct, attributes, selectedAttributes);
+      if (!Number.isFinite(stock) || stock <= 0) {
+        label = 'Out of stock';
+        isOos = true;
+      } else if (stock <= 5) {
+        label = `Only ${stock} items left!`;
+        isLow = true;
+        isOos = false;
+      } else {
+        label = `${stock} in stock`;
+        isOos = false;
+      }
+    } else if (!purchasable) {
+      label = 'Out of stock';
+    }
+
+    if (hint) {
+      hint.textContent = label;
+      hint.classList.toggle('is-low', isLow);
+      hint.classList.toggle('is-oos', isOos);
+      hint.hidden = !label;
+    }
+
+    if (stockEl) {
+      stockEl.textContent = label || product.stockLabel || '';
+      stockEl.classList.toggle('is-oos', isOos);
+    }
+  }
+
+  function syncGalleryToSelection() {
+    const image = getPrimarySelectionImage(enrichedProduct, attributes, selectedAttributes);
+    gallery?.showImage?.(image);
+  }
+
+  function renderOptions() {
+    renderProductOptionPreview(optionsPreviewRoot, attributes, product, selectedAttributes);
+  }
+
+  const addButtons = [addToCartButton, document.getElementById('stickyAddToCartBtn')];
+  const buyButtons = [buyNowButton, document.getElementById('stickyBuyNowBtn')];
+  let actionUnlockTimer = 0;
+
+  function setBusy(button, busy) {
+    if (!button) {
       return;
     }
 
-    const qty = readQuantity();
-
-    if (attributes.length) {
-      modal.open({ action, initialQuantity: qty });
+    button.dataset.busy = busy ? 'true' : 'false';
+    button.classList.toggle('is-loading', busy);
+    if (busy) {
+      button.disabled = true;
       return;
     }
 
-    const quantityCheck = validateRequestedQuantity(product, qty);
+    button.disabled = !purchasable;
+  }
+
+  function actionButtons(action) {
+    return action === 'buy' ? [...addButtons, ...buyButtons] : addButtons;
+  }
+
+  function isAnyPurchaseBusy() {
+    return [...addButtons, ...buyButtons].some((button) => button?.dataset.busy === 'true');
+  }
+
+  function setActionBusy(action, busy) {
+    actionButtons(action).forEach((button) => setBusy(button, busy));
+  }
+
+  function unlockActionSoon(action, delay = 450) {
+    window.clearTimeout(actionUnlockTimer);
+    actionUnlockTimer = window.setTimeout(() => {
+      setActionBusy(action, false);
+    }, delay);
+  }
+
+  function submitSelection(action, qty, selection) {
+    const quantityCheck = validateRequestedQuantity(product, qty, selection);
     if (!quantityCheck.valid || quantityCheck.acceptedQuantity <= 0) {
-      showToast?.(quantityCheck.message || 'This product is currently unavailable.');
+      showToast?.(quantityCheck.message || 'This selection is currently unavailable.');
       return;
     }
 
@@ -276,7 +370,7 @@ export function initProductActions(options) {
       showToast?.(quantityCheck.message);
     }
 
-    const payload = createCartPayload(product, quantityCheck.acceptedQuantity);
+    const payload = createCartPayload(product, quantityCheck.acceptedQuantity, selection);
     if (action === 'buy') {
       showToast?.('Selection captured. Redirecting to shipping.');
       startDirectCheckout(payload);
@@ -289,6 +383,70 @@ export function initProductActions(options) {
     } catch (error) {
       showToast?.(error?.message || 'Unable to add item to cart.');
     }
+  }
+
+  function handleSimpleAction(action, sourceButton) {
+    if (isAnyPurchaseBusy() || sourceButton?.dataset.busy === 'true') {
+      return;
+    }
+
+    if (!purchasable) {
+      showToast?.('This product is currently out of stock.');
+      return;
+    }
+
+    const qty = readQuantity();
+
+    if (usesColorSize && attributes.length) {
+      if (!selectedAttributes[COLOR_ATTR_NAME]) {
+        showToast?.('Please select a color to continue.');
+        return;
+      }
+
+      if (!selectedAttributes[SIZE_ATTR_NAME]) {
+        showToast?.('Please select a size for your chosen color.');
+        return;
+      }
+
+      setActionBusy(action, true);
+      try {
+        submitSelection(action, qty, selectedAttributes);
+      } finally {
+        if (action !== 'buy') {
+          unlockActionSoon(action);
+        }
+      }
+      return;
+    }
+
+    if (attributes.length) {
+      modal.open({ action, initialQuantity: qty });
+      return;
+    }
+
+    setActionBusy(action, true);
+    try {
+      submitSelection(action, qty, {});
+    } finally {
+      if (action !== 'buy') {
+        unlockActionSoon(action);
+      }
+    }
+  }
+
+  renderOptions();
+  syncGalleryToSelection();
+  updateStockHint();
+  syncQuantity(readQuantity());
+
+  if (purchaseCaption) {
+    purchaseCaption.textContent = !purchasable
+      ? 'This product is currently out of stock.'
+      : (usesColorSize
+        ? 'Select color and size. Stock updates automatically.'
+        : (attributes.length
+          ? 'Choose your options before adding to cart.'
+          : 'Adjust quantity before adding to cart.'));
   }
 
   decreaseButton?.addEventListener('click', () => {
@@ -304,18 +462,48 @@ export function initProductActions(options) {
   quantityInput.addEventListener('change', () => {
     syncQuantity(readQuantity());
   });
+  quantityInput.addEventListener('input', () => {
+    if (String(quantityInput.value || '').trim() === '') {
+      return;
+    }
+    syncQuantity(readQuantity());
+  });
   quantityInput.disabled = !purchasable;
   if (decreaseButton) decreaseButton.disabled = !purchasable;
   if (increaseButton) increaseButton.disabled = !purchasable;
 
-  addToCartButton?.addEventListener('click', () => handleSimpleAction('add'));
-  buyNowButton?.addEventListener('click', () => handleSimpleAction('buy'));
+  addToCartButton?.addEventListener('click', () => handleSimpleAction('add', addToCartButton));
+  buyNowButton?.addEventListener('click', () => handleSimpleAction('buy', buyNowButton));
 
-  optionsPreviewRoot?.querySelector('[data-open-config-modal]')?.addEventListener('click', () => {
-    if (!purchasable) {
-      showToast?.('This product is currently out of stock.');
+  optionsPreviewRoot?.addEventListener('click', (event) => {
+    const optionButton = event.target.closest('[data-attribute-name][data-attribute-value]');
+    if (optionButton && !optionButton.disabled) {
+      const attributeName = optionButton.getAttribute('data-attribute-name');
+      const attributeValue = optionButton.getAttribute('data-attribute-value');
+      const nextSelection = {
+        ...selectedAttributes,
+        [attributeName]: attributeValue
+      };
+
+      if (attributeName === COLOR_ATTR_NAME && selectedAttributes[COLOR_ATTR_NAME] !== attributeValue) {
+        delete nextSelection[SIZE_ATTR_NAME];
+        quantityInput.value = '1';
+      }
+
+      selectedAttributes = resolveSmartColorSizeSelection(enrichedProduct, nextSelection);
+      renderOptions();
+      syncGalleryToSelection();
+      updateStockHint();
+      syncQuantity(readQuantity());
       return;
     }
-    modal.open({ action: 'add', initialQuantity: readQuantity() });
+
+    if (event.target.closest('[data-open-config-modal]')) {
+      if (!purchasable) {
+        showToast?.('This product is currently out of stock.');
+        return;
+      }
+      modal.open({ action: 'add', initialQuantity: readQuantity() });
+    }
   });
 }

@@ -165,7 +165,26 @@
 		return syncInFlight;
 	}
 
-	void syncProducts({ force: false });
+	void (function startCatalogSync() {
+		const isProductDetails = /product-details/i.test(String(window.location && window.location.pathname || ''))
+			|| Boolean(document.body && document.body.classList.contains('details-page'));
+
+		if (!isProductDetails) {
+			void syncProducts({ force: false });
+			return;
+		}
+
+		const start = function startDeferredCatalog() {
+			void syncProducts({ force: false });
+		};
+
+		if (typeof window.requestIdleCallback === 'function') {
+			window.requestIdleCallback(start, { timeout: 2500 });
+			return;
+		}
+
+		window.setTimeout(start, 1200);
+	}());
 	window.addEventListener('byose:products-synchronized', (event) => {
 		publishProducts(event?.detail?.products || []);
 	});

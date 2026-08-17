@@ -2,7 +2,7 @@
 <html lang="en" class="details-theme-lock">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="color-scheme" content="light only">
   <meta name="supported-color-schemes" content="light">
   <meta name="theme-color" content="#f4fbf9">
@@ -29,6 +29,12 @@
     <link rel="stylesheet" href="./css/product-modal.css">
     <link rel="stylesheet" href="./bottom-bar.css">
     <link rel="stylesheet" href="./css/product-details-theme-lock.css">
+    <link rel="stylesheet" href="./css/product-details-desktop.css">
+    <link rel="stylesheet" href="./css/product-details-mobile.css">
+    <link rel="stylesheet" href="./css/product-details-tablet.css">
+  <link rel="modulepreload" href="./js/product-details.js">
+  <link rel="modulepreload" href="./js/product-data-loader.js">
+  <link rel="modulepreload" href="./gallery.js">
   <script src="../config/runtime-api-bootstrap.js"></script>
 </head>
 <body class="home-page details-page">
@@ -90,15 +96,25 @@
     </div>
   </header>
 
-  <main class="details-main">
+  <main class="details-main product-details-page is-loading" id="productDetailsPage">
+    <nav class="container pd-breadcrumb" aria-label="Breadcrumb">
+      <ol class="pd-breadcrumb__list">
+        <li><a href="../index.html">Home</a></li>
+        <li><a href="../shop.html">Shop</a></li>
+        <li id="breadcrumbCategory">Featured</li>
+        <li id="breadcrumbProduct" aria-current="page">Product</li>
+      </ol>
+    </nav>
+
     <section class="container details-overview">
-      <div class="details-grid">
-        <article class="details-panel gallery-panel" data-gallery-root>
+      <div class="details-grid pd-hero">
+        <article class="details-panel gallery-panel pd-gallery" data-gallery-root>
           <div class="gallery-stage-shell" id="productGalleryRoot">
-            <div class="gallery-stage-header">
-              <span class="gallery-stage-badge">Premium gallery</span>
-              <div class="gallery-counter" id="galleryCounter">1 / 1</div>
-            </div>
+            <span class="gallery-discount-badge" id="galleryDiscountBadge" hidden></span>
+            <button type="button" class="gallery-wishlist" id="galleryWishlistBtn" aria-label="Add to wishlist" aria-pressed="false">
+              <i class="fa-regular fa-heart" aria-hidden="true" data-gallery-wishlist-icon></i>
+            </button>
+            <div class="gallery-counter" id="galleryCounter">1 / 1</div>
 
             <div class="gallery-stage" id="galleryViewport" tabindex="0" aria-label="Product image gallery">
               <div class="gallery-track" id="galleryTrack"></div>
@@ -123,27 +139,28 @@
           <div class="gallery-thumb-row" id="galleryThumbs" aria-label="Product thumbnails"></div>
         </article>
 
-        <article class="details-panel info-panel">
+        <article class="details-panel info-panel pd-info">
           <div class="product-eyebrow-row">
             <span class="product-kicker" id="productCategory">Featured</span>
-            <span class="product-badge" id="productBadge">New</span>
+            <span class="product-badge" id="productBadge" hidden></span>
           </div>
 
           <div class="product-title-block">
             <h1 id="productName">Product Name</h1>
-            <div class="product-rating-row">
+            <div class="product-rating-row" id="productSocialProof" hidden>
               <div class="product-stars" id="productStars" aria-label="Product rating"></div>
-              <span id="productRatingText">4.8 rating</span>
+              <span id="productRatingText"></span>
+              <span class="product-sold" id="productSoldCount" hidden></span>
             </div>
           </div>
 
           <div class="product-price-block">
             <div class="price-stack">
               <strong class="current-price" id="productPrice">RWF 0</strong>
-              <span class="old-price" id="productOldPrice"></span>
+              <span class="old-price" id="productOldPrice" hidden></span>
+              <span class="savings-pill" id="productSavings" hidden></span>
             </div>
             <div class="price-meta">
-              <span class="savings-pill" id="productSavings">Save</span>
               <span class="stock-pill" id="productStock">In stock</span>
             </div>
           </div>
@@ -151,56 +168,56 @@
           <p class="product-short-copy" id="productShortDescription"></p>
 
           <ul class="highlights-list" id="productHighlights"></ul>
-
-          <div class="purchase-card">
-            <div id="productOptionsPreview"></div>
-
-            <div class="purchase-header">
-              <div>
-                <span class="purchase-label">Quantity</span>
-                <p class="purchase-caption" id="purchaseCaption">Adjust quantity before adding to cart.</p>
-              </div>
-              <div class="quantity-stepper" aria-label="Quantity selector">
-                <button type="button" class="qty-btn" id="qtyDecrease" aria-label="Decrease quantity">-</button>
-                <input type="number" id="quantityInput" min="1" value="1" inputmode="numeric" aria-label="Quantity">
-                <button type="button" class="qty-btn" id="qtyIncrease" aria-label="Increase quantity">+</button>
-              </div>
-            </div>
-
-            <div class="cta-grid cta-grid--with-wishlist">
-              <button type="button" class="action-btn action-btn-primary" id="addToCartBtn">
-                <i class="fa-solid fa-cart-plus" aria-hidden="true"></i>
-                <span>Add to Cart</span>
-              </button>
-              <button type="button" class="action-btn action-btn-secondary" id="buyNowBtn">
-                <i class="fa-solid fa-bolt" aria-hidden="true"></i>
-                <span>Buy Now</span>
-              </button>
-              <button type="button" class="action-btn action-btn-wishlist" id="wishlistBtn" aria-pressed="false" data-wishlist-id="">
-                <i class="fa-regular fa-heart wishlist-btn-icon" aria-hidden="true" data-wishlist-icon></i>
-                <span id="wishlistBtnLabel">Add to Wishlist</span>
-              </button>
-            </div>
-
-            <div class="trust-grid" id="trustGrid"></div>
-          </div>
         </article>
+
+        <aside class="details-panel purchase-panel pd-buy" aria-label="Purchase options">
+          <div id="productOptionsPreview"></div>
+
+          <div class="purchase-header pd-qty-row">
+            <span class="purchase-label">Quantity</span>
+            <div class="quantity-stepper" aria-label="Quantity selector">
+              <button type="button" class="qty-btn" id="qtyDecrease" aria-label="Decrease quantity">-</button>
+              <input type="number" id="quantityInput" min="1" value="1" inputmode="numeric" aria-label="Quantity">
+              <button type="button" class="qty-btn" id="qtyIncrease" aria-label="Increase quantity">+</button>
+            </div>
+            <span class="pd-stock-hint" id="purchaseStockHint"></span>
+          </div>
+          <p class="purchase-caption" id="purchaseCaption">Adjust quantity before adding to cart.</p>
+
+          <div class="cta-grid cta-grid--with-wishlist">
+            <button type="button" class="action-btn action-btn-primary" id="addToCartBtn">
+              <i class="fa-solid fa-cart-plus" aria-hidden="true"></i>
+              <span>Add to Cart</span>
+            </button>
+            <button type="button" class="action-btn action-btn-secondary" id="buyNowBtn">
+              <i class="fa-solid fa-bolt" aria-hidden="true"></i>
+              <span>Buy Now</span>
+            </button>
+            <button type="button" class="action-btn action-btn-wishlist" id="wishlistBtn" aria-pressed="false" data-wishlist-id="">
+              <i class="fa-regular fa-heart wishlist-btn-icon" aria-hidden="true" data-wishlist-icon></i>
+              <span id="wishlistBtnLabel">Add to Wishlist</span>
+            </button>
+          </div>
+        </aside>
       </div>
     </section>
 
-    <section class="container details-content-grid">
+    <section class="container pd-trust" id="trustGrid" aria-label="Shopping benefits"></section>
+
+    <section class="container details-content-grid pd-details">
       <article class="details-panel story-panel">
         <div class="section-head">
-          <span class="section-kicker">Overview</span>
-          <h2>What makes this item worth buying</h2>
+          <span class="section-kicker">Description</span>
+          <h2>Product details</h2>
         </div>
         <div class="story-copy" id="productDescription"></div>
+        <button type="button" class="pd-read-more" id="descriptionToggle" hidden>Read more</button>
       </article>
 
-      <article class="details-panel accordion-panel">
+      <article class="details-panel pd-specs-panel">
         <div class="section-head">
-          <span class="section-kicker">More details</span>
-          <h2>Specifications and policies</h2>
+          <span class="section-kicker">More information</span>
+          <h2>Specifications and shipping</h2>
         </div>
         <div class="accordion-list" id="detailsAccordion"></div>
       </article>
@@ -280,7 +297,7 @@
       <section class="footer-brand" aria-labelledby="footer-brand-title">
         <div class="footer-brand__head">
           <a href="../index.html" class="footer-logo-link" aria-label="Byose Market Home">
-            <img class="footer-logo" src="../img/logo.png" alt="" width="40" height="40" data-brand-logo="footer">
+            <img class="footer-logo" src="../img/logo.png" alt="" width="40" height="40" loading="lazy" decoding="async" data-brand-logo="footer">
           </a>
           <h2 id="footer-brand-title" class="footer-brand__name" data-store-setting="storeName">BYOSE MARKET</h2>
         </div>
@@ -350,9 +367,9 @@
 
   <script src="../services/authservice.js"></script>
   <script src="../services/wishlist-client.js"></script>
-  <script src="../services/recently-viewed-tracker.js"></script>
-  <script src="../js/storefront-settings.js"></script>
-  <script src="../js/products.js"></script>
+  <script src="../services/recently-viewed-tracker.js" defer></script>
+  <script src="../js/storefront-settings.js" defer></script>
+  <script src="../js/products.js" defer></script>
   <script src="../shared/storage.js"></script>
   <script src="../js/utils.js"></script>
   <script type="module" src="../js/byose-cart-bootstrap.js"></script>

@@ -583,8 +583,13 @@ function serializeProduct(product, options = {}) {
     const rawMainImage = hasUsableProductImageValue(source.mainImage)
         ? source.mainImage
         : (hasUsableProductImageValue(source.image) ? source.image : (rawGallery[0] || ''));
-    const mainImage = absolutizePublicAssetUrl(rawMainImage);
+    const originalMainImage = absolutizePublicAssetUrl(rawMainImage);
+    const mainImage = originalMainImage;
+    const cardImage = absolutizePublicAssetUrl(productCardImage.resolveCardPublicUrl(rawMainImage || originalMainImage)) || '';
     const gallery = absolutizePublicAssetList(rawGallery.length ? rawGallery : [rawMainImage]);
+    const galleryCardImages = gallery.map((entry) => (
+        absolutizePublicAssetUrl(productCardImage.resolveCardPublicUrl(entry)) || ''
+    ));
 
     return enrichSerializedProductColorVariants({
         ...source,
@@ -602,9 +607,12 @@ function serializeProduct(product, options = {}) {
         mainImage,
         image: mainImage,
         thumbnail: mainImage,
+        cardImage,
+        originalImage: originalMainImage,
         mainImageStoragePath: source.mainImageStoragePath || source.imageStoragePath || '',
         imageStoragePath: source.imageStoragePath || source.mainImageStoragePath || '',
         gallery,
+        galleryCardImages,
         galleryStoragePaths: Array.isArray(source.galleryStoragePaths) ? source.galleryStoragePaths : [],
         keywords: uniqueStrings(source.keywords || []),
         specs: Array.isArray(source.specs)

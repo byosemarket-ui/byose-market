@@ -52,16 +52,6 @@ html.details-theme-lock body.details-page.gradient-theme {
     linear-gradient(180deg, #f8fffd 0%, #f4fbf9 48%, #eef7f4 100%) !important;
 }
 
-html.details-theme-lock .main-header {
-  background: rgba(248, 255, 253, 0.88) !important;
-  border-bottom-color: rgba(18, 33, 39, 0.06) !important;
-}
-
-html.details-theme-lock .main-header.is-scrolled {
-  background: rgba(248, 255, 253, 0.96) !important;
-  box-shadow: 0 10px 30px rgba(13, 41, 35, 0.08) !important;
-}
-
 html.details-theme-lock .details-panel {
   border-color: rgba(18, 33, 39, 0.08) !important;
   background:
@@ -103,15 +93,79 @@ html.details-theme-lock .gallery-stage {
     linear-gradient(180deg, rgba(246, 251, 249, 0.9), rgba(233, 244, 240, 0.9)) !important;
 }
 
+@media (max-width: 599px) {
+  html.details-theme-lock .product-details-page .gallery-panel,
+  html.details-theme-lock .product-details-page .info-panel,
+  html.details-theme-lock .product-details-page .product-price-block {
+    background: transparent !important;
+    box-shadow: none !important;
+    border-color: transparent !important;
+  }
+
+  html.details-theme-lock .product-details-page .gallery-stage-shell,
+  html.details-theme-lock .product-details-page .gallery-stage,
+  html.details-theme-lock .product-details-page .purchase-panel,
+  html.details-theme-lock .product-details-page .story-panel,
+  html.details-theme-lock .product-details-page .pd-specs-panel {
+    background: #ffffff !important;
+  }
+}
+
+@media (min-width: 600px) and (max-width: 1023px) {
+  html.details-theme-lock .product-details-page .gallery-panel,
+  html.details-theme-lock .product-details-page .info-panel,
+  html.details-theme-lock .product-details-page .product-price-block {
+    background: transparent !important;
+    box-shadow: none !important;
+    border-color: transparent !important;
+  }
+
+  html.details-theme-lock .product-details-page .gallery-stage-shell,
+  html.details-theme-lock .product-details-page .gallery-stage,
+  html.details-theme-lock .product-details-page .purchase-panel,
+  html.details-theme-lock .product-details-page .story-panel,
+  html.details-theme-lock .product-details-page .pd-specs-panel {
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  html.details-theme-lock .product-details-page .purchase-panel,
+  html.details-theme-lock .product-details-page .story-panel,
+  html.details-theme-lock .product-details-page .pd-specs-panel {
+    box-shadow: 0 10px 24px rgba(7, 33, 29, 0.06) !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  html.details-theme-lock .product-details-page .gallery-panel,
+  html.details-theme-lock .product-details-page .info-panel,
+  html.details-theme-lock .product-details-page .product-price-block {
+    background: transparent !important;
+    box-shadow: none !important;
+    border-color: transparent !important;
+  }
+
+  html.details-theme-lock .product-details-page .gallery-stage-shell,
+  html.details-theme-lock .product-details-page .gallery-stage {
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  html.details-theme-lock .product-details-page .purchase-panel,
+  html.details-theme-lock .product-details-page .story-panel,
+  html.details-theme-lock .product-details-page .pd-specs-panel {
+    background: #ffffff !important;
+    box-shadow: 0 10px 28px rgba(7, 33, 29, 0.06) !important;
+  }
+}
+
 html.details-theme-lock .details-bottom-bar__shell {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 251, 250, 0.95)),
-    linear-gradient(120deg, rgba(0, 184, 148, 0.08), rgba(255, 255, 255, 0)) !important;
-  border-top-color: rgba(255, 255, 255, 0.7) !important;
+  background: rgba(255, 255, 255, 0.97) !important;
+  border-color: rgba(18, 33, 39, 0.08) !important;
 }
 
 html.details-theme-lock .details-bottom-bar__icon-link {
-  background: linear-gradient(180deg, rgba(246, 249, 248, 0.96), rgba(236, 243, 241, 0.9)) !important;
+  background: #f4f7f6 !important;
   color: #18352f !important;
 }
 
@@ -122,10 +176,13 @@ html.details-theme-lock .storefront-footer {
   color: #122127 !important;
 }
 
-html.details-theme-lock input,
-html.details-theme-lock select,
-html.details-theme-lock textarea,
-html.details-theme-lock button {
+html.details-theme-lock .product-details-page input,
+html.details-theme-lock .product-details-page select,
+html.details-theme-lock .product-details-page textarea,
+html.details-theme-lock .product-details-page button,
+html.details-theme-lock .details-bottom-bar button,
+html.details-theme-lock .product-config-modal input,
+html.details-theme-lock .product-config-modal button {
   color-scheme: light only;
 }
 

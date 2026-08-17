@@ -1,6 +1,6 @@
 (function () {
   const CART_KEY = 'byose_market_cart_v1';
-  const WHATSAPP_NUMBER = '250723137250';
+  const FALLBACK_WHATSAPP_NUMBER = '250723731250';
 
   function getBottomBar() {
     return document.getElementById('detailsBottomBar');
@@ -52,7 +52,7 @@
       return;
     }
 
-    if (window.innerWidth >= 1025) {
+    if (window.innerWidth >= 600) {
       document.body.style.paddingBottom = '';
       document.body.style.removeProperty('--details-bottom-bar-offset');
       return;
@@ -67,7 +67,10 @@
   function forwardActionClick(buttonId) {
     return () => {
       const button = document.getElementById(buttonId);
-      button?.click();
+      if (!button || button.disabled || button.dataset.busy === 'true') {
+        return;
+      }
+      button.click();
     };
   }
 
@@ -81,10 +84,22 @@
       window.location.href
     ].filter(Boolean).join('\n');
 
-    window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
+    const settings = window.ByoseStoreSettings || {};
+    const rawNumber = settings.whatsappContact || settings.whatsappNumber || FALLBACK_WHATSAPP_NUMBER;
+    const href = window.ByoseStoreSettingsLoader && typeof window.ByoseStoreSettingsLoader.waHref === 'function'
+      ? window.ByoseStoreSettingsLoader.waHref(rawNumber, message)
+      : `https://wa.me/${String(rawNumber).replace(/\D+/g, '')}?text=${encodeURIComponent(message)}`;
+
+    window.open(href, '_blank', 'noopener');
   }
 
   function bindActions() {
+    const bar = getBottomBar();
+    if (!bar || bar.dataset.actionsBound === 'true') {
+      return;
+    }
+
+    bar.dataset.actionsBound = 'true';
     document.getElementById('stickyAddToCartBtn')?.addEventListener('click', forwardActionClick('addToCartBtn'));
     document.getElementById('stickyBuyNowBtn')?.addEventListener('click', forwardActionClick('buyNowBtn'));
     document.getElementById('detailsChatButton')?.addEventListener('click', openProductChat);
@@ -105,6 +120,9 @@
     window.addEventListener('kcart:updated', updateCartBadge);
     window.addEventListener('byose:storefront-state-updated', updateCartBadge);
     window.addEventListener('resize', updateBodySpacing, { passive: true });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', updateBodySpacing, { passive: true });
+    }
     window.addEventListener('pageshow', () => {
       updateCartBadge();
       updateBodySpacing();

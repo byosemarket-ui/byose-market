@@ -69,11 +69,60 @@
 
   migrateStoredApiBase(normalizeApiBase(global.BYOSE_API_BASE_URL || resolvedApiBase));
 
-  // Start the public catalog request in <head> so Home/Shop do not wait for
-  // the ES-module waterfall before products can render.
-  if (!global.__BYOSE_CATALOG_PREFETCH__ && typeof global.fetch === "function") {
+  var apiBase = normalizeApiBase(global.BYOSE_API_BASE_URL || resolvedApiBase);
+  var pathName = String(global.location && global.location.pathname || "");
+  var isProductDetails = /product-details/i.test(pathName);
+
+  // Product Details: prefetch the opened product, not the full catalog.
+  // Catalog prefetch on this page competes with the main product image.
+  if (isProductDetails && typeof global.fetch === "function") {
     try {
-      var catalogUrl = normalizeApiBase(global.BYOSE_API_BASE_URL || resolvedApiBase) + "/products?limit=120&fields=card";
+      var params = new URLSearchParams(global.location && global.location.search || "");
+      var productId = String(params.get("id") || params.get("product") || "").trim();
+      if (productId && !global.__BYOSE_PRODUCT_PREFETCH__) {
+        global.__BYOSE_PRODUCT_PREFETCH_ID__ = productId;
+        global.__BYOSE_PRODUCT_PREFETCH__ = global.fetch(apiBase + "/products/" + encodeURIComponent(productId), {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          credentials: "same-origin",
+          cache: "default"
+        }).then(function parseProductPrefetch(response) {
+          if (!response || !response.ok) {
+            throw new Error("product_prefetch_http_" + (response && response.status ? response.status : "0"));
+          }
+          return response.json();
+        }).then(function preloadMainCardImage(payload) {
+          try {
+            var product = payload && payload.product;
+            var cardImage = product && product.cardImage ? String(product.cardImage).trim() : "";
+            if (cardImage && /\/products\/cards\//i.test(cardImage) && document.head) {
+              if (cardImage.charAt(0) === "/" && global.location && global.location.origin) {
+                cardImage = String(global.location.origin).replace(/\/+$/, "") + cardImage;
+              }
+              var already = document.querySelector('link[rel="preload"][as="image"][href="' + cardImage.replace(/"/g, '\\"') + '"]');
+              if (!already) {
+                var preload = document.createElement("link");
+                preload.rel = "preload";
+                preload.as = "image";
+                preload.href = cardImage;
+                preload.setAttribute("fetchpriority", "high");
+                document.head.appendChild(preload);
+              }
+            }
+          } catch (_preloadError) {
+            // Image preload is an optimization, not required for product data.
+          }
+          return payload;
+        });
+      }
+    } catch (_error) {
+      global.__BYOSE_PRODUCT_PREFETCH__ = null;
+    }
+  } else if (!global.__BYOSE_CATALOG_PREFETCH__ && typeof global.fetch === "function") {
+    // Start the public catalog request in <head> so Home/Shop do not wait for
+    // the ES-module waterfall before products can render.
+    try {
+      var catalogUrl = apiBase + "/products?limit=120&fields=card";
       global.__BYOSE_CATALOG_PREFETCH__ = global.fetch(catalogUrl, {
         method: "GET",
         headers: { Accept: "application/json" },

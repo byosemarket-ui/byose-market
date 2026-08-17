@@ -151,7 +151,8 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
     currentQuantity: 1,
     initialQuantity: 1,
     validationMessage: '',
-    scrollTop: 0
+    scrollTop: 0,
+    committing: false
   };
 
   function lockPageScroll() {
@@ -380,13 +381,21 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
   }
 
   function commit(action) {
+    if (state.committing) {
+      return;
+    }
+
     if (!validate(action)) {
       return;
     }
 
+    state.committing = true;
     const variants = getVariants().filter(variant => variant.qty > 0);
     onSubmit?.(action, variants);
     close();
+    window.setTimeout(() => {
+      state.committing = false;
+    }, 450);
   }
 
   function handleModalClick(event) {

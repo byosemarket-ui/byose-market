@@ -48,6 +48,15 @@ export async function getAllProductContent() {
   }
 }
 
+export function getCachedProductContent() {
+  try {
+    const cached = productService.getCachedProducts();
+    return Array.isArray(cached) ? cached : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
 /**
  * LEGACY: productContent array - DEPRECATED
  * Kept as empty export for backwards compatibility only

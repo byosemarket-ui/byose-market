@@ -263,11 +263,19 @@
 
 /* ========== PURCHASE CARD ========== */
 
-.purchase-card {
+.purchase-card,
+.purchase-panel {
   padding: var(--space-md);
   border-top: 1px solid var(--border-light);
   background: rgba(0, 184, 148, 0.02);
   border-radius: var(--radius-md);
+}
+
+.purchase-panel {
+  border-top: 0;
+  display: grid;
+  gap: var(--space-md);
+  align-content: start;
 }
 
 .purchase-header {
@@ -327,13 +335,16 @@
 
 #quantityInput {
   width: 50px;
+  min-width: 2.5ch;
   border: 0;
   background: transparent;
   color: var(--text-primary);
-  font-size: var(--detail-small);
+  font-size: 1rem;
   font-weight: 800;
   text-align: center;
   padding: 0 var(--space-xs);
+  -webkit-appearance: none;
+  appearance: textfield;
 }
 
 #quantityInput:focus {
@@ -469,7 +480,7 @@
 }
 
 .story-panel,
-.accordion-panel {
+.pd-specs-panel {
   /* Uses .details-panel styles */
 }
 
@@ -647,8 +658,9 @@
   position: fixed;
   left: 50%;
   bottom: 120px;
-  z-index: 160;
+  z-index: 1500;
   min-width: min(90vw, 320px);
+  max-width: min(92vw, 420px);
   transform: translateX(-50%);
   padding: var(--space-md) var(--space-lg);
   border-radius: var(--radius-md);
@@ -834,4 +846,51 @@
   .accordion-item.is-open .accordion-trigger i {
     transform: none !important;
   }
+}
+
+html.details-theme-lock,
+html.details-theme-lock body.details-page {
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+.details-page .product-details-page img {
+  max-width: 100%;
+}
+
+.details-page .action-btn,
+.details-page .qty-btn,
+.details-page .pd-size-chip,
+.details-page .pd-color-swatch,
+.details-page .gallery-control,
+.details-page .gallery-zoom,
+.details-page .gallery-wishlist,
+.details-bottom-bar__button,
+.details-bottom-bar__icon-link {
+  -webkit-appearance: none;
+  appearance: none;
+  touch-action: manipulation;
+}
+
+.details-page .product-details-page .gallery-thumb-row {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+#quantityInput::-webkit-outer-spin-button,
+#quantityInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.details-page .pd-details,
+.details-page .related-section,
+.details-page > .site-footer {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 520px;
+}
+
+.details-page #relatedProducts {
+  min-height: 160px;
 }

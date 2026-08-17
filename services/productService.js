@@ -902,6 +902,32 @@ async function consumeCatalogPrefetch() {
   return null;
 }
 
+async function consumeProductPrefetch(productId) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const pending = window.__BYOSE_PRODUCT_PREFETCH__;
+  const prefetchId = String(window.__BYOSE_PRODUCT_PREFETCH_ID__ || "").trim();
+  if (!pending || typeof pending.then !== "function" || prefetchId !== String(productId || "").trim()) {
+    return null;
+  }
+
+  window.__BYOSE_PRODUCT_PREFETCH__ = null;
+  window.__BYOSE_PRODUCT_PREFETCH_ID__ = "";
+  try {
+    const payload = await pending;
+    const product = payload?.product;
+    if (product) {
+      return normalizeProductRecord(product);
+    }
+  } catch (_error) {
+    // Fall through to a normal product request.
+  }
+
+  return null;
+}
+
 async function fetchCatalogSnapshot(signal) {
   traceStorefrontStage("api-request", { path: STOREFRONT_CATALOG_QUERY });
   const prefetched = await consumeCatalogPrefetch();
@@ -1107,6 +1133,11 @@ export async function getProductById(productId) {
       if (adminProduct) {
         return adminProduct;
       }
+    }
+
+    const prefetched = await consumeProductPrefetch(id);
+    if (prefetched) {
+      return prefetched;
     }
 
     return await requestFullProduct(`products/${encodeURIComponent(id)}`, false);

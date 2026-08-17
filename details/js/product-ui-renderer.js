@@ -2,14 +2,13 @@ import { buildAttributeSummary, getPrimarySelectionImage, isSelectionComplete } 
 import {
   COLOR_ATTR_NAME,
   SIZE_ATTR_NAME,
-  countInStockColors,
   enrichProductColorVariants,
   extractColorVariantsFromProduct,
   getSizesForColor,
   hasPurchasableVariant,
   isColorSizeInventory
 } from '../../js/color-variant-inventory.js';
-import { normalizeStorefrontAssetUrl } from '../../services/storefront-asset-url.js';
+import { normalizeStorefrontAssetUrl, toProductCardImageUrl } from '../../services/storefront-asset-url.js';
 
 function escapeHtml(value) {
   return String(value || '')
@@ -45,7 +44,81 @@ function getSizeLabel(sizeValue, sizeOptions = []) {
   return match?.label || sizeValue || '';
 }
 
-export function renderProductOptionPreview(root, attributes, product = null) {
+function buildInlineColorSizeMarkup(product, attributes, selectedAttributes = {}) {
+  const enrichedProduct = enrichProductColorVariants(product, normalizeStorefrontAssetUrl);
+  const colorVariants = extractColorVariantsFromProduct(enrichedProduct);
+  const selectedColorId = selectedAttributes?.[COLOR_ATTR_NAME] || '';
+  const selectedSizeValue = selectedAttributes?.[SIZE_ATTR_NAME] || '';
+  const selectedColorLabel = getColorLabel(enrichedProduct, selectedColorId, attributes, selectedAttributes);
+  const sizeOptions = selectedColorId ? getSizesForColor(enrichedProduct, selectedColorId) : [];
+  const selectedSizeLabel = getSizeLabel(selectedSizeValue, sizeOptions);
+  const fallbackImage = enrichedProduct?.mainImage || enrichedProduct?.image || '../img/logo.png';
+
+  const colorTiles = colorVariants.map((color) => {
+    const isActive = String(selectedColorId) === String(color.id);
+    const isDisabled = Number(color.totalStock) <= 0;
+    const originalImage = resolveModalImage(color.image, fallbackImage);
+    const previewImage = toProductCardImageUrl(originalImage) || originalImage;
+
+    return `
+      <button
+        type="button"
+        class="pd-color-swatch${isActive ? ' is-active' : ''}${isDisabled ? ' is-disabled' : ''}"
+        data-attribute-name="${escapeHtml(COLOR_ATTR_NAME)}"
+        data-attribute-value="${escapeHtml(color.id)}"
+        aria-pressed="${isActive ? 'true' : 'false'}"
+        aria-label="${escapeHtml(color.colorName)}"
+        ${isDisabled ? 'disabled' : ''}
+      >
+        <img src="${escapeHtml(previewImage)}" data-full="${escapeHtml(originalImage)}" alt="${escapeHtml(color.colorName)}" width="56" height="56" loading="lazy" decoding="async" fetchpriority="low" onerror="if(this.dataset.full&&this.src!==this.dataset.full){this.src=this.dataset.full;}else{this.onerror=null;this.src='../img/logo.png';}">
+      </button>
+    `;
+  }).join('');
+
+  const sizeChips = sizeOptions.length
+    ? sizeOptions.map((option) => {
+        const isActive = String(selectedSizeValue) === String(option.value);
+        const stock = Number(option.stock) || 0;
+        const isDisabled = stock <= 0;
+
+        return `
+          <button
+            type="button"
+            class="pd-size-chip${isActive ? ' is-active' : ''}${isDisabled ? ' is-disabled' : ''}"
+            data-attribute-name="${escapeHtml(SIZE_ATTR_NAME)}"
+            data-attribute-value="${escapeHtml(option.value)}"
+            aria-pressed="${isActive ? 'true' : 'false'}"
+            ${isDisabled ? 'disabled' : ''}
+          >
+            ${escapeHtml(option.label)}
+          </button>
+        `;
+      }).join('')
+    : `<p class="pd-variant-empty">${selectedColorId ? 'No sizes for this color.' : 'Pick a color first.'}</p>`;
+
+  return `
+    <div class="pd-variants">
+      <div class="pd-variant-group">
+        <div class="pd-variant-head">
+          <span>Color: <strong>${escapeHtml(selectedColorLabel || 'Select color')}</strong></span>
+        </div>
+        <div class="pd-color-grid">
+          ${colorTiles || `<p class="pd-variant-empty">No colors available.</p>`}
+        </div>
+      </div>
+      <div class="pd-variant-group">
+        <div class="pd-variant-head">
+          <span>Size: <strong>${escapeHtml(selectedSizeLabel || 'Select size')}</strong></span>
+        </div>
+        <div class="pd-size-grid">
+          ${sizeChips}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+export function renderProductOptionPreview(root, attributes, product = null, selectedAttributes = {}) {
   if (!root) {
     return;
   }
@@ -53,21 +126,10 @@ export function renderProductOptionPreview(root, attributes, product = null) {
   const enrichedProduct = product ? enrichProductColorVariants(product, normalizeStorefrontAssetUrl) : null;
 
   if (!Array.isArray(attributes) || !attributes.length) {
-    root.innerHTML = `
-      <div class="purchase-option-banner purchase-option-banner--plain">
-        <div>
-          <span class="purchase-option-banner__eyebrow">Ready to order</span>
-          <strong>No required configuration</strong>
-        </div>
-        <p>Add to cart or buy now directly. Quantity can still be adjusted before checkout.</p>
-      </div>
-    `;
+    root.innerHTML = '';
     return;
   }
 
-  const colorCount = isColorSizeInventory(enrichedProduct)
-    ? countInStockColors(enrichedProduct)
-    : (attributes.find((entry) => entry.name === COLOR_ATTR_NAME)?.options?.filter((option) => Number(option.stock) > 0).length || 0);
   const purchasable = hasPurchasableVariant(enrichedProduct || product);
 
   if (!purchasable) {
@@ -83,12 +145,19 @@ export function renderProductOptionPreview(root, attributes, product = null) {
     return;
   }
 
+  if (isColorSizeInventory(enrichedProduct)) {
+    root.innerHTML = buildInlineColorSizeMarkup(enrichedProduct, attributes, selectedAttributes);
+    return;
+  }
+
+  const colorCount = attributes.find((entry) => entry.name === COLOR_ATTR_NAME)?.options?.filter((option) => Number(option.stock) > 0).length || 0;
+
   root.innerHTML = `
     <div class="purchase-option-banner purchase-option-banner--inventory">
       <div class="purchase-option-banner__lead">
         <span class="purchase-option-banner__eyebrow">Configure your order</span>
-        <strong>Select color, then size</strong>
-        <p>${colorCount} color${colorCount === 1 ? '' : 's'} available · Stock updates live per selection</p>
+        <strong>Select options to continue</strong>
+        <p>${colorCount ? `${colorCount} color${colorCount === 1 ? '' : 's'} available · ` : ''}Stock updates live per selection</p>
       </div>
       <button type="button" class="purchase-option-banner__cta" data-open-config-modal>
         Select Options

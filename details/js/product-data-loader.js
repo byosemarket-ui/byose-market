@@ -1,86 +1,18 @@
-import { getAllProductContent, getProductContentById } from './product-content.js';
-import { normalizeStorefrontAssetList, normalizeStorefrontAssetUrl, resolveProductImageUrl } from '../../services/storefront-asset-url.js';
+import { getAllProductContent, getCachedProductContent, getProductContentById } from './product-content.js';
+import {
+  isProductCardImageUrl,
+  normalizeStorefrontAssetList,
+  normalizeStorefrontAssetUrl,
+  resolveProductDisplayImage,
+  resolveProductImageUrl,
+  toProductCardImageUrl
+} from '../../services/storefront-asset-url.js';
 import { buildDiscountedProductView } from '../../js/storefront-discount.js';
 import { computeProductTotalStock, extractColorVariantsFromProduct } from '../../js/color-variant-inventory.js';
-
-const CATEGORY_COPY = {
-  shoes: {
-    label: 'Shoes',
-    badge: 'Top Pick',
-    description: 'Built for everyday movement with a light upper, supportive base, and a cleaner finish that works from weekday errands to weekend outings.',
-    longDescription: [
-      'This product is selected for shoppers who want comfort, durability, and a modern silhouette without paying luxury pricing. The profile is easy to style, the material mix is practical for daily wear, and the fit is tuned for repeat use.',
-      'The overall build keeps the look streamlined while still focusing on everyday performance. You get an item that feels current, photographs well, and stays useful across multiple situations instead of serving only one outfit or occasion.'
-    ],
-    highlights: ['Comfort-focused daily wear', 'Balanced grip and lightweight build', 'Easy to pair with casual outfits'],
-    specs: [
-      ['Material', 'Breathable mixed upper'],
-      ['Use case', 'Daily wear'],
-      ['Closure', 'Secure standard fit'],
-      ['Finish', 'Easy-clean surface']
-    ],
-    trust: ['Fast delivery in Kigali', 'Easy exchange support', 'Verified catalog item']
-  },
-  electronics: {
-    label: 'Electronics',
-    badge: 'Smart Choice',
-    description: 'A reliable electronics pick with practical performance, clear value, and a design that fits naturally into modern daily use.',
-    longDescription: [
-      'This item focuses on the basics that matter most: dependable operation, straightforward setup, and a polished presentation that feels more premium than its price point suggests.',
-      'It is a strong fit for customers who want functional tech without unnecessary complexity. The product is selected to stay relevant for routine use and gifting alike.'
-    ],
-    highlights: ['Good value for the category', 'Practical features for daily use', 'Clean presentation with modern styling'],
-    specs: [
-      ['Category', 'Consumer electronics'],
-      ['Setup', 'Ready for daily use'],
-      ['Power', 'Standard efficient usage'],
-      ['Packaging', 'Protected retail packaging']
-    ],
-    trust: ['Secure checkout support', 'Catalog-tested selection', 'Quick after-sale help']
-  },
-  fashion: {
-    label: 'Fashion',
-    badge: 'Trending',
-    description: 'A polished fashion piece chosen for a strong visual finish, practical wearability, and an easy fit into everyday style rotation.',
-    longDescription: [
-      'This product is designed to help shoppers build a cleaner look with less effort. The styling is intentional, the presentation feels current, and the overall piece is flexible enough for both regular wear and occasion dressing.',
-      'Instead of chasing short-term novelty, the selection prioritizes repeat wear, easy matching, and a finish that looks good both in person and in photos.'
-    ],
-    highlights: ['Modern styling', 'Comfortable everyday use', 'Works with multiple outfit types'],
-    specs: [
-      ['Style', 'Modern everyday fashion'],
-      ['Care', 'Simple maintenance'],
-      ['Finish', 'Clean visual detailing'],
-      ['Fit', 'Versatile regular fit']
-    ],
-    trust: ['Curated seasonal selection', 'Responsive customer support', 'Easy order tracking']
-  },
-  default: {
-    label: 'Featured',
-    badge: 'Featured',
-    description: 'A practical catalog item selected for value, clean design, and dependable everyday use.',
-    longDescription: [
-      'This product balances presentation, usefulness, and price in a way that makes it easy to recommend for a wide range of shoppers.',
-      'It is intended to feel current, straightforward, and dependable rather than overly complicated.'
-    ],
-    highlights: ['Strong overall value', 'Modern catalog presentation', 'Ready for daily use'],
-    specs: [
-      ['Category', 'General merchandise'],
-      ['Availability', 'In active catalog'],
-      ['Support', 'Standard customer support'],
-      ['Delivery', 'Fast local handling']
-    ],
-    trust: ['Reliable shopping experience', 'Easy checkout flow', 'Customer-friendly support']
-  }
-};
 
 async function getCatalog() {
   const detailCatalog = await getAllProductContent();
   return Array.isArray(detailCatalog) ? detailCatalog : [];
-}
-
-function getCategoryProfile(category) {
-  return CATEGORY_COPY[String(category || '').toLowerCase()] || CATEGORY_COPY.default;
 }
 
 function splitDescriptionParagraphs(value) {
@@ -166,13 +98,42 @@ function normalizeSpecEntries(specs) {
     .filter(Boolean);
 }
 
-function computeRating(product) {
-  const base = 4.2 + ((Number(product.id) * 7) % 7) * 0.1;
-  return Math.min(4.9, Number(base.toFixed(1)));
-}
+function resolveSocialProof(product) {
+  const ratingCandidates = [product?.rating, product?.averageRating, product?.ratingAverage];
+  let rating = null;
+  for (const candidate of ratingCandidates) {
+    const parsed = Number(candidate);
+    if (candidate != null && candidate !== '' && Number.isFinite(parsed) && parsed > 0) {
+      rating = Math.min(5, Number(parsed.toFixed(1)));
+      break;
+    }
+  }
 
-function computeReviewCount(product) {
-  return 26 + Number(product.id || 0) * 11;
+  const reviewCandidates = [
+    product?.reviewCount,
+    product?.reviewsCount,
+    Array.isArray(product?.reviews) ? product.reviews.length : null
+  ];
+  let reviewCount = 0;
+  for (const candidate of reviewCandidates) {
+    const parsed = Number(candidate);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      reviewCount = Math.round(parsed);
+      break;
+    }
+  }
+
+  const soldCandidates = [product?.sold, product?.soldCount, product?.unitsSold, product?.salesCount];
+  let soldCount = 0;
+  for (const candidate of soldCandidates) {
+    const parsed = Number(candidate);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      soldCount = Math.round(parsed);
+      break;
+    }
+  }
+
+  return { rating, reviewCount, soldCount };
 }
 
 function computeStock(product) {
@@ -186,31 +147,121 @@ function computeStock(product) {
     return configuredStock;
   }
 
-  return 8 + (Number(product.id || 0) * 3) % 17;
+  return 0;
 }
 
-function buildSpecs(product, profile) {
-  const discount = getDiscount(product.price, product.oldPrice);
-  const stockCount = computeStock(product);
-  const derivedSpecs = [
-    ['SKU', `BM-${String(product.id).padStart(4, '0')}`],
-    ['Category', profile.label],
-    ['Availability', stockCount > 0 ? `${stockCount} units ready` : 'Out of stock'],
-    ['Discount', discount > 0 ? `${discount}% off` : 'Best value pricing']
+function firstText(...values) {
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (text) {
+      return text;
+    }
+  }
+
+  return '';
+}
+
+function resolveList(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry || '').trim()).filter(Boolean);
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    return value.split(/\n+|•/).map((entry) => entry.trim()).filter(Boolean);
+  }
+
+  return [];
+}
+
+function resolveHighlights(product) {
+  const candidates = [
+    product?.highlights,
+    product?.features,
+    product?.keyFeatures,
+    product?.metadata?.highlights,
+    product?.metadata?.features
   ];
 
-  const configuredSpecs = normalizeSpecEntries(profile.specs);
-  const usedLabels = new Set(configuredSpecs.map(([label]) => String(label).toLowerCase()));
-  const supplementalSpecs = derivedSpecs.filter(([label]) => !usedLabels.has(String(label).toLowerCase()));
+  for (const candidate of candidates) {
+    const items = resolveList(candidate);
+    if (items.length) {
+      return items;
+    }
+  }
 
-  return [...configuredSpecs, ...supplementalSpecs].slice(0, 8);
+  return [];
+}
+
+function buildSpecs(product) {
+  const stockCount = computeStock(product);
+  const discount = getDiscount(product.price, product.oldPrice);
+  const derivedSpecs = [
+    ['Brand', firstText(product.brand, product.brandName, product.metadata?.brand)],
+    ['Category', product.category ? titleCase(product.category) : ''],
+    ['SKU', firstText(product.sku, product.skuCode, product.metadata?.sku)],
+    ['Material', firstText(product.material, product.metadata?.material)],
+    ['Color', firstText(product.color, product.colour, product.metadata?.color)],
+    ['Weight', firstText(product.weight, product.metadata?.weight)],
+    ['Origin', firstText(product.countryOfOrigin, product.origin, product.metadata?.origin)],
+    ['Availability', Number.isFinite(stockCount) ? (stockCount > 0 ? `${stockCount} in stock` : 'Out of stock') : '']
+  ];
+
+  if (discount > 0) {
+    derivedSpecs.push(['Discount', `${discount}% off`]);
+  }
+
+  const configuredSpecs = normalizeSpecEntries(product.specs);
+  const usedLabels = new Set();
+  const specs = [];
+
+  for (const [label, value] of [...configuredSpecs, ...derivedSpecs]) {
+    const key = String(label || '').toLowerCase();
+    if (!key || !value || usedLabels.has(key)) {
+      continue;
+    }
+
+    usedLabels.add(key);
+    specs.push([label, value]);
+  }
+
+  return specs;
+}
+
+function pickOriginalProductImage(product) {
+  const candidates = [
+    product?.originalImage,
+    isProductCardImageUrl(product?.mainImage) ? '' : product?.mainImage,
+    isProductCardImageUrl(product?.image) ? '' : product?.image,
+    ...(Array.isArray(product?.gallery) ? product.gallery : [])
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeStorefrontAssetUrl(candidate);
+    if (!normalized || isProductCardImageUrl(normalized) || /^javascript:/i.test(normalized)) {
+      continue;
+    }
+
+    const lowered = normalized.replace(/\\/g, '/').toLowerCase();
+    if (/(?:^|\/)img\/logo\.png(?:\?|#|$)/.test(lowered) || lowered.endsWith('/img/logo.png')) {
+      continue;
+    }
+
+    return normalized;
+  }
+
+  return '';
+}
+
+function usableCardImageUrl(value) {
+  const normalized = normalizeStorefrontAssetUrl(value);
+  return isProductCardImageUrl(normalized) ? normalized : '';
 }
 
 function mergeProductContent(product) {
   const mergedProduct = {
     ...product
   };
-  const mainImage = resolveProductImageUrl({
+  const resolvedFallback = resolveProductImageUrl({
     ...mergedProduct,
     mainImage: mergedProduct.mainImage || mergedProduct.image || product.mainImage || product.image,
     image: mergedProduct.image || mergedProduct.mainImage || product.image || product.mainImage,
@@ -220,7 +271,32 @@ function mergeProductContent(product) {
     imageStoragePath: mergedProduct.imageStoragePath || product.imageStoragePath,
     galleryStoragePaths: mergedProduct.galleryStoragePaths || product.galleryStoragePaths
   });
-  const gallery = normalizeGallery(mainImage, mergedProduct.gallery || product.gallery);
+  const mainImage = pickOriginalProductImage(mergedProduct) || resolvedFallback;
+  const gallery = normalizeGallery(mainImage, mergedProduct.gallery || product.gallery).filter((entry) => !isProductCardImageUrl(entry));
+  const uniqueGallery = gallery.length ? gallery : (mainImage ? [mainImage] : []);
+  const providedCards = Array.isArray(mergedProduct.galleryCardImages) ? mergedProduct.galleryCardImages : [];
+  const hasApiCardList = Array.isArray(mergedProduct.galleryCardImages);
+  const galleryCardImages = uniqueGallery.map((entry, index) => {
+    const provided = usableCardImageUrl(providedCards[index] || '');
+    if (provided) {
+      return provided;
+    }
+
+    if (index === 0) {
+      const mainCard = usableCardImageUrl(mergedProduct.cardImage || '');
+      if (mainCard) {
+        return mainCard;
+      }
+    }
+
+    if (!hasApiCardList) {
+      return toProductCardImageUrl(entry) || '';
+    }
+
+    return '';
+  });
+  const display = resolveProductDisplayImage(mainImage, mergedProduct.cardImage || galleryCardImages[0] || '');
+  const cardImage = display.preview;
   const price = Number(mergedProduct.price ?? product.price ?? product.salePrice ?? 0);
   const compareCandidates = [
     mergedProduct.oldPrice,
@@ -256,39 +332,40 @@ function mergeProductContent(product) {
       : (oldPrice > price ? Math.round(((oldPrice - price) / oldPrice) * 100) : 0),
     stock: Number(mergedProduct.stock ?? product.stock ?? 0),
     mainImage,
-    gallery,
+    originalImage: mainImage,
+    cardImage,
+    gallery: uniqueGallery,
+    galleryCardImages,
     image: mainImage
   };
 }
 
-function buildAccordion(product, profile, specs) {
-  return [
-    {
-      id: 'description',
-      title: 'Full Description',
-      open: true,
-      type: 'paragraphs',
-      content: profile.longDescription
-    },
-    {
+function buildAccordion(product, specs) {
+  const sections = [];
+
+  if (Array.isArray(specs) && specs.length) {
+    sections.push({
       id: 'specifications',
       title: 'Specifications',
-      open: false,
+      open: true,
       type: 'specs',
       content: specs
-    },
-    {
-      id: 'delivery',
-      title: 'Delivery and Support',
-      open: false,
-      type: 'list',
-      content: [
-        'Fast order handling for customers in Kigali and surrounding areas.',
-        'Support team available for product questions and order follow-up.',
-        'Simple checkout flow with cart and buy-now support built into the page.'
-      ]
-    }
-  ];
+    });
+  }
+
+  sections.push({
+    id: 'delivery',
+    title: 'Delivery and Support',
+    open: false,
+    type: 'list',
+    content: [
+      'Convenient delivery is available for orders placed through BYOSE Market.',
+      'Checkout uses the existing cart and Buy Now flow.',
+      'Customer support is available by phone, WhatsApp, and email.'
+    ]
+  });
+
+  return sections;
 }
 
 function getDiscount(price, oldPrice) {
@@ -318,14 +395,9 @@ export async function loadProductData() {
   }
 
   const mergedProduct = mergeProductContent(product);
-  const profile = getCategoryProfile(mergedProduct.category);
-  const rating = computeRating(mergedProduct);
-  const reviewCount = computeReviewCount(mergedProduct);
+  const socialProof = resolveSocialProof(mergedProduct);
   const stockCount = computeStock(mergedProduct);
-  const baseSpecs = Array.isArray(mergedProduct.specs) && mergedProduct.specs.length
-    ? mergedProduct.specs
-    : profile.specs;
-  const specs = buildSpecs({ ...mergedProduct, price: mergedProduct.price, oldPrice: mergedProduct.oldPrice }, { ...profile, specs: baseSpecs });
+  const specs = buildSpecs(mergedProduct);
   const discount = Number(mergedProduct.discountPercent ?? product.discountPercent ?? 0) > 0
     ? Math.round(Number(mergedProduct.discountPercent ?? product.discountPercent))
     : getDiscount(mergedProduct.price, mergedProduct.oldPrice);
@@ -335,47 +407,42 @@ export async function loadProductData() {
       return fromArray;
     }
 
-    const fromText = splitDescriptionParagraphs(
+    return splitDescriptionParagraphs(
       mergedProduct.description
       || mergedProduct.metadata?.longDescription
       || mergedProduct.metadata?.description
     );
-    if (fromText.length) {
-      return fromText;
-    }
-
-    return profile.longDescription;
   })();
-  const highlights = Array.isArray(mergedProduct.highlights) && mergedProduct.highlights.length
-    ? mergedProduct.highlights
-    : profile.highlights;
+  const highlights = resolveHighlights(mergedProduct);
   const trust = Array.isArray(mergedProduct.trust) && mergedProduct.trust.length
-    ? mergedProduct.trust
-    : profile.trust;
+    ? mergedProduct.trust.filter(Boolean)
+    : [];
 
   return {
     ...mergedProduct,
-    categoryLabel: profile.label || titleCase(mergedProduct.category),
-    badgeLabel: mergedProduct.badge || profile.badge,
-    rating,
-    reviewCount,
+    categoryLabel: firstText(mergedProduct.category) ? titleCase(mergedProduct.category) : '',
+    badgeLabel: firstText(mergedProduct.badge, mergedProduct.badgeLabel, mergedProduct.metadata?.badge),
+    rating: socialProof.rating,
+    reviewCount: socialProof.reviewCount,
+    soldCount: socialProof.soldCount,
     stockCount,
     stockLabel: stockCount > 0 ? `${stockCount} in stock` : 'Out of stock',
     discount,
     discountPercent: discount,
-    shortDescription: mergedProduct.shortDescription || mergedProduct.description || profile.description,
+    shortDescription: firstText(mergedProduct.shortDescription, mergedProduct.description, mergedProduct.metadata?.description),
     metaTitle: mergedProduct.metaTitle || mergedProduct.metadata?.metaTitle || mergedProduct.name,
     metaDescription: mergedProduct.metaDescription || mergedProduct.metadata?.metaDescription || mergedProduct.shortDescription || mergedProduct.description,
     longDescription,
     highlights,
     trust,
     specs,
-    accordion: buildAccordion(mergedProduct, { ...profile, longDescription }, specs)
+    accordion: buildAccordion(mergedProduct, specs)
   };
 }
 
 export async function getRelatedProducts(currentProduct, limit = 5) {
-  const catalog = await getCatalog();
+  const cached = getCachedProductContent();
+  const catalog = cached.length ? cached : await getCatalog();
   const category = String(currentProduct?.category || '').toLowerCase();
   return catalog
     .filter(item => Number(item.id) !== Number(currentProduct.id))
