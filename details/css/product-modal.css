@@ -719,6 +719,39 @@ body.details-config-open .site-footer {
   text-align: center;
 }
 
+.pcm-resolved {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 184, 148, 0.22);
+  background: rgba(0, 184, 148, 0.06);
+  overflow: hidden;
+}
+
+.pcm-resolved__label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--pcm-text-soft);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.pcm-resolved strong {
+  min-width: 0;
+  font-size: 0.82rem;
+  color: var(--pcm-text);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.pcm-section--resolved {
+  opacity: 1;
+}
+
 /* Compact horizontal color tiles */
 .pcm-color-grid {
   display: grid;

@@ -2,17 +2,24 @@ import { buildVariantKey, getPrimarySelectionImage, getSelectionStock, normalize
 import {
   COLOR_ATTR_NAME,
   SIZE_ATTR_NAME,
+  describeColorSizeChoices,
   enrichProductColorVariants,
   hasPurchasableVariant,
   isColorSizeInventory,
   resolveMatrixStock,
   resolveSmartColorSizeSelection
 } from '../../js/color-variant-inventory.js';
-import { buildVariantCartPayload, validateVariantSelection } from '../../js/variant-cart-payload.js';
+import {
+  buildVariantCartPayload,
+  resolvePurchaseSelection,
+  resolveVariantUnitPrice,
+  validateVariantSelection
+} from '../../js/variant-cart-payload.js';
 import { normalizeStorefrontAssetUrl } from '../../services/storefront-asset-url.js';
 import { startBuyNowSession } from '../../orders/checkout-session.js';
 import { createProductModal } from './product-modal.js';
 import { renderProductOptionPreview } from './product-ui-renderer.js';
+import { formatPrice } from './product-data-loader.js';
 
 function createCartPayload(product, quantity, attributes = {}) {
   return buildVariantCartPayload(product, quantity, attributes);
@@ -209,15 +216,29 @@ export function initProductActions(options) {
   let selectedAttributes = usesColorSize
     ? resolveSmartColorSizeSelection(enrichedProduct, {})
     : {};
+  const catalogPrice = Number(product.price || 0);
 
   const modal = createProductModal({
     product,
     attributes,
     showToast,
+    onSelectionChange(nextSelection) {
+      applyCurrentSelection(nextSelection);
+    },
     onSubmit(action, variants) {
       const items = variants
         .map((variant) => {
-          const quantityCheck = validateRequestedQuantity(product, variant.qty, variant.attributes);
+          const resolved = resolvePurchaseSelection(product, variant.attributes);
+          if (resolved.colorSize && !resolved.resolved) {
+            showToast?.(resolved.validation.message || 'This selection is currently unavailable.');
+            return null;
+          }
+
+          const quantityCheck = validateRequestedQuantity(
+            product,
+            variant.qty,
+            resolved.selection
+          );
           if (!quantityCheck.valid || quantityCheck.acceptedQuantity <= 0) {
             showToast?.(quantityCheck.message || 'This selection is currently unavailable.');
             return null;
@@ -227,7 +248,8 @@ export function initProductActions(options) {
             showToast?.(quantityCheck.message);
           }
 
-          return createCartPayload(product, quantityCheck.acceptedQuantity, variant.attributes);
+          selectedAttributes = resolved.selection;
+          return createCartPayload(product, quantityCheck.acceptedQuantity, resolved.selection);
         })
         .filter(Boolean);
 
@@ -243,6 +265,11 @@ export function initProductActions(options) {
       try {
         addItemsToCart(items);
         showToast?.(`${product.name} added to cart`);
+        renderOptions();
+        syncGalleryToSelection();
+        updateStockHint();
+        updatePurchaseCaption();
+        syncDisplayedPrice();
       } catch (error) {
         showToast?.(error?.message || 'Unable to add item to cart.');
       }
@@ -317,8 +344,71 @@ export function initProductActions(options) {
     gallery?.showImage?.(image);
   }
 
+  function syncDisplayedPrice() {
+    const priceEl = document.getElementById('productPrice');
+    if (!priceEl) {
+      return;
+    }
+
+    const unitPrice = usesColorSize
+      ? resolveVariantUnitPrice(product, selectedAttributes)
+      : catalogPrice;
+    if (!Number.isFinite(Number(unitPrice))) {
+      return;
+    }
+
+    priceEl.textContent = formatPrice(unitPrice);
+  }
+
+  function updatePurchaseCaption() {
+    if (!purchaseCaption) {
+      return;
+    }
+
+    if (!purchasable) {
+      purchaseCaption.textContent = 'This product is currently out of stock.';
+      return;
+    }
+
+    if (!usesColorSize) {
+      purchaseCaption.textContent = attributes.length
+        ? 'Choose your options before adding to cart.'
+        : 'Adjust quantity before adding to cart.';
+      return;
+    }
+
+    const choices = describeColorSizeChoices(enrichedProduct, selectedAttributes);
+    if (choices.colorResolved && choices.sizeResolved) {
+      purchaseCaption.textContent = 'Ready to add to cart or buy now.';
+      return;
+    }
+    if (!choices.needsColorChoice && choices.needsSizeChoice) {
+      purchaseCaption.textContent = 'Select a size to continue.';
+      return;
+    }
+    if (choices.needsColorChoice && !choices.needsSizeChoice) {
+      purchaseCaption.textContent = 'Select a color to continue.';
+      return;
+    }
+    if (choices.colorResolved && !choices.sizeResolved) {
+      purchaseCaption.textContent = 'Select a size for your chosen color.';
+      return;
+    }
+    purchaseCaption.textContent = 'Select color and size to continue.';
+  }
+
   function renderOptions() {
     renderProductOptionPreview(optionsPreviewRoot, attributes, product, selectedAttributes);
+  }
+
+  function applyCurrentSelection(nextSelection) {
+    selectedAttributes = resolveSmartColorSizeSelection(enrichedProduct, nextSelection || {});
+    renderOptions();
+    syncGalleryToSelection();
+    updateStockHint();
+    syncQuantity(readQuantity());
+    updatePurchaseCaption();
+    syncDisplayedPrice();
   }
 
   const addButtons = [addToCartButton, document.getElementById('stickyAddToCartBtn')];
@@ -360,33 +450,73 @@ export function initProductActions(options) {
   }
 
   function submitSelection(action, qty, selection) {
-    const quantityCheck = validateRequestedQuantity(product, qty, selection);
+    const resolved = resolvePurchaseSelection(product, selection);
+    if (resolved.colorSize && !resolved.resolved) {
+      showToast?.(resolved.validation.message || 'Please complete a valid color and size selection.');
+      return false;
+    }
+
+    selectedAttributes = resolved.selection;
+    const quantityCheck = validateRequestedQuantity(product, qty, resolved.selection);
     if (!quantityCheck.valid || quantityCheck.acceptedQuantity <= 0) {
       showToast?.(quantityCheck.message || 'This selection is currently unavailable.');
-      return;
+      return false;
     }
 
     if (quantityCheck.message) {
       showToast?.(quantityCheck.message);
     }
 
-    const payload = createCartPayload(product, quantityCheck.acceptedQuantity, selection);
+    const payload = createCartPayload(product, quantityCheck.acceptedQuantity, resolved.selection);
+    if (!payload?.productId && !payload?.id) {
+      showToast?.('Unable to resolve this product variant. Please try another option.');
+      return false;
+    }
+
+    if (resolved.colorSize && !payload?.variantId) {
+      showToast?.('Unable to resolve this product variant. Please try another option.');
+      return false;
+    }
+
     if (action === 'buy') {
       showToast?.('Selection captured. Redirecting to shipping.');
       startDirectCheckout(payload);
-      return;
+      return true;
     }
 
     try {
       addItemsToCart([payload]);
       showToast?.(`${product.name} added to cart`);
+      return true;
     } catch (error) {
       showToast?.(error?.message || 'Unable to add item to cart.');
+      return false;
     }
+  }
+
+  function openSelectionModal(action, qty) {
+    if (typeof modal.isOpen === 'function' && modal.isOpen()) {
+      return;
+    }
+
+    modal.open({
+      action,
+      initialQuantity: qty,
+      selectedAttributes
+    });
   }
 
   function handleSimpleAction(action, sourceButton) {
     if (isAnyPurchaseBusy() || sourceButton?.dataset.busy === 'true') {
+      return;
+    }
+
+    if (typeof modal.isOpen === 'function' && modal.isOpen()) {
+      return;
+    }
+
+    if (document.getElementById('productDetailsPage')?.classList.contains('is-loading')) {
+      showToast?.('Product details are still loading.');
       return;
     }
 
@@ -395,32 +525,34 @@ export function initProductActions(options) {
       return;
     }
 
+    if (usesColorSize) {
+      applyCurrentSelection(selectedAttributes);
+    }
+
     const qty = readQuantity();
 
     if (usesColorSize && attributes.length) {
-      if (!selectedAttributes[COLOR_ATTR_NAME]) {
-        showToast?.('Please select a color to continue.');
-        return;
-      }
+      const resolved = resolvePurchaseSelection(product, selectedAttributes);
+      selectedAttributes = resolved.selection;
 
-      if (!selectedAttributes[SIZE_ATTR_NAME]) {
-        showToast?.('Please select a size for your chosen color.');
-        return;
-      }
-
-      setActionBusy(action, true);
-      try {
-        submitSelection(action, qty, selectedAttributes);
-      } finally {
-        if (action !== 'buy') {
-          unlockActionSoon(action);
+      if (resolved.resolved) {
+        setActionBusy(action, true);
+        try {
+          submitSelection(action, qty, selectedAttributes);
+        } finally {
+          if (action !== 'buy') {
+            unlockActionSoon(action);
+          }
         }
+        return;
       }
+
+      openSelectionModal(action, qty);
       return;
     }
 
     if (attributes.length) {
-      modal.open({ action, initialQuantity: qty });
+      openSelectionModal(action, qty);
       return;
     }
 
@@ -434,20 +566,7 @@ export function initProductActions(options) {
     }
   }
 
-  renderOptions();
-  syncGalleryToSelection();
-  updateStockHint();
-  syncQuantity(readQuantity());
-
-  if (purchaseCaption) {
-    purchaseCaption.textContent = !purchasable
-      ? 'This product is currently out of stock.'
-      : (usesColorSize
-        ? 'Select color and size. Stock updates automatically.'
-        : (attributes.length
-          ? 'Choose your options before adding to cart.'
-          : 'Adjust quantity before adding to cart.'));
-  }
+  applyCurrentSelection(selectedAttributes);
 
   decreaseButton?.addEventListener('click', () => {
     if (!purchasable) return;
@@ -490,11 +609,7 @@ export function initProductActions(options) {
         quantityInput.value = '1';
       }
 
-      selectedAttributes = resolveSmartColorSizeSelection(enrichedProduct, nextSelection);
-      renderOptions();
-      syncGalleryToSelection();
-      updateStockHint();
-      syncQuantity(readQuantity());
+      applyCurrentSelection(nextSelection);
       return;
     }
 
@@ -503,7 +618,7 @@ export function initProductActions(options) {
         showToast?.('This product is currently out of stock.');
         return;
       }
-      modal.open({ action: 'add', initialQuantity: readQuantity() });
+      openSelectionModal('add', readQuantity());
     }
   });
 }

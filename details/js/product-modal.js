@@ -129,7 +129,7 @@ function hasValidColorSizeSelection(product, attributes, selectedAttributes, qua
   return Number.isFinite(stock) && stock > 0 && qty >= 1 && qty <= stock;
 }
 
-export function createProductModal({ product, attributes, onSubmit, showToast }) {
+export function createProductModal({ product, attributes, onSubmit, onSelectionChange, showToast }) {
   const modalRoot = document.getElementById('productConfigModal');
   const modalBody = document.getElementById('productConfigModalBody');
   const enrichedProduct = enrichProductColorVariants(product, normalizeStorefrontAssetUrl);
@@ -140,7 +140,10 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
   if (!modalRoot || !modalBody) {
     return {
       open() {},
-      close() {}
+      close() {},
+      isOpen() {
+        return false;
+      }
     };
   }
 
@@ -152,7 +155,8 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
     initialQuantity: 1,
     validationMessage: '',
     scrollTop: 0,
-    committing: false
+    committing: false,
+    isOpen: false
   };
 
   function lockPageScroll() {
@@ -370,9 +374,15 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
 
     state.selectedAttributes = resolveSmartColorSizeSelection(enrichedProduct, state.selectedAttributes);
     syncCurrentQuantity(state.currentQuantity);
+    onSelectionChange?.({ ...state.selectedAttributes });
   }
 
   function close() {
+    if (!state.isOpen && modalRoot.hidden) {
+      return;
+    }
+
+    state.isOpen = false;
     modalRoot.hidden = true;
     modalRoot.classList.remove('is-open');
     unlockPageScroll();
@@ -407,6 +417,9 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
 
     const optionButton = event.target.closest('[data-attribute-name][data-attribute-value]');
     if (optionButton) {
+      if (optionButton.disabled || optionButton.getAttribute('aria-disabled') === 'true') {
+        return;
+      }
       readScrollPosition();
       const attributeName = optionButton.getAttribute('data-attribute-name');
       const attributeValue = optionButton.getAttribute('data-attribute-value');
@@ -530,11 +543,18 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
     restoreScrollPosition();
   }
 
-  function open({ action = 'add', initialQuantity = 1 } = {}) {
+  function open({ action = 'add', initialQuantity = 1, selectedAttributes = null } = {}) {
+    if (state.isOpen || modalRoot.classList.contains('is-open')) {
+      return;
+    }
+
+    state.isOpen = true;
     state.action = action;
     state.initialQuantity = Math.max(1, Number(initialQuantity) || 1);
     state.currentQuantity = state.initialQuantity;
-    state.selectedAttributes = {};
+    state.selectedAttributes = selectedAttributes && typeof selectedAttributes === 'object'
+      ? { ...selectedAttributes }
+      : {};
     state.quantityByOption = {};
     state.validationMessage = '';
     state.scrollTop = 0;
@@ -550,5 +570,11 @@ export function createProductModal({ product, attributes, onSubmit, showToast })
   modalRoot.addEventListener('input', handleModalInput);
   document.addEventListener('keydown', handleKeydown);
 
-  return { open, close };
+  return {
+    open,
+    close,
+    isOpen() {
+      return Boolean(state.isOpen) || modalRoot.classList.contains('is-open');
+    }
+  };
 }

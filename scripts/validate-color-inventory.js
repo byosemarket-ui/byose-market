@@ -19,6 +19,10 @@ const {
   resolveMatrixStock,
   resolveSmartColorSizeSelection
 } = await import('../js/color-variant-inventory.js');
+const {
+  buildVariantCartPayload,
+  resolvePurchaseSelection
+} = await import('../js/variant-cart-payload.js');
 
 const sampleColors = normalizeColorVariants([
   {
@@ -148,17 +152,73 @@ checks.push(
     const sel = resolveSmartColorSizeSelection(multiColorSingleSizeProduct, { Color: blueId });
     return sel.Color === blueId && sel.Size === '40';
   })()],
+  ['case3 auto size without color', (() => {
+    const sel = resolveSmartColorSizeSelection(multiColorSingleSizeProduct, {});
+    return !sel.Color && sel.Size === '40';
+  })()],
   ['case4 manual both', (() => {
     const sel = resolveSmartColorSizeSelection(multiColorMultiSizeProduct, {});
     return !sel.Color && !sel.Size;
   })()],
-  ['case4 no auto size without color', (() => {
-    const sel = resolveSmartColorSizeSelection(multiColorSingleSizeProduct, {});
-    return !sel.Size;
+  ['case4 does not auto-select first color', (() => {
+    const sel = resolveSmartColorSizeSelection(multiColorMultiSizeProduct, {});
+    return !sel.Color;
   })()],
   ['preserves valid manual size', (() => {
     const sel = resolveSmartColorSizeSelection(product, { Color: whiteId, Size: '41' });
     return sel.Color === whiteId && sel.Size === '41';
+  })()],
+  ['does not keep out-of-stock size', (() => {
+    const sel = resolveSmartColorSizeSelection(product, { Color: whiteId, Size: '43' });
+    return sel.Color === whiteId && !sel.Size;
+  })()],
+  ['test5 selected color with one in-stock size auto-selects it', (() => {
+    const mixed = {
+      variants: {
+        mode: 'color_size',
+        colorVariants: normalizeColorVariants([
+          { colorName: 'White', sizes: [{ size: '39', stock: 2 }, { size: '40', stock: 3 }, { size: '41', stock: 0 }] },
+          { colorName: 'Navy', sizes: [{ size: '41', stock: 4 }] }
+        ])
+      }
+    };
+    const navyId = mixed.variants.colorVariants[1].id;
+    const sel = resolveSmartColorSizeSelection(mixed, { Color: navyId });
+    return sel.Color === navyId && sel.Size === '41';
+  })()],
+  ['test6 selected color with multiple sizes stays manual', (() => {
+    const sel = resolveSmartColorSizeSelection(product, { Color: whiteId });
+    return sel.Color === whiteId && !sel.Size;
+  })()],
+  ['color change clears invalid previous size', (() => {
+    const matrixProduct = {
+      variants: {
+        mode: 'color_size',
+        colorVariants: normalizeColorVariants([
+          { colorName: 'White', sizes: [{ size: '39', stock: 2 }, { size: '40', stock: 3 }, { size: '41', stock: 0 }] },
+          { colorName: 'Black', sizes: [{ size: '39', stock: 0 }, { size: '40', stock: 2 }, { size: '41', stock: 4 }] }
+        ])
+      }
+    };
+    const white = matrixProduct.variants.colorVariants[0].id;
+    const black = matrixProduct.variants.colorVariants[1].id;
+    const afterWhite = resolveSmartColorSizeSelection(matrixProduct, { Color: white, Size: '39' });
+    const afterBlack = resolveSmartColorSizeSelection(matrixProduct, { Color: black, Size: afterWhite.Size });
+    return afterWhite.Size === '39' && !afterBlack.Size;
+  })()],
+  ['resolved purchase includes variant id and stock', (() => {
+    const sel = resolveSmartColorSizeSelection(singleColorProduct, {});
+    const resolved = resolvePurchaseSelection(singleColorProduct, sel);
+    const payload = buildVariantCartPayload(singleColorProduct, 1, resolved.selection);
+    return resolved.resolved
+      && Boolean(payload.variantId)
+      && payload.stock === 5
+      && payload.colorId === sel.Color
+      && payload.sizeValue === sel.Size;
+  })()],
+  ['out of stock variant cannot resolve for purchase', (() => {
+    const resolved = resolvePurchaseSelection(product, { Color: whiteId, Size: '43' });
+    return resolved.resolved === false;
   })()],
   ['size attribute stock is summed across colors', attributes[1]?.options?.find((entry) => entry.value === '40')?.stock === 16],
   ['size attribute not marked future when in stock', attributes[1]?.options?.every((entry) => entry.availability !== 'future')],

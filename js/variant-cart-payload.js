@@ -3,9 +3,12 @@ import {
   SIZE_ATTR_NAME,
   enrichProductColorVariants,
   extractColorVariantsFromProduct,
+  getColorVariantMatrix,
   getSizesForColor,
   getStockForColorSize,
-  isColorSizeInventory
+  isColorSizeInventory,
+  resolveSmartColorSizeSelection,
+  slugify
 } from './color-variant-inventory.js';
 import { normalizeStorefrontAssetUrl } from '../services/storefront-asset-url.js';
 
@@ -16,6 +19,71 @@ function buildVariantKey(attributes = {}) {
     .join('|');
 }
 
+function readActualNumber(...values) {
+  for (const value of values) {
+    if (value === undefined || value === null || value === '') {
+      continue;
+    }
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function findSizeRow(color, sizeValue) {
+  const sizeKey = String(sizeValue || '').trim();
+  if (!color || !sizeKey) {
+    return null;
+  }
+
+  return (Array.isArray(color.sizes) ? color.sizes : []).find((row) => {
+    const value = String(row?.value || '').trim() || slugify(row?.size);
+    return value === sizeKey || String(row?.size || '').trim() === sizeKey;
+  }) || null;
+}
+
+export function resolveMatchedVariant(product, selectedAttributes = {}) {
+  const enriched = enrichProductColorVariants(product, normalizeStorefrontAssetUrl);
+  const colorId = String(selectedAttributes?.[COLOR_ATTR_NAME] || '').trim();
+  const sizeValue = String(selectedAttributes?.[SIZE_ATTR_NAME] || '').trim();
+  if (!colorId || !sizeValue) {
+    return null;
+  }
+
+  const matrix = getColorVariantMatrix(enriched);
+  return matrix.find((entry) => (
+    String(entry.colorId) === colorId
+    && (String(entry.sizeValue) === sizeValue || String(entry.size) === sizeValue)
+  )) || null;
+}
+
+export function resolveVariantUnitPrice(product, selectedAttributes = {}) {
+  const enriched = enrichProductColorVariants(product, normalizeStorefrontAssetUrl);
+  const basePrice = Math.max(0, Number(enriched.price || 0));
+  const colorId = String(selectedAttributes?.[COLOR_ATTR_NAME] || '').trim();
+  const sizeValue = String(selectedAttributes?.[SIZE_ATTR_NAME] || '').trim();
+  if (!colorId || !sizeValue) {
+    return basePrice;
+  }
+
+  const color = extractColorVariantsFromProduct(enriched).find((entry) => String(entry.id) === colorId);
+  const sizeRow = findSizeRow(color, sizeValue);
+  const variantPrice = readActualNumber(
+    sizeRow?.price,
+    sizeRow?.salePrice,
+    color?.price,
+    color?.salePrice
+  );
+  if (variantPrice != null && variantPrice >= 0) {
+    return variantPrice;
+  }
+
+  const delta = readActualNumber(sizeRow?.priceDelta, color?.priceDelta) || 0;
+  return Math.max(0, basePrice + delta);
+}
+
 export function resolveVariantDisplay(product, selectedAttributes = {}) {
   const enriched = enrichProductColorVariants(product, normalizeStorefrontAssetUrl);
   const colorId = String(selectedAttributes?.[COLOR_ATTR_NAME] || '').trim();
@@ -24,17 +92,24 @@ export function resolveVariantDisplay(product, selectedAttributes = {}) {
   const color = colorVariants.find((entry) => String(entry.id) === colorId);
   const sizeOptions = colorId ? getSizesForColor(enriched, colorId) : [];
   const sizeOption = sizeOptions.find((entry) => String(entry.value) === sizeValue);
+  const matched = resolveMatchedVariant(enriched, selectedAttributes);
   const availableStock = colorId && sizeValue
     ? getStockForColorSize(enriched, colorId, sizeValue)
     : null;
+  const unitPrice = resolveVariantUnitPrice(enriched, selectedAttributes);
+  const variantId = matched?.id || (colorId && sizeValue ? `${colorId}-${sizeValue}` : '');
 
   return {
     colorId,
     colorName: color?.colorName || '',
-    colorImage: normalizeStorefrontAssetUrl(color?.image || ''),
+    colorImage: normalizeStorefrontAssetUrl(color?.image || matched?.image || ''),
     sizeValue,
     sizeLabel: sizeOption?.label || sizeValue || '',
-    availableStock: Number.isFinite(availableStock) ? Math.max(0, availableStock) : null
+    availableStock: Number.isFinite(availableStock) ? Math.max(0, availableStock) : null,
+    unitPrice,
+    variantId,
+    variantKey: matched?.key || '',
+    matchedVariant: matched
   };
 }
 
@@ -97,10 +172,43 @@ export function validateVariantSelection(product, selectedAttributes = {}) {
     return { valid: false, message: 'This color and size combination is currently out of stock.' };
   }
 
+  const display = resolveVariantDisplay(enriched, selectedAttributes);
+  if (!display.variantId) {
+    return { valid: false, message: 'This product variant could not be resolved. Please choose another option.' };
+  }
+
   return {
     valid: true,
-    display: resolveVariantDisplay(enriched, selectedAttributes),
-    stock
+    display,
+    stock,
+    variant: display.matchedVariant || null
+  };
+}
+
+/**
+ * Shared purchase-resolution path for Add to Cart and Buy Now.
+ * Applies smart auto-selection, then validates the exact purchasable variant.
+ */
+export function resolvePurchaseSelection(product, selectedAttributes = {}) {
+  const enriched = enrichProductColorVariants(product, normalizeStorefrontAssetUrl);
+  if (!isColorSizeInventory(enriched)) {
+    return {
+      product: enriched,
+      selection: { ...(selectedAttributes || {}) },
+      validation: { valid: true, display: resolveVariantDisplay(enriched, selectedAttributes) },
+      resolved: true,
+      colorSize: false
+    };
+  }
+
+  const selection = resolveSmartColorSizeSelection(enriched, selectedAttributes);
+  const validation = validateVariantSelection(enriched, selection);
+  return {
+    product: enriched,
+    selection,
+    validation,
+    resolved: Boolean(validation.valid),
+    colorSize: true
   };
 }
 
@@ -110,9 +218,12 @@ export function buildVariantCartPayload(product, quantity, selectedAttributes = 
     Object.entries(selectedAttributes || {}).filter(([, value]) => value !== undefined && value !== null && value !== '')
   );
   const display = resolveVariantDisplay(enriched, attributes);
-  const variantKey = buildVariantKey(attributes);
+  const variantKey = display.variantKey || buildVariantKey(attributes);
+  const variantId = display.variantId || variantKey;
   const qty = Math.max(1, Number(quantity) || 1);
-  const price = Number(enriched.price || 0);
+  const price = Number.isFinite(Number(display.unitPrice))
+    ? Number(display.unitPrice)
+    : Number(enriched.price || 0);
   const comparePrice = Number(enriched.oldPrice || enriched.compareAtPrice || enriched.originalPrice || 0);
   const resolvedComparePrice = comparePrice > price ? comparePrice : 0;
   const discountPercent = resolvedComparePrice > 0
@@ -159,9 +270,11 @@ export function buildVariantCartPayload(product, quantity, selectedAttributes = 
     sizeValue: display.sizeValue || '',
     sku: baseSku,
     variantSku,
+    variantId,
     variantKey,
     variantType: Object.keys(attributes).length ? 'variant' : 'simple',
     variantSelection: {
+      id: variantId,
       key: variantKey,
       type: Object.keys(attributes).length ? 'variant' : 'simple',
       attributes,
@@ -170,7 +283,9 @@ export function buildVariantCartPayload(product, quantity, selectedAttributes = 
       colorId: display.colorId || '',
       colorImage: display.colorImage || '',
       size: display.sizeLabel || '',
-      sizeValue: display.sizeValue || ''
+      sizeValue: display.sizeValue || '',
+      stock: availableStock,
+      price
     },
     availableStock,
     stock: availableStock,

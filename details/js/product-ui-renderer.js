@@ -2,12 +2,15 @@ import { buildAttributeSummary, getPrimarySelectionImage, isSelectionComplete } 
 import {
   COLOR_ATTR_NAME,
   SIZE_ATTR_NAME,
+  describeColorSizeChoices,
   enrichProductColorVariants,
   extractColorVariantsFromProduct,
+  getColorVariantMatrix,
   getSizesForColor,
   hasPurchasableVariant,
   isColorSizeInventory
 } from '../../js/color-variant-inventory.js';
+import { resolveVariantUnitPrice } from '../../js/variant-cart-payload.js';
 import { normalizeStorefrontAssetUrl, toProductCardImageUrl } from '../../services/storefront-asset-url.js';
 
 function escapeHtml(value) {
@@ -39,9 +42,22 @@ function getColorLabel(product, colorId, attributes, selectedAttributes) {
   return variant?.colorName || colorId || '';
 }
 
-function getSizeLabel(sizeValue, sizeOptions = []) {
+function getSizeLabel(sizeValue, sizeOptions = [], product = null) {
   const match = sizeOptions.find((entry) => String(entry.value) === String(sizeValue));
-  return match?.label || sizeValue || '';
+  if (match?.label) {
+    return match.label;
+  }
+
+  if (product && sizeValue) {
+    const matrixMatch = getColorVariantMatrix(product).find((entry) => (
+      String(entry.sizeValue) === String(sizeValue) || String(entry.size) === String(sizeValue)
+    ));
+    if (matrixMatch?.size) {
+      return matrixMatch.size;
+    }
+  }
+
+  return sizeValue || '';
 }
 
 function buildInlineColorSizeMarkup(product, attributes, selectedAttributes = {}) {
@@ -51,7 +67,7 @@ function buildInlineColorSizeMarkup(product, attributes, selectedAttributes = {}
   const selectedSizeValue = selectedAttributes?.[SIZE_ATTR_NAME] || '';
   const selectedColorLabel = getColorLabel(enrichedProduct, selectedColorId, attributes, selectedAttributes);
   const sizeOptions = selectedColorId ? getSizesForColor(enrichedProduct, selectedColorId) : [];
-  const selectedSizeLabel = getSizeLabel(selectedSizeValue, sizeOptions);
+  const selectedSizeLabel = getSizeLabel(selectedSizeValue, sizeOptions, enrichedProduct);
   const fallbackImage = enrichedProduct?.mainImage || enrichedProduct?.image || '../img/logo.png';
 
   const colorTiles = colorVariants.map((color) => {
@@ -183,8 +199,8 @@ function buildColorSizeModalMarkup({
   const selectedSizeValue = selectedAttributes?.[SIZE_ATTR_NAME] || '';
   const selectedColorLabel = getColorLabel(enrichedProduct, selectedColorId, attributes, selectedAttributes);
   const sizeOptions = selectedColorId ? getSizesForColor(enrichedProduct, selectedColorId) : [];
-  const selectedSizeLabel = getSizeLabel(selectedSizeValue, sizeOptions);
-  const unitPrice = Number(enrichedProduct?.price || 0);
+  const selectedSizeLabel = getSizeLabel(selectedSizeValue, sizeOptions, enrichedProduct);
+  const unitPrice = resolveVariantUnitPrice(enrichedProduct, selectedAttributes);
   const lineTotal = unitPrice * Math.max(0, Number(currentQuantity) || 0);
   const previewImage = resolveModalImage(
     getPrimarySelectionImage(enrichedProduct, attributes, selectedAttributes),
@@ -192,6 +208,12 @@ function buildColorSizeModalMarkup({
   );
   const hasCompleteSelection = Boolean(selectedColorId && selectedSizeValue && Number(selectionStock) > 0);
   const stockValue = Number.isFinite(Number(selectionStock)) ? Math.max(0, Number(selectionStock)) : 0;
+  const choices = describeColorSizeChoices(enrichedProduct, selectedAttributes);
+  const showColorPicker = choices.needsColorChoice;
+  const sizeRows = selectedColorId ? getSizesForColor(enrichedProduct, selectedColorId) : [];
+  const showSizePicker = choices.needsSizeChoice
+    || (!selectedSizeValue && Boolean(selectedColorId))
+    || sizeRows.length > 1;
 
   const colorCards = colorVariants.map((color) => {
     const isActive = String(selectedColorId) === String(color.id);
@@ -268,24 +290,38 @@ function buildColorSizeModalMarkup({
       <div class="pcm-body pcm-body--compact">
         ${validationMessage ? `<div class="pcm-validation" role="alert">${escapeHtml(validationMessage)}</div>` : ''}
 
-        <section class="pcm-section">
+        <section class="pcm-section${showColorPicker ? '' : ' pcm-section--resolved'}">
           <div class="pcm-section__head">
             <h3 class="pcm-section__title">Color</h3>
-            <span class="pcm-section__meta">${colorVariants.length} option${colorVariants.length === 1 ? '' : 's'}</span>
+            <span class="pcm-section__meta">${showColorPicker ? `${colorVariants.length} option${colorVariants.length === 1 ? '' : 's'}` : 'Selected'}</span>
           </div>
+          ${showColorPicker ? `
           <div class="pcm-color-grid">
             ${colorCards || `<p class="pcm-section__empty">No colors available.</p>`}
           </div>
+          ` : `
+          <div class="pcm-resolved" aria-live="polite">
+            <span class="pcm-resolved__label">Selected color</span>
+            <strong>${escapeHtml(selectedColorLabel || 'Unavailable')}</strong>
+          </div>
+          `}
         </section>
 
-        <section class="pcm-section pcm-section--sizes${selectedColorId ? ' is-ready' : ''}">
+        <section class="pcm-section pcm-section--sizes${selectedColorId || !choices.needsColorChoice ? ' is-ready' : ''}${showSizePicker ? '' : ' pcm-section--resolved'}">
           <div class="pcm-section__head">
             <h3 class="pcm-section__title">Size</h3>
-            ${selectedColorId ? `<span class="pcm-section__meta">${escapeHtml(selectedColorLabel)}</span>` : ''}
+            ${selectedColorId ? `<span class="pcm-section__meta">${escapeHtml(selectedColorLabel)}</span>` : (showSizePicker ? '' : `<span class="pcm-section__meta">Selected</span>`)}
           </div>
+          ${showSizePicker ? `
           <div class="pcm-size-grid">
             ${sizePills}
           </div>
+          ` : `
+          <div class="pcm-resolved" aria-live="polite">
+            <span class="pcm-resolved__label">Selected size</span>
+            <strong>${escapeHtml(selectedSizeLabel || 'Unavailable')}</strong>
+          </div>
+          `}
         </section>
       </div>
 

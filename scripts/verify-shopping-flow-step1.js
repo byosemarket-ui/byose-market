@@ -45,6 +45,8 @@ function checkSourceGuards() {
   const actions = read('details/js/product-actions.js');
   assert(actions.includes('startBuyNowSession'), 'Buy Now must start an isolated direct session');
   assert(actions.includes('hasPurchasableVariant'), 'Buy Now/Add to Cart must respect variant inventory');
+  assert(actions.includes('openSelectionModal'), 'missing options must reuse the existing selection modal');
+  assert(actions.includes('resolvePurchaseSelection'), 'Add to Cart/Buy Now must share one variant-resolution path');
   assert(actions.includes('Out of Stock'), 'unavailable products must show Out of Stock');
 
   const utils = read('js/utils.js');

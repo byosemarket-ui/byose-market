@@ -438,66 +438,105 @@ export function getSizesForColor(product, colorId) {
   }));
 }
 
+export function getInStockColorVariants(product) {
+  return extractColorVariantsFromProduct(product)
+    .filter((entry) => Number(entry.totalStock) > 0);
+}
+
+export function getGlobalInStockSizeValues(product) {
+  const values = new Set();
+  getColorVariantMatrix(product).forEach((entry) => {
+    if (Number(entry.stock) > 0) {
+      values.add(String(entry.sizeValue));
+    }
+  });
+  return values;
+}
+
+export function getInStockSizesForColor(product, colorId) {
+  return getSizesForColor(product, colorId).filter((row) => Number(row.stock) > 0);
+}
+
 /**
- * Smart auto-selection for color/size inventory modals.
- * Case 1: one in-stock color + one in-stock size globally → both
+ * Describes which color/size choices still require a customer decision.
+ * Auto-resolved single options are not treated as required choices.
+ */
+export function describeColorSizeChoices(product, selectedAttributes = {}) {
+  const colorsInStock = getInStockColorVariants(product);
+  const globalInStockSizes = getGlobalInStockSizeValues(product);
+  const colorId = String(selectedAttributes?.[COLOR_ATTR_NAME] || "").trim();
+  const sizeValue = String(selectedAttributes?.[SIZE_ATTR_NAME] || "").trim();
+  const inStockSizesForColor = colorId ? getInStockSizesForColor(product, colorId) : [];
+
+  return {
+    colorsInStock,
+    globalInStockSizeCount: globalInStockSizes.size,
+    inStockSizesForColor,
+    needsColorChoice: colorsInStock.length > 1,
+    needsSizeChoice: colorId
+      ? inStockSizesForColor.length > 1
+      : globalInStockSizes.size > 1,
+    colorResolved: Boolean(colorId),
+    sizeResolved: Boolean(sizeValue)
+  };
+}
+
+/**
+ * Smart auto-selection for color/size inventory.
+ * Case 1: one in-stock color + one in-stock size → both
  * Case 2: one in-stock color + multiple sizes → color only
- * Case 3: multiple colors + one in-stock size globally → size after color
- * Case 4: multiple colors + multiple sizes → manual
+ * Case 3: multiple colors + one in-stock size → size automatically
+ * Case 4: multiple colors + multiple sizes → customer chooses both
+ * Never auto-selects the first option just because it appears first.
  */
 export function resolveSmartColorSizeSelection(product, selectedAttributes = {}) {
   if (!isColorSizeInventory(product)) {
     return { ...selectedAttributes };
   }
 
-  const colorVariants = extractColorVariantsFromProduct(product);
-  const colorsInStock = colorVariants.filter((entry) => Number(entry.totalStock) > 0);
+  const colorsInStock = getInStockColorVariants(product);
   const next = { ...selectedAttributes };
-
-  const globalInStockSizes = new Set();
-  getColorVariantMatrix(product).forEach((entry) => {
-    if (Number(entry.stock) > 0) {
-      globalInStockSizes.add(String(entry.sizeValue));
-    }
-  });
+  const globalInStockSizes = getGlobalInStockSizeValues(product);
   const globalSizeCount = globalInStockSizes.size;
 
+  const currentColor = String(next[COLOR_ATTR_NAME] || "").trim();
+  if (currentColor && !colorsInStock.some((entry) => entry.id === currentColor)) {
+    delete next[COLOR_ATTR_NAME];
+    delete next[SIZE_ATTR_NAME];
+  }
+
   if (colorsInStock.length === 1) {
-    const soleColor = colorsInStock[0];
-    const currentColor = String(next[COLOR_ATTR_NAME] || "").trim();
-    if (!currentColor || !colorsInStock.some((entry) => entry.id === currentColor)) {
-      next[COLOR_ATTR_NAME] = soleColor.id;
-    }
+    next[COLOR_ATTR_NAME] = colorsInStock[0].id;
   }
 
   const colorId = String(next[COLOR_ATTR_NAME] || "").trim();
   if (!colorId) {
-    if (next[SIZE_ATTR_NAME]) {
+    if (globalSizeCount === 1) {
+      next[SIZE_ATTR_NAME] = [...globalInStockSizes][0];
+    } else {
       delete next[SIZE_ATTR_NAME];
     }
     return next;
   }
 
-  const sizesForColor = getSizesForColor(product, colorId);
-  const inStockForColor = sizesForColor.filter((row) => Number(row.stock) > 0);
+  const inStockForColor = getInStockSizesForColor(product, colorId);
   const currentSize = String(next[SIZE_ATTR_NAME] || "").trim();
 
   if (currentSize && inStockForColor.some((row) => row.value === currentSize)) {
     return next;
   }
 
+  delete next[SIZE_ATTR_NAME];
+
   if (!inStockForColor.length) {
-    delete next[SIZE_ATTR_NAME];
     return next;
   }
 
-  const shouldAutoSize = globalSizeCount === 1
-    || (colorsInStock.length === 1 && inStockForColor.length === 1);
-
-  if (shouldAutoSize) {
-    next[SIZE_ATTR_NAME] = inStockForColor[0].value;
-  } else if (!currentSize || !inStockForColor.some((row) => row.value === currentSize)) {
-    delete next[SIZE_ATTR_NAME];
+  if (inStockForColor.length === 1 || globalSizeCount === 1) {
+    const autoSize = inStockForColor.length === 1
+      ? inStockForColor[0]
+      : inStockForColor.find((row) => globalInStockSizes.has(row.value)) || inStockForColor[0];
+    next[SIZE_ATTR_NAME] = autoSize.value;
   }
 
   return next;

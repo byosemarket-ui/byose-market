@@ -185,11 +185,11 @@
           <p class="purchase-caption" id="purchaseCaption">Adjust quantity before adding to cart.</p>
 
           <div class="cta-grid cta-grid--with-wishlist">
-            <button type="button" class="action-btn action-btn-primary" id="addToCartBtn">
+            <button type="button" class="action-btn action-btn-primary" id="addToCartBtn" disabled aria-disabled="true">
               <i class="fa-solid fa-cart-plus" aria-hidden="true"></i>
               <span>Add to Cart</span>
             </button>
-            <button type="button" class="action-btn action-btn-secondary" id="buyNowBtn">
+            <button type="button" class="action-btn action-btn-secondary" id="buyNowBtn" disabled aria-disabled="true">
               <i class="fa-solid fa-bolt" aria-hidden="true"></i>
               <span>Buy Now</span>
             </button>
@@ -259,8 +259,8 @@
         <span class="details-bottom-bar__badge" id="detailsCartBadge" role="status" aria-live="polite">0</span>
       </a>
 
-      <button type="button" class="details-bottom-bar__button details-bottom-bar__button--add" id="stickyAddToCartBtn">Add to Cart</button>
-      <button type="button" class="details-bottom-bar__button details-bottom-bar__button--buy" id="stickyBuyNowBtn">Buy Now</button>
+      <button type="button" class="details-bottom-bar__button details-bottom-bar__button--add" id="stickyAddToCartBtn" disabled aria-disabled="true">Add to Cart</button>
+      <button type="button" class="details-bottom-bar__button details-bottom-bar__button--buy" id="stickyBuyNowBtn" disabled aria-disabled="true">Buy Now</button>
     </div>
   </div>
 
