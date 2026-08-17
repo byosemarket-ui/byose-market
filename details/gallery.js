@@ -169,7 +169,9 @@ function buildLightboxSlides(entries, name) {
 function createSlider({ viewport, track, getCount, getIndex, onCommit, getLocked }) {
   let pointerId = null;
   let startX = 0;
+  let startY = 0;
   let deltaX = 0;
+  let deltaY = 0;
   let dragging = false;
   let clickBlocked = false;
   let frameId = 0;
@@ -189,6 +191,11 @@ function createSlider({ viewport, track, getCount, getIndex, onCommit, getLocked
 
   function renderDrag() {
     frameId = 0;
+    if (Math.abs(deltaY) > Math.abs(deltaX) + 6) {
+      setTranslate(-(getIndex() * getWidth()), false);
+      return;
+    }
+
     const width = getWidth();
     const count = getCount();
     const index = getIndex();
@@ -206,11 +213,12 @@ function createSlider({ viewport, track, getCount, getIndex, onCommit, getLocked
     setTranslate(nextTranslate, false);
   }
 
-  function commit(delta) {
+  function commit(delta, verticalDelta) {
     const width = getWidth();
     const threshold = Math.max(48, Math.min(120, width * 0.16));
+    const isHorizontal = Math.abs(delta) > Math.abs(verticalDelta || 0) + 8;
 
-    if (Math.abs(delta) > threshold) {
+    if (isHorizontal && Math.abs(delta) > threshold) {
       onCommit(delta < 0 ? 1 : -1);
       return;
     }
@@ -225,7 +233,9 @@ function createSlider({ viewport, track, getCount, getIndex, onCommit, getLocked
 
     pointerId = event.pointerId;
     startX = event.clientX;
+    startY = event.clientY;
     deltaX = 0;
+    deltaY = 0;
     dragging = true;
     clickBlocked = false;
     viewport.classList.add('is-dragging');
@@ -239,7 +249,8 @@ function createSlider({ viewport, track, getCount, getIndex, onCommit, getLocked
     }
 
     deltaX = event.clientX - startX;
-    if (Math.abs(deltaX) > 8) {
+    deltaY = event.clientY - startY;
+    if (Math.abs(deltaX) > 8 && Math.abs(deltaX) > Math.abs(deltaY)) {
       clickBlocked = true;
     }
 
@@ -263,10 +274,12 @@ function createSlider({ viewport, track, getCount, getIndex, onCommit, getLocked
       frameId = 0;
     }
 
-    commit(deltaX);
+    commit(deltaX, deltaY);
     pointerId = null;
     startX = 0;
+    startY = 0;
     deltaX = 0;
+    deltaY = 0;
     window.setTimeout(() => {
       clickBlocked = false;
     }, 0);
@@ -362,29 +375,59 @@ export function initProductGallery(options) {
   let activeIndex = 0;
   let isLightboxOpen = false;
   let zoomedIndex = null;
+  let pageScrollY = 0;
+  let lightboxOpener = null;
+
+  function lockPageScroll() {
+    pageScrollY = window.scrollY || window.pageYOffset || 0;
+    document.body.classList.add('gallery-lightbox-open');
+    document.body.style.top = `-${pageScrollY}px`;
+    document.body.style.position = 'fixed';
+    document.body.style.left = '0';
+    document.body.style.right = '0';
+    document.body.style.width = '100%';
+  }
+
+  function unlockPageScroll() {
+    const nextScrollY = Math.abs(parseInt(document.body.style.top || '0', 10)) || pageScrollY;
+    document.body.classList.remove('gallery-lightbox-open');
+    document.body.style.removeProperty('top');
+    document.body.style.removeProperty('position');
+    document.body.style.removeProperty('left');
+    document.body.style.removeProperty('right');
+    document.body.style.removeProperty('width');
+    window.scrollTo({ top: nextScrollY, left: 0, behavior: 'auto' });
+    pageScrollY = 0;
+  }
 
   function hydrateLightboxImage(index) {
-    const slide = lightboxSlides[index];
+    const slideIndex = wrapIndex(index, lightboxSlides.length);
+    const slide = lightboxSlides[slideIndex];
     const media = slide?.querySelector('.lightbox-slide__media');
     if (!media) {
       return;
     }
 
     let image = media.querySelector('img');
-    const full = String(entries[index]?.original || entries[index]?.preview || FALLBACK_IMAGE).trim();
+    const full = String(entries[slideIndex]?.original || entries[slideIndex]?.preview || FALLBACK_IMAGE).trim();
     if (!image) {
       image = document.createElement('img');
-      image.alt = `${String(name || 'Product').trim() || 'Product'} fullscreen image ${index + 1}`;
+      image.alt = `${String(name || 'Product').trim() || 'Product'} fullscreen image ${slideIndex + 1}`;
       image.decoding = 'async';
       image.draggable = false;
-      image.width = 1200;
-      image.height = 1200;
       image.setAttribute('data-full', full);
+      image.addEventListener('load', () => {
+        media.classList.remove('is-loading');
+      });
+      image.addEventListener('error', () => {
+        media.classList.remove('is-loading');
+      });
       media.appendChild(image);
     }
 
     if (full && image.getAttribute('src') !== full) {
-      image.loading = index === activeIndex ? 'eager' : 'lazy';
+      media.classList.add('is-loading');
+      image.loading = slideIndex === activeIndex ? 'eager' : 'lazy';
       image.src = full;
     }
   }
@@ -410,6 +453,9 @@ export function initProductGallery(options) {
       getLocked: () => zoomedIndex !== null
     });
     lightboxBuilt = true;
+    hydrateLightboxImage(activeIndex);
+    hydrateLightboxImage(activeIndex + 1);
+    hydrateLightboxImage(activeIndex - 1);
   }
 
   function syncCounters() {
@@ -488,6 +534,10 @@ export function initProductGallery(options) {
     mainSlider.snap(!immediate);
     if (lightboxBuilt) {
       hydrateLightboxImage(activeIndex);
+      if (isLightboxOpen) {
+        hydrateLightboxImage(activeIndex + 1);
+        hydrateLightboxImage(activeIndex - 1);
+      }
       lightboxSlider.snap(!immediate);
     }
     syncCounters();
@@ -503,22 +553,37 @@ export function initProductGallery(options) {
     ensureLightbox();
     activeIndex = wrapIndex(index, images.length);
     isLightboxOpen = true;
+    lightboxOpener = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : zoomButton;
     hydrateLightboxImage(activeIndex);
+    hydrateLightboxImage(activeIndex + 1);
+    hydrateLightboxImage(activeIndex - 1);
     lightbox.classList.add('is-open');
     lightbox.setAttribute('aria-hidden', 'false');
-    document.body.style.overflow = 'hidden';
+    lockPageScroll();
     resetZoom();
-    setActiveIndex(activeIndex, { immediate: true });
-    lightboxClose?.focus();
+    window.requestAnimationFrame(() => {
+      setActiveIndex(activeIndex, { immediate: true });
+      lightboxClose?.focus();
+    });
   }
 
   function closeLightbox() {
+    if (!isLightboxOpen) {
+      return;
+    }
+
     isLightboxOpen = false;
     lightbox.classList.remove('is-open');
     lightbox.setAttribute('aria-hidden', 'true');
-    document.body.style.overflow = '';
+    unlockPageScroll();
     resetZoom();
-    viewport.focus();
+    const opener = lightboxOpener || zoomButton || viewport;
+    lightboxOpener = null;
+    if (opener && typeof opener.focus === 'function') {
+      opener.focus();
+    }
   }
 
   function toggleZoom(index, event) {
@@ -539,13 +604,16 @@ export function initProductGallery(options) {
     }
 
     const rect = image.getBoundingClientRect();
+    if (rect.width < 8 || rect.height < 8) {
+      return;
+    }
     const originX = ((event.clientX - rect.left) / rect.width) * 100;
     const originY = ((event.clientY - rect.top) / rect.height) * 100;
     resetZoom();
     zoomedIndex = index;
     slide.classList.add('is-zoomed');
     image.style.transformOrigin = `${originX}% ${originY}%`;
-    image.style.transform = 'scale(2.1)';
+    image.style.transform = 'scale(1.85)';
     syncSlides();
   }
 
@@ -604,6 +672,28 @@ export function initProductGallery(options) {
     }
   });
 
+  lightbox.addEventListener('keydown', event => {
+    if (event.key !== 'Tab' || !isLightboxOpen) {
+      return;
+    }
+
+    const focusable = Array.from(lightbox.querySelectorAll('button:not([hidden])'))
+      .filter((button) => !button.disabled && button.offsetParent !== null);
+    if (!focusable.length) {
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+
   viewport.addEventListener('keydown', event => {
     if (event.key === 'ArrowLeft') {
       event.preventDefault();
@@ -645,7 +735,9 @@ export function initProductGallery(options) {
 
   const onResize = () => {
     mainSlider.snap(false);
-    lightboxSlider.snap(false);
+    if (isLightboxOpen) {
+      lightboxSlider.snap(false);
+    }
   };
 
   window.addEventListener('resize', onResize, { passive: true });
@@ -685,6 +777,9 @@ export function initProductGallery(options) {
       }
     },
     destroy() {
+      if (isLightboxOpen) {
+        unlockPageScroll();
+      }
       window.removeEventListener('resize', onResize);
       document.removeEventListener('keydown', onKeyDown);
       mainSlider.destroy();
