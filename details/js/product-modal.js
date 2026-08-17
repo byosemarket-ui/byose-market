@@ -400,8 +400,31 @@ export function createProductModal({ product, attributes, onSubmit, onSelectionC
     }
 
     state.committing = true;
+    const submitButton = modalBody.querySelector('[data-config-submit-action]');
+    if (submitButton) {
+      submitButton.classList.add('is-loading');
+      submitButton.disabled = true;
+      submitButton.setAttribute('aria-busy', 'true');
+    }
+
     const variants = getVariants().filter(variant => variant.qty > 0);
-    onSubmit?.(action, variants);
+    try {
+      onSubmit?.(action, variants);
+    } catch (error) {
+      state.committing = false;
+      if (submitButton) {
+        submitButton.classList.remove('is-loading');
+        submitButton.disabled = false;
+        submitButton.removeAttribute('aria-busy');
+      }
+      showToast?.(error?.message || 'Unable to complete this action.');
+      return;
+    }
+
+    if (action === 'buy') {
+      return;
+    }
+
     close();
     window.setTimeout(() => {
       state.committing = false;
@@ -564,6 +587,21 @@ export function createProductModal({ product, attributes, onSubmit, onSelectionC
     modalRoot.classList.add('is-open');
     lockPageScroll();
     modalRoot.setAttribute('aria-hidden', 'false');
+    window.requestAnimationFrame(() => {
+      const selectedColor = modalBody.querySelector('.pcm-color-grid [aria-checked="true"]');
+      const selectedSize = modalBody.querySelector('.pcm-size-grid [aria-checked="true"]');
+      const firstColor = modalBody.querySelector('.pcm-color-grid [role="radio"]:not([disabled])');
+      const firstSize = modalBody.querySelector('.pcm-size-grid [role="radio"]:not([disabled])');
+      const submit = modalBody.querySelector('[data-config-submit-action]:not([disabled])');
+      const closeBtn = modalBody.querySelector('[data-config-close]');
+      const target = (!selectedColor && firstColor)
+        || (!selectedSize && firstSize)
+        || submit
+        || closeBtn;
+      if (target && typeof target.focus === 'function') {
+        target.focus({ preventScroll: true });
+      }
+    });
   }
 
   modalRoot.addEventListener('click', handleModalClick);

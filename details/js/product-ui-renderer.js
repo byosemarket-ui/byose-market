@@ -26,6 +26,39 @@ function formatPrice(value) {
   return `RWF ${Number(value || 0).toLocaleString('en-US')}`;
 }
 
+function formatSelectionStockLabel(stock, complete) {
+  if (!complete) {
+    return 'Select options to see stock';
+  }
+
+  const value = Number(stock);
+  if (!Number.isFinite(value) || value <= 0) {
+    return 'Out of stock';
+  }
+  if (value === 1) {
+    return 'Only 1 item left';
+  }
+  if (value <= 5) {
+    return `Only ${value} items left`;
+  }
+  if (value <= 20) {
+    return `${value} items left`;
+  }
+  return 'In stock';
+}
+
+function resolveDiscountMeta(product, unitPrice) {
+  const price = Number(unitPrice || 0);
+  const oldPrice = Number(product?.oldPrice || product?.compareAtPrice || product?.originalPrice || 0);
+  const hasDiscount = oldPrice > price && price > 0;
+  const storedPercent = Number(product?.discountPercent || product?.discount || 0);
+  const discountPercent = hasDiscount
+    ? (storedPercent > 0 ? Math.round(storedPercent) : Math.round(((oldPrice - price) / oldPrice) * 100))
+    : 0;
+
+  return { oldPrice: hasDiscount ? oldPrice : 0, hasDiscount, discountPercent };
+}
+
 function resolveModalImage(url, fallback = '') {
   const normalized = normalizeStorefrontAssetUrl(url);
   return normalized || normalizeStorefrontAssetUrl(fallback) || fallback;
@@ -188,7 +221,6 @@ function buildColorSizeModalMarkup({
   selectedAttributes,
   currentQuantity,
   validationMessage,
-  total,
   preferredAction,
   canSubmit,
   selectionStock
@@ -201,25 +233,41 @@ function buildColorSizeModalMarkup({
   const sizeOptions = selectedColorId ? getSizesForColor(enrichedProduct, selectedColorId) : [];
   const selectedSizeLabel = getSizeLabel(selectedSizeValue, sizeOptions, enrichedProduct);
   const unitPrice = resolveVariantUnitPrice(enrichedProduct, selectedAttributes);
-  const lineTotal = unitPrice * Math.max(0, Number(currentQuantity) || 0);
-  const previewImage = resolveModalImage(
+  const discount = resolveDiscountMeta(enrichedProduct, unitPrice);
+  const previewSource = resolveModalImage(
     getPrimarySelectionImage(enrichedProduct, attributes, selectedAttributes),
     enrichedProduct?.mainImage || enrichedProduct?.image
   );
+  const previewImage = toProductCardImageUrl(previewSource) || previewSource;
   const hasCompleteSelection = Boolean(selectedColorId && selectedSizeValue && Number(selectionStock) > 0);
   const stockValue = Number.isFinite(Number(selectionStock)) ? Math.max(0, Number(selectionStock)) : 0;
+  const stockLabel = formatSelectionStockLabel(selectionStock, hasCompleteSelection);
+  const stockState = !hasCompleteSelection
+    ? 'pending'
+    : (stockValue <= 0 ? 'oos' : (stockValue <= 5 ? 'low' : 'ok'));
   const choices = describeColorSizeChoices(enrichedProduct, selectedAttributes);
   const showColorPicker = choices.needsColorChoice;
   const sizeRows = selectedColorId ? getSizesForColor(enrichedProduct, selectedColorId) : [];
   const showSizePicker = choices.needsSizeChoice
     || (!selectedSizeValue && Boolean(selectedColorId))
     || sizeRows.length > 1;
+  const action = preferredAction === 'buy' ? 'buy' : 'add';
+  const actionLabel = action === 'buy' ? 'Buy Now' : 'Add to Cart';
+  const actionHint = !canSubmit
+    ? (!selectedColorId
+      ? 'Select a color to continue.'
+      : (!selectedSizeValue
+        ? 'Select an available size.'
+        : 'This combination is currently unavailable.'))
+    : '';
+  const quantity = Math.max(1, Number(currentQuantity) || 1);
 
   const colorCards = colorVariants.map((color) => {
     const isActive = String(selectedColorId) === String(color.id);
-    const isDisabled = color.totalStock <= 0;
-    const image = resolveModalImage(color.image, enrichedProduct?.mainImage || enrichedProduct?.image);
-    const stockLabel = color.totalStock > 0 ? `${color.totalStock} left` : 'Out';
+    const isDisabled = Number(color.totalStock) <= 0;
+    const originalImage = resolveModalImage(color.image, enrichedProduct?.mainImage || enrichedProduct?.image);
+    const image = toProductCardImageUrl(originalImage) || originalImage;
+    const stateLabel = isDisabled ? 'out of stock' : (isActive ? 'selected' : 'available');
 
     return `
       <button
@@ -227,16 +275,18 @@ function buildColorSizeModalMarkup({
         class="pcm-color-tile${isActive ? ' is-active' : ''}${isDisabled ? ' is-disabled' : ''}"
         data-attribute-name="${escapeHtml(COLOR_ATTR_NAME)}"
         data-attribute-value="${escapeHtml(color.id)}"
-        aria-pressed="${isActive ? 'true' : 'false'}"
-        ${isDisabled ? 'disabled' : ''}
+        role="radio"
+        aria-checked="${isActive ? 'true' : 'false'}"
+        aria-label="${escapeHtml(`${color.colorName}, ${stateLabel}`)}"
+        ${isDisabled ? 'disabled aria-disabled="true"' : ''}
       >
         <span class="pcm-color-tile__media">
-          <img src="${escapeHtml(image)}" alt="${escapeHtml(color.colorName)}" loading="lazy" decoding="async" />
+          <img src="${escapeHtml(image)}" alt="" width="72" height="72" loading="lazy" decoding="async" />
         </span>
         <span class="pcm-color-tile__info">
           <strong>${escapeHtml(color.colorName)}</strong>
-          <small>${stockLabel}</small>
         </span>
+        ${isActive ? '<span class="pcm-color-tile__check" aria-hidden="true"><i class="fa-solid fa-check"></i></span>' : ''}
       </button>
     `;
   }).join('');
@@ -246,6 +296,7 @@ function buildColorSizeModalMarkup({
         const isActive = String(selectedSizeValue) === String(option.value);
         const stock = Number(option.stock) || 0;
         const isDisabled = stock <= 0;
+        const stateLabel = isDisabled ? 'out of stock' : (isActive ? 'selected' : 'available');
 
         return `
           <button
@@ -253,56 +304,57 @@ function buildColorSizeModalMarkup({
             class="pcm-size-chip${isActive ? ' is-active' : ''}${isDisabled ? ' is-disabled' : ''}"
             data-attribute-name="${escapeHtml(SIZE_ATTR_NAME)}"
             data-attribute-value="${escapeHtml(option.value)}"
-            aria-pressed="${isActive ? 'true' : 'false'}"
-            ${isDisabled ? 'disabled' : ''}
+            role="radio"
+            aria-checked="${isActive ? 'true' : 'false'}"
+            aria-label="${escapeHtml(`Size ${option.label}, ${stateLabel}`)}"
+            ${isDisabled ? 'disabled aria-disabled="true"' : ''}
           >
             <span class="pcm-size-chip__label">${escapeHtml(option.label)}</span>
-            <span class="pcm-size-chip__stock">${isDisabled ? 'Out' : stock}</span>
           </button>
         `;
       }).join('')
-    : `<p class="pcm-section__empty">${selectedColorId ? 'No sizes for this color.' : 'Pick a color first.'}</p>`;
-
-  const selectionLine = hasCompleteSelection
-    ? `${selectedColorLabel} · Size ${selectedSizeLabel}`
-    : selectedColorId
-      ? `${selectedColorLabel} · pick size`
-      : 'Select color & size';
+    : `<p class="pcm-section__empty">${selectedColorId ? 'No sizes for this color.' : 'Select a color to see sizes.'}</p>`;
 
   return `
     <div class="pcm-shell pcm-shell--inventory">
-      <header class="pcm-header pcm-header--compact">
-        <span class="pcm-header__preview">
-          <img class="pcm-header__image" src="${escapeHtml(previewImage)}" alt="" loading="lazy" decoding="async" />
+      <div class="pcm-handle" aria-hidden="true"></div>
+
+      <header class="pcm-summary">
+        <span class="pcm-summary__preview">
+          <img class="pcm-summary__image" src="${escapeHtml(previewImage)}" alt="" width="64" height="64" loading="lazy" decoding="async" />
         </span>
-        <div class="pcm-header__content">
-          <h2 class="pcm-header__title">${escapeHtml(enrichedProduct.name)}</h2>
-          <div class="pcm-header__meta">
-            <strong class="pcm-header__price">${formatPrice(unitPrice)}</strong>
-            <span class="pcm-header__selection">${escapeHtml(selectionLine)}</span>
+        <div class="pcm-summary__content">
+          <h2 class="pcm-summary__title" id="pcmProductTitle">${escapeHtml(enrichedProduct.name)}</h2>
+          <div class="pcm-summary__price">
+            <strong>${formatPrice(unitPrice)}</strong>
+            ${discount.hasDiscount ? `<span class="pcm-summary__old">${formatPrice(discount.oldPrice)}</span>` : ''}
+            ${discount.discountPercent > 0 ? `<span class="pcm-summary__save">-${discount.discountPercent}%</span>` : ''}
           </div>
         </div>
-        <button type="button" class="pcm-close" data-config-close aria-label="Close">
+        <button type="button" class="pcm-close" data-config-close aria-label="Close options">
           <i class="fa-solid fa-xmark" aria-hidden="true"></i>
         </button>
       </header>
 
-      <div class="pcm-body pcm-body--compact">
+      <div class="pcm-body pcm-body--sheet">
         ${validationMessage ? `<div class="pcm-validation" role="alert">${escapeHtml(validationMessage)}</div>` : ''}
 
         <section class="pcm-section${showColorPicker ? '' : ' pcm-section--resolved'}">
           <div class="pcm-section__head">
             <h3 class="pcm-section__title">Color</h3>
-            <span class="pcm-section__meta">${showColorPicker ? `${colorVariants.length} option${colorVariants.length === 1 ? '' : 's'}` : 'Selected'}</span>
+            <span class="pcm-section__meta">${showColorPicker ? 'Choose one' : 'Selected'}</span>
           </div>
           ${showColorPicker ? `
-          <div class="pcm-color-grid">
+          <div class="pcm-color-grid" role="radiogroup" aria-label="Color">
             ${colorCards || `<p class="pcm-section__empty">No colors available.</p>`}
           </div>
           ` : `
           <div class="pcm-resolved" aria-live="polite">
-            <span class="pcm-resolved__label">Selected color</span>
-            <strong>${escapeHtml(selectedColorLabel || 'Unavailable')}</strong>
+            <span class="pcm-resolved__copy">
+              <span class="pcm-resolved__label">Color</span>
+              <strong>${escapeHtml(selectedColorLabel || 'Unavailable')}</strong>
+            </span>
+            <span class="pcm-resolved__ok"><i class="fa-solid fa-check" aria-hidden="true"></i> Selected</span>
           </div>
           `}
         </section>
@@ -310,56 +362,57 @@ function buildColorSizeModalMarkup({
         <section class="pcm-section pcm-section--sizes${selectedColorId || !choices.needsColorChoice ? ' is-ready' : ''}${showSizePicker ? '' : ' pcm-section--resolved'}">
           <div class="pcm-section__head">
             <h3 class="pcm-section__title">Size</h3>
-            ${selectedColorId ? `<span class="pcm-section__meta">${escapeHtml(selectedColorLabel)}</span>` : (showSizePicker ? '' : `<span class="pcm-section__meta">Selected</span>`)}
+            <span class="pcm-section__meta">${showSizePicker ? (selectedColorId ? escapeHtml(selectedColorLabel) : 'Choose one') : 'Selected'}</span>
           </div>
           ${showSizePicker ? `
-          <div class="pcm-size-grid">
+          <div class="pcm-size-grid" role="radiogroup" aria-label="Size">
             ${sizePills}
           </div>
           ` : `
           <div class="pcm-resolved" aria-live="polite">
-            <span class="pcm-resolved__label">Selected size</span>
-            <strong>${escapeHtml(selectedSizeLabel || 'Unavailable')}</strong>
+            <span class="pcm-resolved__copy">
+              <span class="pcm-resolved__label">Size</span>
+              <strong>${escapeHtml(selectedSizeLabel || 'Unavailable')}</strong>
+            </span>
+            <span class="pcm-resolved__ok"><i class="fa-solid fa-check" aria-hidden="true"></i> Selected</span>
           </div>
           `}
         </section>
-      </div>
 
-      <footer class="pcm-footer pcm-footer--dock">
-        <div class="pcm-dock${hasCompleteSelection ? ' is-ready' : ''}">
-          <div class="pcm-dock__review">
-            <div class="pcm-dock__selection">
-              <span class="pcm-dock__label">Selection</span>
-              <strong>${escapeHtml(hasCompleteSelection ? `${selectedColorLabel} · ${selectedSizeLabel}` : selectionLine)}</strong>
-              ${hasCompleteSelection ? `<span class="pcm-dock__stock">${stockValue} in stock</span>` : ''}
-            </div>
-            <div class="pcm-dock__qty" aria-label="Quantity">
-              <button type="button" data-config-base-qty="decrease" aria-label="Decrease" ${!hasCompleteSelection ? 'disabled' : ''}>−</button>
+        <section class="pcm-section pcm-section--qty">
+          <div class="pcm-section__head">
+            <h3 class="pcm-section__title">Quantity</h3>
+          </div>
+          <div class="pcm-qty-row">
+            <div class="pcm-qty-stepper" aria-label="Quantity">
+              <button type="button" data-config-base-qty="decrease" aria-label="Decrease quantity" ${!hasCompleteSelection || quantity <= 1 ? 'disabled' : ''}>−</button>
               <input
                 type="number"
                 min="1"
                 max="${Math.max(1, stockValue)}"
-                value="${Math.max(1, Number(currentQuantity) || 1)}"
+                value="${quantity}"
                 data-config-base-qty-input
                 aria-label="Quantity"
+                inputmode="numeric"
                 ${!hasCompleteSelection ? 'disabled' : ''}
               />
-              <button type="button" data-config-base-qty="increase" aria-label="Increase" ${!hasCompleteSelection ? 'disabled' : ''}>+</button>
+              <button type="button" data-config-base-qty="increase" aria-label="Increase quantity" ${!hasCompleteSelection || quantity >= stockValue ? 'disabled' : ''}>+</button>
             </div>
-            <div class="pcm-dock__total">
-              <span class="pcm-dock__label">Subtotal</span>
-              <strong>${formatPrice(lineTotal)}</strong>
-            </div>
+            <p class="pcm-stock pcm-stock--${stockState}">${escapeHtml(stockLabel)}</p>
           </div>
-          <div class="pcm-dock__actions">
-            <button type="button" class="pcm-footer__cta pcm-footer__cta--ghost${preferredAction === 'add' ? ' is-preferred' : ''}" data-config-submit-action="add" ${canSubmit ? '' : 'disabled'}>
-              Add to Cart
-            </button>
-            <button type="button" class="pcm-footer__cta${preferredAction === 'buy' ? ' is-preferred' : ''}" data-config-submit-action="buy" ${canSubmit ? '' : 'disabled'}>
-              Buy Now
-            </button>
-          </div>
-        </div>
+        </section>
+      </div>
+
+      <footer class="pcm-footer pcm-footer--action">
+        ${actionHint ? `<p class="pcm-footer__hint">${escapeHtml(actionHint)}</p>` : ''}
+        <button
+          type="button"
+          class="pcm-primary"
+          data-config-submit-action="${action}"
+          ${canSubmit ? '' : 'disabled'}
+        >
+          ${escapeHtml(actionLabel)}
+        </button>
       </footer>
     </div>
   `;
@@ -411,7 +464,7 @@ function buildLegacyModalMarkup({
         <img class="pcm-header__image" src="${escapeHtml(primaryImage)}" alt="${escapeHtml(product.name)}">
         <div class="pcm-header__content">
           <p class="pcm-header__eyebrow">${escapeHtml(product.categoryLabel || product.badge || 'Product options')}</p>
-          <h2 class="pcm-header__title">${escapeHtml(product.name)}</h2>
+          <h2 class="pcm-header__title" id="pcmProductTitle">${escapeHtml(product.name)}</h2>
           <strong class="pcm-header__price">${formatPrice(product.price)}</strong>
           <p class="pcm-header__summary">${escapeHtml(selectionSummary || 'Select options to continue')}</p>
         </div>
@@ -542,11 +595,8 @@ function buildLegacyModalMarkup({
           <p>${escapeHtml(summaryCountLabel)}</p>
         </div>
         <div class="pcm-footer__actions">
-          <button type="button" class="pcm-footer__cta pcm-footer__cta--ghost${preferredAction === 'add' ? ' is-preferred' : ''}" data-config-submit-action="add" ${canSubmit ? '' : 'disabled'}>
-            Add to Cart
-          </button>
-          <button type="button" class="pcm-footer__cta${preferredAction === 'buy' ? ' is-preferred' : ''}" data-config-submit-action="buy" ${canSubmit ? '' : 'disabled'}>
-            Buy Now
+          <button type="button" class="pcm-footer__cta" data-config-submit-action="${preferredAction === 'buy' ? 'buy' : 'add'}" ${canSubmit ? '' : 'disabled'}>
+            ${preferredAction === 'buy' ? 'Buy Now' : 'Add to Cart'}
           </button>
         </div>
       </footer>
