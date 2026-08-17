@@ -255,8 +255,14 @@ export function initProductActions(options) {
       }
 
       if (action === 'buy') {
-        startDirectCheckout(items);
-        return true;
+        try {
+          setActionBusy('buy', true);
+          startDirectCheckout(items);
+          return true;
+        } catch (error) {
+          setActionBusy('buy', false);
+          throw error;
+        }
       }
 
       try {
@@ -519,10 +525,6 @@ export function initProductActions(options) {
   }
 
   function openSelectionModal(action, qty) {
-    if (typeof modal.isOpen === 'function' && modal.isOpen()) {
-      return;
-    }
-
     modal.open({
       action,
       initialQuantity: qty,
@@ -530,12 +532,40 @@ export function initProductActions(options) {
     });
   }
 
-  function handleSimpleAction(action, sourceButton) {
-    if (isAnyPurchaseBusy() || sourceButton?.dataset.busy === 'true') {
+  function resetTemporaryPurchaseState() {
+    window.clearTimeout(actionUnlockTimer);
+    actionUnlockTimer = 0;
+    setActionBusy('buy', false);
+    applyPurchaseAvailability(product, [
+      addToCartButton,
+      buyNowButton,
+      document.getElementById('stickyAddToCartBtn'),
+      document.getElementById('stickyBuyNowBtn')
+    ]);
+    if (typeof modal.reset === 'function') {
+      modal.reset();
+    } else {
+      modal.close?.();
+    }
+  }
+
+  function handlePageShow(event) {
+    const urlId = String(new URLSearchParams(window.location.search).get('id') || '').trim();
+    const currentId = String(product.id || product.catalogId || '').trim();
+    if (urlId && currentId && urlId !== currentId) {
       return;
     }
 
-    if (typeof modal.isOpen === 'function' && modal.isOpen()) {
+    resetTemporaryPurchaseState();
+    if (event?.persisted) {
+      applyCurrentSelection(usesColorSize
+        ? resolveConfirmationColorSizeSelection(enrichedProduct, {})
+        : {});
+    }
+  }
+
+  function handleSimpleAction(action, sourceButton) {
+    if (isAnyPurchaseBusy() || sourceButton?.dataset.busy === 'true') {
       return;
     }
 
@@ -603,4 +633,6 @@ export function initProductActions(options) {
       openSelectionModal('add', readQuantity());
     }
   });
+
+  window.addEventListener('pageshow', handlePageShow);
 }

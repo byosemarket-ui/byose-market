@@ -63,6 +63,24 @@ function resolveModalImage(url, fallback = '') {
   return normalized || normalizeStorefrontAssetUrl(fallback) || fallback;
 }
 
+function compactColorLabel(name, maxLength = 22) {
+  let label = String(name || '').replace(/\s+/g, ' ').trim();
+  if (!label) {
+    return '';
+  }
+
+  const withParts = label.split(/\s+with\s+/i);
+  if (withParts.length > 1 && withParts[0].trim().length >= 3) {
+    label = withParts[0].trim();
+  }
+
+  if (label.length <= maxLength) {
+    return label;
+  }
+
+  return `${label.slice(0, Math.max(1, maxLength - 1)).trimEnd()}…`;
+}
+
 function getColorLabel(product, colorId, attributes, selectedAttributes) {
   const colorAttr = attributes.find((entry) => entry.name === COLOR_ATTR_NAME);
   const option = colorAttr?.options?.find((entry) => String(entry.value) === String(colorId));
@@ -268,11 +286,17 @@ function buildColorSizeModalMarkup({
     : '';
   const quantity = Math.max(1, Number(currentQuantity) || 1);
 
+  const fallbackImage = resolveModalImage(
+    enrichedProduct?.mainImage || enrichedProduct?.image,
+    '../img/logo.png'
+  );
   const colorCards = colorVariants.map((color) => {
     const isActive = String(selectedColorId) === String(color.id);
     const isDisabled = Number(color.totalStock) <= 0;
-    const originalImage = resolveModalImage(color.image, enrichedProduct?.mainImage || enrichedProduct?.image);
+    const originalImage = resolveModalImage(color.image, fallbackImage);
     const image = toProductCardImageUrl(originalImage) || originalImage;
+    const fullName = String(color.colorName || '').trim();
+    const shortName = compactColorLabel(fullName);
     const stateLabel = isDisabled ? 'out of stock' : (isActive ? 'selected' : 'available');
 
     return `
@@ -283,14 +307,25 @@ function buildColorSizeModalMarkup({
         data-attribute-value="${escapeHtml(color.id)}"
         role="radio"
         aria-checked="${isActive ? 'true' : 'false'}"
-        aria-label="${escapeHtml(`${color.colorName}, ${stateLabel}`)}"
+        aria-label="${escapeHtml(`${fullName}, ${stateLabel}`)}"
+        title="${escapeHtml(fullName)}"
         ${isDisabled ? 'disabled aria-disabled="true"' : ''}
       >
         <span class="pcm-color-tile__media">
-          <img src="${escapeHtml(image)}" alt="" width="72" height="72" loading="lazy" decoding="async" />
+          <img
+            src="${escapeHtml(image)}"
+            data-full="${escapeHtml(originalImage)}"
+            alt=""
+            width="80"
+            height="80"
+            loading="lazy"
+            decoding="async"
+            onerror="if(this.dataset.full&&this.src!==this.dataset.full){this.src=this.dataset.full;}else{this.onerror=null;this.src='../img/logo.png';}"
+          />
         </span>
         <span class="pcm-color-tile__info">
-          <strong>${escapeHtml(color.colorName)}</strong>
+          <span class="pcm-color-tile__name">${escapeHtml(shortName || fullName || 'Color')}</span>
+          ${isActive ? '<span class="pcm-color-tile__selected">Selected</span>' : ''}
         </span>
         ${isActive ? '<span class="pcm-color-tile__check" aria-hidden="true"><i class="fa-solid fa-check"></i></span>' : ''}
       </button>
@@ -350,19 +385,9 @@ function buildColorSizeModalMarkup({
             <h3 class="pcm-section__title">Color</h3>
             <span class="pcm-section__meta">${showColorPicker ? 'Choose one' : 'Selected'}</span>
           </div>
-          ${showColorPicker ? `
-          <div class="pcm-color-grid" role="radiogroup" aria-label="Color">
+          <div class="pcm-color-grid${colorVariants.length === 1 ? ' pcm-color-grid--single' : ''}" role="radiogroup" aria-label="Color">
             ${colorCards || `<p class="pcm-section__empty">No colors available.</p>`}
           </div>
-          ` : `
-          <div class="pcm-resolved" aria-live="polite">
-            <span class="pcm-resolved__copy">
-              <span class="pcm-resolved__label">Color</span>
-              <strong>${escapeHtml(selectedColorLabel || 'Unavailable')}</strong>
-            </span>
-            <span class="pcm-resolved__ok"><i class="fa-solid fa-check" aria-hidden="true"></i> Selected</span>
-          </div>
-          `}
         </section>
 
         <section class="pcm-section pcm-section--sizes${selectedColorId || !showColorPicker ? ' is-ready' : ''}${showSizePicker ? '' : ' pcm-section--resolved'}">

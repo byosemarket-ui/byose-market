@@ -379,15 +379,29 @@ export function createProductModal({ product, attributes, onSubmit, onSelectionC
 
   function close() {
     if (!state.isOpen && modalRoot.hidden) {
+      state.committing = false;
       return;
     }
 
     state.isOpen = false;
+    state.committing = false;
+    state.validationMessage = '';
     modalRoot.hidden = true;
     modalRoot.classList.remove('is-open');
     unlockPageScroll();
     modalRoot.setAttribute('aria-hidden', 'true');
     state.scrollTop = 0;
+  }
+
+  function reset() {
+    close();
+    state.action = 'add';
+    state.quantityByOption = {};
+    state.currentQuantity = 1;
+    state.initialQuantity = 1;
+    state.validationMessage = '';
+    state.scrollTop = 0;
+    state.committing = false;
   }
 
   function commit(action) {
@@ -432,14 +446,7 @@ export function createProductModal({ product, attributes, onSubmit, onSelectionC
       return;
     }
 
-    if (action === 'buy') {
-      return;
-    }
-
     close();
-    window.setTimeout(() => {
-      state.committing = false;
-    }, 450);
   }
 
   function handleModalClick(event) {
@@ -581,12 +588,8 @@ export function createProductModal({ product, attributes, onSubmit, onSelectionC
   }
 
   function open({ action = 'add', initialQuantity = 1, selectedAttributes = null } = {}) {
-    if (state.isOpen || modalRoot.classList.contains('is-open')) {
-      return;
-    }
-
-    state.isOpen = true;
-    state.action = action;
+    state.committing = false;
+    state.action = action === 'buy' ? 'buy' : 'add';
     state.initialQuantity = Math.max(1, Number(initialQuantity) || 1);
     state.currentQuantity = state.initialQuantity;
     state.selectedAttributes = selectedAttributes && typeof selectedAttributes === 'object'
@@ -597,6 +600,12 @@ export function createProductModal({ product, attributes, onSubmit, onSelectionC
     state.scrollTop = 0;
     applySmartSelection();
     render();
+
+    if (state.isOpen || modalRoot.classList.contains('is-open')) {
+      return;
+    }
+
+    state.isOpen = true;
     modalRoot.hidden = false;
     modalRoot.classList.add('is-open');
     lockPageScroll();
@@ -625,6 +634,7 @@ export function createProductModal({ product, attributes, onSubmit, onSelectionC
   return {
     open,
     close,
+    reset,
     isOpen() {
       return Boolean(state.isOpen) || modalRoot.classList.contains('is-open');
     }

@@ -778,9 +778,20 @@ body.details-config-open .site-footer {
 }
 
 .pcm-color-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pcm-color-grid--single {
+  justify-content: flex-start;
 }
 
 .pcm-color-tile,
@@ -796,15 +807,22 @@ body.details-config-open .site-footer {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
-  min-width: 0;
-  padding: 6px;
+  gap: 6px;
+  flex: 0 0 auto;
+  width: min(84px, calc((100% - 16px) / 3));
+  min-width: 72px;
+  min-height: 0;
+  padding: 5px;
   border: 1.5px solid var(--pcm-border);
   border-radius: 12px;
   background: var(--pcm-surface);
   text-align: center;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+}
+
+.pcm-color-grid--single .pcm-color-tile {
+  width: 88px;
 }
 
 .pcm-color-tile__media {
@@ -818,21 +836,36 @@ body.details-config-open .site-footer {
 .pcm-color-tile__media img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center;
   display: block;
 }
 
 .pcm-color-tile__info {
   min-width: 0;
-  padding: 0 2px 4px;
+  padding: 0 1px 2px;
 }
 
-.pcm-color-tile__info strong {
-  display: block;
-  font-size: 0.74rem;
-  line-height: 1.25;
-  color: var(--pcm-text);
+.pcm-color-tile__name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  overflow: hidden;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  font-weight: 600;
+  color: var(--pcm-text-soft);
   overflow-wrap: anywhere;
+}
+
+.pcm-color-tile__selected {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: var(--pcm-accent-dark);
+  letter-spacing: 0.01em;
 }
 
 .pcm-color-tile__check {
@@ -1055,9 +1088,21 @@ body.details-config-open .site-footer {
   }
 }
 
+@media (min-width: 768px) {
+  .pcm-color-tile {
+    width: min(92px, calc((100% - 24px) / 4));
+    min-width: 80px;
+  }
+
+  .pcm-color-grid--single .pcm-color-tile {
+    width: 96px;
+  }
+}
+
 @media (max-width: 359px) {
-  .pcm-color-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .pcm-color-tile {
+    width: min(76px, calc((100% - 8px) / 2));
+    min-width: 68px;
   }
 
   .pcm-summary {
