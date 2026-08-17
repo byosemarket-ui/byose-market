@@ -143,7 +143,7 @@ function setPurchaseButtonAvailability(button, enabled, outOfStockLabel) {
     return;
   }
 
-  button.disabled = !enabled;
+  button.disabled = false;
   button.classList.toggle('btn-disabled', !enabled);
   button.setAttribute('aria-disabled', enabled ? 'false' : 'true');
   if (!enabled) {
@@ -154,7 +154,10 @@ function setPurchaseButtonAvailability(button, enabled, outOfStockLabel) {
     } else {
       button.textContent = outOfStockLabel;
     }
+    return;
   }
+
+  button.removeAttribute('title');
 }
 
 function applyPurchaseAvailability(product, buttons = []) {
@@ -421,12 +424,9 @@ export function initProductActions(options) {
 
     button.dataset.busy = busy ? 'true' : 'false';
     button.classList.toggle('is-loading', busy);
-    if (busy) {
-      button.disabled = true;
-      return;
-    }
-
-    button.disabled = !purchasable;
+    button.classList.toggle('btn-disabled', busy || !purchasable);
+    button.setAttribute('aria-disabled', busy || !purchasable ? 'true' : 'false');
+    button.disabled = Boolean(busy);
   }
 
   function actionButtons(action) {

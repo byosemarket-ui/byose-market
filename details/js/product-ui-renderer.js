@@ -96,10 +96,16 @@ function getSizeLabel(sizeValue, sizeOptions = [], product = null) {
 function buildInlineColorSizeMarkup(product, attributes, selectedAttributes = {}) {
   const enrichedProduct = enrichProductColorVariants(product, normalizeStorefrontAssetUrl);
   const colorVariants = extractColorVariantsFromProduct(enrichedProduct);
-  const selectedColorId = selectedAttributes?.[COLOR_ATTR_NAME] || '';
-  const selectedSizeValue = selectedAttributes?.[SIZE_ATTR_NAME] || '';
+  let selectedColorId = selectedAttributes?.[COLOR_ATTR_NAME] || '';
+  if (!selectedColorId && colorVariants.length === 1) {
+    selectedColorId = String(colorVariants[0].id || '');
+  }
+  let selectedSizeValue = selectedAttributes?.[SIZE_ATTR_NAME] || '';
   const selectedColorLabel = getColorLabel(enrichedProduct, selectedColorId, attributes, selectedAttributes);
   const sizeOptions = selectedColorId ? getSizesForColor(enrichedProduct, selectedColorId) : [];
+  if (!selectedSizeValue && sizeOptions.length === 1) {
+    selectedSizeValue = String(sizeOptions[0].value || '');
+  }
   const selectedSizeLabel = getSizeLabel(selectedSizeValue, sizeOptions, enrichedProduct);
   const fallbackImage = enrichedProduct?.mainImage || enrichedProduct?.image || '../img/logo.png';
 
@@ -179,6 +185,11 @@ export function renderProductOptionPreview(root, attributes, product = null, sel
     return;
   }
 
+  if (isColorSizeInventory(enrichedProduct)) {
+    root.innerHTML = buildInlineColorSizeMarkup(enrichedProduct, attributes, selectedAttributes);
+    return;
+  }
+
   const purchasable = hasPurchasableVariant(enrichedProduct || product);
 
   if (!purchasable) {
@@ -191,11 +202,6 @@ export function renderProductOptionPreview(root, attributes, product = null, sel
         </div>
       </div>
     `;
-    return;
-  }
-
-  if (isColorSizeInventory(enrichedProduct)) {
-    root.innerHTML = buildInlineColorSizeMarkup(enrichedProduct, attributes, selectedAttributes);
     return;
   }
 
