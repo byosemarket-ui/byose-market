@@ -181,6 +181,7 @@ function normalizeLine(item) {
   const availability = normalizeAvailability(item.availability, stock);
   const colorName = item.colorName || item.variantSelection?.color || item.color || '';
   const sizeLabel = item.sizeLabel || item.variantSelection?.size || item.size || '';
+  const variantId = String(item.variantId || item.variantSelection?.id || '').trim();
   const attributeSummary = item.attributeSummary
     || [colorName, sizeLabel ? `Size ${sizeLabel}` : ''].filter(Boolean).join(' · ')
     || formatAttributes(attributes);
@@ -216,10 +217,12 @@ function normalizeLine(item) {
     sizeValue: item.sizeValue || item.variantSelection?.sizeValue || attributes.Size || '',
     attributes,
     attributeSummary,
+    variantId,
     variantKey,
     variantType: Object.keys(attributes).length ? 'variant' : 'simple',
     variantSelection: item.variantSelection && typeof item.variantSelection === 'object'
       ? {
+          id: item.variantSelection.id || variantId,
           key: item.variantSelection.key || variantKey,
           type: item.variantSelection.type || (Object.keys(attributes).length ? 'variant' : 'simple'),
           attributes: normalizeAttributes({ attributes: item.variantSelection.attributes || attributes }),
@@ -231,6 +234,7 @@ function normalizeLine(item) {
           sizeValue: item.variantSelection.sizeValue || item.sizeValue || ''
         }
       : {
+          id: variantId,
           key: variantKey,
           type: Object.keys(attributes).length ? 'variant' : 'simple',
           attributes,

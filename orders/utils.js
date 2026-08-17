@@ -573,6 +573,7 @@ export function normalizeCartItem(item) {
   const variantKey = item?.variantKey || buildVariantKey(attributes);
   const colorName = String(item?.colorName || item?.variantSelection?.color || item?.color || '').trim();
   const sizeLabel = String(item?.sizeLabel || item?.variantSelection?.size || item?.size || '').trim();
+  const variantId = String(item?.variantId || item?.variantSelection?.id || '').trim();
   const colorImage = String(item?.colorImage || item?.variantSelection?.colorImage || '').trim();
   const productImage = resolveOrderItemImage(item);
   const image = String(item?.image || item?.img || colorImage || productImage).trim();
@@ -603,10 +604,12 @@ export function normalizeCartItem(item) {
     thumbnail: image,
     attributes,
     attributeSummary: item?.attributeSummary || formatVariantDetailsText({ ...item, colorName, sizeLabel, attributes }),
+    variantId,
     variantKey,
     variantType: String(item?.variantType || (Object.keys(attributes).length ? 'variant' : 'simple')),
     variantSelection: item?.variantSelection && typeof item.variantSelection === 'object'
       ? {
+          id: String(item.variantSelection.id || variantId).trim(),
           key: String(item.variantSelection.key || variantKey).trim(),
           type: String(item.variantSelection.type || (Object.keys(attributes).length ? 'variant' : 'simple')).trim(),
           attributes: normalizeAttributes({ attributes: item.variantSelection.attributes || attributes }),

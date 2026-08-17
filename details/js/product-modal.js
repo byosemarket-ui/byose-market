@@ -408,8 +408,9 @@ export function createProductModal({ product, attributes, onSubmit, onSelectionC
     }
 
     const variants = getVariants().filter(variant => variant.qty > 0);
+    let submitted = true;
     try {
-      onSubmit?.(action, variants);
+      submitted = onSubmit?.(action, variants);
     } catch (error) {
       state.committing = false;
       if (submitButton) {
@@ -418,6 +419,16 @@ export function createProductModal({ product, attributes, onSubmit, onSelectionC
         submitButton.removeAttribute('aria-busy');
       }
       showToast?.(error?.message || 'Unable to complete this action.');
+      return;
+    }
+
+    if (submitted === false) {
+      state.committing = false;
+      if (submitButton) {
+        submitButton.classList.remove('is-loading');
+        submitButton.disabled = !canSubmitSelection();
+        submitButton.removeAttribute('aria-busy');
+      }
       return;
     }
 
@@ -478,6 +489,9 @@ export function createProductModal({ product, attributes, onSubmit, onSelectionC
 
     const submitButton = event.target.closest('[data-config-submit-action]');
     if (submitButton) {
+      if (submitButton.disabled || submitButton.getAttribute('aria-disabled') === 'true') {
+        return;
+      }
       commit(submitButton.getAttribute('data-config-submit-action'));
       return;
     }

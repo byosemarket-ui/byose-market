@@ -220,7 +220,13 @@ export function buildVariantCartPayload(product, quantity, selectedAttributes = 
   const display = resolveVariantDisplay(enriched, attributes);
   const variantKey = display.variantKey || buildVariantKey(attributes);
   const variantId = display.variantId || variantKey;
-  const qty = Math.max(1, Number(quantity) || 1);
+  const availableStock = Number.isFinite(display.availableStock)
+    ? display.availableStock
+    : Math.max(0, Math.floor(Number(enriched.stock || enriched.availableStock || 0)));
+  let qty = Math.max(1, Number(quantity) || 1);
+  if (Number.isFinite(availableStock) && availableStock > 0) {
+    qty = Math.min(qty, availableStock);
+  }
   const price = Number.isFinite(Number(display.unitPrice))
     ? Number(display.unitPrice)
     : Number(enriched.price || 0);
@@ -234,9 +240,6 @@ export function buildVariantCartPayload(product, quantity, selectedAttributes = 
   const attributeSummary = buildVariantAttributeSummary(display)
     || Object.values(attributes).filter(Boolean).join(' · ')
     || '';
-  const availableStock = Number.isFinite(display.availableStock)
-    ? display.availableStock
-    : Math.max(0, Math.floor(Number(enriched.stock || enriched.availableStock || 0)));
   const baseSku = String(enriched.sku || enriched.metadata?.sku || '').trim();
   const variantSku = baseSku && display.colorId && display.sizeValue
     ? `${baseSku}-${display.colorId}-${display.sizeValue}`

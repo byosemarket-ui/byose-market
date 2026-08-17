@@ -89,49 +89,63 @@ const checks = [
 ];
 
 const singleColorProduct = {
+  id: 10,
+  price: 15000,
+  mainImage: '/uploads/red.jpg',
   stock: 5,
   variants: {
     mode: 'color_size',
     enabled: true,
     colorVariants: normalizeColorVariants([{
       colorName: 'Red',
+      image: '/uploads/red.jpg',
       sizes: [{ size: '40', stock: 5 }]
     }])
   }
 };
 
 const singleColorMultiSizeProduct = {
+  id: 11,
+  price: 18000,
+  mainImage: '/uploads/red.jpg',
   stock: 10,
   variants: {
     mode: 'color_size',
     enabled: true,
     colorVariants: normalizeColorVariants([{
       colorName: 'Red',
-      sizes: [{ size: '40', stock: 5 }, { size: '41', stock: 5 }]
+      image: '/uploads/red.jpg',
+      sizes: [{ size: '40', stock: 3 }, { size: '41', stock: 7 }]
     }])
   }
 };
 
 const multiColorSingleSizeProduct = {
+  id: 12,
+  price: 20000,
+  mainImage: '/uploads/red.jpg',
   stock: 10,
   variants: {
     mode: 'color_size',
     enabled: true,
     colorVariants: normalizeColorVariants([
-      { colorName: 'Red', sizes: [{ size: '40', stock: 5 }] },
-      { colorName: 'Blue', sizes: [{ size: '40', stock: 5 }] }
+      { colorName: 'Red', image: '/uploads/red.jpg', sizes: [{ size: '40', stock: 5 }] },
+      { colorName: 'Blue', image: '/uploads/blue.jpg', sizes: [{ size: '40', stock: 5 }] }
     ])
   }
 };
 
 const multiColorMultiSizeProduct = {
+  id: 13,
+  price: 22000,
+  mainImage: '/uploads/red.jpg',
   stock: 20,
   variants: {
     mode: 'color_size',
     enabled: true,
     colorVariants: normalizeColorVariants([
-      { colorName: 'Red', sizes: [{ size: '40', stock: 5 }, { size: '41', stock: 5 }] },
-      { colorName: 'Blue', sizes: [{ size: '40', stock: 5 }, { size: '42', stock: 5 }] }
+      { colorName: 'Red', image: '/uploads/red.jpg', sizes: [{ size: '40', stock: 5 }, { size: '41', stock: 5 }] },
+      { colorName: 'Blue', image: '/uploads/blue.jpg', sizes: [{ size: '40', stock: 5 }, { size: '42', stock: 5 }] }
     ])
   }
 };
@@ -215,6 +229,72 @@ checks.push(
       && payload.stock === 5
       && payload.colorId === sel.Color
       && payload.sizeValue === sel.Size;
+  })()],
+  ['payload includes required purchase fields', (() => {
+    const sel = resolveSmartColorSizeSelection(singleColorProduct, {});
+    const payload = buildVariantCartPayload(singleColorProduct, 2, sel);
+    return payload.productId === 10
+      && Boolean(payload.variantId)
+      && payload.color === 'Red'
+      && payload.sizeValue === '40'
+      && payload.qty === 2
+      && payload.price === 15000
+      && Boolean(payload.image)
+      && payload.stock === 5;
+  })()],
+  ['quantity cannot exceed variant stock', (() => {
+    const sel = resolveSmartColorSizeSelection(singleColorMultiSizeProduct, { Size: '40' });
+    const payload = buildVariantCartPayload(singleColorMultiSizeProduct, 9, sel);
+    return sel.Size === '40' && payload.qty === 3 && payload.stock === 3;
+  })()],
+  ['invalid color/size combination is blocked', (() => {
+    const redId = multiColorMultiSizeProduct.variants.colorVariants[0].id;
+    const resolved = resolvePurchaseSelection(multiColorMultiSizeProduct, { Color: redId, Size: '42' });
+    return resolved.resolved === false;
+  })()],
+  ['size change updates variant id', (() => {
+    const redId = multiColorMultiSizeProduct.variants.colorVariants[0].id;
+    const size40 = resolvePurchaseSelection(multiColorMultiSizeProduct, { Color: redId, Size: '40' });
+    const size41 = resolvePurchaseSelection(multiColorMultiSizeProduct, { Color: redId, Size: '41' });
+    const payload40 = buildVariantCartPayload(multiColorMultiSizeProduct, 1, size40.selection);
+    const payload41 = buildVariantCartPayload(multiColorMultiSizeProduct, 1, size41.selection);
+    return size40.resolved
+      && size41.resolved
+      && payload40.variantId !== payload41.variantId
+      && payload40.sizeValue === '40'
+      && payload41.sizeValue === '41';
+  })()],
+  ['color change does not keep previous variant payload', (() => {
+    const redId = multiColorMultiSizeProduct.variants.colorVariants[0].id;
+    const blueId = multiColorMultiSizeProduct.variants.colorVariants[1].id;
+    const afterRed = resolveSmartColorSizeSelection(multiColorMultiSizeProduct, { Color: redId, Size: '41' });
+    const afterBlue = resolveSmartColorSizeSelection(multiColorMultiSizeProduct, { Color: blueId, Size: afterRed.Size });
+    const unresolved = resolvePurchaseSelection(multiColorMultiSizeProduct, afterBlue);
+    return afterRed.Size === '41' && !afterBlue.Size && unresolved.resolved === false;
+  })()],
+  ['case A purchase resolves without extra choices', (() => {
+    const resolved = resolvePurchaseSelection(singleColorProduct, {});
+    return resolved.resolved && Boolean(resolved.selection.Color) && resolved.selection.Size === '40';
+  })()],
+  ['case B keeps size manual until chosen', (() => {
+    const auto = resolvePurchaseSelection(singleColorMultiSizeProduct, {});
+    const chosen = resolvePurchaseSelection(singleColorMultiSizeProduct, { ...auto.selection, Size: '41' });
+    return auto.resolved === false && !auto.selection.Size && chosen.resolved && chosen.selection.Size === '41';
+  })()],
+  ['case C auto-selects the only size', (() => {
+    const auto = resolvePurchaseSelection(multiColorSingleSizeProduct, {});
+    const chosen = resolvePurchaseSelection(multiColorSingleSizeProduct, {
+      ...auto.selection,
+      Color: multiColorSingleSizeProduct.variants.colorVariants[1].id
+    });
+    return !auto.selection.Color
+      && auto.selection.Size === '40'
+      && chosen.resolved
+      && chosen.selection.Size === '40';
+  })()],
+  ['case D requires both color and size', (() => {
+    const auto = resolvePurchaseSelection(multiColorMultiSizeProduct, {});
+    return auto.resolved === false && !auto.selection.Color && !auto.selection.Size;
   })()],
   ['out of stock variant cannot resolve for purchase', (() => {
     const resolved = resolvePurchaseSelection(product, { Color: whiteId, Size: '43' });

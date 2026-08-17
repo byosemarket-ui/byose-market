@@ -29,6 +29,7 @@ function checkSourceGuards() {
   assert(cart.includes('Only ${limitLabel} available in stock'), 'add() must reject silent stock clamps');
   assert(cart.includes('resolveLineStockFromCatalog'), 'catalog sync must use variant stock, not product-level stock');
   assert(cart.includes('Incomplete catalog snapshots must not wipe'), 'missing catalog rows must not mark cart unavailable');
+  assert(cart.includes('variantId'), 'cart lines must preserve variantId');
 
   const order = read('orders/core/order.js');
   assert(order.includes('clearActiveCheckoutKeys'), 'submitOrder must clear checkout session keys');
@@ -41,6 +42,10 @@ function checkSourceGuards() {
   const session = read('orders/checkout-session.js');
   assert(session.includes('startBuyNowSession'), 'Buy Now session helper must exist');
   assert(session.includes('startCartCheckoutSession'), 'cart checkout session helper must exist');
+  assert(session.includes('writeDirectCheckoutItems(items)'), 'Buy Now must write the existing direct-checkout session');
+
+  const checkoutUtils = read('orders/utils.js');
+  assert(checkoutUtils.includes('item?.variantId || item?.variantSelection?.id'), 'checkout normalize must preserve variantId');
 
   const actions = read('details/js/product-actions.js');
   assert(actions.includes('startBuyNowSession'), 'Buy Now must start an isolated direct session');
@@ -48,6 +53,17 @@ function checkSourceGuards() {
   assert(actions.includes('openSelectionModal'), 'missing options must reuse the existing selection modal');
   assert(actions.includes('resolvePurchaseSelection'), 'Add to Cart/Buy Now must share one variant-resolution path');
   assert(actions.includes('Out of Stock'), 'unavailable products must show Out of Stock');
+  assert(actions.includes('runPurchaseAction'), 'purchase buttons must share one busy-state path');
+  assert(!actions.includes('dispatchCartEvents'), 'dead cart event dispatcher must not remain');
+  assert(actions.includes('Unable to start checkout for this selection.'), 'Buy Now must not redirect after a failed session');
+
+  const modal = read('details/js/product-modal.js');
+  assert(modal.includes('submitted === false'), 'selection modal must stay open when purchase fails');
+  assert(modal.includes('submitButton.disabled'), 'disabled modal submit must not fire a second purchase');
+
+  const renderer = read('details/js/product-ui-renderer.js');
+  assert(renderer.includes('function escapeHtml'), 'variant UI must escape user-controlled product data');
+  assert(renderer.includes('pcm-primary'), 'selection UI must keep a single primary action');
 
   const utils = read('js/utils.js');
   assert(utils.includes('mergeCartItemLists'), 'storefront sync must merge guest/remote carts');

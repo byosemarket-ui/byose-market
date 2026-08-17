@@ -205,12 +205,18 @@ export function clearAbandonedCheckoutSession() {
 
 export function startBuyNowSession(itemsInput) {
   const items = (Array.isArray(itemsInput) ? itemsInput : [itemsInput]).filter(Boolean);
+  if (!items.length) {
+    throw new Error('No items available for checkout.');
+  }
   clearAbandonedCheckoutSession();
   removeStorage(STORAGE_KEYS.checkoutActive);
   removeBrowserKey(STORAGE_KEYS.checkoutActive);
-  writeDirectCheckoutItems(items);
-  writeCheckoutIntent('direct', items);
-  return items;
+  const sessionItems = writeDirectCheckoutItems(items);
+  if (!sessionItems.length) {
+    throw new Error('Unable to start checkout for this selection.');
+  }
+  writeCheckoutIntent('direct', sessionItems);
+  return sessionItems;
 }
 
 export function startCartCheckoutSession(itemsInput) {

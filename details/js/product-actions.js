@@ -25,11 +25,6 @@ function createCartPayload(product, quantity, attributes = {}) {
   return buildVariantCartPayload(product, quantity, attributes);
 }
 
-function dispatchCartEvents() {
-  window.dispatchEvent(new Event('kcart:updated'));
-  window.dispatchEvent(new Event('cart:updated'));
-}
-
 function fallbackAddItemsToCart(items) {
   const count = Array.isArray(items) ? items.length : 0;
   window.dispatchEvent(new CustomEvent('byose:storefront-cart-error', {
@@ -173,13 +168,12 @@ function applyPurchaseAvailability(product, buttons = []) {
 function startDirectCheckout(itemsInput) {
   const items = (Array.isArray(itemsInput) ? itemsInput : [itemsInput]).filter(Boolean);
   if (!items.length) {
-    return;
+    throw new Error('No items available for checkout.');
   }
 
-  try {
-    startBuyNowSession(items);
-  } catch (error) {
-    console.error('Unable to start direct checkout', error);
+  const sessionItems = startBuyNowSession(items);
+  if (!Array.isArray(sessionItems) || !sessionItems.length) {
+    throw new Error('Unable to start checkout for this selection.');
   }
 
   window.location.href = '../orders/shipping.html';
@@ -254,12 +248,12 @@ export function initProductActions(options) {
         .filter(Boolean);
 
       if (!items.length) {
-        return;
+        return false;
       }
 
       if (action === 'buy') {
         startDirectCheckout(items);
-        return;
+        return true;
       }
 
       try {
@@ -270,8 +264,10 @@ export function initProductActions(options) {
         updateStockHint();
         updatePurchaseCaption();
         syncDisplayedPrice();
+        return true;
       } catch (error) {
         showToast?.(error?.message || 'Unable to add item to cart.');
+        return false;
       }
     }
   });
@@ -282,8 +278,11 @@ export function initProductActions(options) {
   }
 
   function getSelectionMax() {
-    if (usesColorSize && selectedAttributes[COLOR_ATTR_NAME] && selectedAttributes[SIZE_ATTR_NAME]) {
-      return getSelectionStock(enrichedProduct, attributes, selectedAttributes);
+    if (usesColorSize) {
+      if (selectedAttributes[COLOR_ATTR_NAME] && selectedAttributes[SIZE_ATTR_NAME]) {
+        return getSelectionStock(enrichedProduct, attributes, selectedAttributes);
+      }
+      return 1;
     }
 
     return resolveAvailableQuantity(product, selectedAttributes);
@@ -479,9 +478,13 @@ export function initProductActions(options) {
     }
 
     if (action === 'buy') {
-      showToast?.('Selection captured. Redirecting to shipping.');
-      startDirectCheckout(payload);
-      return true;
+      try {
+        startDirectCheckout(payload);
+        return true;
+      } catch (error) {
+        showToast?.(error?.message || 'Unable to start checkout.');
+        return false;
+      }
     }
 
     try {
@@ -491,6 +494,25 @@ export function initProductActions(options) {
     } catch (error) {
       showToast?.(error?.message || 'Unable to add item to cart.');
       return false;
+    }
+  }
+
+  function runPurchaseAction(action, qty, selection) {
+    setActionBusy(action, true);
+    try {
+      const ok = submitSelection(action, qty, selection);
+      if (action === 'buy' && !ok) {
+        setActionBusy(action, false);
+      }
+      return ok;
+    } catch (error) {
+      showToast?.(error?.message || 'Unable to complete this action.');
+      setActionBusy(action, false);
+      return false;
+    } finally {
+      if (action !== 'buy') {
+        unlockActionSoon(action);
+      }
     }
   }
 
@@ -531,23 +553,21 @@ export function initProductActions(options) {
 
     const qty = readQuantity();
 
-    if (usesColorSize && attributes.length) {
+    if (usesColorSize) {
       const resolved = resolvePurchaseSelection(product, selectedAttributes);
       selectedAttributes = resolved.selection;
 
       if (resolved.resolved) {
-        setActionBusy(action, true);
-        try {
-          submitSelection(action, qty, selectedAttributes);
-        } finally {
-          if (action !== 'buy') {
-            unlockActionSoon(action);
-          }
-        }
+        runPurchaseAction(action, qty, selectedAttributes);
         return;
       }
 
-      openSelectionModal(action, qty);
+      if (attributes.length) {
+        openSelectionModal(action, qty);
+        return;
+      }
+
+      showToast?.(resolved.validation?.message || 'Please complete a valid color and size selection.');
       return;
     }
 
@@ -556,14 +576,7 @@ export function initProductActions(options) {
       return;
     }
 
-    setActionBusy(action, true);
-    try {
-      submitSelection(action, qty, {});
-    } finally {
-      if (action !== 'buy') {
-        unlockActionSoon(action);
-      }
-    }
+    runPurchaseAction(action, qty, {});
   }
 
   applyCurrentSelection(selectedAttributes);
