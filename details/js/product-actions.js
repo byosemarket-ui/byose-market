@@ -7,7 +7,7 @@ import {
   hasPurchasableVariant,
   isColorSizeInventory,
   resolveMatrixStock,
-  resolveSmartColorSizeSelection
+  resolveConfirmationColorSizeSelection
 } from '../../js/color-variant-inventory.js';
 import {
   buildVariantCartPayload,
@@ -211,7 +211,7 @@ export function initProductActions(options) {
   ]);
 
   let selectedAttributes = usesColorSize
-    ? resolveSmartColorSizeSelection(enrichedProduct, {})
+    ? resolveConfirmationColorSizeSelection(enrichedProduct, {})
     : {};
   const catalogPrice = Number(product.price || 0);
 
@@ -404,7 +404,9 @@ export function initProductActions(options) {
   }
 
   function applyCurrentSelection(nextSelection) {
-    selectedAttributes = resolveSmartColorSizeSelection(enrichedProduct, nextSelection || {});
+    selectedAttributes = usesColorSize
+      ? resolveConfirmationColorSizeSelection(enrichedProduct, nextSelection || {})
+      : { ...(nextSelection || {}) };
     renderOptions();
     syncGalleryToSelection();
     updateStockHint();
@@ -542,41 +544,12 @@ export function initProductActions(options) {
       return;
     }
 
-    if (!purchasable) {
-      showToast?.('This product is currently out of stock.');
-      return;
-    }
-
     if (usesColorSize) {
+      selectedAttributes = resolveConfirmationColorSizeSelection(enrichedProduct, selectedAttributes);
       applyCurrentSelection(selectedAttributes);
     }
 
-    const qty = readQuantity();
-
-    if (usesColorSize) {
-      const resolved = resolvePurchaseSelection(product, selectedAttributes);
-      selectedAttributes = resolved.selection;
-
-      if (resolved.resolved) {
-        runPurchaseAction(action, qty, selectedAttributes);
-        return;
-      }
-
-      if (attributes.length) {
-        openSelectionModal(action, qty);
-        return;
-      }
-
-      showToast?.(resolved.validation?.message || 'Please complete a valid color and size selection.');
-      return;
-    }
-
-    if (attributes.length) {
-      openSelectionModal(action, qty);
-      return;
-    }
-
-    runPurchaseAction(action, qty, {});
+    openSelectionModal(action, readQuantity());
   }
 
   applyCurrentSelection(selectedAttributes);
@@ -627,10 +600,6 @@ export function initProductActions(options) {
     }
 
     if (event.target.closest('[data-open-config-modal]')) {
-      if (!purchasable) {
-        showToast?.('This product is currently out of stock.');
-        return;
-      }
       openSelectionModal('add', readQuantity());
     }
   });

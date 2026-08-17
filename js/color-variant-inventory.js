@@ -542,6 +542,34 @@ export function resolveSmartColorSizeSelection(product, selectedAttributes = {})
   return next;
 }
 
+/**
+ * Confirmation-sheet selection: unique options are still shown as selected,
+ * including a single out-of-stock color/size pair. Never picks among many.
+ */
+export function resolveConfirmationColorSizeSelection(product, selectedAttributes = {}) {
+  const next = resolveSmartColorSizeSelection(product, selectedAttributes);
+  if (!isColorSizeInventory(product)) {
+    return next;
+  }
+
+  const colors = extractColorVariantsFromProduct(product);
+  if (!next[COLOR_ATTR_NAME] && colors.length === 1) {
+    next[COLOR_ATTR_NAME] = colors[0].id;
+  }
+
+  const colorId = String(next[COLOR_ATTR_NAME] || "").trim();
+  if (!colorId) {
+    return next;
+  }
+
+  const sizes = getSizesForColor(product, colorId);
+  if (!next[SIZE_ATTR_NAME] && sizes.length === 1) {
+    next[SIZE_ATTR_NAME] = sizes[0].value;
+  }
+
+  return next;
+}
+
 export function getStockForColorSize(product, colorId, sizeValue) {
   const matrix = getColorVariantMatrix(product);
   const colorKey = String(colorId || "").trim();

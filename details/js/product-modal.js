@@ -4,7 +4,7 @@ import {
   getSelectionStock,
   isColorSizeInventory
 } from './product-attributes.js';
-import { COLOR_ATTR_NAME, SIZE_ATTR_NAME, enrichProductColorVariants, resolveSmartColorSizeSelection } from '../../js/color-variant-inventory.js';
+import { COLOR_ATTR_NAME, SIZE_ATTR_NAME, enrichProductColorVariants, resolveConfirmationColorSizeSelection } from '../../js/color-variant-inventory.js';
 import { normalizeStorefrontAssetUrl } from '../../services/storefront-asset-url.js';
 import { buildModalMarkup } from './product-ui-renderer.js';
 
@@ -372,7 +372,7 @@ export function createProductModal({ product, attributes, onSubmit, onSelectionC
       return;
     }
 
-    state.selectedAttributes = resolveSmartColorSizeSelection(enrichedProduct, state.selectedAttributes);
+    state.selectedAttributes = resolveConfirmationColorSizeSelection(enrichedProduct, state.selectedAttributes);
     syncCurrentQuantity(state.currentQuantity);
     onSelectionChange?.({ ...state.selectedAttributes });
   }

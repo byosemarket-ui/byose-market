@@ -2,7 +2,6 @@ import { buildAttributeSummary, getPrimarySelectionImage, isSelectionComplete } 
 import {
   COLOR_ATTR_NAME,
   SIZE_ATTR_NAME,
-  describeColorSizeChoices,
   enrichProductColorVariants,
   extractColorVariantsFromProduct,
   getColorVariantMatrix,
@@ -245,18 +244,17 @@ function buildColorSizeModalMarkup({
     enrichedProduct?.mainImage || enrichedProduct?.image
   );
   const previewImage = toProductCardImageUrl(previewSource) || previewSource;
-  const hasCompleteSelection = Boolean(selectedColorId && selectedSizeValue && Number(selectionStock) > 0);
+  const hasIdentifiedVariant = Boolean(selectedColorId && selectedSizeValue);
+  const hasCompleteSelection = hasIdentifiedVariant && Number(selectionStock) > 0;
   const stockValue = Number.isFinite(Number(selectionStock)) ? Math.max(0, Number(selectionStock)) : 0;
-  const stockLabel = formatSelectionStockLabel(selectionStock, hasCompleteSelection);
-  const stockState = !hasCompleteSelection
+  const stockLabel = formatSelectionStockLabel(selectionStock, hasIdentifiedVariant);
+  const stockState = !hasIdentifiedVariant
     ? 'pending'
     : (stockValue <= 0 ? 'oos' : (stockValue <= 5 ? 'low' : 'ok'));
-  const choices = describeColorSizeChoices(enrichedProduct, selectedAttributes);
-  const showColorPicker = choices.needsColorChoice;
-  const sizeRows = selectedColorId ? getSizesForColor(enrichedProduct, selectedColorId) : [];
-  const showSizePicker = choices.needsSizeChoice
-    || (!selectedSizeValue && Boolean(selectedColorId))
-    || sizeRows.length > 1;
+  const showColorPicker = colorVariants.length > 1;
+  const showSizePicker = selectedColorId
+    ? sizeOptions.length > 1
+    : !selectedSizeValue;
   const action = preferredAction === 'buy' ? 'buy' : 'add';
   const actionLabel = action === 'buy' ? 'Buy Now' : 'Add to Cart';
   const actionHint = !canSubmit
@@ -264,7 +262,9 @@ function buildColorSizeModalMarkup({
       ? 'Select a color to continue.'
       : (!selectedSizeValue
         ? 'Select an available size.'
-        : 'This combination is currently unavailable.'))
+        : (stockValue <= 0
+          ? 'This product is currently out of stock.'
+          : 'This combination is currently unavailable.')))
     : '';
   const quantity = Math.max(1, Number(currentQuantity) || 1);
 
@@ -365,7 +365,7 @@ function buildColorSizeModalMarkup({
           `}
         </section>
 
-        <section class="pcm-section pcm-section--sizes${selectedColorId || !choices.needsColorChoice ? ' is-ready' : ''}${showSizePicker ? '' : ' pcm-section--resolved'}">
+        <section class="pcm-section pcm-section--sizes${selectedColorId || !showColorPicker ? ' is-ready' : ''}${showSizePicker ? '' : ' pcm-section--resolved'}">
           <div class="pcm-section__head">
             <h3 class="pcm-section__title">Size</h3>
             <span class="pcm-section__meta">${showSizePicker ? (selectedColorId ? escapeHtml(selectedColorLabel) : 'Choose one') : 'Selected'}</span>

@@ -17,7 +17,8 @@ const {
   hasPurchasableVariant,
   normalizeColorVariants,
   resolveMatrixStock,
-  resolveSmartColorSizeSelection
+  resolveSmartColorSizeSelection,
+  resolveConfirmationColorSizeSelection
 } = await import('../js/color-variant-inventory.js');
 const {
   buildVariantCartPayload,
@@ -275,6 +276,30 @@ checks.push(
   ['case A purchase resolves without extra choices', (() => {
     const resolved = resolvePurchaseSelection(singleColorProduct, {});
     return resolved.resolved && Boolean(resolved.selection.Color) && resolved.selection.Size === '40';
+  })()],
+  ['confirmation keeps unique in-stock options selected', (() => {
+    const sel = resolveConfirmationColorSizeSelection(singleColorProduct, {});
+    return Boolean(sel.Color) && sel.Size === '40';
+  })()],
+  ['confirmation still shows unique out-of-stock color and size', (() => {
+    const oos = {
+      variants: {
+        mode: 'color_size',
+        colorVariants: normalizeColorVariants([{
+          colorName: 'White & Black',
+          sizes: [{ size: '40', stock: 0 }]
+        }])
+      }
+    };
+    const sel = resolveConfirmationColorSizeSelection(oos, {});
+    const resolved = resolvePurchaseSelection(oos, sel);
+    return sel.Color === oos.variants.colorVariants[0].id
+      && sel.Size === '40'
+      && resolved.resolved === false;
+  })()],
+  ['confirmation does not auto-pick among multiple colors', (() => {
+    const sel = resolveConfirmationColorSizeSelection(multiColorMultiSizeProduct, {});
+    return !sel.Color && !sel.Size;
   })()],
   ['case B keeps size manual until chosen', (() => {
     const auto = resolvePurchaseSelection(singleColorMultiSizeProduct, {});
