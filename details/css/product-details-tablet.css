@@ -8,8 +8,19 @@
 
 @media (min-width: 600px) and (max-width: 1023px) {
   .details-page .product-details-page {
-    overflow-x: hidden;
-    overflow-x: clip;
+    --pd-t-1: 8px;
+    --pd-t-2: 12px;
+    --pd-t-3: 16px;
+    --pd-t-4: 24px;
+    --pd-touch: 44px;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .details-page .product-details-page *,
+  .details-page .product-details-page *::before,
+  .details-page .product-details-page *::after {
+    box-sizing: border-box;
   }
 
   .details-page .details-main {
@@ -70,7 +81,8 @@
   .details-page .pd-hero > .purchase-panel {
     grid-area: buy;
     position: static;
-    padding: 20px;
+    gap: var(--pd-t-2);
+    padding: 16px;
     border: 1px solid rgba(18, 33, 39, 0.08);
     border-radius: 16px;
     background: #ffffff;
@@ -212,9 +224,9 @@
   }
 
   .details-page .info-panel .product-title-block h1 {
-    font-size: clamp(1.35rem, 1.4vw + 1rem, 1.75rem);
+    font-size: clamp(1.25rem, 1.2vw + 1rem, 1.65rem);
     font-weight: 800;
-    line-height: 1.22;
+    line-height: 1.24;
     overflow-wrap: anywhere;
     word-break: break-word;
   }
@@ -222,17 +234,20 @@
   .details-page .info-panel .product-rating-row {
     gap: 8px;
     font-size: 0.875rem;
+    max-width: 100%;
   }
 
   .details-page .info-panel .product-price-block {
     display: flex;
-    align-items: flex-end;
+    flex-wrap: wrap;
+    align-items: flex-start;
     justify-content: space-between;
-    gap: 12px;
+    gap: 8px 12px;
     padding: 0;
     border: 0;
     border-radius: 0;
     background: transparent;
+    max-width: 100%;
   }
 
   .details-page .info-panel .price-stack {
@@ -261,9 +276,13 @@
 
   .details-page .info-panel .stock-pill {
     min-height: 24px;
+    max-width: 100%;
     padding: 0 10px;
     background: rgba(0, 184, 148, 0.1);
     color: #00997c;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .details-page .info-panel .stock-pill.is-oos {
@@ -284,56 +303,133 @@
     gap: 8px;
   }
 
+  .details-page .pd-variants {
+    gap: var(--pd-t-2);
+    margin-bottom: 0;
+    max-width: 100%;
+  }
+
+  .details-page .pd-variant-head {
+    margin-bottom: 8px;
+  }
+
+  .details-page .pd-color-grid,
+  .details-page .pd-size-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: 100%;
+    min-width: 0;
+  }
+
   .details-page .pd-color-swatch {
-    width: 56px;
-    height: 56px;
+    flex: 0 0 48px;
+    width: 48px;
+    height: 48px;
     border-radius: 12px;
   }
 
   .details-page .pd-size-chip {
-    min-width: 48px;
+    flex: 0 0 auto;
+    min-width: 44px;
+    width: auto;
+    max-width: 100%;
     min-height: 44px;
+    height: 44px;
+    padding: 0 10px;
+    overflow-wrap: anywhere;
   }
 
+  .details-page .purchase-panel .purchase-header.pd-qty-row,
   .details-page .purchase-panel .purchase-header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "label"
+      "stepper"
+      "hint";
+    align-items: stretch;
+    gap: 8px;
     margin: 0;
+    max-width: 100%;
+  }
+
+  .details-page .purchase-panel .purchase-label {
+    grid-area: label;
+    margin: 0;
+    font-size: 0.75rem;
   }
 
   .details-page .purchase-panel .quantity-stepper {
-    display: inline-flex;
-    align-items: center;
-    min-height: 48px;
+    grid-area: stepper;
+    display: grid;
+    grid-template-columns: var(--pd-touch) minmax(0, 1fr) var(--pd-touch);
+    align-items: stretch;
+    width: 100%;
+    max-width: 100%;
+    height: var(--pd-touch);
+    min-height: var(--pd-touch);
+    max-height: var(--pd-touch);
+    padding: 0;
+    gap: 0;
     border: 1px solid rgba(18, 33, 39, 0.1);
     border-radius: 12px;
     overflow: hidden;
   }
 
   .details-page .purchase-panel .qty-btn {
-    width: 44px;
-    min-height: 48px;
+    width: var(--pd-touch);
+    min-width: var(--pd-touch);
+    height: var(--pd-touch);
+    min-height: var(--pd-touch);
+    padding: 0;
+    border-radius: 0;
+  }
+
+  .details-page .purchase-panel .qty-btn:hover,
+  .details-page .purchase-panel .action-btn:hover {
+    transform: none;
   }
 
   .details-page .purchase-panel #quantityInput {
-    width: 52px;
-    min-height: 48px;
+    width: 100%;
+    min-width: 0;
+    height: var(--pd-touch);
+    min-height: var(--pd-touch);
+    padding: 0;
     font-size: 1rem;
+  }
+
+  .details-page .purchase-panel .pd-stock-hint {
+    grid-area: hint;
+    min-width: 0;
+    max-width: 100%;
+    margin: 0;
+    overflow: visible;
+    font-size: 0.8125rem;
+    line-height: 1.35;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .details-page .purchase-panel .purchase-caption {
+    margin: 0;
   }
 
   .details-page .purchase-panel .cta-grid,
   .details-page .purchase-panel .cta-grid--with-wishlist {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
     margin: 0;
   }
 
   .details-page .purchase-panel .action-btn {
     min-height: 48px;
+    height: 48px;
     width: 100%;
+    max-width: 100%;
     border-radius: 12px;
   }
 
@@ -376,9 +472,14 @@
   }
 
   .details-page .details-content-grid > .details-panel {
-    padding: 20px;
+    padding: 16px;
     background: #ffffff;
     box-shadow: 0 10px 24px rgba(7, 33, 29, 0.06);
+  }
+
+  .details-page .section-head {
+    gap: 4px;
+    margin-bottom: var(--pd-t-2);
   }
 
   .details-page .story-copy {
@@ -387,14 +488,37 @@
     max-width: 70ch;
   }
 
+  .details-page .accordion-trigger {
+    min-height: var(--pd-touch);
+    padding: 12px 14px;
+  }
+
+  .details-page .accordion-panel {
+    padding: 0 14px 14px;
+    overflow-wrap: anywhere;
+  }
+
   .details-page .related-section {
     padding-top: 0;
+    max-width: 100%;
   }
 
   .details-page .related-section .byose-product-grid,
   .details-page #relatedProducts .byose-product-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
+    max-width: 100%;
+  }
+
+  .details-page #relatedProducts .byose-product-card {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .details-page #relatedProducts .byose-product-badge--featured,
+  .details-page #relatedProducts .byose-product-badge--new,
+  .details-page #relatedProducts .byose-product-badge--trending {
+    right: 40px;
   }
 }
 
@@ -422,6 +546,18 @@
   .details-page .related-section .byose-product-grid,
   .details-page #relatedProducts .byose-product-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .details-page .purchase-panel .purchase-header.pd-qty-row,
+  .details-page .purchase-panel .purchase-header {
+    grid-template-columns: minmax(180px, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "label label"
+      "stepper hint";
+    align-items: center;
+    column-gap: 12px;
   }
 }
 

@@ -1,5 +1,5 @@
 /**
- * STEP 2 — Mobile Product Details redesign
+ * STEP 6 — Mobile Product Details polish
  * Phones only: max-width 599px.
  * Scoped to .details-page / .product-details-page.
  * Does not restyle the header, footer, or desktop (≥1024px) layout.
@@ -7,21 +7,38 @@
 
 @media (max-width: 599px) {
   .details-page .product-details-page {
-    overflow-x: hidden;
-    overflow-x: clip;
+    --pd-m-1: 8px;
+    --pd-m-2: 12px;
+    --pd-m-3: 16px;
+    --pd-m-4: 24px;
+    --pd-touch: 44px;
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
     padding-bottom: 8px;
+  }
+
+  .details-page .product-details-page *,
+  .details-page .product-details-page *::before,
+  .details-page .product-details-page *::after {
+    box-sizing: border-box;
   }
 
   .details-page .details-main {
     padding: 8px 0 16px;
   }
 
+  body.details-page .details-main {
+    padding-bottom: calc(var(--details-bottom-bar-offset, 100px) + 12px);
+  }
+
   .details-page .product-details-page.is-loading .pd-hero .gallery-panel {
-    min-height: 320px;
+    min-height: 280px;
   }
 
   .details-page .container {
     width: min(calc(100% - 16px), 100%);
+    max-width: 100%;
   }
 
   .details-page .pd-breadcrumb {
@@ -29,14 +46,22 @@
   }
 
   .details-page .details-overview {
-    margin-bottom: 16px;
+    margin-bottom: var(--pd-m-3);
   }
 
   .details-page .details-grid.pd-hero {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 16px;
+    gap: var(--pd-m-3);
     margin-bottom: 0;
+    max-width: 100%;
+  }
+
+  .details-page .pd-hero > .gallery-panel,
+  .details-page .pd-hero > .info-panel,
+  .details-page .pd-hero > .purchase-panel {
+    max-width: 100%;
+    min-width: 0;
   }
 
   .details-page .pd-hero > .gallery-panel,
@@ -49,7 +74,8 @@
   }
 
   .details-page .pd-hero > .purchase-panel {
-    padding: 16px;
+    gap: var(--pd-m-2);
+    padding: var(--pd-m-2);
     border: 1px solid rgba(18, 33, 39, 0.08);
     border-radius: 16px;
     background: #ffffff;
@@ -61,7 +87,7 @@
   }
 
   .details-page .info-panel {
-    gap: 12px;
+    gap: var(--pd-m-2);
   }
 
   .details-page .product-details-page .gallery-stage-shell {
@@ -71,22 +97,23 @@
     border: 1px solid rgba(18, 33, 39, 0.08);
     border-radius: 16px;
     background: #ffffff;
+    max-width: 100%;
   }
 
   .details-page .product-details-page .gallery-stage {
     min-height: 0;
-    max-height: min(72dvh, 420px);
+    max-height: min(62dvh, 360px);
     border-radius: 0;
     background: #ffffff;
   }
 
   .details-page .product-details-page .gallery-slide {
-    padding: 16px;
+    padding: 10px;
   }
 
   .details-page .product-details-page .gallery-slide__media {
     aspect-ratio: 1 / 1;
-    max-height: min(68dvh, 400px);
+    max-height: min(58dvh, 340px);
     background: #ffffff;
   }
 
@@ -96,19 +123,19 @@
   }
 
   .details-page .gallery-discount-badge {
-    top: 12px;
-    left: 12px;
-    min-height: 26px;
+    top: 10px;
+    left: 10px;
+    min-height: 24px;
     z-index: 5;
   }
 
   .details-page .gallery-wishlist {
     position: absolute;
-    top: 12px;
-    right: 12px;
+    top: 10px;
+    right: 10px;
     z-index: 5;
-    width: 40px;
-    height: 40px;
+    width: var(--pd-touch);
+    height: var(--pd-touch);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -127,8 +154,8 @@
   .details-page .gallery-counter {
     top: auto;
     right: auto;
-    left: 12px;
-    bottom: 12px;
+    left: 10px;
+    bottom: 10px;
     min-height: 28px;
     padding: 0 10px;
     border-radius: 999px;
@@ -153,8 +180,8 @@
 
   .details-page .product-details-page .gallery-zoom {
     top: auto;
-    right: 12px;
-    bottom: 12px;
+    right: 10px;
+    bottom: 10px;
     width: 40px;
     height: 40px;
     border-radius: 12px;
@@ -170,18 +197,19 @@
     display: flex;
     grid-auto-flow: unset;
     grid-auto-columns: unset;
-    gap: 8px;
-    margin-top: 12px;
+    gap: var(--pd-m-1);
+    margin-top: var(--pd-m-2);
     padding: 0 2px 4px;
+    max-width: 100%;
     overflow-x: auto;
     overscroll-behavior-x: contain;
     -webkit-overflow-scrolling: touch;
   }
 
   .details-page .product-details-page .gallery-thumb {
-    flex: 0 0 64px;
-    width: 64px;
-    height: 64px;
+    flex: 0 0 56px;
+    width: 56px;
+    height: 56px;
     padding: 4px;
     border-radius: 10px;
     box-shadow: none;
@@ -208,59 +236,64 @@
 
   .details-page .info-panel .product-eyebrow-row {
     justify-content: flex-start;
-    gap: 8px;
+    gap: var(--pd-m-1);
   }
 
   .details-page .info-panel .product-kicker,
   .details-page .info-panel .product-badge {
-    min-height: 26px;
+    min-height: 24px;
     padding: 0 10px;
     font-size: 0.6875rem;
     letter-spacing: 0.04em;
   }
 
   .details-page .info-panel .product-title-block {
-    gap: 8px;
+    gap: 6px;
+    max-width: 100%;
   }
 
   .details-page .info-panel .product-title-block h1 {
-    font-size: 1.25rem;
+    font-size: clamp(1.125rem, 0.92rem + 1.15vw, 1.3125rem);
     font-weight: 800;
-    line-height: 1.25;
+    line-height: 1.28;
     letter-spacing: -0.02em;
     overflow-wrap: anywhere;
     word-break: break-word;
   }
 
   .details-page .info-panel .product-rating-row {
-    gap: 8px;
+    gap: 6px 10px;
     font-size: 0.8125rem;
     font-weight: 600;
+    max-width: 100%;
   }
 
   .details-page .info-panel .product-price-block {
     display: flex;
-    align-items: flex-end;
+    flex-wrap: wrap;
+    align-items: flex-start;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--pd-m-1) var(--pd-m-2);
     padding: 0;
     border: 0;
     border-radius: 0;
     background: transparent;
+    max-width: 100%;
   }
 
   .details-page .info-panel .price-stack {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 8px;
+    gap: 6px 8px;
+    min-width: 0;
   }
 
   .details-page .info-panel .current-price {
     color: #00b894;
-    font-size: 1.625rem;
+    font-size: clamp(1.375rem, 1.1rem + 1.4vw, 1.625rem);
     font-weight: 800;
-    line-height: 1.1;
+    line-height: 1.12;
   }
 
   .details-page .info-panel .old-price {
@@ -275,15 +308,20 @@
   }
 
   .details-page .info-panel .price-meta {
-    justify-items: end;
+    justify-items: start;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .details-page .info-panel .stock-pill {
     min-height: 24px;
+    max-width: 100%;
     padding: 0 10px;
     background: rgba(0, 184, 148, 0.1);
     color: #00997c;
     white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .details-page .info-panel .stock-pill.is-oos {
@@ -301,74 +339,154 @@
   }
 
   .details-page .info-panel .highlights-list {
-    gap: 8px;
+    gap: var(--pd-m-1);
   }
 
   .details-page .info-panel .highlights-list li {
     font-size: 0.875rem;
   }
 
+  .details-page .pd-variants {
+    gap: var(--pd-m-2);
+    margin-bottom: 0;
+    max-width: 100%;
+  }
+
+  .details-page .pd-variant-head {
+    margin-bottom: 8px;
+    font-size: 0.8125rem;
+  }
+
+  .details-page .pd-color-grid,
+  .details-page .pd-size-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: 100%;
+    min-width: 0;
+  }
+
   .details-page .pd-color-swatch {
-    width: 52px;
-    height: 52px;
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
     border-radius: 10px;
   }
 
   .details-page .pd-size-chip {
-    min-width: 48px;
+    flex: 0 0 auto;
+    min-width: 44px;
+    width: auto;
+    max-width: 100%;
     min-height: 44px;
+    height: 44px;
+    padding: 0 10px;
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
   }
 
+  .details-page .purchase-panel .purchase-header.pd-qty-row,
   .details-page .purchase-panel .purchase-header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "label"
+      "stepper"
+      "hint";
+    align-items: stretch;
     gap: 8px;
     margin: 0;
+    max-width: 100%;
+  }
+
+  .details-page .purchase-panel .purchase-label {
+    grid-area: label;
+    margin: 0;
+    font-size: 0.75rem;
+    line-height: 1.2;
   }
 
   .details-page .purchase-panel .quantity-stepper {
-    display: inline-flex;
-    flex: 1 1 160px;
-    align-items: center;
-    justify-content: space-between;
-    min-height: 48px;
+    grid-area: stepper;
+    display: grid;
+    grid-template-columns: var(--pd-touch) minmax(0, 1fr) var(--pd-touch);
+    align-items: stretch;
+    width: 100%;
+    max-width: 100%;
+    height: var(--pd-touch);
+    min-height: var(--pd-touch);
+    max-height: var(--pd-touch);
     padding: 0;
+    gap: 0;
     border: 1px solid rgba(18, 33, 39, 0.1);
     border-radius: 12px;
     overflow: hidden;
   }
 
   .details-page .purchase-panel .qty-btn {
-    width: 48px;
-    min-width: 48px;
-    height: 48px;
+    width: var(--pd-touch);
+    min-width: var(--pd-touch);
+    height: var(--pd-touch);
+    min-height: var(--pd-touch);
+    padding: 0;
     border-radius: 0;
+    font-size: 1.125rem;
+    line-height: 1;
+  }
+
+  .details-page .purchase-panel .qty-btn:hover,
+  .details-page .purchase-panel .action-btn:hover {
+    transform: none;
   }
 
   .details-page .purchase-panel #quantityInput {
-    flex: 1 1 auto;
-    width: auto;
-    min-height: 48px;
+    width: 100%;
+    min-width: 0;
+    height: var(--pd-touch);
+    min-height: var(--pd-touch);
+    padding: 0;
     font-size: 1rem;
+    line-height: 1;
   }
 
   .details-page .purchase-panel .pd-stock-hint {
-    flex: 1 1 100%;
+    grid-area: hint;
+    min-width: 0;
+    max-width: 100%;
+    margin: 0;
+    overflow: visible;
+    color: #5f7078;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    line-height: 1.35;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .details-page .purchase-panel .purchase-caption {
+    margin: 0;
+    font-size: 0.75rem;
+    line-height: 1.4;
   }
 
   .details-page .purchase-panel .cta-grid,
   .details-page .purchase-panel .cta-grid--with-wishlist {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
     margin: 0;
+    max-width: 100%;
   }
 
   .details-page .purchase-panel .action-btn {
     min-height: 48px;
+    height: 48px;
     width: 100%;
+    max-width: 100%;
+    padding: 0 12px;
     border-radius: 12px;
+    font-size: 0.9375rem;
   }
 
   .details-page .purchase-panel .action-btn-primary {
@@ -384,18 +502,20 @@
   }
 
   .details-page .purchase-panel .action-btn-wishlist {
-    min-height: 44px;
+    min-height: 40px;
+    height: auto;
     background: transparent;
     border: 0;
     color: #122127;
     font-weight: 700;
+    font-size: 0.875rem;
   }
 
   .details-page .pd-trust {
-    grid-template-columns: 1fr;
-    gap: 12px;
-    margin-bottom: 16px;
-    padding: 16px 0;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--pd-m-2);
+    margin-bottom: var(--pd-m-3);
+    padding: var(--pd-m-3) 0;
     border: 0;
     border-top: 1px solid rgba(18, 33, 39, 0.08);
     border-bottom: 1px solid rgba(18, 33, 39, 0.08);
@@ -406,19 +526,30 @@
   .details-page .details-content-grid {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 16px;
-    margin-bottom: 16px;
+    gap: var(--pd-m-3);
+    margin-bottom: var(--pd-m-3);
   }
 
   .details-page .details-content-grid > .details-panel {
-    padding: 16px;
+    padding: var(--pd-m-2);
     background: #ffffff;
     box-shadow: 0 8px 20px rgba(7, 33, 29, 0.05);
+  }
+
+  .details-page .section-head {
+    gap: 4px;
+    margin-bottom: var(--pd-m-2);
+  }
+
+  .details-page .section-head h2 {
+    font-size: 1.0625rem;
+    line-height: 1.25;
   }
 
   .details-page .story-copy {
     font-size: 0.9375rem;
     line-height: 1.6;
+    gap: 10px;
   }
 
   .details-page .story-copy.is-collapsed {
@@ -431,7 +562,7 @@
   .details-page .pd-read-more {
     display: inline-flex;
     min-height: 40px;
-    margin-top: 8px;
+    margin-top: 4px;
     padding: 0;
     border: 0;
     background: transparent;
@@ -440,9 +571,41 @@
     font-weight: 800;
   }
 
+  .details-page .accordion-list {
+    gap: 8px;
+  }
+
+  .details-page .accordion-trigger {
+    min-height: var(--pd-touch);
+    padding: 10px 12px;
+    font-size: 0.9375rem;
+  }
+
+  .details-page .accordion-panel {
+    padding: 0 12px 12px;
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
+  }
+
+  .details-page .spec-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .details-page .spec-item {
+    padding: 10px;
+    min-width: 0;
+  }
+
   .details-page .related-section {
     padding-top: 0;
     margin-bottom: 8px;
+    max-width: 100%;
+  }
+
+  .details-page .related-heading {
+    margin-bottom: var(--pd-m-2);
+    gap: var(--pd-m-2);
   }
 
   .details-page .related-section .byose-product-grid,
@@ -450,11 +613,47 @@
   .details-page #relatedProducts .byose-product-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+    max-width: 100%;
+  }
+
+  .details-page #relatedProducts .byose-product-card {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .details-page #relatedProducts .byose-product-badge--featured,
+  .details-page #relatedProducts .byose-product-badge--new,
+  .details-page #relatedProducts .byose-product-badge--trending {
+    right: 38px;
   }
 
   .details-page .pd-error {
     margin: 24px auto;
     padding: 24px 16px;
+  }
+
+  .details-page .purchase-option-banner {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 599px) and (min-width: 480px) {
+  .details-page .purchase-panel .purchase-header.pd-qty-row,
+  .details-page .purchase-panel .purchase-header {
+    grid-template-columns: minmax(168px, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "label label"
+      "stepper hint";
+    align-items: center;
+    column-gap: 12px;
+  }
+
+  .details-page .purchase-panel .quantity-stepper {
+    width: 100%;
+  }
+
+  .details-page .purchase-panel .pd-stock-hint {
+    align-self: center;
   }
 }
 
@@ -471,23 +670,30 @@
 
 @media (max-width: 359px) {
   .details-page .info-panel .current-price {
-    font-size: 1.375rem;
+    font-size: 1.3125rem;
   }
 
   .details-page .product-details-page .gallery-thumb {
-    flex-basis: 56px;
-    width: 56px;
-    height: 56px;
+    flex-basis: 52px;
+    width: 52px;
+    height: 52px;
   }
 
   .details-page .pd-color-swatch {
-    width: 44px;
-    height: 44px;
+    flex-basis: 40px;
+    width: 40px;
+    height: 40px;
   }
 
   .details-page .pd-size-chip {
-    min-width: 44px;
+    min-width: 40px;
+    width: auto;
     min-height: 44px;
+    height: 44px;
     padding: 0 8px;
+  }
+
+  .details-page .purchase-panel .action-btn {
+    font-size: 0.875rem;
   }
 }
