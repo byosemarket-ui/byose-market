@@ -339,12 +339,11 @@
 
 @media (min-width: 1024px) {
   .details-page .details-main {
-    padding: var(--pd-space-3) 0 var(--pd-space-6);
+    padding: var(--pd-space-1) 0 var(--pd-space-6);
   }
 
   .details-page .pd-breadcrumb {
-    padding-top: var(--pd-space-4);
-    padding-bottom: var(--pd-space-3);
+    display: none;
   }
 
   .details-page .details-overview {
