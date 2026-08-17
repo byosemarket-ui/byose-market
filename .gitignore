@@ -55,6 +55,9 @@ logs/*
 verification-artifacts/
 node_modules/
 
+# Local Product Details checkpoints — never commit
+details/_checkpoint-*/
+
 # Local DPO probe artifacts — never commit or deploy
 scripts/dpo-after-pay-*.png
 scripts/dpo-before-pay.png
