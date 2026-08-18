@@ -730,26 +730,6 @@ function prepareAssetFields(productData = {}, previousProduct = {}) {
       galleryStoragePaths: previousGalleryStorage
     };
   }
-    const previousMain = firstCanonicalAsset(
-      previousProduct.originalImage,
-      previousProduct.mainImage,
-      previousProduct.image,
-      previousProduct.mainImageStoragePath,
-      previousProduct.imageStoragePath
-    );
-    const previousGallery = normalizeGalleryEntries(previousProduct.gallery || [])
-      .filter((entry) => !isCompanyLogoUrl(entry) && !isProductCardImageUrl(entry));
-    const previousGalleryStorage = previousGallery
-      .map((entry) => normalizeManagedUploadPath(entry))
-      .filter(Boolean);
-    return {
-      image: previousMain,
-      mainImage: previousMain,
-      gallery: previousGallery,
-      mainImageStoragePath: normalizeManagedUploadPath(previousProduct.mainImageStoragePath || previousMain),
-      galleryStoragePaths: previousGalleryStorage
-    };
-  }
 
   const previousMain = firstCanonicalAsset(
     previousProduct.originalImage,
