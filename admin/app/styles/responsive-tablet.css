@@ -53,6 +53,11 @@
     padding: 1rem 1rem 1.75rem;
   }
 
+  .admin-page-scroll.is-products-workspace,
+  .admin-page-scroll:has(.admin-page-surface[data-route="products"]) {
+    padding-top: 0.7rem;
+  }
+
   .content-grid.two-col,
   .analytics-grid,
   .realtime-grid,

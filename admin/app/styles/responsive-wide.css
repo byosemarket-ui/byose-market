@@ -17,4 +17,9 @@
   .admin-page-scroll {
     padding: 1.4rem 2rem 2.2rem;
   }
+
+  .admin-page-scroll.is-products-workspace,
+  .admin-page-scroll:has(.admin-page-surface[data-route="products"]) {
+    padding-top: 0.75rem;
+  }
 }

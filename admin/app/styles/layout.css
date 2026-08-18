@@ -143,6 +143,45 @@ body.admin-nav-locked {
   min-width: 0;
 }
 
+.admin-page-heading[hidden] {
+  display: none;
+}
+
+.admin-content.is-products-workspace,
+.admin-content:has(.admin-page-surface[data-route="products"]) {
+  gap: 0;
+}
+
+.admin-page-scroll.is-products-workspace,
+.admin-page-scroll:has(.admin-page-surface[data-route="products"]) {
+  padding-top: 0.75rem;
+}
+
+.admin-page-container.is-products-workspace,
+.admin-page-container:has(> .admin-page-surface[data-route="products"]) {
+  gap: 0;
+}
+
+.admin-page-container.is-products-workspace > .admin-page-heading,
+.admin-page-container:has(> .admin-page-surface[data-route="products"]) > .admin-page-heading {
+  display: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-height: 0;
+  height: 0;
+  overflow: hidden;
+  gap: 0;
+}
+
+.admin-page-surface[data-route="products"],
+.admin-page-surface[data-route="products"] .admin-page-content {
+  margin: 0;
+  padding: 0;
+  gap: 0;
+  min-height: 0;
+}
+
 .admin-page-kicker,
 .admin-page-section {
   margin: 0;

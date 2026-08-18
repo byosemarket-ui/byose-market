@@ -1218,6 +1218,19 @@ export function setActiveNav(routeKey) {
   const pageTitle = navigationContext.title || metadata.title || "Dashboard";
   const pageDescription = navigationContext.description || metadata.description || "Central snapshot and storefront health";
   const pageBadge = navigationContext.badge || metadata.section || "Live workspace";
+  const hidePageHeading = routeKey === "products";
+  const pageHeading = document.getElementById("adminPageHeading");
+  const pageContainer = pageHeading?.closest(".admin-page-container");
+  const pageScroll = pageHeading?.closest(".admin-page-scroll");
+  const pageContent = document.getElementById("appContent");
+
+  if (pageHeading) {
+    pageHeading.hidden = hidePageHeading;
+    pageHeading.setAttribute("aria-hidden", hidePageHeading ? "true" : "false");
+  }
+  pageContainer?.classList.toggle("is-products-workspace", hidePageHeading);
+  pageScroll?.classList.toggle("is-products-workspace", hidePageHeading);
+  pageContent?.classList.toggle("is-products-workspace", hidePageHeading);
 
   if (groupNode) groupNode.textContent = groupLabel;
   if (sectionNode) sectionNode.textContent = sectionLabel;

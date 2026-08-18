@@ -79,6 +79,11 @@
     padding: 0.9rem 0.8rem 1.5rem;
   }
 
+  .admin-page-scroll.is-products-workspace,
+  .admin-page-scroll:has(.admin-page-surface[data-route="products"]) {
+    padding-top: 0.65rem;
+  }
+
   .admin-page-heading-row {
     flex-direction: column;
   }
