@@ -201,6 +201,87 @@ assert(cardAsMain.stock === 8, "card-thumbnail payload still applies stock");
 assert(cardAsMain.mainImage === existing.mainImage, "card thumbnail is not saved as the canonical product image");
 assert(cardAsMain.gallery.length === 2, "card-thumbnail payload does not wipe gallery images");
 
+const preserveLocked = mergeProductUpdate(
+  existing,
+  normalizePayload({
+    name: existing.name,
+    price: existing.price,
+    stock: 3,
+    mainImage: "https://byosemarket.com/uploads/products/cards/should-not-win.webp",
+    image: "",
+    gallery: []
+  }),
+  {
+    name: existing.name,
+    price: existing.price,
+    stock: 3,
+    mainImage: "https://byosemarket.com/uploads/products/cards/should-not-win.webp",
+    image: "",
+    gallery: [],
+    preserveExistingImages: true
+  }
+);
+assert(preserveLocked.stock === 3, "preserveExistingImages still applies stock");
+assert(preserveLocked.mainImage === existing.mainImage, "preserveExistingImages keeps the original main image even if the payload sends a card");
+assert(preserveLocked.gallery.length === 2, "preserveExistingImages keeps every original extra image");
+assert(preserveLocked.gallery.includes("/uploads/products/gallery-42-a.webp"), "preserveExistingImages keeps first extra image");
+assert(preserveLocked.gallery.includes("/uploads/products/gallery-42-b.webp"), "preserveExistingImages keeps second extra image");
+
+const removedOne = mergeProductUpdate(
+  existing,
+  normalizePayload({
+    name: existing.name,
+    price: existing.price,
+    stock: existing.stock,
+    mainImage: existing.mainImage,
+    gallery: ["/uploads/products/gallery-42-b.webp"]
+  }),
+  {
+    name: existing.name,
+    price: existing.price,
+    stock: existing.stock,
+    mainImage: existing.mainImage,
+    gallery: ["/uploads/products/gallery-42-b.webp"],
+    imagesChanged: true,
+    preserveExistingImages: false
+  }
+);
+assert(removedOne.gallery.length === 1, "intentional image edit can remove one extra image");
+assert(removedOne.gallery.includes("/uploads/products/gallery-42-b.webp"), "intentional image edit keeps the remaining extra image");
+assert(!removedOne.gallery.includes("/uploads/products/gallery-42-a.webp"), "intentional image edit drops only the removed extra image");
+assert(removedOne.mainImage === existing.mainImage, "intentional extra-image removal keeps the main image");
+
+const addedOne = mergeProductUpdate(
+  existing,
+  normalizePayload({
+    name: existing.name,
+    price: existing.price,
+    stock: existing.stock,
+    mainImage: existing.mainImage,
+    gallery: [
+      "/uploads/products/gallery-42-a.webp",
+      "/uploads/products/gallery-42-b.webp",
+      "/uploads/products/gallery-42-c.webp"
+    ]
+  }),
+  {
+    name: existing.name,
+    price: existing.price,
+    stock: existing.stock,
+    mainImage: existing.mainImage,
+    gallery: [
+      "/uploads/products/gallery-42-a.webp",
+      "/uploads/products/gallery-42-b.webp",
+      "/uploads/products/gallery-42-c.webp"
+    ],
+    imagesChanged: true,
+    preserveExistingImages: false
+  }
+);
+assert(addedOne.gallery.length === 3, "intentional image edit adds the new extra image");
+assert(addedOne.gallery.includes("/uploads/products/gallery-42-a.webp"), "intentional image add keeps first existing extra image");
+assert(addedOne.gallery.includes("/uploads/products/gallery-42-c.webp"), "intentional image add appends the new extra image");
+
 if (failures) {
   console.error(`\n${failures} check(s) failed.`);
   process.exit(1);

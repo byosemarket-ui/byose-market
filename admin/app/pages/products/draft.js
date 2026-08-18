@@ -388,6 +388,42 @@ function galleryWithoutMainImage(gallery, galleryStoragePaths, mainImage) {
   return { gallery: urls, galleryStoragePaths: storage };
 }
 
+export function snapshotCanonicalMedia(draft) {
+  const media = draft?.media && typeof draft.media === "object" ? draft.media : {};
+  const persisted = sanitizePersistedGallery(media.gallery, media.galleryStoragePaths);
+  const mainImage = preferCanonicalAssetUrl(media.mainImage, media.mainImageStoragePath);
+  return {
+    mainImage,
+    mainImageStoragePath: preferCanonicalStoragePath(media.mainImageStoragePath, mainImage),
+    gallery: persisted.gallery.slice(),
+    galleryStoragePaths: persisted.galleryStoragePaths.slice()
+  };
+}
+
+export function collectOriginalImagesForDisplay(draft) {
+  const snapshot = snapshotCanonicalMedia(draft);
+  const images = [];
+  if (snapshot.mainImage) {
+    images.push({
+      role: "main",
+      url: snapshot.mainImage,
+      storagePath: snapshot.mainImageStoragePath
+    });
+  }
+  snapshot.gallery.forEach((url, index) => {
+    if (!url || isSameAsset(url, snapshot.mainImage) || isSameAsset(snapshot.galleryStoragePaths[index], snapshot.mainImage)) {
+      return;
+    }
+    images.push({
+      role: "gallery",
+      url,
+      storagePath: snapshot.galleryStoragePaths[index] || normalizeStoragePath(url),
+      index
+    });
+  });
+  return images;
+}
+
 export function hydrateDraftFromProduct(product) {
   const defaults = createDefaultDraft();
   if (!product || typeof product !== "object") {

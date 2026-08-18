@@ -318,9 +318,14 @@ export function buildProductPayload(draft, assetOverrides = {}) {
     : (publishStatus === "draft" ? "draft" : "active");
 
   const catalogId = Math.max(0, Math.floor(toNumber(safeDraft.productId || safeDraft.savedProductId, 0)));
+  const imagesChanged = Boolean(assetOverrides.imagesChanged);
+  const preserveExistingImages = Boolean(assetOverrides.preserveExistingImages)
+    || (catalogId > 0 && !imagesChanged);
 
   return {
     ...(catalogId ? { id: catalogId, catalogId } : {}),
+    preserveExistingImages,
+    imagesChanged,
     name: String(info.name || "").trim(),
     title: String(info.shortName || info.name || "").trim() || String(info.name || "").trim(),
     description: String(description.longDescription || description.description || "").trim(),

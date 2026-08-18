@@ -2,6 +2,7 @@ import * as api from "../core/api.js";
 import { publishRealtime } from "../core/realtime-adapter.js";
 import productCatalogService from "../../../services/centralized-products.service.js";
 import { publishHeroSlidesBump } from "../../../services/hero-slides.service.js";
+import { isProductCardImageUrl } from "../../../services/storefront-asset-url.js";
 import { applyCanonicalAddress, resolveOrderAddress, resolveOrderLocation } from "../utils/order-address.js";
 
 const CACHE_PREFIX = "byose_admin_api_cache_v2";
@@ -72,6 +73,22 @@ function toNumber(value) {
 function normalizeText(value, fallback = "") {
   const text = String(value || "").trim();
   return text || fallback;
+}
+
+function pickCanonicalProductImage(...values) {
+  for (const value of values) {
+    const text = normalizeText(value);
+    if (text && !isProductCardImageUrl(text)) {
+      return text;
+    }
+  }
+  return "";
+}
+
+function canonicalizeProductGallery(gallery = []) {
+  return asArray(gallery)
+    .map((entry) => normalizeText(entry))
+    .filter((entry) => entry && !isProductCardImageUrl(entry));
 }
 
 function normalizeStatus(status) {
@@ -578,6 +595,15 @@ function normalizeHeroSlide(slide) {
 }
 
 function normalizeProduct(product) {
+  const canonicalGallery = canonicalizeProductGallery(product?.gallery);
+  const canonicalMain = pickCanonicalProductImage(
+    product?.originalImage,
+    product?.mainImage,
+    product?.image,
+    ...canonicalGallery.slice(0, 1)
+  );
+  const displayMain = canonicalMain || normalizeText(product?.originalImage || product?.mainImage || product?.image);
+
   return {
     ...(product && typeof product === "object" ? product : {}),
     id: normalizeText(product?.id || product?.catalogId || product?._id),
@@ -592,7 +618,7 @@ function normalizeProduct(product) {
     price: toNumber(product?.price),
     oldPrice: toNumber(product?.oldPrice),
     stock: toNumber(product?.stock),
-    gallery: asArray(product?.gallery),
+    gallery: canonicalGallery,
     highlights: asArray(product?.highlights),
     trust: asArray(product?.trust),
     specs: asArray(product?.specs),
@@ -615,9 +641,9 @@ function normalizeProduct(product) {
     priority: normalizePriorityValue(product?.priority),
     orderIndex: toNumber(product?.orderIndex),
         highlightTag: normalizeText(product?.highlightTag).toLowerCase(),
-    mainImage: normalizeText(product?.originalImage || product?.mainImage || product?.image),
-    image: normalizeText(product?.image || product?.originalImage || product?.mainImage),
-    originalImage: normalizeText(product?.originalImage || product?.mainImage || product?.image),
+    mainImage: displayMain,
+    image: displayMain,
+    originalImage: canonicalMain || displayMain,
     mainImageStoragePath: normalizeText(product?.mainImageStoragePath || product?.imageStoragePath),
     galleryStoragePaths: asArray(product?.galleryStoragePaths).map((entry) => normalizeText(entry)),
     url: normalizeText(product?.url),

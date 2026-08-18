@@ -84,10 +84,14 @@ function normalizeRouteSignature(routeKey, hash) {
   const view = String(params.get("view") || "overview").trim().toLowerCase();
   const productId = String(params.get("productid") || params.get("productId") || "").trim();
 
-  if (view === "create") {
+  if (view === "edit" || (view === "create" && productId)) {
     return productId
-      ? `#/products?view=create&productid=${encodeURIComponent(productId)}`
-      : "#/products?view=create";
+      ? `#/products?view=edit&productid=${encodeURIComponent(productId)}`
+      : "#/products";
+  }
+
+  if (view === "create") {
+    return "#/products?view=create";
   }
 
   return "#/products";

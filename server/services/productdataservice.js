@@ -99,13 +99,13 @@ async function createProduct(product) {
 async function updateProduct(identifier, product) {
     const previousProduct = await getRepos().products.findByIdentifier(identifier);
     const savedProduct = await getRepos().products.save(product, { identifier });
-    const removedPaths = collectRemovedPaths(previousProduct, savedProduct);
-    const nextPaths = collectProductManagedPaths(savedProduct);
-    // A stock/price/description-only save that accidentally dropped every image
-    // path must not delete the actual VPS files. Only delete files that were
-    // replaced or intentionally removed while at least one image remains.
-    if (removedPaths.length && nextPaths.length) {
-        deleteManagedFiles(removedPaths);
+    const imagesChanged = Boolean(product?.imagesChanged) && !product?.preserveExistingImages;
+    if (imagesChanged) {
+        const removedPaths = collectRemovedPaths(previousProduct, savedProduct);
+        const nextPaths = collectProductManagedPaths(savedProduct);
+        if (removedPaths.length && nextPaths.length) {
+            deleteManagedFiles(removedPaths);
+        }
     }
     queryCache.bump('products');
     queryCache.bump('search');

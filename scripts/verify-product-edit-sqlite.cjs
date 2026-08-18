@@ -165,8 +165,10 @@ async function main() {
   );
 
   const addedGallery = {
-    ...afterMulti,
-    gallery: [...(afterDescription.gallery || []), "products/edit-g5-9101.webp"]
+    ...afterStockOnly,
+    gallery: [...(afterStockOnly.gallery || []), "products/edit-g5-9101.webp"],
+    imagesChanged: true,
+    preserveExistingImages: false
   };
   await productRepository.save(addedGallery, { identifier: catalogId });
   const afterAdd = await productRepository.findByIdentifier(catalogId);
@@ -178,7 +180,9 @@ async function main() {
 
   const removedGallery = {
     ...afterAdd,
-    gallery: (afterAdd.gallery || []).filter((entry) => !String(entry).includes("edit-g2-9101.webp"))
+    gallery: (afterAdd.gallery || []).filter((entry) => !String(entry).includes("edit-g2-9101.webp")),
+    imagesChanged: true,
+    preserveExistingImages: false
   };
   await productRepository.save(removedGallery, { identifier: catalogId });
   const afterRemove = await productRepository.findByIdentifier(catalogId);
@@ -210,6 +214,46 @@ async function main() {
   assert(
     afterCardRows.some((row) => String(row.image_url).includes("edit-g5-9101.webp")),
     "card-thumbnail save keeps previously added gallery images"
+  );
+
+  const omittedImages = {
+    ...afterCard,
+    stock: Number(afterCard.stock || 0) + 2,
+    image: "",
+    mainImage: "",
+    gallery: []
+  };
+  await productRepository.save(omittedImages, { identifier: catalogId });
+  const afterOmitted = await productRepository.findByIdentifier(catalogId);
+  const afterOmittedRows = loadImageRows(afterOmitted.recordId);
+  assert(afterOmitted.stock === Number(afterCard.stock || 0) + 2, "update without imagesChanged still changes stock");
+  assert(
+    JSON.stringify(afterOmittedRows.map((row) => row.image_url)) === JSON.stringify(afterCardRows.map((row) => row.image_url)),
+    "update without imagesChanged does not rewrite original image rows"
+  );
+
+  const lockedRowsBefore = loadImageRows(afterOmitted.recordId).map((row) => ({
+    id: Number(row.id),
+    image_url: row.image_url
+  }));
+  await productRepository.save({
+    ...afterOmitted,
+    stock: Number(afterOmitted.stock || 0) + 4,
+    image: "",
+    mainImage: "products/cards/should-not-win.webp",
+    gallery: ["products/cards/should-not-win.webp"],
+    preserveExistingImages: true
+  }, { identifier: catalogId });
+  const afterLock = await productRepository.findByIdentifier(catalogId);
+  const afterLockRows = loadImageRows(afterLock.recordId);
+  assert(afterLock.stock === Number(afterOmitted.stock || 0) + 4, "preserveExistingImages still updates stock");
+  assert(
+    JSON.stringify(afterLockRows.map((row) => Number(row.id))) === JSON.stringify(lockedRowsBefore.map((row) => row.id)),
+    "preserveExistingImages does not insert or delete product_images rows"
+  );
+  assert(
+    JSON.stringify(afterLockRows.map((row) => row.image_url)) === JSON.stringify(lockedRowsBefore.map((row) => row.image_url)),
+    "preserveExistingImages does not rewrite original image paths"
   );
 
   await productRepository.remove(catalogId);

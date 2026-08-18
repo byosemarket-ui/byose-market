@@ -708,6 +708,49 @@ function firstCanonicalAsset(...values) {
 }
 
 function prepareAssetFields(productData = {}, previousProduct = {}) {
+  const hasPreviousProduct = Number(previousProduct?.id || previousProduct?.catalogId) > 0;
+  if (hasPreviousProduct && (productData?.preserveExistingImages === true || productData?.imagesChanged !== true)) {
+    const previousMain = firstCanonicalAsset(
+      previousProduct.originalImage,
+      previousProduct.mainImage,
+      previousProduct.image,
+      previousProduct.mainImageStoragePath,
+      previousProduct.imageStoragePath
+    );
+    const previousGallery = normalizeGalleryEntries(previousProduct.gallery || [])
+      .filter((entry) => !isCompanyLogoUrl(entry) && !isProductCardImageUrl(entry));
+    const previousGalleryStorage = previousGallery
+      .map((entry) => normalizeManagedUploadPath(entry))
+      .filter(Boolean);
+    return {
+      image: previousMain,
+      mainImage: previousMain,
+      gallery: previousGallery,
+      mainImageStoragePath: normalizeManagedUploadPath(previousProduct.mainImageStoragePath || previousMain),
+      galleryStoragePaths: previousGalleryStorage
+    };
+  }
+    const previousMain = firstCanonicalAsset(
+      previousProduct.originalImage,
+      previousProduct.mainImage,
+      previousProduct.image,
+      previousProduct.mainImageStoragePath,
+      previousProduct.imageStoragePath
+    );
+    const previousGallery = normalizeGalleryEntries(previousProduct.gallery || [])
+      .filter((entry) => !isCompanyLogoUrl(entry) && !isProductCardImageUrl(entry));
+    const previousGalleryStorage = previousGallery
+      .map((entry) => normalizeManagedUploadPath(entry))
+      .filter(Boolean);
+    return {
+      image: previousMain,
+      mainImage: previousMain,
+      gallery: previousGallery,
+      mainImageStoragePath: normalizeManagedUploadPath(previousProduct.mainImageStoragePath || previousMain),
+      galleryStoragePaths: previousGalleryStorage
+    };
+  }
+
   const previousMain = firstCanonicalAsset(
     previousProduct.originalImage,
     previousProduct.mainImage,
@@ -886,7 +929,10 @@ function buildApiPayload(productData, previousProduct = {}) {
       ...asObject(previousProduct?.metadata),
       ...asObject(productData?.metadata)
     },
-    ...(extraInfoSource !== undefined ? { extraInfo: asObject(extraInfoSource) } : {})
+    ...(extraInfoSource !== undefined ? { extraInfo: asObject(extraInfoSource) } : {}),
+    preserveExistingImages: productData?.preserveExistingImages === true
+      || (catalogId > 0 && productData?.imagesChanged !== true),
+    imagesChanged: productData?.imagesChanged === true
   };
 }
 

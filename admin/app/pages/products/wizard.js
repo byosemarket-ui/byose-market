@@ -34,6 +34,7 @@ import { computeReviewHealth, renderDynamicReviewStep } from "./review-engine.js
 import { computeProductTotalStock } from "../../../../js/color-variant-inventory.js";
 import {
   buildCreateHash,
+  buildEditHash,
   buildProductViewUrl,
   escapeHtml,
   formatCurrency,
@@ -1227,7 +1228,7 @@ function mountWizard(container) {
       workflowFeedback = { tone: "", message: "" };
       activeDraft.step = "info";
       writeDraft(activeDraft);
-      window.location.hash = buildCreateHash("info", productId);
+      window.location.hash = productId ? buildEditHash(productId) : buildCreateHash("info");
       rerenderWizard(container);
     });
     return;

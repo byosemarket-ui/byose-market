@@ -1,6 +1,6 @@
 import { badge, emptyState, formatCurrency, formatDate, panel, table } from "../../components/ui.js";
 import { deleteProductAndSync } from "../../services/admin-data.service.js";
-import { buildCreateHash, escapeHtml, toLabel } from "./utils.js";
+import { buildCreateHash, buildEditHash, escapeHtml, toLabel } from "./utils.js";
 
 function getProductIdentity(product) {
   return String(product?.id || product?.catalogId || "").trim();
@@ -75,7 +75,7 @@ export function renderProductTable(products = []) {
       {
         html: `
           <div class="pm-row-actions">
-            <a class="pm-btn pm-btn-ghost" href="${buildCreateHash("info", id)}">Edit</a>
+            <a class="pm-btn pm-btn-ghost" href="${buildEditHash(id)}">Edit</a>
             <button type="button" class="pm-btn pm-btn-danger" data-delete-product="${escapeHtml(id)}">Delete</button>
           </div>
         `

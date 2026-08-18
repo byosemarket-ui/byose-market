@@ -11,7 +11,7 @@ const {
     resolvePublicProductStatus
 } = require('../utils/product-visibility');
 const { enrichSerializedProductColorVariants } = require('../utils/colorVariantSerialization');
-const { hasUsableProductImageValue, isProductCardImagePath, resolveCanonicalImageValue } = require('../services/uploadstorage.service');
+const { hasUsableProductImageValue, isProductCardImagePath, productImageStem, resolveCanonicalImageValue } = require('../services/uploadstorage.service');
 const productCardImage = require('../services/product-card-image.service');
 
 const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
@@ -419,11 +419,79 @@ function pickIncomingImageOrExisting(rawBody, key, incomingValue, existingValue,
     return existingCanonical || existingValue || incomingCanonical || incomingValue || '';
 }
 
+function isPreserveExistingImagesRequest(rawBody) {
+    const value = rawBody?.preserveExistingImages;
+    return value === true || value === 1 || value === '1' || String(value || '').trim().toLowerCase() === 'true';
+}
+
+function isImagesChangedRequest(rawBody) {
+    const value = rawBody?.imagesChanged;
+    return value === true || value === 1 || value === '1' || String(value || '').trim().toLowerCase() === 'true';
+}
+
+function shouldPreserveExistingImages(rawBody) {
+    return isPreserveExistingImagesRequest(rawBody) || !isImagesChangedRequest(rawBody);
+}
+
+function collectCanonicalImageStems(product = {}) {
+    const values = [
+        product.originalImage,
+        product.mainImage,
+        product.image,
+        ...(Array.isArray(product.gallery) ? product.gallery : [])
+    ];
+    const stems = [];
+    const seen = new Set();
+    values.forEach((entry) => {
+        if (!hasUsableProductImageValue(entry) || isProductCardImagePath(entry)) {
+            return;
+        }
+        const stem = productImageStem(entry);
+        if (!stem || seen.has(stem)) {
+            return;
+        }
+        seen.add(stem);
+        stems.push(stem);
+    });
+    return stems;
+}
+
+function assertImageIntegrity(previousProduct, nextProduct, rawBody = {}) {
+    if (isImagesChangedRequest(rawBody) && !isPreserveExistingImagesRequest(rawBody)) {
+        const expected = collectCanonicalImageStems({
+            mainImage: nextProduct?.mainImage || previousProduct?.mainImage,
+            image: nextProduct?.image || previousProduct?.image,
+            gallery: Array.isArray(nextProduct?.gallery) ? nextProduct.gallery : previousProduct?.gallery
+        });
+        const actual = collectCanonicalImageStems(nextProduct);
+        const missing = expected.filter((stem) => !actual.includes(stem));
+        if (missing.length) {
+            const error = new Error('Product update did not keep the intended original images.');
+            error.code = 'IMAGE_INTEGRITY';
+            throw error;
+        }
+        return;
+    }
+
+    const before = collectCanonicalImageStems(previousProduct);
+    const after = collectCanonicalImageStems(nextProduct);
+    const missing = before.filter((stem) => !after.includes(stem));
+    if (missing.length) {
+        const error = new Error('Product update did not preserve existing original images.');
+        error.code = 'IMAGE_INTEGRITY';
+        throw error;
+    }
+}
+
 function pickIncomingGalleryOrExisting(rawBody, incomingGallery, existingGallery) {
-    const incomingProvided = hasOwn(rawBody, 'gallery') || hasOwn(rawBody, 'galleryStoragePaths');
     const existing = Array.isArray(existingGallery)
         ? existingGallery.filter((entry) => hasUsableProductImageValue(entry) && !isProductCardImagePath(entry))
         : [];
+    if (shouldPreserveExistingImages(rawBody)) {
+        return existing;
+    }
+
+    const incomingProvided = hasOwn(rawBody, 'gallery') || hasOwn(rawBody, 'galleryStoragePaths');
     const incoming = Array.isArray(incomingGallery)
         ? incomingGallery
             .map((entry) => resolveCanonicalImageValue(entry, existing))
@@ -434,14 +502,54 @@ function pickIncomingGalleryOrExisting(rawBody, incomingGallery, existingGallery
         return existing.length ? existing : incoming;
     }
 
-    // An empty gallery array is treated as "client omitted extras", not as
-    // "delete every extra image". Removing one or more extras still works
-    // because the wizard sends the remaining non-empty list.
     if (!incoming.length) {
-        return existing;
+        return isImagesChangedRequest(rawBody) ? incoming : existing;
     }
 
     return incoming;
+}
+
+function mergeColorVariantImages(existingMetadata = {}, incomingMetadata = {}) {
+    const existingVariants = Array.isArray(existingMetadata.colorVariants) ? existingMetadata.colorVariants : [];
+    if (!Object.prototype.hasOwnProperty.call(incomingMetadata || {}, 'colorVariants')) {
+        return existingVariants;
+    }
+
+    const incomingVariants = Array.isArray(incomingMetadata.colorVariants) ? incomingMetadata.colorVariants : [];
+    if (!incomingVariants.length) {
+        return incomingVariants;
+    }
+
+    const existingByKey = new Map();
+    existingVariants.forEach((entry) => {
+        const key = String(entry?.id || entry?.clientKey || entry?.colorName || '').trim().toLowerCase();
+        if (key && !existingByKey.has(key)) {
+            existingByKey.set(key, entry);
+        }
+    });
+
+    return incomingVariants.map((entry) => {
+        const key = String(entry?.id || entry?.clientKey || entry?.colorName || '').trim().toLowerCase();
+        const previous = existingByKey.get(key);
+        if (!previous) {
+            return entry;
+        }
+        const incomingImage = resolveCanonicalImageValue(entry?.image, [previous.image, previous.imageStoragePath]);
+        if (hasUsableProductImageValue(incomingImage) && !isProductCardImagePath(incomingImage)) {
+            return {
+                ...previous,
+                ...entry,
+                image: incomingImage,
+                imageStoragePath: entry.imageStoragePath || previous.imageStoragePath || incomingImage
+            };
+        }
+        return {
+            ...previous,
+            ...entry,
+            image: previous.image,
+            imageStoragePath: previous.imageStoragePath || previous.image
+        };
+    });
 }
 
 function pickIncomingArrayOrExisting(rawBody, key, incomingValue, existingValue, aliases = []) {
@@ -459,11 +567,21 @@ function mergeProductUpdate(existingProduct, normalized, rawBody = {}) {
     const body = rawBody && typeof rawBody === 'object' ? rawBody : {};
     const existingMetadata = existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {};
     const incomingMetadata = normalized.metadata && typeof normalized.metadata === 'object' ? normalized.metadata : {};
+    const preserveExistingImages = shouldPreserveExistingImages(body);
+    const imagesChanged = isImagesChangedRequest(body) && !preserveExistingImages;
+    const existingMainImage = pickIncomingImageOrExisting({}, 'mainImage', '', existing.mainImage || existing.image, ['image']);
+    const mergedMetadata = {
+        ...existingMetadata,
+        ...incomingMetadata,
+        colorVariants: mergeColorVariantImages(existingMetadata, incomingMetadata)
+    };
 
     return {
         ...existing,
         ...normalized,
         catalogId: existing.catalogId,
+        preserveExistingImages,
+        imagesChanged,
         url: buildProductUrl(existing.catalogId),
         name: pickIncomingOrExisting(body, 'name', normalized.name, existing.name, ['title']),
         title: pickIncomingOrExisting(body, 'title', normalized.title, existing.title || existing.name),
@@ -477,8 +595,12 @@ function mergeProductUpdate(existingProduct, normalized, rawBody = {}) {
             ? normalized.oldPrice
             : toNonNegativeNumber(existing.oldPrice, normalized.oldPrice),
         stock: hasOwn(body, 'stock') ? normalized.stock : toNonNegativeNumber(existing.stock, normalized.stock),
-        image: pickIncomingImageOrExisting(body, 'image', normalized.image, existing.image, ['mainImage']),
-        mainImage: pickIncomingImageOrExisting(body, 'mainImage', normalized.mainImage, existing.mainImage, ['image']),
+        image: preserveExistingImages
+            ? existingMainImage
+            : pickIncomingImageOrExisting(body, 'image', normalized.image, existing.image, ['mainImage']),
+        mainImage: preserveExistingImages
+            ? existingMainImage
+            : pickIncomingImageOrExisting(body, 'mainImage', normalized.mainImage, existing.mainImage, ['image']),
         gallery: pickIncomingGalleryOrExisting(body, normalized.gallery, existing.gallery),
         keywords: pickIncomingArrayOrExisting(body, 'keywords', normalized.keywords, existing.keywords, ['tags']),
         highlights: pickIncomingArrayOrExisting(body, 'highlights', normalized.highlights, existing.highlights),
@@ -493,10 +615,7 @@ function mergeProductUpdate(existingProduct, normalized, rawBody = {}) {
         status: pickIncomingOrExisting(body, 'status', normalized.status, existing.status),
         brand: pickIncomingOrExisting(body, 'brand', normalized.brand, existing.brand, ['badge']),
         sku: pickIncomingOrExisting(body, 'sku', normalized.sku, existing.sku),
-        metadata: {
-            ...existingMetadata,
-            ...incomingMetadata
-        }
+        metadata: mergedMetadata
     };
 }
 
@@ -1119,13 +1238,35 @@ exports.updateProduct = async (req, res) => {
             visibility: product.visibility,
             stock: previousStock
         };
-        const mergedUpdate = mergeProductUpdate(product, normalized, req.body || {});
-        mergedUpdate.catalogId = product.catalogId;
-        product = await monitorAsyncOperation(logger, 'database.product.save_update', { catalogId: product.catalogId, adminId: req.admin?.id || '', productName: mergedUpdate.name }, () => productDataService.updateProduct(req.params.id, mergedUpdate), { slowThresholdMs: 700 });
+        const existingProduct = product;
+        const mergedUpdate = mergeProductUpdate(existingProduct, normalized, req.body || {});
+        mergedUpdate.catalogId = existingProduct.catalogId;
+        product = await monitorAsyncOperation(logger, 'database.product.save_update', { catalogId: existingProduct.catalogId, adminId: req.admin?.id || '', productName: mergedUpdate.name }, () => productDataService.updateProduct(req.params.id, mergedUpdate), { slowThresholdMs: 700 });
 
         if (!product || Number(product.catalogId) !== Number(previousProduct.catalogId)) {
             return res.status(409).json({ success: false, message: 'Product update did not preserve the original product id.' });
         }
+
+        const reloaded = await monitorAsyncOperation(logger, 'database.product.reload_after_update', { catalogId: existingProduct.catalogId }, () => findProductByIdentifier(req.params.id), { slowThresholdMs: 700 });
+        if (!reloaded || Number(reloaded.catalogId) !== Number(existingProduct.catalogId)) {
+            return res.status(409).json({ success: false, message: 'Product update could not be verified against the original product.' });
+        }
+
+        try {
+            assertImageIntegrity(existingProduct, reloaded, req.body || {});
+        } catch (integrityError) {
+            logger.error('inventory.product_image_integrity_failed', {
+                error: integrityError,
+                catalogId: existingProduct.catalogId,
+                adminId: req.admin?.id || ''
+            });
+            return res.status(409).json({
+                success: false,
+                message: integrityError.message || 'Product update did not preserve existing original images.'
+            });
+        }
+
+        product = reloaded;
 
         logger.info('inventory.product_updated', {
             adminId: req.admin?.id || '',

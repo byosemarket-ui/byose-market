@@ -55,7 +55,14 @@ export function parseHashParams() {
 }
 
 export function getProductsView() {
-  return parseHashParams().get("view") === "create" ? "create" : "overview";
+  const view = String(parseHashParams().get("view") || "").trim().toLowerCase();
+  if (view === "edit") {
+    return "edit";
+  }
+  if (view === "create") {
+    return "create";
+  }
+  return "overview";
 }
 
 export function getWizardStep(fallback = "info") {
@@ -65,11 +72,20 @@ export function getWizardStep(fallback = "info") {
 }
 
 export function getRouteProductId(fallback = "") {
-  return String(parseHashParams().get("productId") || fallback || "").trim();
+  const params = parseHashParams();
+  return String(params.get("productId") || params.get("productid") || fallback || "").trim();
 }
 
 export function buildCreateHash(step = "info", productId = "") {
   const params = new URLSearchParams({ view: "create", step });
+  if (productId) {
+    params.set("productId", productId);
+  }
+  return `#/products?${params.toString()}`;
+}
+
+export function buildEditHash(productId = "") {
+  const params = new URLSearchParams({ view: "edit" });
   if (productId) {
     params.set("productId", productId);
   }

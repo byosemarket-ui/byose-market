@@ -5,8 +5,9 @@
  * Run: node scripts/verify-product-edit-preservation.mjs
  */
 
-import { createDefaultDraft, hydrateDraftFromProduct, sanitizeDraft } from "../admin/app/pages/products/draft.js";
+import { createDefaultDraft, hydrateDraftFromProduct, sanitizeDraft, snapshotCanonicalMedia, collectOriginalImagesForDisplay } from "../admin/app/pages/products/draft.js";
 import { buildProductPayload } from "../admin/app/pages/products/payload.js";
+import { verifyReloadedProductUpdate } from "../admin/app/pages/products/edit-integrity.js";
 
 let failures = 0;
 
@@ -190,6 +191,12 @@ assert(hydrated.media.gallery.some((entry) => entry.includes("gallery-42-b.webp"
 assert(hydrated.info.placement.includes("featured_products"), "hydrate restores placement");
 assert(hydrated.info.highlights.includes("Genuine leather"), "hydrate restores highlights");
 
+const originals = collectOriginalImagesForDisplay(hydrated);
+assert(originals.length === 3, "edit display shows the main image plus every extra original image");
+assert(originals[0].role === "main", "edit display marks the original main image first");
+assert(originals.every((entry) => !String(entry.url).includes("/cards/")), "edit display never uses card thumbnails as original images");
+assert(snapshotCanonicalMedia(hydrated).gallery.length === 2, "image snapshot stores extra originals separately from the main image");
+
 const roundTrip = buildProductPayload(hydrated);
 assert(roundTrip.name === fullProduct.name, "payload keeps name after hydrate");
 assert(roundTrip.price === 45000, "payload keeps selling price after hydrate");
@@ -197,6 +204,20 @@ assert(roundTrip.oldPrice === 60000, "payload keeps original price after hydrate
 assert(roundTrip.mainImage.includes("main-42.webp"), "payload keeps main image after hydrate");
 assert(!String(roundTrip.mainImage).includes("/cards/"), "payload does not persist card thumbnail as the product image");
 assert(roundTrip.gallery.every((entry) => !String(entry).includes("/cards/")), "payload gallery does not include card thumbnails");
+assert(roundTrip.preserveExistingImages === true, "edit payload locks original images unless image changes are explicit");
+assert(roundTrip.imagesChanged === false, "edit payload does not mark images as changed unless the editor touched them");
+
+const preservedPayload = buildProductPayload(hydrated, {
+  mainImage: hydrated.media.mainImage,
+  mainImageStoragePath: hydrated.media.mainImageStoragePath,
+  gallery: hydrated.media.gallery,
+  galleryStoragePaths: hydrated.media.galleryStoragePaths,
+  preserveExistingImages: true
+});
+assert(preservedPayload.preserveExistingImages === true, "edit payload can lock existing original images");
+assert(preservedPayload.mainImage === roundTrip.mainImage, "locked edit payload still carries the original main image");
+assert(JSON.stringify(preservedPayload.gallery) === JSON.stringify(roundTrip.gallery), "locked edit payload still carries original extras");
+assert(!String(preservedPayload.mainImage).includes("/cards/"), "locked edit payload never uses a card thumbnail");
 assert(roundTrip.gallery.some((entry) => entry.includes("gallery-42-a.webp")), "payload keeps extra gallery images");
 assert(roundTrip.gallery.some((entry) => entry.includes("gallery-42-b.webp")), "payload keeps second extra gallery image");
 assert(roundTrip.description.includes("Full grain leather"), "payload keeps long description");
@@ -207,6 +228,37 @@ assert(roundTrip.stock === 7, "payload keeps total stock from color sizes");
 assert(Array.isArray(roundTrip.metadata.colorVariants) && roundTrip.metadata.colorVariants.length === 1, "payload keeps color variants in metadata");
 assert(roundTrip.metadata.colorVariants[0].image.includes("color-black.webp"), "payload keeps color variant image");
 assert(roundTrip.category === "shoes", "payload keeps category");
+
+verifyReloadedProductUpdate({
+  productId: 42,
+  beforeProduct: fullProduct,
+  reloadedProduct: { ...fullProduct, stock: 5, price: 47000 },
+  expectedPayload: { stock: 5, price: 47000, description: fullProduct.description },
+  preserveExistingImages: true,
+  expectedMedia: snapshotCanonicalMedia(hydrated)
+});
+assert(true, "verified reload accepts changed stock/price while original images remain");
+
+let integrityFailed = false;
+try {
+  verifyReloadedProductUpdate({
+    productId: 42,
+    beforeProduct: fullProduct,
+    reloadedProduct: {
+      ...fullProduct,
+      mainImage: fullProduct.cardImage,
+      image: fullProduct.cardImage,
+      originalImage: fullProduct.cardImage,
+      gallery: []
+    },
+    expectedPayload: { stock: 7, price: 45000 },
+    preserveExistingImages: true,
+    expectedMedia: snapshotCanonicalMedia(hydrated)
+  });
+} catch (_error) {
+  integrityFailed = true;
+}
+assert(integrityFailed, "verified reload rejects a save that dropped original images");
 
 const priceOnlyDraft = JSON.parse(JSON.stringify(hydrated));
 priceOnlyDraft.pricing.sellingPrice = "47000";
@@ -344,13 +396,12 @@ if (failures) {
 
 console.log("\n[verify-product-edit-preservation] All frontend hydrate/payload checks passed.");
 
-const LIVE_API_URL = "https://byosemarket.com/api/products?limit=5";
-
 async function verifyLiveEditRoundTrip() {
+  const LIVE_DETAIL_URL = "https://byosemarket.com/api/products/10";
   console.log("\n=== Live API: Edit Product image preservation ===\n");
   let response;
   try {
-    response = await fetch(LIVE_API_URL, {
+    response = await fetch(LIVE_DETAIL_URL, {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(15000)
     });
@@ -365,33 +416,21 @@ async function verifyLiveEditRoundTrip() {
   }
 
   const payload = await response.json();
-  const products = Array.isArray(payload?.products) ? payload.products : [];
-  const listed = products.find((product) => Number(product?.id || product?.catalogId) > 0) || products[0];
-  if (!listed) {
-    console.error("FAIL: live API returned no products to verify");
+  const liveProduct = payload?.product;
+  if (!liveProduct) {
+    console.error("FAIL: live API returned no product 10 to verify");
     process.exit(1);
   }
 
-  const liveId = listed.id || listed.catalogId;
-  let liveProduct = listed;
-  try {
-    const detailResponse = await fetch(`https://byosemarket.com/api/products/${encodeURIComponent(String(liveId))}`, {
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(15000)
-    });
-    if (detailResponse.ok) {
-      const detailPayload = await detailResponse.json();
-      if (detailPayload?.product) {
-        liveProduct = detailPayload.product;
-      }
-    }
-  } catch (_error) {
-    // Fall back to the list record if the detail endpoint is temporarily unavailable.
-  }
-
   const liveHydrated = hydrateDraftFromProduct(liveProduct);
+  const liveOriginals = collectOriginalImagesForDisplay(liveHydrated);
   assert(Boolean(liveHydrated.media.mainImage), `live product ${liveProduct.id} hydrates a main image`);
   assert(!String(liveHydrated.media.mainImage).includes("/cards/"), `live product ${liveProduct.id} hydrates the original image, not a card thumbnail`);
+  assert(liveOriginals.length >= 1, `live product ${liveProduct.id} displays existing original images`);
+  assert(
+    liveOriginals.length >= Math.max(1, (liveProduct.gallery || []).filter((entry) => !String(entry).includes("/cards/")).length),
+    `live product ${liveProduct.id} displays every original image, not a card thumbnail`
+  );
   assert(
     liveHydrated.media.gallery.length >= Math.max(0, (liveProduct.gallery || []).filter((entry) => !String(entry).includes("/cards/")).length - 1),
     `live product ${liveProduct.id} hydrates existing extra gallery images`
@@ -399,7 +438,14 @@ async function verifyLiveEditRoundTrip() {
 
   const stockOnlyLive = JSON.parse(JSON.stringify(liveHydrated));
   stockOnlyLive.inventory.quantity = String(Math.max(0, Number(stockOnlyLive.inventory.quantity || 0)));
-  const livePayload = buildProductPayload(stockOnlyLive);
+  const livePayload = buildProductPayload(stockOnlyLive, {
+    mainImage: liveHydrated.media.mainImage,
+    mainImageStoragePath: liveHydrated.media.mainImageStoragePath,
+    gallery: liveHydrated.media.gallery,
+    galleryStoragePaths: liveHydrated.media.galleryStoragePaths,
+    preserveExistingImages: true
+  });
+  assert(livePayload.preserveExistingImages === true, `live product ${liveProduct.id} stock-only edit locks original images`);
   assert(livePayload.mainImage === liveHydrated.media.mainImage, `live product ${liveProduct.id} stock-only payload keeps main image`);
   assert(JSON.stringify(livePayload.gallery) === JSON.stringify(buildProductPayload(liveHydrated).gallery), `live product ${liveProduct.id} stock-only payload keeps gallery`);
   assert(!String(livePayload.mainImage).includes("/cards/"), `live product ${liveProduct.id} payload does not persist a card thumbnail`);
@@ -424,3 +470,4 @@ if (failures) {
 }
 
 console.log("\n[verify-product-edit-preservation] Live edit image preservation checks passed.");
+process.exit(0);

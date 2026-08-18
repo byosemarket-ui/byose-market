@@ -1,6 +1,6 @@
 const SQLiteBaseRepository = require('./base.repository');
 const categoryRepository = require('./category.repository');
-const { buildPublicUrlFromPath, normalizeManagedPath, isProductCardImagePath, resolveCanonicalImageValue } = require('../../services/uploadstorage.service');
+const { buildPublicUrlFromPath, normalizeManagedPath, isProductCardImagePath, isSameProductImage, productImageStem, resolveCanonicalImageValue } = require('../../services/uploadstorage.service');
 const { queryCache } = require('../../services/querycache.service');
 
 const PRODUCT_SELECT_COLUMNS = `
@@ -17,6 +17,10 @@ const PRODUCT_CARD_SELECT_COLUMNS = `
     '[]' AS highlights_json, '[]' AS trust_json, '[]' AS specs_json, '[]' AS attributes_json,
     '{}' AS variants_json
 `.replace(/\s+/g, ' ').trim();
+
+function isTruthyFlag(value) {
+    return value === true || value === 1 || value === '1' || String(value || '').trim().toLowerCase() === 'true';
+}
 
 class SQLiteProductRepository extends SQLiteBaseRepository {
     constructor() {
@@ -596,18 +600,24 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         const mainImageStorage = this.prepareStorablePath(mainImage);
         const desired = [];
         const seen = new Set();
+        const seenStems = new Set();
         const pushPath = (value) => {
             const storedPath = this.prepareStorablePath(value);
+            const stem = productImageStem(storedPath || value);
             if (
                 !storedPath
                 || storedPath.includes('..')
                 || /(?:^|\/)img\/logo\.png$/i.test(storedPath)
                 || isProductCardImagePath(storedPath)
                 || seen.has(storedPath)
+                || (stem && seenStems.has(stem))
             ) {
                 return;
             }
             seen.add(storedPath);
+            if (stem) {
+                seenStems.add(stem);
+            }
             desired.push(storedPath);
         };
 
@@ -617,7 +627,6 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         }
 
         // An update with no usable image paths must not delete existing rows.
-        // That happens on stock-only saves that send empty image fields.
         if (!desired.length) {
             return;
         }
@@ -630,18 +639,28 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         `).all(productIdNum);
 
         const existingByPath = new Map();
+        const existingByStem = new Map();
         existingRows.forEach((row) => {
             const path = this.prepareStorablePath(row.image_url);
+            const stem = productImageStem(path || row.image_url);
             if (path && !existingByPath.has(path)) {
                 existingByPath.set(path, row);
+            }
+            if (stem && !existingByStem.has(stem)) {
+                existingByStem.set(stem, row);
             }
         });
 
         const desiredSet = new Set(desired);
+        const desiredStems = new Set(desired.map((entry) => productImageStem(entry)).filter(Boolean));
         const deleteStmt = this.db.prepare('DELETE FROM product_images WHERE id = ?');
         existingRows.forEach((row) => {
             const path = this.prepareStorablePath(row.image_url);
-            if (!desiredSet.has(path)) {
+            const stem = productImageStem(path || row.image_url);
+            const stillWanted = (path && desiredSet.has(path))
+                || (stem && desiredStems.has(stem))
+                || desired.some((entry) => isSameProductImage(entry, path || row.image_url));
+            if (!stillWanted) {
                 deleteStmt.run(Number(row.id));
             }
         });
@@ -655,10 +674,24 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
 
         desired.forEach((storedPath, index) => {
             const kind = storedPath === mainImageStorage ? 'main' : 'gallery';
-            const existing = existingByPath.get(storedPath);
+            const stem = productImageStem(storedPath);
+            const existing = existingByPath.get(storedPath) || (stem ? existingByStem.get(stem) : null);
             if (existing) {
-                if (Number(existing.sort_order) !== index || String(existing.kind || '') !== kind) {
-                    updateStmt.run(kind, index, storedPath, Number(existing.id));
+                const keepPath = (
+                    isProductCardImagePath(storedPath)
+                    && !isProductCardImagePath(existing.image_url)
+                )
+                    ? existing.image_url
+                    : storedPath;
+                if (
+                    Number(existing.sort_order) !== index
+                    || String(existing.kind || '') !== kind
+                    || this.prepareStorablePath(existing.image_url) !== this.prepareStorablePath(keepPath)
+                ) {
+                    if (isProductCardImagePath(keepPath)) {
+                        return;
+                    }
+                    updateStmt.run(kind, index, keepPath, Number(existing.id));
                 }
                 return;
             }
@@ -668,6 +701,8 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
 
     async save(product, options = {}) {
         const existing = options.identifier ? await this.findByIdentifier(options.identifier) : null;
+        const imagesChanged = Boolean(existing) && isTruthyFlag(product?.imagesChanged);
+        const preserveExistingImages = Boolean(existing) && (!imagesChanged || Boolean(product?.preserveExistingImages));
 
         const category = await categoryRepository.ensureBySlug(product.category, { name: product.category });
         const now = this.now(product.updatedAt);
@@ -690,11 +725,13 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         const existingImagePath = existing
             ? (this.prepareStorablePath(existing.image || existing.mainImage || existing.mainImageStoragePath) || this.normalizeText(existing.image || existing.mainImage))
             : '';
-        const imageStoragePath = this.prepareStorablePath(
-            (!incomingImagePath || isProductCardImagePath(incomingImagePath))
-                ? (existingImagePath || incomingImagePath)
-                : incomingImagePath
-        ) || existingImagePath;
+        const imageStoragePath = preserveExistingImages
+            ? existingImagePath
+            : (this.prepareStorablePath(
+                (!incomingImagePath || isProductCardImagePath(incomingImagePath))
+                    ? (existingImagePath || incomingImagePath)
+                    : incomingImagePath
+            ) || existingImagePath);
         const mainImageStoragePath = imageStoragePath;
         const incomingGallery = Array.isArray(product.gallery) ? product.gallery : null;
         const canonicalIncomingGallery = Array.isArray(incomingGallery)
@@ -705,13 +742,15 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
                     return Boolean(storedPath) && !isProductCardImagePath(storedPath);
                 })
             : null;
-        const galleryForPersist = (
-            (!canonicalIncomingGallery || canonicalIncomingGallery.length === 0)
-            && Array.isArray(existing?.gallery)
-            && existing.gallery.length
-        )
-            ? existing.gallery
-            : (canonicalIncomingGallery || (Array.isArray(existing?.gallery) ? existing.gallery : null));
+        const galleryForPersist = preserveExistingImages
+            ? (Array.isArray(existing?.gallery) ? existing.gallery : null)
+            : (
+                (!canonicalIncomingGallery || canonicalIncomingGallery.length === 0)
+                && Array.isArray(existing?.gallery)
+                && existing.gallery.length
+            )
+                ? existing.gallery
+                : (canonicalIncomingGallery || (Array.isArray(existing?.gallery) ? existing.gallery : null));
         const metadataSource = product.metadata && typeof product.metadata === 'object' ? product.metadata : {};
         const metadata = {
             ...metadataSource,
@@ -847,11 +886,13 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
                             Number(existing.recordId)
                         );
                     }
-                    this.persistImages(
-                        existing.recordId,
-                        galleryForPersist,
-                        payload.mainImage || existingImagePath
-                    );
+                    if (!preserveExistingImages) {
+                        this.persistImages(
+                            existing.recordId,
+                            galleryForPersist,
+                            payload.mainImage || existingImagePath
+                        );
+                    }
                     return Number(existing.recordId);
                 });
 

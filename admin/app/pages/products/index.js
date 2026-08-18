@@ -1,9 +1,10 @@
 import { getProductById, getProducts } from "../../services/admin-data.service.js";
 import { errorState } from "../../components/ui.js";
 import { migrateLegacyStoredApiBase } from "../../../../services/api-origin.js";
-import { createDefaultDraft, hydrateDraftFromProduct, readDraft, writeDraft } from "./draft.js";
+import { createDefaultDraft, readDraft, writeDraft } from "./draft.js";
 import { renderProductListMarkup, mountProductList } from "./list.js";
 import { mountProductWizard } from "./wizard.js";
+import { mountProductEditor } from "./edit.js";
 import { getProductsView, getRouteProductId } from "./utils.js";
 
 function renderEditLoadError(message) {
@@ -35,36 +36,44 @@ function startNewProductDraft() {
 }
 
 export async function renderProducts(container, context = {}) {
-  if (getProductsView() === "create" && context?.softRefresh && container.querySelector("[data-product-wizard]")) {
+  const view = getProductsView();
+  const routeProductId = getRouteProductId();
+  const isEditView = view === "edit" || (view === "create" && Boolean(routeProductId));
+
+  if (isEditView && context?.softRefresh && container.querySelector("[data-product-editor]")) {
     return;
   }
 
-  if (getProductsView() === "create") {
+  if (view === "create" && !routeProductId && context?.softRefresh && container.querySelector("[data-product-wizard]")) {
+    return;
+  }
+
+  if (isEditView) {
     migrateLegacyStoredApiBase();
-    const routeProductId = getRouteProductId();
-
-    if (routeProductId) {
-      try {
-        const product = await getProductById(routeProductId);
-        if (!product) {
-          container.innerHTML = renderEditLoadError("Product not found. It may have been deleted.");
-          return;
-        }
-
-        const draft = hydrateDraftFromProduct(product);
-        draft.productId = String(product.id || product.catalogId || routeProductId);
-        draft.savedProductId = draft.productId;
-        writeDraft(draft);
-        mountProductWizard(container, draft);
-      } catch (error) {
-        const rawMessage = String(error?.message || "").trim();
-        container.innerHTML = renderEditLoadError(
-          rawMessage || "Live product data could not be loaded. Return to the catalog and try again."
-        );
-      }
+    if (!routeProductId) {
+      container.innerHTML = renderEditLoadError("No product was selected for editing.");
       return;
     }
 
+    try {
+      const product = await getProductById(routeProductId);
+      if (!product) {
+        container.innerHTML = renderEditLoadError("Product not found. It may have been deleted.");
+        return;
+      }
+
+      mountProductEditor(container, product);
+    } catch (error) {
+      const rawMessage = String(error?.message || "").trim();
+      container.innerHTML = renderEditLoadError(
+        rawMessage || "Live product data could not be loaded. Return to the catalog and try again."
+      );
+    }
+    return;
+  }
+
+  if (view === "create") {
+    migrateLegacyStoredApiBase();
     mountProductWizard(container, startNewProductDraft());
     return;
   }
