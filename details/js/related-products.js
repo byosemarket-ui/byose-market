@@ -22,7 +22,21 @@ export function renderRelatedProducts(container, products) {
   }
 
   // Wrap with unified grid classes (5 columns on desktop per related products convention)
-  const cardsHtml = products.map((product) => buildCard(product)).join('');
+  const cardsHtml = products
+    .filter((product) => String(product?.id || product?.catalogId || '').trim())
+    .map((product) => buildCard(product))
+    .join('');
+
+  if (!cardsHtml.trim()) {
+    container.innerHTML = `
+      <div class="byose-product-grid-empty">
+        <div class="byose-product-grid-empty-icon">📭</div>
+        <p class="byose-product-grid-empty-text">No related products available right now.</p>
+      </div>
+    `;
+    return;
+  }
+
   container.innerHTML = `<div class="byose-product-grid byose-product-grid--5col related-grid">${cardsHtml}</div>`;
   ProductCardSystem.bindCards(container);
 }

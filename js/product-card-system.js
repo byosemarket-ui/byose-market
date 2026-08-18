@@ -12,6 +12,7 @@ export const ProductCardSystem = (() => {
 
   const FALLBACK_IMAGE = 'img/logo.png';
   const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
+  const ROOT_DETAIL_PAGE = '/details/product-details1.html';
   const WISHLIST_KEY = 'byose_market_wishlist_v1';
 
   function escapeHtml(value) {
@@ -40,7 +41,9 @@ export const ProductCardSystem = (() => {
   }
 
   function getProductDetailUrl(productId) {
-    return `${DEFAULT_DETAIL_PAGE}?id=${encodeURIComponent(String(productId || ''))}`;
+    const id = String(productId || '').trim();
+    const query = id ? `?id=${encodeURIComponent(id)}` : '';
+    return `${ROOT_DETAIL_PAGE}${query}`;
   }
 
   function getWishlistIds() {
@@ -160,7 +163,8 @@ export const ProductCardSystem = (() => {
   }
 
   function renderCard(product, options = {}) {
-    if (!product || !product.name) {
+    const productId = String(product?.id || product?.catalogId || "").trim();
+    if (!product || !product.name || !productId) {
       console.warn('[ProductCardSystem] Invalid product data:', product);
       return '';
     }
@@ -172,7 +176,6 @@ export const ProductCardSystem = (() => {
       oldPrice: discount.oldPrice,
       discountPercent: discount.discountPercent
     };
-    const productId = String(product.id || product.catalogId || "");
     const productName = escapeHtml(getCardDisplayName(product));
     const productImage = resolveProductImageUrl(product);
     const displayImage = productImage || normalizeStorefrontAssetUrl(FALLBACK_IMAGE) || FALLBACK_IMAGE;

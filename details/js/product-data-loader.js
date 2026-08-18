@@ -382,9 +382,10 @@ export function formatPrice(value) {
   return `RWF ${Number(value || 0).toLocaleString('en-US')}`;
 }
 
-export function createProductUrl(product, mode = 'relative') {
-  const base = mode === 'root' ? 'details/product-details1.html' : 'details/product-details1.html';
-  return `${base}?id=${encodeURIComponent(product.id)}`;
+export function createProductUrl(product) {
+  const id = String(product?.id || product?.catalogId || '').trim();
+  const query = id ? `?id=${encodeURIComponent(id)}` : '';
+  return `/details/product-details1.html${query}`;
 }
 
 export async function loadProductData() {
@@ -440,28 +441,132 @@ export async function loadProductData() {
   };
 }
 
-export async function getRelatedProducts(currentProduct, limit = 5) {
+function asProductIdentity(value) {
+  return String(value || '').trim();
+}
+
+function isLoadableProductId(value) {
+  const id = asProductIdentity(value);
+  if (!id) {
+    return false;
+  }
+  const parsed = Number(id);
+  return Number.isFinite(parsed) && parsed > 0;
+}
+
+function collectRelatedTokens(product) {
+  const tokens = new Set();
+  const add = (value) => {
+    const text = String(value || '').trim().toLowerCase();
+    if (text) {
+      tokens.add(text);
+    }
+  };
+
+  add(product?.category);
+  add(product?.productType);
+  add(product?.type);
+  add(product?.subcategory);
+  add(product?.highlightTag);
+  add(product?.brand);
+
+  [product?.keywords, product?.tags].forEach((list) => {
+    if (Array.isArray(list)) {
+      list.forEach(add);
+    }
+  });
+
+  return tokens;
+}
+
+function scoreRelatedCandidate(currentProduct, candidate) {
+  let score = 0;
+  const currentCategory = asProductIdentity(currentProduct?.category).toLowerCase();
+  const candidateCategory = asProductIdentity(candidate?.category).toLowerCase();
+  if (currentCategory && candidateCategory === currentCategory) {
+    score += 100;
+  }
+
+  const currentType = asProductIdentity(
+    currentProduct?.productType || currentProduct?.type || currentProduct?.subcategory
+  ).toLowerCase();
+  const candidateType = asProductIdentity(
+    candidate?.productType || candidate?.type || candidate?.subcategory
+  ).toLowerCase();
+  if (currentType && candidateType && currentType === candidateType) {
+    score += 40;
+  }
+
+  const currentTokens = collectRelatedTokens(currentProduct);
+  const candidateTokens = collectRelatedTokens(candidate);
+  let overlap = 0;
+  candidateTokens.forEach((token) => {
+    if (currentTokens.has(token)) {
+      overlap += 1;
+    }
+  });
+  score += Math.min(30, overlap * 5);
+
+  if (computeStock(candidate) > 0) {
+    score += 20;
+  }
+
+  const social = resolveSocialProof(candidate);
+  if (social.soldCount > 0) {
+    score += Math.min(15, social.soldCount);
+  }
+  if (social.rating) {
+    score += Math.min(10, social.rating);
+  }
+
+  score += Number(candidate?.priority || candidate?.priorityScore || 0) || 0;
+  return score;
+}
+
+export async function getRelatedProducts(currentProduct, limit = 10) {
   const cached = getCachedProductContent();
   const catalog = cached.length ? cached : await getCatalog();
-  const category = String(currentProduct?.category || '').toLowerCase();
+  const maxCount = Math.max(0, Math.min(10, Number(limit) || 10));
+  const currentKeys = new Set(
+    [currentProduct?.id, currentProduct?.catalogId]
+      .map(asProductIdentity)
+      .filter(Boolean)
+  );
+  const seen = new Set();
+
   return catalog
-    .filter(item => Number(item.id) !== Number(currentProduct.id))
-    .sort((left, right) => {
-      const leftScore = String(left.category || '').toLowerCase() === category ? 0 : 1;
-      const rightScore = String(right.category || '').toLowerCase() === category ? 0 : 1;
-      if (leftScore !== rightScore) {
-        return leftScore - rightScore;
+    .filter((item) => {
+      const id = asProductIdentity(item?.id || item?.catalogId);
+      const catalogId = asProductIdentity(item?.catalogId);
+      const name = asProductIdentity(item?.name || item?.title);
+      if (!isLoadableProductId(id) || !name || seen.has(id) || currentKeys.has(id)) {
+        return false;
       }
-      return Number(right.priority || 0) - Number(left.priority || 0);
+      if (catalogId && (seen.has(catalogId) || currentKeys.has(catalogId))) {
+        return false;
+      }
+      seen.add(id);
+      if (catalogId) {
+        seen.add(catalogId);
+      }
+      return true;
     })
-    .slice(0, limit)
-    .map(item => {
+    .sort((left, right) => {
+      const scoreDelta = scoreRelatedCandidate(currentProduct, right) - scoreRelatedCandidate(currentProduct, left);
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+      return String(left.name || '').localeCompare(String(right.name || ''));
+    })
+    .slice(0, maxCount)
+    .map((item) => {
       const mergedProduct = mergeProductContent(item);
       const pricing = buildDiscountedProductView(mergedProduct);
 
       return {
         ...mergedProduct,
         ...pricing,
+        id: mergedProduct.id || mergedProduct.catalogId,
         categoryLabel: titleCase(mergedProduct.category),
         href: createProductUrl(mergedProduct),
         priceLabel: formatPrice(pricing.price),
