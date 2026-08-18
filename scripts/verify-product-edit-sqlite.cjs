@@ -188,6 +188,30 @@ async function main() {
   assert(afterRemoveRows.some((row) => String(row.image_url).includes("edit-g5-9101.webp")), "removing one image keeps the newly added image");
   assert(afterRemove.catalogId === catalogId, "image removal keeps the original catalog id");
 
+  const cardOverwrite = {
+    ...afterRemove,
+    stock: Number(afterRemove.stock || 0) + 1,
+    image: "products/cards/edit-main-9101.webp",
+    mainImage: "https://byosemarket.com/uploads/products/cards/edit-main-9101.webp",
+    gallery: []
+  };
+  await productRepository.save(cardOverwrite, { identifier: catalogId });
+  const afterCard = await productRepository.findByIdentifier(catalogId);
+  const afterCardRows = loadImageRows(afterCard.recordId);
+  assert(afterCard.stock === Number(afterRemove.stock || 0) + 1, "card-thumbnail save still updates stock");
+  assert(
+    !String(afterCard.mainImage || afterCard.image || "").includes("/cards/"),
+    "card thumbnail is not stored as the canonical product image"
+  );
+  assert(
+    afterCardRows.some((row) => String(row.image_url).includes("edit-g1-9101.webp")),
+    "card-thumbnail save keeps existing gallery image rows"
+  );
+  assert(
+    afterCardRows.some((row) => String(row.image_url).includes("edit-g5-9101.webp")),
+    "card-thumbnail save keeps previously added gallery images"
+  );
+
   await productRepository.remove(catalogId);
 
   if (failures) {

@@ -1,6 +1,6 @@
 const SQLiteBaseRepository = require('./base.repository');
 const categoryRepository = require('./category.repository');
-const { buildPublicUrlFromPath, normalizeManagedPath } = require('../../services/uploadstorage.service');
+const { buildPublicUrlFromPath, normalizeManagedPath, isProductCardImagePath, resolveCanonicalImageValue } = require('../../services/uploadstorage.service');
 const { queryCache } = require('../../services/querycache.service');
 
 const PRODUCT_SELECT_COLUMNS = `
@@ -598,7 +598,13 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         const seen = new Set();
         const pushPath = (value) => {
             const storedPath = this.prepareStorablePath(value);
-            if (!storedPath || storedPath.includes('..') || /(?:^|\/)img\/logo\.png$/i.test(storedPath) || seen.has(storedPath)) {
+            if (
+                !storedPath
+                || storedPath.includes('..')
+                || /(?:^|\/)img\/logo\.png$/i.test(storedPath)
+                || isProductCardImagePath(storedPath)
+                || seen.has(storedPath)
+            ) {
                 return;
             }
             seen.add(storedPath);
@@ -665,22 +671,47 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
 
         const category = await categoryRepository.ensureBySlug(product.category, { name: product.category });
         const now = this.now(product.updatedAt);
-        const incomingImagePath = this.prepareStorablePath(
-            product.image
-            || product.mainImage
-            || product.mainImageStoragePath
-            || product.imageStoragePath
+        const incomingImagePath = resolveCanonicalImageValue(
+            this.prepareStorablePath(
+                product.image
+                || product.mainImage
+                || product.mainImageStoragePath
+                || product.imageStoragePath
+            ),
+            existing
+                ? [
+                    existing.image,
+                    existing.mainImage,
+                    existing.mainImageStoragePath,
+                    existing.imageStoragePath
+                ]
+                : []
         );
         const existingImagePath = existing
             ? (this.prepareStorablePath(existing.image || existing.mainImage || existing.mainImageStoragePath) || this.normalizeText(existing.image || existing.mainImage))
             : '';
-        const imageStoragePath = incomingImagePath || existingImagePath;
-        const mainImageStoragePath = incomingImagePath || existingImagePath;
-        const incomingPublicImagePath = this.prepareStorablePath(product.image || product.mainImage);
+        const imageStoragePath = this.prepareStorablePath(
+            (!incomingImagePath || isProductCardImagePath(incomingImagePath))
+                ? (existingImagePath || incomingImagePath)
+                : incomingImagePath
+        ) || existingImagePath;
+        const mainImageStoragePath = imageStoragePath;
         const incomingGallery = Array.isArray(product.gallery) ? product.gallery : null;
-        const galleryForPersist = (!incomingPublicImagePath && Array.isArray(incomingGallery) && incomingGallery.length === 0 && Array.isArray(existing?.gallery))
+        const canonicalIncomingGallery = Array.isArray(incomingGallery)
+            ? incomingGallery
+                .map((entry) => resolveCanonicalImageValue(entry, existing?.gallery || []))
+                .filter((entry) => {
+                    const storedPath = this.prepareStorablePath(entry);
+                    return Boolean(storedPath) && !isProductCardImagePath(storedPath);
+                })
+            : null;
+        const galleryForPersist = (
+            (!canonicalIncomingGallery || canonicalIncomingGallery.length === 0)
+            && Array.isArray(existing?.gallery)
+            && existing.gallery.length
+        )
             ? existing.gallery
-            : (incomingGallery || (Array.isArray(existing?.gallery) ? existing.gallery : null));
+            : (canonicalIncomingGallery || (Array.isArray(existing?.gallery) ? existing.gallery : null));
         const metadataSource = product.metadata && typeof product.metadata === 'object' ? product.metadata : {};
         const metadata = {
             ...metadataSource,

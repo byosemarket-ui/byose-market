@@ -1,4 +1,4 @@
-import { slugify, toNumber, sanitizePersistedGallery, isPersistableAssetUrl, normalizeStoragePath } from "./utils.js";
+import { slugify, toNumber, sanitizePersistedGallery, isPersistableAssetUrl, preferCanonicalAssetUrl, preferCanonicalStoragePath } from "./utils.js";
 import { parseTagsInput } from "./draft.js";
 import { PLACEMENT_OPTIONS, POSITION_MODE_OPTIONS } from "./constants.js";
 import { computeProductDiscount } from "./pricing.js";
@@ -279,12 +279,18 @@ export function buildProductPayload(draft, assetOverrides = {}) {
     assetOverrides.gallery || media.gallery || [],
     assetOverrides.galleryStoragePaths || media.galleryStoragePaths || []
   );
-  const rawMainImage = assetOverrides.mainImage || media.mainImage || media.mainImageStoragePath || "";
+  const rawMainImage = preferCanonicalAssetUrl(
+    assetOverrides.mainImage,
+    media.mainImage,
+    media.mainImageStoragePath
+  );
   const mainImage = isPersistableAssetUrl(rawMainImage)
     ? String(rawMainImage).trim()
     : "";
-  const mainImageStoragePath = normalizeStoragePath(
-    assetOverrides.mainImageStoragePath || media.mainImageStoragePath || mainImage
+  const mainImageStoragePath = preferCanonicalStoragePath(
+    assetOverrides.mainImageStoragePath,
+    media.mainImageStoragePath,
+    mainImage
   );
   const gallery = persistedGallery.gallery;
   const galleryStoragePaths = persistedGallery.galleryStoragePaths;
@@ -337,6 +343,7 @@ export function buildProductPayload(draft, assetOverrides = {}) {
     status,
     mainImage,
     image: mainImage,
+    originalImage: mainImage,
     mainImageStoragePath,
     imageStoragePath: mainImageStoragePath,
     gallery,

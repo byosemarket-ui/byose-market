@@ -110,8 +110,8 @@ const intentionalExtrasClear = mergeProductUpdate(
   }),
   { name: existing.name, price: 45000, mainImage: existing.mainImage, gallery: [] }
 );
-assert(intentionalExtrasClear.gallery.length === 0, "explicit empty gallery with a real main image clears extras only");
-assert(intentionalExtrasClear.mainImage === existing.mainImage, "explicit extras clear keeps the main image");
+assert(intentionalExtrasClear.gallery.length === 2, "empty gallery with a real main image keeps existing extras");
+assert(intentionalExtrasClear.mainImage === existing.mainImage, "empty gallery with a real main image keeps the main image");
 
 const emptyGalleryBody = {
   name: existing.name,
@@ -177,6 +177,29 @@ const missingUpdate = mergeProductUpdate(
   { name: "Existing", price: 1000 }
 );
 assert(missingUpdate.catalogId === 42, "merged update never assigns a new catalog id");
+
+const cardAsMain = mergeProductUpdate(
+  existing,
+  normalizePayload({
+    name: existing.name,
+    price: existing.price,
+    stock: 8,
+    mainImage: "https://byosemarket.com/uploads/products/cards/main-42.webp",
+    image: "/uploads/products/cards/main-42.webp",
+    gallery: []
+  }),
+  {
+    name: existing.name,
+    price: existing.price,
+    stock: 8,
+    mainImage: "https://byosemarket.com/uploads/products/cards/main-42.webp",
+    image: "/uploads/products/cards/main-42.webp",
+    gallery: []
+  }
+);
+assert(cardAsMain.stock === 8, "card-thumbnail payload still applies stock");
+assert(cardAsMain.mainImage === existing.mainImage, "card thumbnail is not saved as the canonical product image");
+assert(cardAsMain.gallery.length === 2, "card-thumbnail payload does not wipe gallery images");
 
 if (failures) {
   console.error(`\n${failures} check(s) failed.`);

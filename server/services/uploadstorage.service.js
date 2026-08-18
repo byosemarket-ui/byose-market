@@ -113,6 +113,62 @@ function hasUsableProductImageValue(value) {
     return Boolean(normalized) && !isPlaceholderProductImage(normalized);
 }
 
+function isProductCardImagePath(value) {
+    const raw = String(value || '').trim().replace(/\\/g, '/').toLowerCase();
+    if (!raw) {
+        return false;
+    }
+
+    const withoutQuery = raw.split('?')[0].split('#')[0];
+    if (/(?:^|\/)(?:uploads\/)?products\/cards\/[^/]+\.[a-z0-9]+$/i.test(withoutQuery)) {
+        return true;
+    }
+
+    const managed = normalizeManagedPath(value);
+    return /^products\/cards\/[^/]+\.[a-z0-9]+$/i.test(String(managed || ''));
+}
+
+function productImageStem(value) {
+    const managed = normalizeManagedPath(value);
+    const source = String(managed || value || '')
+        .trim()
+        .replace(/\\/g, '/')
+        .split('?')[0]
+        .split('#')[0];
+    const base = source.split('/').pop() || '';
+    return base.replace(/\.[a-z0-9]+$/i, '').toLowerCase();
+}
+
+function isSameProductImage(left, right) {
+    const leftStem = productImageStem(left);
+    const rightStem = productImageStem(right);
+    if (leftStem && rightStem && leftStem === rightStem) {
+        return true;
+    }
+
+    const leftPath = normalizeManagedPath(left);
+    const rightPath = normalizeManagedPath(right);
+    return Boolean(leftPath && rightPath && leftPath === rightPath);
+}
+
+function resolveCanonicalImageValue(incomingValue, existingValues = []) {
+    const existingList = Array.isArray(existingValues) ? existingValues : [existingValues];
+    const usableExisting = existingList.filter((entry) => (
+        hasUsableProductImageValue(entry) && !isProductCardImagePath(entry)
+    ));
+
+    if (!hasUsableProductImageValue(incomingValue) || isPlaceholderProductImage(incomingValue)) {
+        return usableExisting[0] || incomingValue || '';
+    }
+
+    if (isProductCardImagePath(incomingValue)) {
+        const matched = usableExisting.find((entry) => isSameProductImage(entry, incomingValue));
+        return matched || usableExisting[0] || incomingValue;
+    }
+
+    return incomingValue;
+}
+
 function resolveManagedAbsolutePath(value) {
     const normalized = normalizeManagedPath(value);
     if (!normalized) {
@@ -243,7 +299,11 @@ module.exports = {
     hasUsableProductImageValue,
     isManagedUploadPath,
     isPlaceholderProductImage,
+    isProductCardImagePath,
+    isSameProductImage,
     normalizeManagedPath,
     parsePathCollection,
+    productImageStem,
+    resolveCanonicalImageValue,
     resolveManagedAbsolutePath
 };

@@ -51,6 +51,7 @@ let pendingGalleryEntries = [];
 let uploadProgress = { message: "", percent: null };
 let workflowFeedback = { tone: "", message: "" };
 let saveSuccess = null;
+let lastSaveWasUpdate = false;
 let isSaving = false;
 
 function clearPendingMedia() {
@@ -554,14 +555,23 @@ function renderReviewStep(draft) {
 
 function renderSuccessState(savedProduct) {
   const catalogId = savedProduct?.id || savedProduct?.catalogId || activeDraft.savedProductId;
+  const isEditing = lastSaveWasUpdate;
+  const title = isEditing ? "Product updated successfully." : "Product saved successfully.";
+  const copy = isEditing
+    ? "The selected changes are now live. Untouched product information, including existing images, was kept."
+    : "Your product is now live across the storefront catalog.";
+
   return `
     <section class="pm-success card">
       <div class="pm-success-icon" aria-hidden="true">✓</div>
-      <h2>Product saved successfully.</h2>
-      <p>Your product is now live across the storefront catalog.</p>
+      <h2>${title}</h2>
+      <p>${copy}</p>
       <div class="pm-success-actions">
         <a class="pm-btn pm-btn-primary" href="${escapeHtml(buildProductViewUrl(catalogId))}" target="_blank" rel="noopener">View Product</a>
-        <button type="button" class="pm-btn pm-btn-secondary" data-add-another>Add Another Product</button>
+        <a class="pm-btn pm-btn-secondary" href="#/products">Back to Products</a>
+        ${isEditing
+          ? `<button type="button" class="pm-btn pm-btn-secondary" data-continue-editing>Continue Editing</button>`
+          : `<button type="button" class="pm-btn pm-btn-secondary" data-add-another>Add Another Product</button>`}
       </div>
     </section>
   `;
@@ -800,15 +810,16 @@ function collectDraftFromForm(form, draft, step = "") {
   }
 
   if (activeStep === "review" || activeStep === "publish" || activeStep === "description") {
-    // Keep SEO auto-generated from collected draft fields.
     const merged = sanitizeDraft(nextDraft);
-    const autoSeo = buildAutoSeo(merged.info, merged.description, merged.info?.brand);
-    nextDraft.seo = {
-      ...merged.seo,
-      metaTitle: autoSeo.metaTitle,
-      metaDescription: autoSeo.metaDescription,
-      slug: autoSeo.slug
-    };
+    if (!merged.seo?.slugManual) {
+      const autoSeo = buildAutoSeo(merged.info, merged.description, merged.info?.brand);
+      nextDraft.seo = {
+        ...merged.seo,
+        metaTitle: autoSeo.metaTitle,
+        metaDescription: autoSeo.metaDescription,
+        slug: autoSeo.slug
+      };
+    }
   }
 
   if (pendingMainFile || pendingMainPreviewUrl) {
@@ -1202,10 +1213,21 @@ function mountWizard(container) {
       clearPendingMedia();
       uploadProgress = { message: "", percent: null };
       saveSuccess = null;
+      lastSaveWasUpdate = false;
       isSaving = false;
       workflowFeedback = { tone: "", message: "" };
       clearDraft();
       window.location.hash = buildCreateHash("info");
+      rerenderWizard(container);
+    });
+    container.querySelector("[data-continue-editing]")?.addEventListener("click", () => {
+      const productId = String(activeDraft.productId || activeDraft.savedProductId || saveSuccess?.id || saveSuccess?.catalogId || "").trim();
+      saveSuccess = null;
+      isSaving = false;
+      workflowFeedback = { tone: "", message: "" };
+      activeDraft.step = "info";
+      writeDraft(activeDraft);
+      window.location.hash = buildCreateHash("info", productId);
       rerenderWizard(container);
     });
     return;
@@ -1551,6 +1573,7 @@ function mountWizard(container) {
       });
 
       const productId = String(activeDraft.productId || activeDraft.savedProductId || "").trim();
+      lastSaveWasUpdate = Boolean(productId);
       const savedProduct = productId
         ? await updateProductAndSync(productId, payload, {
             onProgress: (progress) => {
@@ -1607,7 +1630,6 @@ export function mountProductWizard(container, initialDraft) {
     || pendingGalleryEntries.length
     || isSaving
   );
-  const preserveSuccessState = Boolean(saveSuccess);
 
   activeDraft = sanitizeDraft(initialDraft || createDefaultDraft());
   if (!preservePendingMedia) {
@@ -1615,11 +1637,8 @@ export function mountProductWizard(container, initialDraft) {
   }
   if (!isSaving) {
     uploadProgress = { message: "", percent: null };
-  }
-  if (!preserveSuccessState) {
     saveSuccess = null;
-  }
-  if (!isSaving && !preserveSuccessState) {
+    lastSaveWasUpdate = false;
     workflowFeedback = { tone: "", message: "" };
   }
   activeDraft.step = getWizardStep(activeDraft.step || "info");

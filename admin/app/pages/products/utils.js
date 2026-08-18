@@ -1,5 +1,7 @@
 import { DETAIL_PAGE_PATH } from "./constants.js";
 
+import { isProductCardImageUrl } from "../../../../services/storefront-asset-url.js";
+
 const PRODUCTION_SITE_ORIGIN = "https://byosemarket.com";
 
 export function escapeHtml(value) {
@@ -162,11 +164,32 @@ export function isCompanyLogoUrl(value) {
 
 export function isPersistableAssetUrl(value) {
   const normalized = String(value || "").trim();
-  if (!normalized || isBlobUrl(normalized) || isDataUrl(normalized) || isCompanyLogoUrl(normalized)) {
+  if (!normalized || isBlobUrl(normalized) || isDataUrl(normalized) || isCompanyLogoUrl(normalized) || isProductCardImageUrl(normalized)) {
     return false;
   }
 
   return /^(?:https?:|\/uploads\/|products\/|categories\/|users\/|reviews\/|temp\/)/i.test(normalized);
+}
+
+export function preferCanonicalAssetUrl(...values) {
+  for (const value of values) {
+    const normalized = normalizeAssetUrl(value);
+    if (isPersistableAssetUrl(normalized) || isPersistableAssetUrl(value)) {
+      return normalized || String(value || "").trim();
+    }
+  }
+  return "";
+}
+
+export function preferCanonicalStoragePath(...values) {
+  for (const value of values) {
+    const path = normalizeStoragePath(value);
+    if (!path || /(?:^|\/)products\/cards\//i.test(path)) {
+      continue;
+    }
+    return path;
+  }
+  return "";
 }
 
 export const ALLOWED_IMAGE_MIME_TYPES = [
@@ -202,7 +225,7 @@ export function sanitizePersistedGallery(gallery = [], galleryStoragePaths = [])
 
   (Array.isArray(gallery) ? gallery : []).forEach((entry, index) => {
     const url = normalizeAssetUrl(entry);
-    if (!isPersistableAssetUrl(url)) {
+    if (!isPersistableAssetUrl(url) || isProductCardImageUrl(url)) {
       return;
     }
 

@@ -2,7 +2,7 @@ export const GLOBAL_SYNC_EVENT = "byose:products-synchronized";
 export const PRODUCT_CHANGED_EVENT = "byose:products-changed";
 
 import { buildApiUrl, ensureUploadCapableApiBaseUrl, resolveApiBaseUrl } from "./api-origin.js";
-import { normalizeStorefrontAssetList, normalizeStorefrontAssetUrl, purgeLegacyStorefrontCatalogCache, resolveProductImageUrl } from "./storefront-asset-url.js";
+import { isProductCardImageUrl, normalizeStorefrontAssetList, normalizeStorefrontAssetUrl, purgeLegacyStorefrontCatalogCache, resolveProductImageUrl } from "./storefront-asset-url.js";
 import { enrichProductColorVariants } from "../js/color-variant-inventory.js";
 import { detectStorefrontVisibilityIssues } from "../js/product-visibility.js";
 import { traceStorefrontStage } from "../js/storefront-pipeline-trace.js";
@@ -369,39 +369,45 @@ function resolveComparePrice(source, price) {
   return 0;
 }
 
-function resolveProductImages(source) {
-  const galleryRaw = asArray(parseJsonArray(source.gallery).map((entry) => normalizeText(entry)))
-    .filter((entry) => entry && !isCompanyLogoUrl(entry));
-  const galleryStorageRaw = asArray(parseJsonArray(source.gallery_storage_paths ?? source.galleryStoragePaths))
+function canonicalAssetCandidates(values = []) {
+  return asArray(values)
     .map((entry) => normalizeText(entry))
-    .filter((entry) => entry && !isCompanyLogoUrl(entry));
+    .filter((entry) => entry && !isCompanyLogoUrl(entry) && !isProductCardImageUrl(entry));
+}
+
+function resolveProductImages(source) {
+  const galleryRaw = canonicalAssetCandidates(parseJsonArray(source.gallery));
+  const galleryStorageRaw = canonicalAssetCandidates(source.gallery_storage_paths ?? source.galleryStoragePaths);
 
   const resolvedMainImage = firstNonEmpty(
-    source.cardImage,
-    source.card_image,
+    source.originalImage,
+    source.original_image,
+    isProductCardImageUrl(source.mainImage) ? "" : source.mainImage,
+    isProductCardImageUrl(source.image) ? "" : source.image,
     source.main_image,
-    source.mainImage,
-    source.image,
-    source.thumbnail,
+    isProductCardImageUrl(source.thumbnail) ? "" : source.thumbnail,
     galleryRaw[0],
-    galleryStorageRaw[0]
+    galleryStorageRaw[0],
+    source.mainImageStoragePath,
+    source.imageStoragePath
   );
 
-  const mainImage = resolveProductImageUrl({
+  const resolvedUrl = resolveProductImageUrl({
     mainImage: resolvedMainImage,
     image: resolvedMainImage,
-    thumbnail: source.thumbnail,
+    thumbnail: isProductCardImageUrl(source.thumbnail) ? "" : source.thumbnail,
     gallery: galleryRaw,
     mainImageStoragePath: source.main_image_storage_path ?? source.mainImageStoragePath ?? source.imageStoragePath,
     imageStoragePath: source.image_storage_path ?? source.imageStoragePath,
     galleryStoragePaths: galleryStorageRaw
   });
+  const mainImage = isProductCardImageUrl(resolvedUrl) ? (galleryRaw[0] || "") : resolvedUrl;
 
   const gallery = normalizeStorefrontAssetList([
     mainImage,
     ...galleryRaw,
     ...galleryStorageRaw
-  ]);
+  ]).filter((entry) => !isProductCardImageUrl(entry));
 
   return {
     mainImage: mainImage || gallery[0] || "",
@@ -479,6 +485,7 @@ function normalizeProductRecord(record) {
     availableStock: Math.max(0, Math.floor(toNumber(source.stock, 0))),
     image: mainImage,
     mainImage,
+    originalImage: normalizeText(source.originalImage || source.original_image || mainImage),
     thumbnail: mainImage,
     gallery: cardLike ? (mainImage ? [mainImage] : gallery.slice(0, 1)) : gallery,
     keywords: cardLike ? [] : (parseJsonArray(source.keywords).length ? parseJsonArray(source.keywords) : buildKeywords(source)),
@@ -690,54 +697,57 @@ function firstNonEmpty(...values) {
   return "";
 }
 
+function firstCanonicalAsset(...values) {
+  for (const value of values) {
+    const text = normalizeText(value);
+    if (text && !isCompanyLogoUrl(text) && !isProductCardImageUrl(text)) {
+      return text;
+    }
+  }
+  return "";
+}
+
 function prepareAssetFields(productData = {}, previousProduct = {}) {
-  const nextMainImage = firstNonEmpty(
-    productData.mainImage,
-    productData.image,
-    productData.mainImageStoragePath,
-    productData.imageStoragePath,
+  const previousMain = firstCanonicalAsset(
+    previousProduct.originalImage,
     previousProduct.mainImage,
     previousProduct.image,
     previousProduct.mainImageStoragePath,
     previousProduct.imageStoragePath
+  );
+  const nextMainImage = firstCanonicalAsset(
+    productData.originalImage,
+    productData.mainImage,
+    productData.image,
+    productData.mainImageStoragePath,
+    productData.imageStoragePath,
+    previousMain
   );
   const nextGallery = normalizeGalleryEntries(
     Object.prototype.hasOwnProperty.call(productData, "gallery")
       ? productData.gallery
       : (previousProduct.gallery || [])
-  ).filter((entry) => !isCompanyLogoUrl(entry));
+  ).filter((entry) => !isCompanyLogoUrl(entry) && !isProductCardImageUrl(entry));
   const nextGalleryStorage = normalizeGalleryEntries(
     Object.prototype.hasOwnProperty.call(productData, "galleryStoragePaths")
       ? productData.galleryStoragePaths
       : (previousProduct.galleryStoragePaths || [])
-  );
+  ).filter((entry) => !isProductCardImageUrl(entry));
 
-  const previousMain = firstNonEmpty(
-    previousProduct.mainImage,
-    previousProduct.image,
-    previousProduct.mainImageStoragePath,
-    previousProduct.imageStoragePath
-  );
   const incomingHasGalleryKey = Object.prototype.hasOwnProperty.call(productData, "gallery")
     || Object.prototype.hasOwnProperty.call(productData, "galleryStoragePaths");
-  const incomingHasRealMain = Boolean(firstNonEmpty(
-    productData.mainImage,
-    productData.image,
-    productData.mainImageStoragePath,
-    productData.imageStoragePath
-  ));
 
   const mainImage = isDirectAssetReference(nextMainImage)
     ? resolveAssetReference(nextMainImage, previousMain)
     : previousMain;
   const image = mainImage;
-  const gallery = (incomingHasGalleryKey && (nextGallery.length || incomingHasRealMain)
+  const gallery = (incomingHasGalleryKey && nextGallery.length
     ? nextGallery
-    : normalizeGalleryEntries(previousProduct.gallery || [])
+    : normalizeGalleryEntries(previousProduct.gallery || []).filter((entry) => !isProductCardImageUrl(entry))
   )
     .filter((entry) => isDirectAssetReference(entry) || isManagedStoragePath(entry))
     .map((entry, index) => resolveAssetReference(entry, nextGalleryStorage[index] || ""))
-    .filter(Boolean)
+    .filter((entry) => entry && !isProductCardImageUrl(entry))
     .filter((entry, index, values) => values.indexOf(entry) === index);
 
   const mainImageStoragePath = normalizeManagedUploadPath(
@@ -846,6 +856,7 @@ function buildApiPayload(productData, previousProduct = {}) {
     stock: Math.max(0, Math.floor(toNumber(productData?.stock ?? previousProduct?.stock, 0))),
     image: assets.image,
     mainImage: assets.mainImage,
+    originalImage: assets.mainImage,
     gallery: assets.gallery,
     mainImageStoragePath: assets.mainImageStoragePath,
     imageStoragePath: assets.mainImageStoragePath,

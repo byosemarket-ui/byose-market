@@ -11,7 +11,7 @@ const {
     resolvePublicProductStatus
 } = require('../utils/product-visibility');
 const { enrichSerializedProductColorVariants } = require('../utils/colorVariantSerialization');
-const { hasUsableProductImageValue } = require('../services/uploadstorage.service');
+const { hasUsableProductImageValue, isProductCardImagePath, resolveCanonicalImageValue } = require('../services/uploadstorage.service');
 const productCardImage = require('../services/product-card-image.service');
 
 const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
@@ -401,31 +401,43 @@ function pickIncomingOrExisting(rawBody, key, incomingValue, existingValue, alia
 
 function pickIncomingImageOrExisting(rawBody, key, incomingValue, existingValue, aliases = []) {
     const incomingProvided = hasOwn(rawBody, key) || aliases.some((alias) => hasOwn(rawBody, alias));
-    if (incomingProvided && hasUsableProductImageValue(incomingValue)) {
-        return incomingValue;
+    const existingCanonical = resolveCanonicalImageValue(existingValue, [existingValue]);
+    const incomingCanonical = resolveCanonicalImageValue(incomingValue, [existingValue, existingCanonical]);
+
+    if (incomingProvided && hasUsableProductImageValue(incomingCanonical) && !isProductCardImagePath(incomingCanonical)) {
+        return incomingCanonical;
     }
-    if (hasUsableProductImageValue(existingValue)) {
+    if (hasUsableProductImageValue(existingCanonical) && !isProductCardImagePath(existingCanonical)) {
+        return existingCanonical;
+    }
+    if (hasUsableProductImageValue(existingValue) && !isProductCardImagePath(existingValue)) {
         return existingValue;
     }
-    if (incomingProvided && incomingValue !== undefined && incomingValue !== null) {
+    if (incomingProvided && incomingValue !== undefined && incomingValue !== null && !isProductCardImagePath(incomingValue)) {
         return incomingValue;
     }
-    return existingValue || incomingValue || '';
+    return existingCanonical || existingValue || incomingCanonical || incomingValue || '';
 }
 
 function pickIncomingGalleryOrExisting(rawBody, incomingGallery, existingGallery) {
     const incomingProvided = hasOwn(rawBody, 'gallery') || hasOwn(rawBody, 'galleryStoragePaths');
-    const existing = Array.isArray(existingGallery) ? existingGallery.filter((entry) => hasUsableProductImageValue(entry)) : [];
-    const incoming = Array.isArray(incomingGallery) ? incomingGallery.filter((entry) => hasUsableProductImageValue(entry)) : [];
+    const existing = Array.isArray(existingGallery)
+        ? existingGallery.filter((entry) => hasUsableProductImageValue(entry) && !isProductCardImagePath(entry))
+        : [];
+    const incoming = Array.isArray(incomingGallery)
+        ? incomingGallery
+            .map((entry) => resolveCanonicalImageValue(entry, existing))
+            .filter((entry) => hasUsableProductImageValue(entry) && !isProductCardImagePath(entry))
+        : [];
 
     if (!incomingProvided) {
         return existing.length ? existing : incoming;
     }
 
-    const rawMainUsable = hasUsableProductImageValue(rawBody.mainImage) || hasUsableProductImageValue(rawBody.image);
-    // Empty extras with no real public main image means the client did not
-    // actually send image data (stock/price/description-only save). Keep extras.
-    if (!incoming.length && !rawMainUsable) {
+    // An empty gallery array is treated as "client omitted extras", not as
+    // "delete every extra image". Removing one or more extras still works
+    // because the wizard sends the remaining non-empty list.
+    if (!incoming.length) {
         return existing;
     }
 
@@ -491,9 +503,9 @@ function mergeProductUpdate(existingProduct, normalized, rawBody = {}) {
 function normalizePayload(payload) {
     const name = toTrimmedString(payload?.name || payload?.title);
     const price = toNonNegativeNumber(payload?.price ?? payload?.salePrice, 0);
-    const mainImage = hasUsableProductImageValue(payload?.mainImage)
+    const mainImage = hasUsableProductImageValue(payload?.mainImage) && !isProductCardImagePath(payload?.mainImage)
         ? toTrimmedString(payload.mainImage)
-        : (hasUsableProductImageValue(payload?.image)
+        : (hasUsableProductImageValue(payload?.image) && !isProductCardImagePath(payload?.image)
             ? toTrimmedString(payload.image)
             : toTrimmedString(payload?.mainImageStoragePath || payload?.imageStoragePath));
     const oldPrice = toNonNegativeNumber(
@@ -510,7 +522,9 @@ function normalizePayload(payload) {
         ...variantFoundation,
         items: Array.isArray(payload?.variants?.items) ? payload.variants.items : variantFoundation.items
     };
-        const galleryFromPayload = uniqueStrings(toStringArray(payload?.gallery)).filter((entry) => hasUsableProductImageValue(entry));
+        const galleryFromPayload = uniqueStrings(toStringArray(payload?.gallery))
+            .map((entry) => resolveCanonicalImageValue(entry, toStringArray(payload?.gallery)))
+            .filter((entry) => hasUsableProductImageValue(entry) && !isProductCardImagePath(entry));
 
     return {
         name,
@@ -579,10 +593,13 @@ function serializeProduct(product, options = {}) {
         : (resolvedOldPrice > price
             ? Math.round(((resolvedOldPrice - price) / resolvedOldPrice) * 100)
             : 0);
-    const rawGallery = uniqueStrings(source.gallery || []).filter((entry) => hasUsableProductImageValue(entry));
-    const rawMainImage = hasUsableProductImageValue(source.mainImage)
+    const rawGallery = uniqueStrings(source.gallery || [])
+        .filter((entry) => hasUsableProductImageValue(entry) && !isProductCardImagePath(entry));
+    const rawMainImage = hasUsableProductImageValue(source.mainImage) && !isProductCardImagePath(source.mainImage)
         ? source.mainImage
-        : (hasUsableProductImageValue(source.image) ? source.image : (rawGallery[0] || ''));
+        : (hasUsableProductImageValue(source.image) && !isProductCardImagePath(source.image)
+            ? source.image
+            : (rawGallery[0] || ''));
     const originalMainImage = absolutizePublicAssetUrl(rawMainImage);
     const mainImage = originalMainImage;
     const cardImage = absolutizePublicAssetUrl(productCardImage.resolveCardPublicUrl(rawMainImage || originalMainImage)) || '';

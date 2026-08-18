@@ -22,12 +22,15 @@ import {
   normalizeAssetUrl,
   normalizeStoragePath,
   parseTagsInput,
+  preferCanonicalAssetUrl,
+  preferCanonicalStoragePath,
   readJsonStorage,
   sanitizePersistedGallery,
   slugify,
   toNumber,
   writeJsonStorage
 } from "./utils.js";
+import { productImagesMatch } from "../../../../services/storefront-asset-url.js";
 
 function getSizeOptions(category) {
   const normalized = String(category || "general").toLowerCase();
@@ -307,11 +310,10 @@ export function sanitizeDraft(input) {
   const persistedGallery = sanitizePersistedGallery(media.gallery, media.galleryStoragePaths);
   const galleryUrls = persistedGallery.gallery;
   const galleryStorage = persistedGallery.galleryStoragePaths;
-  const normalizedMainImage = isPersistableAssetUrl(media.mainImage)
-    ? normalizeAssetUrl(media.mainImage)
-    : (isPersistableAssetUrl(media.mainImageStoragePath) ? normalizeAssetUrl(media.mainImageStoragePath) : "");
-  const normalizedMainStoragePath = normalizeStoragePath(
-    media.mainImageStoragePath || normalizedMainImage
+  const normalizedMainImage = preferCanonicalAssetUrl(media.mainImage, media.mainImageStoragePath);
+  const normalizedMainStoragePath = preferCanonicalStoragePath(
+    media.mainImageStoragePath,
+    normalizedMainImage
   );
 
   return {
@@ -357,6 +359,10 @@ function isSameAsset(left, right) {
   const leftUrl = normalizeAssetUrl(left);
   const rightUrl = normalizeAssetUrl(right);
   if (leftUrl && rightUrl && leftUrl === rightUrl) {
+    return true;
+  }
+
+  if (productImagesMatch(left, right) || productImagesMatch(leftUrl, rightUrl)) {
     return true;
   }
 
@@ -424,13 +430,14 @@ export function hydrateDraftFromProduct(product) {
   const placement = normalizePlacement(
     metadata.placement || metadata.placements || product.placement || []
   );
-  const mainImage = isPersistableAssetUrl(product.mainImage)
-    ? product.mainImage
-    : (isPersistableAssetUrl(product.image)
-      ? product.image
-      : (isPersistableAssetUrl(product.mainImageStoragePath)
-        ? product.mainImageStoragePath
-        : (Array.isArray(product.gallery) ? (product.gallery.find((entry) => isPersistableAssetUrl(entry)) || "") : "")));
+  const mainImage = preferCanonicalAssetUrl(
+    product.originalImage,
+    product.mainImage,
+    product.image,
+    product.mainImageStoragePath,
+    product.imageStoragePath,
+    Array.isArray(product.gallery) ? product.gallery.find((entry) => isPersistableAssetUrl(entry)) : ""
+  );
   const extraGallery = galleryWithoutMainImage(
     product.gallery || [],
     product.galleryStoragePaths || [],
@@ -501,7 +508,11 @@ export function hydrateDraftFromProduct(product) {
     },
     media: {
       mainImage,
-      mainImageStoragePath: product.mainImageStoragePath || product.imageStoragePath || "",
+      mainImageStoragePath: preferCanonicalStoragePath(
+        product.mainImageStoragePath,
+        product.imageStoragePath,
+        mainImage
+      ),
       gallery: extraGallery.gallery,
       galleryStoragePaths: extraGallery.galleryStoragePaths
     },

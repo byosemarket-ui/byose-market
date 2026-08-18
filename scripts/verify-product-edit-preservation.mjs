@@ -45,6 +45,8 @@ function sampleFullProduct() {
     status: "active",
     mainImage: "https://byosemarket.com/uploads/products/main-42.webp",
     image: "https://byosemarket.com/uploads/products/main-42.webp",
+    originalImage: "https://byosemarket.com/uploads/products/main-42.webp",
+    cardImage: "https://byosemarket.com/uploads/products/cards/main-42.webp",
     mainImageStoragePath: "products/main-42.webp",
     imageStoragePath: "products/main-42.webp",
     gallery: [
@@ -181,6 +183,7 @@ assert(hydrated.inventory.variantsEnabled === true, "hydrate restores variants e
 assert(hydrated.inventory.colorVariants.length === 1, "hydrate restores color variants");
 assert(hydrated.inventory.colorVariants[0].sizes.length === 2, "hydrate restores size rows");
 assert(hydrated.media.mainImage.includes("main-42.webp"), "hydrate restores main image");
+assert(!hydrated.media.mainImage.includes("/cards/"), "hydrate uses the original image instead of the card thumbnail");
 assert(hydrated.media.gallery.length === 2, "hydrate keeps extra gallery images and drops duplicated main image");
 assert(hydrated.media.gallery.some((entry) => entry.includes("gallery-42-a.webp")), "hydrate restores first extra gallery image");
 assert(hydrated.media.gallery.some((entry) => entry.includes("gallery-42-b.webp")), "hydrate restores second extra gallery image");
@@ -192,6 +195,8 @@ assert(roundTrip.name === fullProduct.name, "payload keeps name after hydrate");
 assert(roundTrip.price === 45000, "payload keeps selling price after hydrate");
 assert(roundTrip.oldPrice === 60000, "payload keeps original price after hydrate");
 assert(roundTrip.mainImage.includes("main-42.webp"), "payload keeps main image after hydrate");
+assert(!String(roundTrip.mainImage).includes("/cards/"), "payload does not persist card thumbnail as the product image");
+assert(roundTrip.gallery.every((entry) => !String(entry).includes("/cards/")), "payload gallery does not include card thumbnails");
 assert(roundTrip.gallery.some((entry) => entry.includes("gallery-42-a.webp")), "payload keeps extra gallery images");
 assert(roundTrip.gallery.some((entry) => entry.includes("gallery-42-b.webp")), "payload keeps second extra gallery image");
 assert(roundTrip.description.includes("Full grain leather"), "payload keeps long description");
@@ -321,9 +326,101 @@ const freshCreate = createDefaultDraft();
 assert(!freshCreate.productId, "new product draft starts without a product id");
 assert(!freshCreate.media.mainImage, "new product draft does not inherit previous images");
 
+const cardOnlyHydrated = hydrateDraftFromProduct({
+  ...fullProduct,
+  mainImage: fullProduct.cardImage,
+  image: fullProduct.cardImage,
+  originalImage: fullProduct.cardImage,
+  thumbnail: fullProduct.cardImage
+});
+assert(cardOnlyHydrated.media.mainImage.includes("main-42.webp") && !cardOnlyHydrated.media.mainImage.includes("/cards/"), "hydrate recovers original image when API mainImage is a card thumbnail");
+assert(cardOnlyHydrated.media.gallery.length === 2, "hydrate still restores extra gallery images when mainImage is a card thumbnail");
+assert(!cardOnlyHydrated.media.gallery.some((entry) => String(entry).includes("/cards/")), "hydrate gallery excludes card thumbnails");
+
 if (failures) {
   console.error(`\n${failures} check(s) failed.`);
   process.exit(1);
 }
 
 console.log("\n[verify-product-edit-preservation] All frontend hydrate/payload checks passed.");
+
+const LIVE_API_URL = "https://byosemarket.com/api/products?limit=5";
+
+async function verifyLiveEditRoundTrip() {
+  console.log("\n=== Live API: Edit Product image preservation ===\n");
+  let response;
+  try {
+    response = await fetch(LIVE_API_URL, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(15000)
+    });
+  } catch (error) {
+    console.error(`FAIL: live product fetch failed: ${error.message}`);
+    process.exit(1);
+  }
+
+  if (!response.ok) {
+    console.error(`FAIL: live product fetch returned HTTP ${response.status}`);
+    process.exit(1);
+  }
+
+  const payload = await response.json();
+  const products = Array.isArray(payload?.products) ? payload.products : [];
+  const listed = products.find((product) => Number(product?.id || product?.catalogId) > 0) || products[0];
+  if (!listed) {
+    console.error("FAIL: live API returned no products to verify");
+    process.exit(1);
+  }
+
+  const liveId = listed.id || listed.catalogId;
+  let liveProduct = listed;
+  try {
+    const detailResponse = await fetch(`https://byosemarket.com/api/products/${encodeURIComponent(String(liveId))}`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(15000)
+    });
+    if (detailResponse.ok) {
+      const detailPayload = await detailResponse.json();
+      if (detailPayload?.product) {
+        liveProduct = detailPayload.product;
+      }
+    }
+  } catch (_error) {
+    // Fall back to the list record if the detail endpoint is temporarily unavailable.
+  }
+
+  const liveHydrated = hydrateDraftFromProduct(liveProduct);
+  assert(Boolean(liveHydrated.media.mainImage), `live product ${liveProduct.id} hydrates a main image`);
+  assert(!String(liveHydrated.media.mainImage).includes("/cards/"), `live product ${liveProduct.id} hydrates the original image, not a card thumbnail`);
+  assert(
+    liveHydrated.media.gallery.length >= Math.max(0, (liveProduct.gallery || []).filter((entry) => !String(entry).includes("/cards/")).length - 1),
+    `live product ${liveProduct.id} hydrates existing extra gallery images`
+  );
+
+  const stockOnlyLive = JSON.parse(JSON.stringify(liveHydrated));
+  stockOnlyLive.inventory.quantity = String(Math.max(0, Number(stockOnlyLive.inventory.quantity || 0)));
+  const livePayload = buildProductPayload(stockOnlyLive);
+  assert(livePayload.mainImage === liveHydrated.media.mainImage, `live product ${liveProduct.id} stock-only payload keeps main image`);
+  assert(JSON.stringify(livePayload.gallery) === JSON.stringify(buildProductPayload(liveHydrated).gallery), `live product ${liveProduct.id} stock-only payload keeps gallery`);
+  assert(!String(livePayload.mainImage).includes("/cards/"), `live product ${liveProduct.id} payload does not persist a card thumbnail`);
+
+  const imageUrl = liveHydrated.media.mainImage;
+  if (/^https?:\/\//i.test(imageUrl)) {
+    try {
+      const imageResponse = await fetch(imageUrl, { method: "HEAD", signal: AbortSignal.timeout(10000) });
+      assert(imageResponse.ok, `live product ${liveProduct.id} original image is reachable (${imageResponse.status}): ${imageUrl}`);
+    } catch (error) {
+      console.error(`FAIL: live product ${liveProduct.id} image HEAD failed: ${error.message}`);
+      process.exit(1);
+    }
+  }
+}
+
+await verifyLiveEditRoundTrip();
+
+if (failures) {
+  console.error(`\n${failures} check(s) failed after live verification.`);
+  process.exit(1);
+}
+
+console.log("\n[verify-product-edit-preservation] Live edit image preservation checks passed.");

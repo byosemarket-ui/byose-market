@@ -1,5 +1,5 @@
 const { getRepositoryBundle } = require('../repositories');
-const { collectProductManagedPaths, deleteManagedFiles, normalizeManagedPath } = require('./uploadstorage.service');
+const { collectProductManagedPaths, deleteManagedFiles, normalizeManagedPath, productImageStem } = require('./uploadstorage.service');
 const productSearchService = require('./productsearch.service');
 const { isProductPublished } = require('../utils/product-visibility');
 const { queryCache } = require('./querycache.service');
@@ -30,7 +30,17 @@ function decorateProduct(product) {
 function collectRemovedPaths(previousProduct, nextProduct) {
     const previousPaths = new Set(collectProductManagedPaths(previousProduct));
     const nextPaths = new Set(collectProductManagedPaths(nextProduct));
-    return Array.from(previousPaths).filter((entry) => !nextPaths.has(entry));
+    const nextStems = new Set(Array.from(nextPaths).map((entry) => productImageStem(entry)).filter(Boolean));
+    return Array.from(previousPaths).filter((entry) => {
+        if (nextPaths.has(entry)) {
+            return false;
+        }
+        const stem = productImageStem(entry);
+        if (stem && nextStems.has(stem)) {
+            return false;
+        }
+        return true;
+    });
 }
 
 function getRepos() {
