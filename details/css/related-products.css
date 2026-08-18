@@ -1,52 +1,176 @@
-.related-grid {
+/**
+ * Related Products layout for Product Details only.
+ * Card chrome stays in css/product-card-system.css.
+ * Column counts are owned here so Home/Shop grids are not affected.
+ *
+ *  ≤767: 2 columns
+ *  768–1023: 3 columns
+ *  1024–1279: 4 columns
+ *  1280+: 5 columns (10 products = two even rows, no unbounded stretch)
+ */
+
+.details-page .related-section {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: clip;
+}
+
+.details-page .related-heading {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.details-page .related-products-host {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 160px;
+  overflow-x: clip;
+}
+
+.details-page .related-section .related-products-grid,
+.details-page .related-section .related-products-grid.byose-product-grid,
+.details-page .related-section .related-products-grid.byose-product-grid--5col {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  align-items: stretch;
+  box-sizing: border-box;
 }
 
-.related-empty {
-  /* Now styled by .byose-product-grid-empty from product-card-system.css */
+.details-page .related-section .related-products-grid > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
-.shop-card {
-  /* DEPRECATED - Now uses unified .byose-product-card system from STEP 3K */
-  /* All card styling handled by css/product-card-system.css */
+.details-page .related-section .byose-product-card {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: 100%;
 }
 
-/* Legacy classes removed - replaced by STEP 3K unified card system */
-
-/* Grid layout now uses .byose-product-grid classes */
-/* Individual cards use .byose-product-card classes */
-/* See css/product-card-system.css for card styling */
-
-/* Empty state for backward compatibility */
-/* This now appears within .byose-product-grid-empty container */
-/**
- * STEP 3L: Related Products Section Integration with Unified Card System
- * 
- * IMPORTANT: All product card styling moved to css/product-card-system.css (STEP 3K)
- * This file handles ONLY layout and spacing specific to related products section.
- * 
- * Related products now render with:
- * - Grid class: .byose-product-grid (from STEP 3K)
- * - Column variant: .byose-product-grid--5col (5 columns on desktop)
- * - Individual cards: .byose-product-card (from STEP 3K)
- * - Empty state: .byose-product-grid-empty (from STEP 3K)
- */
-
-/* Related products section uses responsive grid from product-card-system.css */
-/* Responsive breakpoints align with STEP 3K: */
-/* - Mobile: 2 columns (default) */
-/* - Tablet (768px+): 3 columns */
-/* - Desktop (1024px+): 4 columns  */
-/* - Large Desktop (1280px+): 5 columns */
-/* - Ultrawide (1920px+): 6 columns */
-
-/* Related products specifically use 5-column variant on desktop */
-.related-grid {
-  /* Renders as <div class="byose-product-grid byose-product-grid--5col"> */
-  /* All styling handled by product-card-system.css */
+.details-page .related-section .byose-product-image-wrapper {
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
 }
 
-/* Additional related section styling can go here if needed */
+.details-page .related-section .byose-product-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+}
 
+.details-page .related-section .byose-product-content-link {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+}
+
+.details-page .related-section .byose-product-content {
+  width: 100%;
+  min-width: 0;
+}
+
+.details-page .related-section .byose-product-title {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.details-page .related-section .byose-product-price,
+.details-page .related-section .byose-product-old-price {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.details-page .related-section .byose-product-old-price {
+  min-height: 1.1em;
+}
+
+.details-page .related-section .byose-product-image-link:focus-visible,
+.details-page .related-section .byose-product-content-link:focus-visible,
+.details-page .related-section .byose-product-wishlist:focus-visible {
+  outline: 2px solid rgba(0, 184, 148, 0.7);
+  outline-offset: 2px;
+}
+
+@media (hover: none) {
+  .details-page .related-section .byose-product-card:hover {
+    transform: none;
+  }
+
+  .details-page .related-section .byose-product-card:hover .byose-product-image {
+    transform: none;
+  }
+}
+
+@media (max-width: 599px) {
+  .details-page .related-section {
+    padding-top: 0;
+    margin-bottom: 8px;
+  }
+
+  .details-page .related-heading {
+    margin-bottom: 12px;
+    gap: 12px;
+  }
+
+  .details-page .related-section .byose-product-badge--featured,
+  .details-page .related-section .byose-product-badge--new,
+  .details-page .related-section .byose-product-badge--trending {
+    right: 38px;
+  }
+}
+
+@media (min-width: 600px) and (max-width: 767px) {
+  .details-page .related-section .related-products-grid,
+  .details-page .related-section .related-products-grid.byose-product-grid,
+  .details-page .related-section .related-products-grid.byose-product-grid--5col {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .details-page .related-section .related-products-grid,
+  .details-page .related-section .related-products-grid.byose-product-grid,
+  .details-page .related-section .related-products-grid.byose-product-grid--5col {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .details-page .related-section .byose-product-badge--featured,
+  .details-page .related-section .byose-product-badge--new,
+  .details-page .related-section .byose-product-badge--trending {
+    right: 40px;
+  }
+}
+
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .details-page .related-section .related-products-grid,
+  .details-page .related-section .related-products-grid.byose-product-grid,
+  .details-page .related-section .related-products-grid.byose-product-grid--5col {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .details-page .related-section .related-products-grid,
+  .details-page .related-section .related-products-grid.byose-product-grid,
+  .details-page .related-section .related-products-grid.byose-product-grid--5col {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 16px;
+  }
+}

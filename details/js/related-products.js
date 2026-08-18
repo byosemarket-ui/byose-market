@@ -37,6 +37,7 @@ export function renderRelatedProducts(container, products) {
     return;
   }
 
-  container.innerHTML = `<div class="byose-product-grid byose-product-grid--5col related-grid">${cardsHtml}</div>`;
+  container.classList.add('related-products-host');
+  container.innerHTML = `<div class="byose-product-grid byose-product-grid--5col related-grid related-products-grid">${cardsHtml}</div>`;
   ProductCardSystem.bindCards(container);
 }

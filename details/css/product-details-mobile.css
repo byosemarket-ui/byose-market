@@ -608,25 +608,6 @@
     gap: var(--pd-m-2);
   }
 
-  .details-page .related-section .byose-product-grid,
-  .details-page #relatedProducts.related-grid,
-  .details-page #relatedProducts .byose-product-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-    max-width: 100%;
-  }
-
-  .details-page #relatedProducts .byose-product-card {
-    max-width: 100%;
-    min-width: 0;
-  }
-
-  .details-page #relatedProducts .byose-product-badge--featured,
-  .details-page #relatedProducts .byose-product-badge--new,
-  .details-page #relatedProducts .byose-product-badge--trending {
-    right: 38px;
-  }
-
   .details-page .pd-error {
     margin: 24px auto;
     padding: 24px 16px;

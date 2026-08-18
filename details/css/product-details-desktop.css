@@ -775,11 +775,6 @@
   .details-page .related-section {
     padding-top: 0;
   }
-
-  .details-page .related-section .byose-product-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: var(--pd-space-3);
-  }
 }
 
 @media (min-width: 1280px) {

@@ -502,24 +502,6 @@
     padding-top: 0;
     max-width: 100%;
   }
-
-  .details-page .related-section .byose-product-grid,
-  .details-page #relatedProducts .byose-product-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
-    max-width: 100%;
-  }
-
-  .details-page #relatedProducts .byose-product-card {
-    max-width: 100%;
-    min-width: 0;
-  }
-
-  .details-page #relatedProducts .byose-product-badge--featured,
-  .details-page #relatedProducts .byose-product-badge--new,
-  .details-page #relatedProducts .byose-product-badge--trending {
-    right: 40px;
-  }
 }
 
 @media (min-width: 600px) and (max-width: 767px) {
@@ -541,11 +523,6 @@
     flex-basis: 64px;
     width: 64px;
     height: 64px;
-  }
-
-  .details-page .related-section .byose-product-grid,
-  .details-page #relatedProducts .byose-product-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -636,10 +613,5 @@
 
   .details-page .details-bottom-bar {
     display: none;
-  }
-
-  .details-page .related-section .byose-product-grid,
-  .details-page #relatedProducts .byose-product-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
