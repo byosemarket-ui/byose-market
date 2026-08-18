@@ -768,7 +768,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
         };
 
         const payload = {
-            catalogId: Number(product.catalogId),
+            catalogId: existing ? Number(existing.catalogId) : Number(product.catalogId),
             categoryId: category ? Number(category.id) : null,
             categorySlug: this.normalizeText(product.category, 'general').toLowerCase(),
             name: this.normalizeText(product.name),
@@ -898,7 +898,7 @@ class SQLiteProductRepository extends SQLiteBaseRepository {
 
                 const recordId = updateTxn();
                 this.invalidateProductCache();
-                return this.findByIdentifier(recordId);
+                return this.findByIdentifier(existing.catalogId || recordId);
             }
 
             // Insert new record with retry logic to avoid rare catalog_id UNIQUE races.

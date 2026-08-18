@@ -80,7 +80,9 @@ async function main() {
     ...created,
     price: 22000
   };
-  await productRepository.save(priceOnly, { identifier: catalogId });
+  const savedPrice = await productRepository.save(priceOnly, { identifier: catalogId });
+  assert(savedPrice?.catalogId === catalogId, "save() reloads the original catalog id, not the sqlite row id");
+  assert(Number(savedPrice?.recordId) === Number(created.recordId), "save() keeps the same sqlite row");
   const afterPrice = await productRepository.findByIdentifier(catalogId);
   const afterPriceRows = loadImageRows(afterPrice.recordId);
   assert(afterPrice.price === 22000, "price-only update changes price");
