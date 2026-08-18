@@ -27,16 +27,19 @@ function decorateProduct(product) {
     };
 }
 
-function collectRemovedPaths(previousProduct, nextProduct) {
+function collectRemovedPaths(previousProduct, nextProduct, incomingProduct = null) {
     const previousPaths = new Set(collectProductManagedPaths(previousProduct));
     const nextPaths = new Set(collectProductManagedPaths(nextProduct));
     const nextStems = new Set(Array.from(nextPaths).map((entry) => productImageStem(entry)).filter(Boolean));
+    const incomingStems = new Set(collectProductManagedPaths(incomingProduct || nextProduct)
+        .map((entry) => productImageStem(entry))
+        .filter(Boolean));
     return Array.from(previousPaths).filter((entry) => {
         if (nextPaths.has(entry)) {
             return false;
         }
         const stem = productImageStem(entry);
-        if (stem && nextStems.has(stem)) {
+        if (stem && (nextStems.has(stem) || incomingStems.has(stem))) {
             return false;
         }
         return true;
@@ -101,9 +104,10 @@ async function updateProduct(identifier, product) {
     const savedProduct = await getRepos().products.save(product, { identifier });
     const imagesChanged = Boolean(product?.imagesChanged) && !product?.preserveExistingImages;
     if (imagesChanged) {
-        const removedPaths = collectRemovedPaths(previousProduct, savedProduct);
+        const removedPaths = collectRemovedPaths(previousProduct, savedProduct, product);
         const nextPaths = collectProductManagedPaths(savedProduct);
-        if (removedPaths.length && nextPaths.length) {
+        const nextStems = new Set(nextPaths.map((entry) => productImageStem(entry)).filter(Boolean));
+        if (removedPaths.length && nextPaths.length && nextStems.size) {
             deleteManagedFiles(removedPaths);
         }
     }
