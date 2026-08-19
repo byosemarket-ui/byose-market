@@ -2474,11 +2474,43 @@ function renderAllOrdersProductStrip(items = []) {
   `;
 }
 
-function renderAllOrdersActions(order, expanded = false) {
+function getReturnActionFlags(order) {
+  const workflow = getReturnWorkflow(order);
+  const returnStatus = String(workflow.returnStatus || "").toLowerCase();
+  const refundStatus = String(workflow.refundStatus || order?.paymentStatus || "").toLowerCase();
+  const refundDone = refundStatus === "completed" || refundStatus === "refunded" || String(order?.paymentStatus || "").toLowerCase() === "refunded";
+  const returnRejected = returnStatus === "rejected";
+  const returnApproved = returnStatus === "approved" || returnStatus === "received";
+  const canWorkRefund = !refundDone && refundStatus !== "rejected" && (
+    order?.refundRequired
+    || returnApproved
+    || refundStatus === "required"
+    || refundStatus === "pending"
+    || String(order?.paymentStatus || "").toLowerCase().includes("refund_required")
+  );
+  return {
+    canOpenReturn: !returnApproved && !refundDone && returnStatus !== "requested" && !returnRejected,
+    canApproveReturn: (returnStatus === "requested" || (!returnStatus && order?.refundRequired)) && !returnApproved && !returnRejected && !refundDone,
+    canRejectReturn: (returnStatus === "requested" || (!returnStatus && order?.refundRequired)) && !returnApproved && !refundDone,
+    canApproveRefund: canWorkRefund,
+    canRejectRefund: canWorkRefund
+  };
+}
+
+function renderAllOrdersActions(order, expanded = false, viewMode = "all") {
   const ctx = getOrderActionContext(order);
   const id = escapeHtml(ctx.id);
   const detailsId = `order-details-${id}`;
   const restoreLabel = ctx.statusOptions.length === 1 && ctx.statusOptions[0] === "Pending" ? "Restore Order" : "Update Status";
+  const mapLink = resolveMapLink(order);
+  const mode = String(viewMode || "all").toLowerCase();
+  const isAllView = mode === ORDER_VIEWS.ALL || mode === "all";
+  const isPendingView = mode === ORDER_VIEWS.PENDING;
+  const isCompletedView = mode === ORDER_VIEWS.COMPLETED;
+  const isCancelledView = mode === ORDER_VIEWS.CANCELLED;
+  const isReturnsView = mode === ORDER_VIEWS.RETURNS;
+  const isCodView = mode === ORDER_VIEWS.COD;
+  const flags = isReturnsView ? getReturnActionFlags(order) : null;
 
   return `
     <div class="order-row-actions" data-order-actions="${id}">
@@ -2486,13 +2518,39 @@ function renderAllOrdersActions(order, expanded = false) {
         <summary class="order-row-more-btn" aria-label="Actions for order ${id}" aria-haspopup="menu" title="Actions">⋮</summary>
         <div class="order-card-more-menu" role="menu">
           <button type="button" role="menuitem" data-order-action="review" data-order-id="${id}">Review Information</button>
+          ${isPendingView ? `
+            <button type="button" role="menuitem" data-order-action="accept" data-order-id="${id}">Accept Order</button>
+            <button type="button" role="menuitem" data-order-action="process" data-order-id="${id}">Start Processing</button>
+          ` : ""}
           ${ctx.statusOptions.length ? `<button type="button" role="menuitem" data-order-action="update-status" data-order-id="${id}">${escapeHtml(restoreLabel)}</button>` : ""}
-          <button type="button" role="menuitem" data-order-action="view-invoice" data-order-id="${id}">View Invoice</button>
-          <button type="button" role="menuitem" data-order-action="invoice" data-order-id="${id}">Print Invoice</button>
-          ${ctx.telHref ? `<a role="menuitem" href="${escapeHtml(ctx.telHref)}">Call Customer</a>` : ""}
+          ${isCancelledView && restoreLabel !== "Restore Order" ? `<button type="button" role="menuitem" data-order-action="restore" data-order-id="${id}">Restore Order</button>` : ""}
+          ${isCodView && canMarkPaymentPaid(order) ? `<button type="button" role="menuitem" data-order-action="mark-paid" data-order-id="${id}">Mark Payment Received</button>` : ""}
+          ${isCodView && canMarkPaymentFailed(order) ? `<button type="button" role="menuitem" data-order-action="mark-failed" data-order-id="${id}">Mark Payment Failed</button>` : ""}
+          ${isReturnsView ? "" : `<button type="button" role="menuitem" data-order-action="view-invoice" data-order-id="${id}">View Invoice</button>`}
+          ${isReturnsView ? "" : `<button type="button" role="menuitem" data-order-action="invoice" data-order-id="${id}">Print Invoice</button>`}
+          ${isCompletedView ? `<button type="button" role="menuitem" data-order-action="receipt" data-order-id="${id}">Print Receipt</button>` : ""}
+          ${isCompletedView ? `<button type="button" role="menuitem" data-order-action="download-invoice" data-order-id="${id}">Download Invoice (PDF)</button>` : ""}
+          ${ctx.telHref ? `<a role="menuitem" href="${escapeHtml(ctx.telHref)}">${isPendingView || isCompletedView || isCancelledView || isReturnsView ? "Contact Customer" : "Call Customer"}</a>` : ""}
           ${ctx.mailHref ? `<a role="menuitem" href="${escapeHtml(ctx.mailHref)}">Email Customer</a>` : ""}
-          <button type="button" role="menuitem" data-order-action="toggle" data-order-id="${id}" aria-expanded="${expanded ? "true" : "false"}" aria-controls="${detailsId}">${expanded ? "Hide Details" : "View Details"}</button>
-          <button type="button" role="menuitem" data-order-action="packing" data-order-id="${id}">Print Packing Slip</button>
+          ${!isAllView && mapLink ? `<a role="menuitem" href="${escapeHtml(mapLink)}" target="_blank" rel="noopener">Open Customer Location in Google Maps</a>` : ""}
+          <button type="button" role="menuitem" data-order-action="toggle" data-order-id="${id}" aria-expanded="${expanded ? "true" : "false"}" aria-controls="${detailsId}">${expanded ? "Hide Details" : (isReturnsView ? "View Complete Return" : "View Details")}</button>
+          ${isCompletedView || isCancelledView || isReturnsView ? `<button type="button" role="menuitem" data-order-action="customer" data-order-id="${id}">View Customer Details</button>` : ""}
+          ${isCompletedView ? `<button type="button" role="menuitem" data-order-action="delivery" data-order-id="${id}">View Delivery Information</button>` : ""}
+          ${isCancelledView ? `<button type="button" role="menuitem" data-order-action="cancellation-reason" data-order-id="${id}">View Cancellation Reason</button>` : ""}
+          ${isCancelledView ? `<button type="button" role="menuitem" data-order-action="summary" data-order-id="${id}">Print Order Summary</button>` : ""}
+          ${isCancelledView && order.refundRequired ? `<a role="menuitem" href="#/orders?status=returns">Open Returns &amp; Refunds</a>` : ""}
+          ${isReturnsView ? `
+            <a role="menuitem" href="#/orders" data-order-action="view-original" data-order-id="${id}">View Original Order</a>
+            ${flags.canOpenReturn ? `<button type="button" role="menuitem" data-order-action="open-return" data-order-id="${id}">Open Return Request</button>` : ""}
+            ${flags.canApproveReturn ? `<button type="button" role="menuitem" data-order-action="approve-return" data-order-id="${id}">Approve Return</button>` : ""}
+            ${flags.canRejectReturn ? `<button type="button" role="menuitem" class="orders-danger-button" data-order-action="reject-return" data-order-id="${id}">Reject Return</button>` : ""}
+            ${flags.canApproveRefund ? `<button type="button" role="menuitem" data-order-action="approve-refund" data-order-id="${id}">Approve Refund</button>` : ""}
+            ${flags.canRejectRefund ? `<button type="button" role="menuitem" class="orders-danger-button" data-order-action="reject-refund" data-order-id="${id}">Reject Refund</button>` : ""}
+            <button type="button" role="menuitem" data-order-action="print-return" data-order-id="${id}">Print Return Report</button>
+            <button type="button" role="menuitem" data-order-action="print-refund" data-order-id="${id}">Print Refund Report</button>
+          ` : ""}
+          ${isReturnsView ? "" : `<button type="button" role="menuitem" data-order-action="packing" data-order-id="${id}">Print Packing Slip</button>`}
+          ${isAllView ? "" : `<button type="button" role="menuitem" data-order-action="payment" data-order-id="${id}">View Payment Details</button>`}
           ${ctx.canCancel ? `<button type="button" role="menuitem" class="orders-danger-button" data-order-action="cancel" data-order-id="${id}">Cancel Order</button>` : ""}
           ${canBulkDeleteOrder(order) ? `<button type="button" role="menuitem" class="orders-danger-button" data-order-action="delete-one" data-order-id="${id}">Delete Order</button>` : ""}
         </div>
@@ -2835,7 +2893,7 @@ function renderAllOrdersDetailNav(order) {
   `;
 }
 
-function renderAllOrdersDetails(order) {
+function renderAllOrdersDetails(order, viewMode = "all") {
   const items = Array.isArray(order?.items) ? order.items : [];
   const ship = order?.shippingAddress || {};
   const full = order?.fullAddress || {};
@@ -2860,6 +2918,8 @@ function renderAllOrdersDetails(order) {
   const internalNotes = resolveInternalNotes(order);
   const mapLink = resolveMapLink(order);
   const orderKey = escapeHtml(order.orderId || order.id);
+  const detailsMode = String(viewMode || "all").toLowerCase();
+  const isAllDetails = detailsMode === ORDER_VIEWS.ALL || detailsMode === "all";
 
   return `
     <div class="order-details-panel">
@@ -2977,7 +3037,7 @@ function renderAllOrdersDetails(order) {
         </section>
       </div>
 
-      <section class="order-details-section order-details-section--products" data-order-section="products" data-order-section-for="${orderKey}">
+      <section class="order-details-section order-details-section--products" data-order-section="products" data-order-section-for="${orderKey}"${!isAllDetails ? ` aria-label="Purchased Products"` : ""}>
         <header class="order-details-section__head">
           <h3>Product Information</h3>
           <p>${items.length} item${items.length === 1 ? "" : "s"}</p>
@@ -3163,7 +3223,7 @@ function renderActions(order, viewMode = "all") {
   `;
 }
 
-function renderAllOrdersGroupedList(orders = [], expandedId = "", selectedIds = [], { groupByDate = true, newestFirst = true } = {}) {
+function renderAllOrdersGroupedList(orders = [], expandedId = "", selectedIds = [], { groupByDate = true, newestFirst = true, viewMode = "all" } = {}) {
   const selectedSet = selectedIds instanceof Set
     ? selectedIds
     : new Set((Array.isArray(selectedIds) ? selectedIds : []).map(String));
@@ -3184,7 +3244,7 @@ function renderAllOrdersGroupedList(orders = [], expandedId = "", selectedIds = 
 
   const renderCards = (list) => list.map((order) => renderOrderCard(order, {
     expanded: String(order.orderId || order.id) === String(expandedId),
-    viewMode: "all",
+    viewMode,
     selectedIds: selectedSet
   })).join("");
 
@@ -3366,149 +3426,108 @@ function renderQueuePaymentSnapshot(order, viewMode = "") {
   `;
 }
 
+function renderQueueSectionExtras(order, viewMode = "") {
+  const mode = String(viewMode || "").toLowerCase();
+  if (!mode || mode === ORDER_VIEWS.ALL || mode === "all") return "";
+  const isPaymentDesk = mode === ORDER_VIEWS.PAID || mode === ORDER_VIEWS.COD;
+  const cancellationDate = resolveCancellationDate(order);
+  const parts = [];
+  if (isPaymentDesk) {
+    parts.push(`
+      <section class="order-details-section" data-order-section="payment-snapshot" data-order-section-for="${escapeHtml(order.orderId || order.id)}">
+        <header class="order-details-section__head">
+          <h3>Payment Snapshot</h3>
+          <p>Payment status stays independent of delivery status</p>
+        </header>
+        ${renderQueuePaymentSnapshot(order, mode)}
+      </section>
+    `);
+  }
+  if (mode === ORDER_VIEWS.RETURNS) {
+    parts.push(`
+      <section class="order-details-section" data-order-section="return" data-order-section-for="${escapeHtml(order.orderId || order.id)}">
+        ${renderReturnInfoBlock(order)}
+      </section>
+    `);
+  }
+  if (mode === ORDER_VIEWS.CANCELLED) {
+    parts.push(`
+      <section class="order-details-section" data-order-section="cancellation" data-order-section-for="${escapeHtml(order.orderId || order.id)}">
+        <header class="order-details-section__head">
+          <h3>Cancellation Details</h3>
+        </header>
+        ${renderInfoGrid([
+          ["Cancellation Date", cancellationDate ? formatDate(cancellationDate) : "—"],
+          ["Cancelled By", resolveCancelledBy(order)],
+          ["Cancellation Reason", resolveCancellationReason(order) || "—"],
+          ["Refund Required", order.refundRequired ? "Yes — prepared for Returns & Refunds" : "No"]
+        ])}
+      </section>
+    `);
+  }
+  return parts.join("");
+}
+
 function renderOrderCard(order, { expanded = false, viewMode = "all", selectedIds = [] } = {}) {
   const items = Array.isArray(order?.items) ? order.items : [];
-  const paymentStatus = order?.paymentStatusLabel || order?.paymentStatus || "Pending";
-  const completionDate = resolveCompletionDate(order);
-  const cancellationDate = resolveCancellationDate(order);
-  const workflow = getReturnWorkflow(order);
-  const returnRequestDate = resolveReturnRequestDate(order);
-  const returnLabel = formatReturnStatusLabel(workflow.returnStatus || order.returnStatus);
-  const refundLabel = formatRefundStatusLabel(workflow.refundStatus || order.refundStatus || (order.refundRequired ? "required" : ""));
-
-  if (viewMode === "all") {
-    const orderId = order.orderId || order.id;
-    const safeId = escapeHtml(orderId);
-    const { orderNumber, internalId } = resolveOrderIdentifiers(order);
-    const customer = resolveOrderCustomer(order);
-    const customerName = String(customer.name || "").trim() || "—";
-    const grandTotal = formatCurrency(order.grandTotal || order.total || 0);
-    const detailsId = `order-details-${safeId}`;
-    const when = formatOrderRowDateTime(order.date || order.createdAt);
-    const orderStatus = order.status || order.orderStatus || "Pending";
-    const selected = selectedIds instanceof Set
+  const orderId = order.orderId || order.id;
+  const safeId = escapeHtml(orderId);
+  const { orderNumber, internalId } = resolveOrderIdentifiers(order);
+  const customer = resolveOrderCustomer(order);
+  const customerName = String(customer.name || "").trim() || "—";
+  const grandTotal = formatCurrency(order.grandTotal || order.total || 0);
+  const detailsId = `order-details-${safeId}`;
+  const when = formatOrderRowDateTime(order.date || order.createdAt);
+  const orderStatus = order.status || order.orderStatus || "Pending";
+  const isAllView = String(viewMode || "all") === "all" || String(viewMode) === ORDER_VIEWS.ALL;
+  const selected = isAllView && (
+    selectedIds instanceof Set
       ? selectedIds.has(String(orderId))
-      : (Array.isArray(selectedIds) ? selectedIds : []).map(String).includes(String(orderId));
+      : (Array.isArray(selectedIds) ? selectedIds : []).map(String).includes(String(orderId))
+  );
 
-    return `
-      <article class="order-card-enterprise${expanded ? " is-expanded" : ""}${selected ? " is-selected" : ""}" data-order-id="${safeId}" aria-label="Order ${safeId}">
-        <div class="order-row">
-          <div class="order-row-col order-row-col--check">
+  return `
+    <article class="order-card-enterprise${expanded ? " is-expanded" : ""}${selected ? " is-selected" : ""}" data-order-id="${safeId}" aria-label="Order ${safeId}">
+      <div class="order-row">
+        <div class="order-row-col order-row-col--check">
+          ${isAllView ? `
             <label class="order-card-check">
               <input type="checkbox" data-order-select="${safeId}" ${selected ? "checked" : ""} aria-label="Select order ${safeId}" />
             </label>
-          </div>
-          <div class="order-row-col order-row-col--order">
-            <strong class="order-row-number" title="${escapeHtml(orderNumber)}">#${escapeHtml(orderNumber)}</strong>
-            ${internalId ? `<span class="order-row-id">ID: ${escapeHtml(internalId)}</span>` : ""}
-          </div>
-          <div class="order-row-col order-row-col--customer">
-            <strong class="order-row-customer-name" title="${escapeHtml(customerName)}">${escapeHtml(customerName)}</strong>
-            ${customer.phone ? `<span class="order-row-customer-phone" title="${escapeHtml(customer.phone)}">${escapeHtml(customer.phone)}</span>` : ""}
-          </div>
-          <div class="order-row-col order-row-col--product">
-            ${renderAllOrdersProductStrip(items)}
-          </div>
-          <div class="order-row-col order-row-col--total">
-            <strong class="order-row-total">${grandTotal}</strong>
-          </div>
-          <div class="order-row-col order-row-col--payment">
-            ${renderOrderRowPayment(order)}
-          </div>
-          <div class="order-row-col order-row-col--status">
-            ${renderOrderRowStatusBadge(orderStatus)}
-          </div>
-          <div class="order-row-col order-row-col--date">
-            <time datetime="${escapeHtml(order.date || order.createdAt || "")}">
-              <strong class="order-row-date">${escapeHtml(when.date)}</strong>
-              ${when.time ? `<span class="order-row-time">${escapeHtml(when.time)}</span>` : ""}
-            </time>
-          </div>
-          <div class="order-row-col order-row-col--actions">
-            ${renderAllOrdersActions(order, expanded)}
-          </div>
+          ` : ""}
         </div>
-        <div class="orders-order-details orders-order-details--all" id="${detailsId}" ${expanded ? "" : "hidden"}>
-          ${expanded ? renderAllOrdersDetails(order) : ""}
+        <div class="order-row-col order-row-col--order">
+          <strong class="order-row-number" title="${escapeHtml(orderNumber)}">#${escapeHtml(orderNumber)}</strong>
+          ${internalId ? `<span class="order-row-id">ID: ${escapeHtml(internalId)}</span>` : ""}
         </div>
-      </article>
-    `;
-  }
-
-  const isPaymentDesk = viewMode === ORDER_VIEWS.PAID || viewMode === ORDER_VIEWS.COD;
-  const itemsQty = items.reduce((sum, item) => sum + (Number(item?.quantity) || 0), 0);
-
-  return `
-    <article class="order-mobile-card${expanded ? " is-expanded" : ""}" data-order-id="${escapeHtml(order.orderId || order.id)}">
-      <div class="order-mobile-head">
-        <div class="order-mobile-title">
-          <h3>${escapeHtml(order.orderId || order.id)}</h3>
-          <p>${formatDate(order.date)}${viewMode === "completed" && completionDate ? ` · Completed ${formatDate(completionDate)}` : ""}${viewMode === "cancelled" && cancellationDate ? ` · Cancelled ${formatDate(cancellationDate)}` : ""}${viewMode === "returns" && returnRequestDate ? ` · Return ${formatDate(returnRequestDate)}` : ""}</p>
+        <div class="order-row-col order-row-col--customer">
+          <strong class="order-row-customer-name" title="${escapeHtml(customerName)}">${escapeHtml(customerName)}</strong>
+          ${customer.phone ? `<span class="order-row-customer-phone" title="${escapeHtml(customer.phone)}">${escapeHtml(customer.phone)}</span>` : ""}
         </div>
-        ${isPaymentDesk
-          ? renderOrderRowStatusBadge(order.status || order.orderStatus || "Pending")
-          : badge(viewMode === "returns" ? refundLabel : String(order.status || "Pending"), statusTone(viewMode === "returns" ? refundLabel : order.status))}
+        <div class="order-row-col order-row-col--product">
+          ${renderAllOrdersProductStrip(items)}
+        </div>
+        <div class="order-row-col order-row-col--total">
+          <strong class="order-row-total">${grandTotal}</strong>
+        </div>
+        <div class="order-row-col order-row-col--payment">
+          ${renderOrderRowPayment(order)}
+        </div>
+        <div class="order-row-col order-row-col--status">
+          ${renderOrderRowStatusBadge(orderStatus)}
+        </div>
+        <div class="order-row-col order-row-col--date">
+          <time datetime="${escapeHtml(order.date || order.createdAt || "")}">
+            <strong class="order-row-date">${escapeHtml(when.date)}</strong>
+            ${when.time ? `<span class="order-row-time">${escapeHtml(when.time)}</span>` : ""}
+          </time>
+        </div>
+        <div class="order-row-col order-row-col--actions">
+          ${renderAllOrdersActions(order, expanded, viewMode)}
+        </div>
       </div>
-      ${isPaymentDesk ? `<div class="order-queue-product-strip">${renderAllOrdersProductStrip(items)}</div>` : ""}
-      <div class="order-mobile-meta">
-        <div><span>Customer</span><strong>${escapeHtml(order.customerName)}</strong></div>
-        <div><span>Phone</span><strong>${escapeHtml(order.customerPhone || "—")}</strong></div>
-        ${isPaymentDesk ? `
-          <div><span>Products</span><strong>${escapeHtml(items.length ? `${items.length} item${items.length === 1 ? "" : "s"}${itemsQty ? ` · Qty ${itemsQty}` : ""}` : "—")}</strong></div>
-          <div><span>Payment</span>${renderOrderRowPayment(order)}</div>
-        ` : `
-          <div><span>Payment</span><strong>${escapeHtml(paymentLabel(order))}</strong></div>
-          <div><span>Payment status</span><strong>${escapeHtml(paymentStatus)}</strong></div>
-        `}
-        ${viewMode === "cancelled" ? `<div><span>Cancelled by</span><strong>${escapeHtml(resolveCancelledBy(order))}</strong></div>` : ""}
-        ${viewMode === "returns" ? `<div><span>Return status</span><strong>${escapeHtml(returnLabel)}</strong></div>` : ""}
-        ${viewMode === "returns" ? `<div><span>Refund status</span><strong>${escapeHtml(refundLabel)}</strong></div>` : ""}
-        ${viewMode === "cancelled" || viewMode === "returns" || isPaymentDesk ? "" : `<div><span>Delivery</span><strong>${escapeHtml(order.deliveryStatus || order.status || "—")}</strong></div>`}
-        <div class="order-mobile-meta-total"><span>Grand Total</span><strong>${formatCurrency(order.total || 0)}</strong></div>
-      </div>
-      ${isPaymentDesk ? renderQueuePaymentSnapshot(order, viewMode) : ""}
-      ${renderActions(order, viewMode)}
-      ${viewMode === "pending" || viewMode === "completed" || viewMode === "cancelled" || viewMode === "returns" || isPaymentDesk ? "" : renderStatusSelect(order)}
-      <div class="orders-order-details" ${expanded ? "" : "hidden"}>
-        ${renderCustomerBlock(order)}
-        ${renderOrderInfoBlock(order, viewMode)}
-        ${viewMode === "returns" ? renderReturnInfoBlock(order) : ""}
-        ${viewMode === "completed" ? renderDeliveryBlock(order) : ""}
-        ${viewMode === "cancelled" ? `
-          <div class="orders-detail-card">
-            <h4>Cancellation Details</h4>
-            ${renderInfoGrid([
-              ["Cancellation Date", cancellationDate ? formatDate(cancellationDate) : "—"],
-              ["Cancelled By", resolveCancelledBy(order)],
-              ["Cancellation Reason", resolveCancellationReason(order) || "—"],
-              ["Refund Required", order.refundRequired ? "Yes — prepared for Returns & Refunds" : "No"]
-            ])}
-          </div>
-        ` : ""}
-        <div class="orders-detail-card">
-          <h4>Payment Details</h4>
-          ${renderInfoGrid([
-            ["Method", paymentLabel(order)],
-            ["Status", paymentStatus],
-            isPaymentDesk ? ["Amount Paid", formatAmountPaidDisplay(order)] : null,
-            viewMode === ORDER_VIEWS.COD ? ["Amount Due", formatAmountDueDisplay(order)] : null,
-            isPaymentDesk ? ["Reference", resolvePaymentReference(order) || "—"] : null,
-            isPaymentDesk ? ["Payment Date", formatReviewDateTime(resolveReviewPaymentTimestamp(order)) || "—"] : null,
-            ["Type", order.paymentType || (order.paymentMethod === "cod" ? "cod" : "pay_now")],
-            ["Payer Phone", order.payerPhone || order.customerPhone],
-            ["Note", order.paymentNote]
-          ].filter(Boolean))}
-          ${renderPaymentStatusActions(order)}
-          ${renderGps(order)}
-        </div>
-        ${renderTimeline(order, viewMode)}
-        <div class="orders-detail-card">
-          <h4>Purchased Products</h4>
-          ${items.length
-            ? `<div class="orders-products-list">${items.map(renderProductCard).join("")}</div>`
-            : `<p class="orders-empty-state">No products on this order.</p>`}
-        </div>
-        ${viewMode === "pending" ? renderStatusSelect(order) : ""}
+      <div class="orders-order-details orders-order-details--all" id="${detailsId}" ${expanded ? "" : "hidden"}>
+        ${expanded ? `${renderAllOrdersDetails(order, viewMode)}${renderQueueSectionExtras(order, viewMode)}` : ""}
       </div>
     </article>
   `;
@@ -4548,15 +4567,11 @@ export async function renderOrders(container, options = {}) {
     const selectedOnPage = pageIds.filter((id) => selectedSet.has(id));
 
     const cards = pageItems.length
-      ? (meta.mode === "all"
-        ? renderAllOrdersGroupedList(pageItems, state.expandedId, selectedSet, {
-          groupByDate: shouldGroupOrdersByDate(state),
-          newestFirst: String(state.sort || "date-desc") !== "date-asc"
-        })
-        : pageItems.map((order) => renderOrderCard(order, {
-          expanded: String(order.orderId || order.id) === String(state.expandedId),
-          viewMode: meta.mode
-        })).join(""))
+      ? renderAllOrdersGroupedList(pageItems, state.expandedId, selectedSet, {
+        groupByDate: meta.mode === "all" && shouldGroupOrdersByDate(state),
+        newestFirst: String(state.sort || "date-desc") !== "date-asc",
+        viewMode: meta.mode
+      })
       : (meta.mode === "all"
         ? renderAllOrdersEmptyState({
           hasOrders: true,
@@ -4590,12 +4605,14 @@ export async function renderOrders(container, options = {}) {
       writeStoredListFilters(state);
     } else {
       container.innerHTML = `
-        <div class="orders-page-grid orders-page--queue">
+        <div class="orders-page-grid orders-page--queue orders-page--all">
           ${renderToolbar(filtered.length, state.allOrders.length)}
-          <div class="orders-mobile-grid orders-mobile-grid--queue">${cards}</div>
+          <div class="orders-mobile-grid orders-mobile-grid--all">${cards}</div>
           ${renderPagination(totalPages, filtered.length)}
         </div>
       `;
+      markFreshCards();
+      container.querySelector(".orders-page--all")?.setAttribute("aria-busy", state.loading ? "true" : "false");
     }
 
     if (restoreSearch) {
@@ -5337,7 +5354,6 @@ export async function renderOrders(container, options = {}) {
     }
 
     if (!order) return;
-    const isAllMode = getOrdersViewMeta(state.statusFilter).mode === "all";
 
     if (action === "toggle") {
       const alreadyOpen = String(state.expandedId) === String(orderId);
@@ -5433,11 +5449,7 @@ export async function renderOrders(container, options = {}) {
       return;
     }
     if (action === "payment") {
-      if (isAllMode) {
-        jumpToOrderSection(orderId, "payment");
-        return;
-      }
-      showPaymentAlert(order);
+      jumpToOrderSection(orderId, "payment");
       return;
     }
     if (action === "mark-paid") {
@@ -5465,23 +5477,15 @@ export async function renderOrders(container, options = {}) {
       return;
     }
     if (action === "customer") {
-      if (isAllMode) {
-        jumpToOrderSection(orderId, "customer");
-        return;
-      }
-      showCustomerDetails(order);
+      jumpToOrderSection(orderId, "customer");
       return;
     }
     if (action === "delivery") {
-      if (isAllMode) {
-        jumpToOrderSection(orderId, "shipping");
-        return;
-      }
-      showDeliveryDetails(order);
+      jumpToOrderSection(orderId, "shipping");
       return;
     }
     if (action === "cancellation-reason") {
-      showCancellationReason(order);
+      jumpToOrderSection(orderId, "cancellation");
       return;
     }
     if (action === "summary") {
