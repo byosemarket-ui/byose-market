@@ -89,26 +89,8 @@ function resolvePaymentStatusLabel(paymentState) {
     return 'Pending';
 }
 
-function isDeliveredLike(status) {
-    const value = normalizeText(status).toLowerCase();
-    return value.includes('deliver') || value === 'completed' || value === 'complete';
-}
-
-function isCodOrder(order) {
-    const method = normalizePaymentMethod(order?.paymentMethod || order?.payment?.method);
-    const label = normalizeText(order?.paymentMethodLabel || order?.payment?.methodLabel).toLowerCase();
-    return method === 'cod' || label.includes('cash on delivery') || label.includes('cash');
-}
-
-function isAwaitingPaymentStatus(value) {
-    const status = normalizeText(value).toLowerCase();
-    return status === 'awaiting_payment'
-        || status === 'awaiting_delivery_payment'
-        || status === 'pending'
-        || status === 'unpaid';
-}
-
 function applyPaymentStatusUpdate(order, paymentStatus) {
+    // Explicit payment-status path only. Fulfillment/delivery updates must not call this.
     const raw = normalizeText(paymentStatus).toLowerCase();
     const allowed = new Set([
         'pending',
@@ -147,18 +129,6 @@ function applyPaymentStatusUpdate(order, paymentStatus) {
         }
     };
     return order;
-}
-
-function maybeConfirmCodPaymentOnDelivery(order, nextStatus) {
-    if (!isDeliveredLike(nextStatus) || !isCodOrder(order)) {
-        return false;
-    }
-    const current = normalizeText(order.paymentStatus || order.payment?.status).toLowerCase();
-    if (!isAwaitingPaymentStatus(current)) {
-        return false;
-    }
-    applyPaymentStatusUpdate(order, 'paid');
-    return true;
 }
 
 function validateShippingAddress(shippingAddress = {}, paymentMethod = '') {
@@ -1509,7 +1479,8 @@ exports.updateAdminOrderStatus = async (req, res) => {
                     adminId: req.admin?.id || '',
                     reason: normalizeText(reason || note)
                 });
-                maybeConfirmCodPaymentOnDelivery(order, nextStatus);
+                // Delivery/fulfillment status must never mutate payment status.
+                // COD stays unpaid until payment is explicitly recorded as received.
             }
         }
 

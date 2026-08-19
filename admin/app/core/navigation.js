@@ -86,6 +86,8 @@ export const ADMIN_NAVIGATION = [
         children: [
           routeLink("orders-all", "All Orders", "orders", { description: "Full centralized order view." }),
           routeLink("orders-pending", "Pending Orders", "orders", { query: "?status=pending", description: "Orders awaiting action." }),
+          routeLink("orders-paid", "Paid Orders", "orders", { query: "?status=paid", description: "Orders whose payment was completed successfully." }),
+          routeLink("orders-cod", "COD / Pay on Delivery", "orders", { query: "?status=cod", description: "Orders placed with Pay on Delivery." }),
           routeLink("orders-completed", "Completed Orders", "orders", { query: "?status=completed", description: "Orders that finished fulfillment." }),
           routeLink("orders-cancelled", "Cancelled Orders", "orders", { query: "?status=cancelled", description: "Cancelled order monitoring." }),
           routeLink("orders-returns", "Returns & Refunds", "orders", { query: "?status=returns", description: "Returns and refund workflow staging." })

@@ -4,6 +4,7 @@ import productCatalogService from "../../../services/centralized-products.servic
 import { publishHeroSlidesBump } from "../../../services/hero-slides.service.js";
 import { isProductCardImageUrl } from "../../../services/storefront-asset-url.js";
 import { applyCanonicalAddress, resolveOrderAddress, resolveOrderLocation } from "../utils/order-address.js";
+import { classifyOrder } from "../utils/order-classification.js";
 
 const CACHE_PREFIX = "byose_admin_api_cache_v2";
 const DEFAULT_RETRY_COUNT = 2;
@@ -429,7 +430,7 @@ function normalizeOrder(order) {
   const paymentCancellation = asObject(payment.cancellation);
   const returnWorkflowRaw = asObject(payment.returnWorkflow || order?.returnWorkflow);
   const cancelHistory = [...statusHistory].reverse().find((entry) => /cancel/i.test(`${entry.status} ${entry.label}`));
-  const paymentStatusValue = normalizeText(order?.paymentStatus || payment.status || status);
+  const paymentStatusValue = normalizeText(order?.paymentStatus || payment.status);
   const paymentStatusLower = paymentStatusValue.toLowerCase();
   const refundRequired = Boolean(paymentCancellation.refundRequired)
     || paymentStatusLower.includes("refund_required")
@@ -457,7 +458,7 @@ function normalizeOrder(order) {
     stockRestored: Boolean(returnWorkflowRaw.stockRestored)
   };
 
-  return {
+  const normalized = {
     id: normalizeText(order?.id || order?.orderId || order?._id),
     orderId: normalizeText(order?.orderId || order?.id || order?._id),
     recordId: Number(order?.recordId) > 0 ? Number(order.recordId) : undefined,
@@ -556,6 +557,8 @@ function normalizeOrder(order) {
     items,
     products: items
   };
+  normalized.classification = classifyOrder(normalized);
+  return normalized;
 }
 
 function normalizeCustomer(customer) {

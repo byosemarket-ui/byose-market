@@ -18,59 +18,8 @@ function read(rel) {
   return fs.readFileSync(path.join(root, rel), 'utf8');
 }
 
-function matchesNavStatus(order, filter) {
-  const status = String(order?.status || '').toLowerCase();
-  const payment = String(order?.paymentStatus || order?.paymentStatusLabel || '').toLowerCase();
-  const raw = String(filter || '').trim().toLowerCase();
-  if (!raw) return true;
-
-  switch (raw) {
-    case 'pending': {
-      if (
-        status.includes('cancel')
-        || status.includes('return')
-        || status.includes('refund')
-        || status.includes('deliver')
-        || status.includes('complete')
-        || status.includes('ship')
-        || status.includes('pack')
-        || status.includes('process')
-        || status.includes('confirm')
-      ) {
-        return false;
-      }
-      return status === 'pending'
-        || payment.includes('awaiting_payment')
-        || payment.includes('awaiting payment')
-        || payment.includes('awaiting_delivery_payment');
-    }
-    case 'completed':
-      if (status.includes('cancel') || status.includes('return') || status.includes('refund')) {
-        return false;
-      }
-      return status === 'delivered' || status === 'completed' || status.includes('deliver') || status.includes('complete');
-    case 'cancelled':
-      return status.includes('cancel');
-    case 'returns': {
-      const workflow = order?.returnWorkflow || {};
-      const returnStatus = String(workflow.returnStatus || order?.returnStatus || '').toLowerCase();
-      const refundStatus = String(workflow.refundStatus || order?.refundStatus || '').toLowerCase();
-      const hasReturnWorkflow = Boolean(returnStatus || refundStatus);
-      const needsRefund = Boolean(order?.refundRequired)
-        || payment.includes('refund_required')
-        || refundStatus === 'required'
-        || refundStatus === 'pending';
-      return status.includes('return')
-        || status.includes('refund')
-        || needsRefund
-        || hasReturnWorkflow;
-    }
-    default:
-      return status === raw || status.includes(raw);
-  }
-}
-
-function simulateQueueRouting() {
+async function simulateQueueRouting() {
+  const { orderMatchesView } = await import('../admin/app/utils/order-classification.js');
   const sample = [
     { orderId: 'P1', status: 'Pending', paymentStatus: 'awaiting_payment' },
     { orderId: 'P2', status: 'Pending', paymentStatus: 'awaiting_delivery_payment' },
@@ -102,10 +51,10 @@ function simulateQueueRouting() {
     { orderId: 'TRAP', status: 'Delivered', paymentStatus: 'awaiting_payment' }
   ];
 
-  const pending = sample.filter((o) => matchesNavStatus(o, 'pending')).map((o) => o.orderId);
-  const completed = sample.filter((o) => matchesNavStatus(o, 'completed')).map((o) => o.orderId);
-  const cancelled = sample.filter((o) => matchesNavStatus(o, 'cancelled')).map((o) => o.orderId);
-  const returns = sample.filter((o) => matchesNavStatus(o, 'returns')).map((o) => o.orderId);
+  const pending = sample.filter((o) => orderMatchesView(o, 'pending')).map((o) => o.orderId);
+  const completed = sample.filter((o) => orderMatchesView(o, 'completed')).map((o) => o.orderId);
+  const cancelled = sample.filter((o) => orderMatchesView(o, 'cancelled')).map((o) => o.orderId);
+  const returns = sample.filter((o) => orderMatchesView(o, 'returns')).map((o) => o.orderId);
 
   assert(pending.includes('P1') && pending.includes('P2'), 'pending queue must include awaiting payment/COD pending');
   assert(!pending.includes('TRAP') && !pending.includes('C1'), 'pending must not include delivered orders');
@@ -163,8 +112,9 @@ function simulateDateFilters() {
   assert(nextMonth > monthEnd, 'September is excluded from August This Month');
 }
 
-function main() {
+async function main() {
   const ordersJs = read('admin/app/pages/orders.js');
+  const classificationJs = read('admin/app/utils/order-classification.js');
   const mainJs = read('admin/app/main.js');
   const data = read('admin/app/services/admin-data.service.js');
   const nav = read('admin/app/core/navigation.js');
@@ -174,15 +124,18 @@ function main() {
 
   // Nav + routes for every Orders section
   assert(nav.includes('?status=pending'), 'nav Pending Orders route');
+  assert(nav.includes('?status=paid'), 'nav Paid Orders route');
+  assert(nav.includes('?status=cod'), 'nav COD / Pay on Delivery route');
   assert(nav.includes('?status=completed'), 'nav Completed Orders route');
   assert(nav.includes('?status=cancelled'), 'nav Cancelled Orders route');
   assert(nav.includes('?status=returns'), 'nav Returns & Refunds route');
   assert(!nav.includes('orders/details.html'), 'orphaned Order Details nav link must be removed');
 
-  // Exclusive queue filters
-  assert(ordersJs.includes('awaiting_delivery_payment'), 'pending must include COD awaiting_delivery_payment');
-  assert(ordersJs.includes('Never fall back to generic paymentStatus') || ordersJs.includes('never fall back'), 'returns filter must not fall back to paymentStatus');
-  assert(ordersJs.includes('status.includes("confirm")'), 'pending exclusivity must exclude confirmed/processing');
+  // Exclusive queue filters live in the shared classifier
+  assert(ordersJs.includes('from "../utils/order-classification.js"'), 'orders page must use shared order classification');
+  assert(classificationJs.includes('awaiting_delivery_payment'), 'pending must include COD awaiting_delivery_payment');
+  assert(classificationJs.includes('never fall back') || classificationJs.includes('refund_required'), 'returns filter must not fall back to generic paid paymentStatus');
+  assert(classificationJs.includes('status.includes("confirm")'), 'pending exclusivity must exclude confirmed/processing');
 
   // Soft refresh + hash sync
   assert(ordersJs.includes('softRefresh'), 'orders page must support softRefresh in-place reload');
@@ -231,7 +184,7 @@ function main() {
   assert(data.includes('out for delivery'), 'Out for Delivery must not normalize to Delivered');
   assert(data.includes('storedLineTotal'), 'historical line totals must be preserved when stored');
 
-  simulateQueueRouting();
+  await simulateQueueRouting();
   simulateDateFilters();
 
   // Ensure prior STEP verifiers exist
@@ -241,7 +194,10 @@ function main() {
     'scripts/verify-admin-completed-orders.js',
     'scripts/verify-admin-cancelled-orders.js',
     'scripts/verify-admin-returns-refunds.js',
-    'scripts/verify-admin-order-address.js'
+    'scripts/verify-admin-order-address.js',
+    'scripts/verify-admin-order-classification.js',
+    'scripts/verify-admin-paid-cod-orders.js',
+    'scripts/verify-admin-payment-delivery-workflow.js'
   ].forEach((rel) => {
     assert(fs.existsSync(path.join(root, rel)), `missing verifier ${rel}`);
   });
@@ -259,4 +215,8 @@ function main() {
   console.log(' - All Orders section verifiers present');
 }
 
-main();
+main().catch((error) => {
+  console.error('FAIL verify-admin-orders-integration');
+  console.error(error);
+  process.exit(1);
+});

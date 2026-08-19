@@ -43,6 +43,7 @@ function simulatePendingFilter() {
 
 function main() {
   const ordersJs = read('admin/app/pages/orders.js');
+  const classificationJs = read('admin/app/utils/order-classification.js');
   const nav = read('admin/app/core/navigation.js');
   const checkout = read('orders/core/order.js');
   const controller = read('server/controllers/ordercontroller.js');
@@ -61,7 +62,7 @@ function main() {
   assert(ordersJs.includes('Contact Customer'), 'must support contact customer');
   assert(ordersJs.includes('orders-status-message'), 'must show success/error notifications');
   assert(ordersJs.includes('Loading'), 'must show loading states');
-  assert(ordersJs.includes("status === \"pending\""), 'pending filter must be strict');
+  assert(classificationJs.includes('status === "pending"'), 'pending filter must be strict');
   assert(ordersJs.includes('applyStatusChange'), 'status updates must sync through shared updater');
   assert(ordersJs.includes('Confirmed'), 'Accept Order must move to Confirmed');
   assert(ordersJs.includes('Processing'), 'Start Processing must move to Processing');

@@ -4,6 +4,7 @@ import { downloadCsvFile, openPrintableReport } from "../services/enterprise-int
 import { openInvoiceDocument, resolveInvoiceCompany } from "../services/invoice-document.service.js";
 import { subscribeToLiveFeeds } from "../services/live-feeds.service.js";
 import { resolveOrderAddress, resolveOrderCustomer, resolveOrderLocation, resolveOrderNotes } from "../utils/order-address.js";
+import { isCodPaymentMethod, isSettledPaidStatus, matchesNavStatus, ORDER_VIEWS } from "../utils/order-classification.js";
 
 const STATUS_OPTIONS = [
   "Pending",
@@ -72,6 +73,14 @@ const SORT_LABELS = {
   "customer-desc": "Customer Name Z–A",
   status: "Status"
 };
+const ORDER_QUEUE_MODES = new Set([
+  ORDER_VIEWS.PENDING,
+  ORDER_VIEWS.PAID,
+  ORDER_VIEWS.COD,
+  ORDER_VIEWS.COMPLETED,
+  ORDER_VIEWS.CANCELLED,
+  ORDER_VIEWS.RETURNS
+]);
 const PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 const ORDER_DETAIL_NAV = [
@@ -462,30 +471,6 @@ function computeAllOrdersStats(orders = []) {
     if (Object.prototype.hasOwnProperty.call(stats, bucket)) stats[bucket] += 1;
   });
   return stats;
-}
-
-function isSettledPaidStatus(value) {
-  const status = String(value || "").trim().toLowerCase();
-  if (!status) return false;
-  if (
-    status.includes("unpaid")
-    || status.includes("awaiting")
-    || status.includes("pending")
-    || status.includes("fail")
-    || status.includes("cancel")
-    || status.includes("unsuccess")
-    || status.includes("invalid")
-    || status.includes("refund")
-  ) {
-    return false;
-  }
-  return status === "paid"
-    || status === "success"
-    || status === "successful"
-    || status === "completed"
-    || status === "complete"
-    || status === "payment_successful"
-    || status === "authorized";
 }
 
 function matchesPaymentStatusFilter(order, filter) {
@@ -905,6 +890,53 @@ function paymentLabel(order) {
   return order?.paymentMethodLabel || order?.paymentMethod || "—";
 }
 
+function isOrderPaymentSettled(order) {
+  return isSettledPaidStatus(order?.paymentStatus || order?.payment?.status || order?.paymentStatusLabel);
+}
+
+function resolveOrderTotalNumber(order) {
+  const value = Number(order?.grandTotal ?? order?.total);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function resolveRecordedAmountPaid(order) {
+  const raw = order?.amountPaid ?? order?.paidAmount ?? order?.payment?.amountPaid;
+  if (raw == null || raw === "") return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function formatAmountPaidDisplay(order) {
+  const recorded = resolveRecordedAmountPaid(order);
+  if (recorded != null) return formatCurrency(recorded);
+  if (isOrderPaymentSettled(order)) return formatCurrency(resolveOrderTotalNumber(order));
+  return formatCurrency(0);
+}
+
+function formatAmountDueDisplay(order) {
+  const total = resolveOrderTotalNumber(order);
+  if (isOrderPaymentSettled(order)) return formatCurrency(0);
+  const recorded = resolveRecordedAmountPaid(order);
+  if (recorded != null) return formatCurrency(Math.max(0, total - recorded));
+  return formatCurrency(total);
+}
+
+function resolvePaymentReference(order) {
+  const payment = order?.payment && typeof order.payment === "object" ? order.payment : {};
+  const gateway = payment.gateway && typeof payment.gateway === "object" ? payment.gateway : {};
+  const transaction = payment.transaction && typeof payment.transaction === "object" ? payment.transaction : {};
+  return String(
+    order?.transactionId
+    || order?.paymentReference
+    || order?.transactionReference
+    || payment.transactionId
+    || payment.reference
+    || gateway.transRef
+    || transaction.reference
+    || ""
+  ).trim();
+}
+
 function resolveAdminPaymentMode(order) {
   const method = String(order?.paymentMethod || order?.payment?.method || "").toLowerCase();
   if (method === "cod") return "—";
@@ -968,65 +1000,6 @@ function resolveMapLink(order) {
     return `https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}`;
   }
   return "";
-}
-
-function matchesNavStatus(order, filter) {
-  const status = String(order?.status || "").toLowerCase();
-  const payment = String(order?.paymentStatus || order?.paymentStatusLabel || "").toLowerCase();
-  const raw = String(filter || "").trim().toLowerCase();
-  if (!raw) return true;
-
-  if (raw.startsWith("status:")) {
-    return status === raw.slice("status:".length);
-  }
-
-  switch (raw) {
-    case "pending": {
-      // Pending = unaccepted/unfulfilled only. Never overlap completed/cancelled/returns.
-      if (
-        status.includes("cancel")
-        || status.includes("return")
-        || status.includes("refund")
-        || status.includes("deliver")
-        || status.includes("complete")
-        || status.includes("ship")
-        || status.includes("pack")
-        || status.includes("process")
-        || status.includes("confirm")
-      ) {
-        return false;
-      }
-      return status === "pending"
-        || payment.includes("awaiting_payment")
-        || payment.includes("awaiting payment")
-        || payment.includes("awaiting_delivery_payment");
-    }
-    case "completed":
-      // Completed = delivered / finished fulfillment only (exclude terminal return/cancel paths).
-      if (status.includes("cancel") || status.includes("return") || status.includes("refund")) {
-        return false;
-      }
-      return status === "delivered" || status === "completed" || status.includes("deliver") || status.includes("complete");
-    case "cancelled":
-      return status.includes("cancel");
-    case "returns": {
-      // Only real return/refund signals — never fall back to generic paymentStatus.
-      const workflow = order?.returnWorkflow || {};
-      const returnStatus = String(workflow.returnStatus || order?.returnStatus || "").toLowerCase();
-      const refundStatus = String(workflow.refundStatus || order?.refundStatus || "").toLowerCase();
-      const hasReturnWorkflow = Boolean(returnStatus || refundStatus);
-      const needsRefund = Boolean(order?.refundRequired)
-        || payment.includes("refund_required")
-        || refundStatus === "required"
-        || refundStatus === "pending";
-      return status.includes("return")
-        || status.includes("refund")
-        || needsRefund
-        || hasReturnWorkflow;
-    }
-    default:
-      return status === raw || status.includes(raw);
-  }
 }
 
 function resolveCompletionDate(order) {
@@ -1134,43 +1107,73 @@ function dedupeOrdersById(orders) {
 
 function getOrdersViewMeta(statusFilter) {
   const filter = String(statusFilter || "").trim().toLowerCase();
-  if (filter === "pending") {
+  if (filter === ORDER_VIEWS.PENDING || filter === "pending-orders") {
     return {
-      mode: "pending",
+      mode: ORDER_VIEWS.PENDING,
       title: "Pending Orders",
       eyebrow: "Fulfillment queue",
-      description: "New checkout orders awaiting acceptance. Accept or start processing to move them through the workflow."
+      description: "New checkout orders awaiting acceptance. Accept or start processing to move them through the workflow.",
+      emptyTitle: "No pending orders found.",
+      emptyMessage: "New checkout orders will appear here automatically."
     };
   }
-  if (filter === "completed") {
+  if (filter === ORDER_VIEWS.PAID || filter === "paid-orders") {
     return {
-      mode: "completed",
+      mode: ORDER_VIEWS.PAID,
+      title: "Paid Orders",
+      eyebrow: "Successful payments",
+      description: "Orders whose payment was completed successfully. Delivery status is shown separately and does not change payment status.",
+      emptyTitle: "No paid orders yet.",
+      emptyMessage: "Orders appear here after payment is successfully completed."
+    };
+  }
+  if (filter === ORDER_VIEWS.COD || filter === "cod-orders" || filter === "pay-on-delivery") {
+    return {
+      mode: ORDER_VIEWS.COD,
+      title: "COD / Pay on Delivery",
+      eyebrow: "Pay on Delivery",
+      description: "Orders where the customer selected Pay on Delivery. Payment stays pending until it is explicitly recorded as received.",
+      emptyTitle: "No Pay on Delivery orders yet.",
+      emptyMessage: "Pay on Delivery orders appear here until payment is recorded as received."
+    };
+  }
+  if (filter === ORDER_VIEWS.COMPLETED || filter === "completed-orders") {
+    return {
+      mode: ORDER_VIEWS.COMPLETED,
       title: "Completed Orders",
       eyebrow: "Completed fulfillment",
-      description: "Delivered and completed orders preserved permanently with full checkout, payment, delivery, and product records."
+      description: "Delivered and completed orders preserved permanently with full checkout, payment, delivery, and product records.",
+      emptyTitle: "No completed orders found.",
+      emptyMessage: "Orders marked Delivered or Completed will appear here automatically."
     };
   }
-  if (filter === "cancelled") {
+  if (filter === ORDER_VIEWS.CANCELLED || filter === "cancelled-orders") {
     return {
-      mode: "cancelled",
+      mode: ORDER_VIEWS.CANCELLED,
       title: "Cancelled Orders",
       eyebrow: "Cancellation desk",
-      description: "Orders cancelled by customers or administrators. Stock is restored automatically and paid cancellations are prepared for Returns & Refunds."
+      description: "Orders cancelled by customers or administrators. Stock is restored automatically and paid cancellations are prepared for Returns & Refunds.",
+      emptyTitle: "No cancelled orders found.",
+      emptyMessage: "Customer or admin cancellations will appear here automatically."
     };
   }
-  if (filter === "returns") {
+  if (filter === ORDER_VIEWS.RETURNS || filter === "returns-refunds") {
     return {
-      mode: "returns",
+      mode: ORDER_VIEWS.RETURNS,
       title: "Returns & Refunds",
       eyebrow: "Return & refund desk",
-      description: "Manage product returns and customer refund requests. Only qualifying orders appear here, linked permanently to their original checkout records."
+      description: "Manage product returns and customer refund requests. Only qualifying orders appear here, linked permanently to their original checkout records.",
+      emptyTitle: "No return/refund requests found.",
+      emptyMessage: "Paid cancellations and return requests will appear here automatically."
     };
   }
   return {
-    mode: "all",
+    mode: ORDER_VIEWS.ALL,
     title: "All Orders",
     eyebrow: "Orders",
-    description: "Central order management synchronized with checkout, payment, GPS, and fulfillment."
+    description: "Central order management synchronized with checkout, payment, GPS, and fulfillment.",
+    emptyTitle: "No matching orders",
+    emptyMessage: "No orders match your search or filters."
   };
 }
 
@@ -1190,10 +1193,8 @@ function filterAndSortOrders(orders, state) {
 
   if (paymentFilter) {
     list = list.filter((order) => {
+      if (paymentFilter === "cod") return isCodPaymentMethod(order);
       const method = String(order.paymentMethod || order.paymentMethodLabel || "").toLowerCase();
-      if (paymentFilter === "cod") {
-        return method.includes("cod") || method.includes("cash");
-      }
       return method.includes(paymentFilter);
     });
   }
@@ -1364,6 +1365,10 @@ function renderOrderInfoBlock(order, viewMode = "all") {
   const workflow = getReturnWorkflow(order);
   const returnRequestDate = resolveReturnRequestDate(order);
   const refundDate = resolveRefundDate(order);
+  const paymentDate = formatReviewDateTime(resolveReviewPaymentTimestamp(order));
+  const paymentRef = resolvePaymentReference(order);
+  const isPaidView = viewMode === ORDER_VIEWS.PAID;
+  const isCodView = viewMode === ORDER_VIEWS.COD;
   return `
     <div class="orders-detail-card">
       <h4>Order Information</h4>
@@ -1382,6 +1387,10 @@ function renderOrderInfoBlock(order, viewMode = "all") {
         ["Order Status", order.status || order.orderStatus || "Pending"],
         ["Payment Status", paymentStatus],
         ["Payment Method", paymentLabel(order)],
+        isPaidView || isCodView ? ["Amount Paid", formatAmountPaidDisplay(order)] : null,
+        isCodView ? ["Amount Due", formatAmountDueDisplay(order)] : null,
+        isPaidView && paymentRef ? ["Reference", paymentRef] : null,
+        isPaidView && paymentDate ? ["Payment Date", paymentDate] : null,
         ["Payer Phone", order.payerPhone],
         ["Payment Note", order.paymentNote],
         ["Shipping Method", order.deliveryLabel || order.deliveryMethod || "Home delivery"],
@@ -2698,17 +2707,8 @@ async function copyTextToClipboard(text) {
 function resolveAllOrdersProgress(order) {
   const status = String(order?.status || order?.orderStatus || "").toLowerCase();
   const payment = String(order?.paymentStatusLabel || order?.paymentStatus || "").toLowerCase();
-  const method = String(order?.paymentMethod || order?.paymentMethodLabel || "").toLowerCase();
   const cancelled = status.includes("cancel");
-  const paymentDone = isSettledPaidStatus(payment)
-    || ((method.includes("cod") || method.includes("cash")) && (
-      status.includes("confirm")
-      || status.includes("process")
-      || status.includes("pack")
-      || status.includes("ship")
-      || status.includes("deliver")
-      || status.includes("complete")
-    ));
+  const paymentDone = isSettledPaidStatus(payment);
 
   let index = 0;
   if (/deliver|complete/.test(status)) index = 5;
@@ -2718,17 +2718,25 @@ function resolveAllOrdersProgress(order) {
   else if (paymentDone) index = 1;
   else index = 0;
 
-  return ALL_ORDERS_PROGRESS.map((stage, stageIndex) => ({
-    key: stage.key,
-    label: stage.label,
-    state: cancelled && stageIndex > index
-      ? "muted"
-      : stageIndex < index
-        ? "done"
-        : stageIndex === index
-          ? (cancelled ? "cancelled" : "current")
-          : "upcoming"
-  }));
+  return ALL_ORDERS_PROGRESS.map((stage, stageIndex) => {
+    if (stage.key === "payment") {
+      const state = paymentDone
+        ? (index > 1 ? "done" : (cancelled ? "cancelled" : "current"))
+        : (cancelled ? "muted" : "upcoming");
+      return { key: stage.key, label: stage.label, state };
+    }
+    return {
+      key: stage.key,
+      label: stage.label,
+      state: cancelled && stageIndex > index
+        ? "muted"
+        : stageIndex < index
+          ? "done"
+          : stageIndex === index
+            ? (cancelled ? "cancelled" : "current")
+            : "upcoming"
+    };
+  });
 }
 
 function renderAllOrdersProgressTimeline(order) {
@@ -3078,14 +3086,18 @@ function renderStatusSelect(order) {
 }
 
 function renderActions(order, viewMode = "all") {
-  const id = escapeHtml(order.orderId || order.id);
-  const phone = escapeHtml(order.customerPhone || order.shippingAddress?.phone || "");
-  const email = escapeHtml(order.customerEmail || "");
+  const ctx = getOrderActionContext(order);
+  const id = escapeHtml(ctx.id || order.orderId || order.id);
+  const phone = escapeHtml(order.customerPhone || order.shippingAddress?.phone || ctx.phone || "");
+  const email = escapeHtml(order.customerEmail || ctx.email || "");
   const mapLink = resolveMapLink(order);
   const isPendingView = viewMode === "pending";
   const isCompletedView = viewMode === "completed";
   const isCancelledView = viewMode === "cancelled";
   const isReturnsView = viewMode === "returns";
+  const isPaidView = viewMode === ORDER_VIEWS.PAID;
+  const isCodView = viewMode === ORDER_VIEWS.COD;
+  const isPaymentDesk = isPaidView || isCodView;
   const workflow = getReturnWorkflow(order);
   const returnStatus = String(workflow.returnStatus || "").toLowerCase();
   const refundStatus = String(workflow.refundStatus || order.paymentStatus || "").toLowerCase();
@@ -3097,10 +3109,16 @@ function renderActions(order, viewMode = "all") {
   const canRejectReturn = (returnStatus === "requested" || (!returnStatus && order.refundRequired)) && !returnApproved && !refundDone;
   const canApproveRefund = !refundDone && refundStatus !== "rejected" && (order.refundRequired || returnApproved || refundStatus === "required" || refundStatus === "pending" || String(order.paymentStatus || "").toLowerCase().includes("refund_required"));
   const canRejectRefund = canApproveRefund;
+  const restoreLabel = ctx.statusOptions.length === 1 && ctx.statusOptions[0] === "Pending" ? "Restore Order" : "Update Status";
 
   return `
     <div class="orders-actions-inline${viewMode === "all" ? " orders-actions-inline--all" : ""}" data-order-actions="${id}">
-      <button type="button" class="orders-secondary-link" data-order-action="toggle" data-order-id="${id}">${isReturnsView ? "View Complete Return" : "View Complete Order"}</button>
+      ${isPaymentDesk ? `
+        <button type="button" class="orders-secondary-link orders-action--primary" data-order-action="review" data-order-id="${id}">Review Information</button>
+        ${ctx.statusOptions.length ? `<button type="button" class="orders-secondary-link" data-order-action="update-status" data-order-id="${id}">${escapeHtml(restoreLabel)}</button>` : ""}
+        <button type="button" class="orders-secondary-link" data-order-action="view-invoice" data-order-id="${id}">View Invoice</button>
+      ` : ""}
+      <button type="button" class="orders-secondary-link" data-order-action="toggle" data-order-id="${id}">${isReturnsView ? "View Complete Return" : isPaymentDesk ? "View Details" : "View Complete Order"}</button>
       ${isPendingView ? `
         <button type="button" class="orders-secondary-link orders-action--primary" data-order-action="accept" data-order-id="${id}">Accept Order</button>
         <button type="button" class="orders-secondary-link orders-action--primary" data-order-action="process" data-order-id="${id}">Start Processing</button>
@@ -3133,11 +3151,12 @@ function renderActions(order, viewMode = "all") {
         <button type="button" class="orders-secondary-link" data-order-action="download-invoice" data-order-id="${id}">Download Invoice (PDF)</button>
       ` : ""}
       ${isReturnsView ? "" : `<button type="button" class="orders-secondary-link" data-order-action="packing" data-order-id="${id}">Print Packing Slip</button>`}
-      ${phone ? `<a class="orders-secondary-link" href="tel:${phone}">Contact Customer</a>` : ""}
+      ${phone ? `<a class="orders-secondary-link" href="tel:${phone}">${isPaymentDesk ? "Call Customer" : "Contact Customer"}</a>` : ""}
       ${email ? `<a class="orders-secondary-link" href="mailto:${email}">Email Customer</a>` : ""}
       ${mapLink ? `<a class="orders-secondary-link" href="${escapeHtml(mapLink)}" target="_blank" rel="noopener">Open Customer Location in Google Maps</a>` : ""}
       <button type="button" class="orders-secondary-link" data-order-action="payment" data-order-id="${id}">View Payment Details</button>
-      ${isPendingView ? `
+      ${isCodView && canMarkPaymentPaid(order) ? `<button type="button" class="orders-secondary-link orders-action--primary" data-order-action="mark-paid" data-order-id="${id}">Mark Payment Received</button>` : ""}
+      ${isPendingView || (isPaymentDesk && ctx.canCancel) ? `
         <button type="button" class="orders-danger-button" data-order-action="cancel" data-order-id="${id}">Cancel Order</button>
       ` : ""}
     </div>
@@ -3308,11 +3327,41 @@ function renderAllOrdersEmptyState({
   `;
 }
 
-function renderQueueEmptyState(title, message) {
+function renderQueueEmptyState(title, message, options = {}) {
+  const showClear = Boolean(options.showClear);
   return `
     <div class="orders-empty-state orders-empty-state--queue">
       <h3>${escapeHtml(title)}</h3>
       <p>${escapeHtml(message)}</p>
+      ${showClear ? `<button type="button" class="orders-tool-btn" data-orders-toolbar-action="clear-filters">Clear Filters</button>` : ""}
+    </div>
+  `;
+}
+
+function renderQueuePaymentSnapshot(order, viewMode = "") {
+  const paymentStatus = order?.paymentStatusLabel || order?.paymentStatus || "";
+  const method = paymentLabel(order);
+  const reference = resolvePaymentReference(order);
+  const paymentDate = formatReviewDateTime(resolveReviewPaymentTimestamp(order));
+  const delivery = order?.deliveryStatus || order?.status || "";
+  const rows = [
+    ["Payment", titleCaseLabel(paymentStatus, "—")],
+    ["Method", method],
+    viewMode === ORDER_VIEWS.COD ? ["Amount Paid", formatAmountPaidDisplay(order)] : ["Amount", formatAmountPaidDisplay(order)],
+    viewMode === ORDER_VIEWS.COD ? ["Amount Due", formatAmountDueDisplay(order)] : null,
+    reference ? ["Reference", reference] : null,
+    paymentDate ? ["Date", paymentDate] : null,
+    ["Delivery Status", delivery || "—"]
+  ].filter(Boolean);
+
+  return `
+    <div class="order-payment-snapshot${viewMode === ORDER_VIEWS.COD ? " order-payment-snapshot--cod" : ""}" data-order-payment="${escapeHtml(order?.orderId || order?.id || "")}">
+      ${rows.map(([label, value]) => `
+        <div class="${label === "Amount Due" ? "order-amount-due" : ""}">
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(value)}</strong>
+        </div>
+      `).join("")}
     </div>
   `;
 }
@@ -3386,6 +3435,9 @@ function renderOrderCard(order, { expanded = false, viewMode = "all", selectedId
     `;
   }
 
+  const isPaymentDesk = viewMode === ORDER_VIEWS.PAID || viewMode === ORDER_VIEWS.COD;
+  const itemsQty = items.reduce((sum, item) => sum + (Number(item?.quantity) || 0), 0);
+
   return `
     <article class="order-mobile-card${expanded ? " is-expanded" : ""}" data-order-id="${escapeHtml(order.orderId || order.id)}">
       <div class="order-mobile-head">
@@ -3393,21 +3445,30 @@ function renderOrderCard(order, { expanded = false, viewMode = "all", selectedId
           <h3>${escapeHtml(order.orderId || order.id)}</h3>
           <p>${formatDate(order.date)}${viewMode === "completed" && completionDate ? ` · Completed ${formatDate(completionDate)}` : ""}${viewMode === "cancelled" && cancellationDate ? ` · Cancelled ${formatDate(cancellationDate)}` : ""}${viewMode === "returns" && returnRequestDate ? ` · Return ${formatDate(returnRequestDate)}` : ""}</p>
         </div>
-        ${badge(viewMode === "returns" ? refundLabel : String(order.status || "Pending"), statusTone(viewMode === "returns" ? refundLabel : order.status))}
+        ${isPaymentDesk
+          ? renderOrderRowStatusBadge(order.status || order.orderStatus || "Pending")
+          : badge(viewMode === "returns" ? refundLabel : String(order.status || "Pending"), statusTone(viewMode === "returns" ? refundLabel : order.status))}
       </div>
+      ${isPaymentDesk ? `<div class="order-queue-product-strip">${renderAllOrdersProductStrip(items)}</div>` : ""}
       <div class="order-mobile-meta">
         <div><span>Customer</span><strong>${escapeHtml(order.customerName)}</strong></div>
         <div><span>Phone</span><strong>${escapeHtml(order.customerPhone || "—")}</strong></div>
-        <div><span>Payment</span><strong>${escapeHtml(paymentLabel(order))}</strong></div>
-        <div><span>Payment status</span><strong>${escapeHtml(paymentStatus)}</strong></div>
+        ${isPaymentDesk ? `
+          <div><span>Products</span><strong>${escapeHtml(items.length ? `${items.length} item${items.length === 1 ? "" : "s"}${itemsQty ? ` · Qty ${itemsQty}` : ""}` : "—")}</strong></div>
+          <div><span>Payment</span>${renderOrderRowPayment(order)}</div>
+        ` : `
+          <div><span>Payment</span><strong>${escapeHtml(paymentLabel(order))}</strong></div>
+          <div><span>Payment status</span><strong>${escapeHtml(paymentStatus)}</strong></div>
+        `}
         ${viewMode === "cancelled" ? `<div><span>Cancelled by</span><strong>${escapeHtml(resolveCancelledBy(order))}</strong></div>` : ""}
         ${viewMode === "returns" ? `<div><span>Return status</span><strong>${escapeHtml(returnLabel)}</strong></div>` : ""}
         ${viewMode === "returns" ? `<div><span>Refund status</span><strong>${escapeHtml(refundLabel)}</strong></div>` : ""}
-        ${viewMode === "cancelled" || viewMode === "returns" ? "" : `<div><span>Delivery</span><strong>${escapeHtml(order.deliveryStatus || order.status || "—")}</strong></div>`}
+        ${viewMode === "cancelled" || viewMode === "returns" || isPaymentDesk ? "" : `<div><span>Delivery</span><strong>${escapeHtml(order.deliveryStatus || order.status || "—")}</strong></div>`}
         <div class="order-mobile-meta-total"><span>Grand Total</span><strong>${formatCurrency(order.total || 0)}</strong></div>
       </div>
+      ${isPaymentDesk ? renderQueuePaymentSnapshot(order, viewMode) : ""}
       ${renderActions(order, viewMode)}
-      ${viewMode === "pending" || viewMode === "completed" || viewMode === "cancelled" || viewMode === "returns" ? "" : renderStatusSelect(order)}
+      ${viewMode === "pending" || viewMode === "completed" || viewMode === "cancelled" || viewMode === "returns" || isPaymentDesk ? "" : renderStatusSelect(order)}
       <div class="orders-order-details" ${expanded ? "" : "hidden"}>
         ${renderCustomerBlock(order)}
         ${renderOrderInfoBlock(order, viewMode)}
@@ -3429,10 +3490,14 @@ function renderOrderCard(order, { expanded = false, viewMode = "all", selectedId
           ${renderInfoGrid([
             ["Method", paymentLabel(order)],
             ["Status", paymentStatus],
+            isPaymentDesk ? ["Amount Paid", formatAmountPaidDisplay(order)] : null,
+            viewMode === ORDER_VIEWS.COD ? ["Amount Due", formatAmountDueDisplay(order)] : null,
+            isPaymentDesk ? ["Reference", resolvePaymentReference(order) || "—"] : null,
+            isPaymentDesk ? ["Payment Date", formatReviewDateTime(resolveReviewPaymentTimestamp(order)) || "—"] : null,
             ["Type", order.paymentType || (order.paymentMethod === "cod" ? "cod" : "pay_now")],
             ["Payer Phone", order.payerPhone || order.customerPhone],
             ["Note", order.paymentNote]
-          ])}
+          ].filter(Boolean))}
           ${renderPaymentStatusActions(order)}
           ${renderGps(order)}
         </div>
@@ -3803,8 +3868,7 @@ export async function renderOrders(container, options = {}) {
 
   const hashQuery = readHashQuery();
   const queueStatus = String(hashQuery.get("status") || "").trim().toLowerCase();
-  const queueModes = new Set(["pending", "completed", "cancelled", "returns"]);
-  const storedFilters = queueModes.has(queueStatus) ? null : readStoredListFilters();
+  const storedFilters = ORDER_QUEUE_MODES.has(queueStatus) ? null : readStoredListFilters();
   const todayInput = formatLocalDateInput(new Date());
   const monthStartInput = formatLocalDateInput(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const state = {
@@ -3996,7 +4060,14 @@ export async function renderOrders(container, options = {}) {
     const meta = getOrdersViewMeta(state.statusFilter);
     const lockFilter = meta.mode !== "all";
     const isAllOrders = meta.mode === "all";
-    const countLabel = state.loading ? "Loading orders..." : `${filteredCount} shown · ${totalCount} loaded`;
+    const sectionCount = ORDER_QUEUE_MODES.has(meta.mode)
+      ? dedupeOrdersById(state.allOrders).filter((order) => matchesNavStatus(order, meta.mode)).length
+      : totalCount;
+    const countLabel = state.loading
+      ? "Loading orders..."
+      : isAllOrders
+        ? `${filteredCount} shown · ${totalCount} loaded`
+        : `${formatCount(filteredCount)} shown · ${formatCount(sectionCount)} ${meta.title}`;
 
     if (isAllOrders) {
       const stats = computeAllOrdersStats(state.allOrders);
@@ -4042,6 +4113,8 @@ export async function renderOrders(container, options = {}) {
                 <button type="button" role="menuitem" data-orders-toolbar-action="clear-filters">Clear Filters</button>
                 <button type="button" role="menuitem" data-orders-toolbar-action="collapse-all">Collapse Details</button>
                 <a role="menuitem" href="#/orders?status=pending">Open Pending Queue</a>
+                <a role="menuitem" href="#/orders?status=paid">Open Paid Orders</a>
+                <a role="menuitem" href="#/orders?status=cod">Open COD / Pay on Delivery</a>
                 <a role="menuitem" href="#/orders?status=completed">Open Completed</a>
                 <a role="menuitem" href="#/orders?status=cancelled">Open Cancelled</a>
                 <a role="menuitem" href="#/orders?status=returns">Open Returns &amp; Refunds</a>
@@ -4159,24 +4232,89 @@ export async function renderOrders(container, options = {}) {
     }
 
     const disabled = state.loading ? "disabled" : "";
+    const isPaymentDesk = meta.mode === "paid" || meta.mode === "cod";
+    const sectionOrders = ORDER_QUEUE_MODES.has(meta.mode)
+      ? dedupeOrdersById(state.allOrders).filter((order) => matchesNavStatus(order, meta.mode))
+      : [];
+    const queueStats = isPaymentDesk ? computeAllOrdersStats(sectionOrders) : null;
+    const dateCounts = isPaymentDesk ? computeDateTabCounts(sectionOrders, state) : null;
+    const activeDateTab = normalizeDateTab(state.dateTab || "all");
+    const todayMax = formatLocalDateInput(new Date());
+    const queueStatCards = isPaymentDesk ? [
+      { key: "", label: "Total", count: queueStats.total, icon: "#", tone: "neutral" },
+      { key: "pending", label: "Pending", count: queueStats.pending, icon: "P", tone: "warn" },
+      { key: "processing", label: "Processing", count: queueStats.processing, icon: "R", tone: "info" },
+      { key: "shipped", label: "Shipped", count: queueStats.shipped, icon: "S", tone: "info" },
+      { key: "delivered", label: "Delivered", count: queueStats.delivered, icon: "D", tone: "success" }
+    ] : [];
+    const dateTabs = isPaymentDesk ? DATE_TABS.map((tab) => ({
+      ...tab,
+      count: tab.key === "custom"
+        ? (state.customFrom && state.customTo ? dateCounts.custom : null)
+        : dateCounts[tab.key]
+    })) : [];
+
     return `
-      <section class="orders-toolbar-panel orders-toolbar-panel--queue" aria-label="${escapeHtml(meta.eyebrow)}">
+      <section class="orders-toolbar-panel orders-toolbar-panel--queue" aria-label="${escapeHtml(meta.title)}">
         <div class="orders-toolbar-header-queue">
           <div class="orders-toolbar-copy orders-toolbar-copy--queue">
-            <h2>${escapeHtml(meta.eyebrow)} <span class="orders-toolbar-count">${escapeHtml(state.loading ? "…" : formatCount(filteredCount))}</span></h2>
+            <h2>${escapeHtml(meta.title)} <span class="orders-toolbar-count">${escapeHtml(state.loading ? "…" : formatCount(filteredCount))}</span></h2>
           </div>
           <div class="orders-toolbar-top-actions" role="toolbar" aria-label="Queue actions">
             <button type="button" class="orders-tool-btn orders-tool-btn--primary" id="ordersRefreshBtn" ${disabled}>${state.loading ? "Refreshing…" : "Refresh"}</button>
             <a class="orders-tool-btn" href="#/orders">Open All Orders</a>
           </div>
         </div>
+        ${isPaymentDesk ? `
+          <div class="orders-stats-strip" role="group" aria-label="${escapeHtml(meta.title)} summary">
+            ${queueStatCards.map((card) => {
+              const active = String(state.statBucket || "") === card.key;
+              return `
+                <button type="button" class="orders-stat-chip orders-stat-chip--${escapeHtml(card.tone)}${active ? " is-active" : ""}" data-orders-stat="${escapeHtml(card.key)}" aria-pressed="${active ? "true" : "false"}" ${disabled}>
+                  <span class="orders-stat-chip__icon" aria-hidden="true">${card.icon}</span>
+                  <span class="orders-stat-chip__copy">
+                    <span class="orders-stat-chip__label">${escapeHtml(card.label)}</span>
+                    <strong class="orders-stat-chip__count">${escapeHtml(formatCount(card.count))}</strong>
+                  </span>
+                </button>
+              `;
+            }).join("")}
+          </div>
+          <div class="orders-date-tabs" role="tablist" aria-label="Filter orders by date">
+            ${dateTabs.map((tab) => {
+              const active = activeDateTab === tab.key;
+              const countLabelText = tab.count == null ? "" : formatCount(tab.count);
+              return `
+                <button type="button" role="tab" class="orders-date-tab${active ? " is-active" : ""}" data-orders-date-tab="${escapeHtml(tab.key)}" aria-selected="${active ? "true" : "false"}" ${disabled}>
+                  <span class="orders-date-tab__label">${escapeHtml(DATE_TAB_SHORT[tab.key] || tab.label)}</span>
+                  ${countLabelText ? `<span class="orders-date-tab__count">${escapeHtml(countLabelText)}</span>` : ""}
+                </button>
+              `;
+            }).join("")}
+          </div>
+          ${activeDateTab === "custom" ? `
+            <div class="orders-custom-range" role="group" aria-label="Custom date range">
+              <label class="orders-custom-range__field">
+                <span>From</span>
+                <input type="date" id="ordersCustomFrom" max="${escapeHtml(todayMax)}" value="${escapeHtml(state.customDraftFrom || state.customFrom || "")}" ${disabled} />
+              </label>
+              <label class="orders-custom-range__field">
+                <span>To</span>
+                <input type="date" id="ordersCustomTo" max="${escapeHtml(todayMax)}" value="${escapeHtml(state.customDraftTo || state.customTo || "")}" ${disabled} />
+              </label>
+              <button type="button" class="orders-tool-btn orders-tool-btn--primary" data-orders-toolbar-action="apply-custom-range" ${disabled}>Apply</button>
+              <button type="button" class="orders-tool-btn" data-orders-toolbar-action="clear-custom-range" ${disabled}>Clear range</button>
+              ${state.customFrom && state.customTo ? `<p class="orders-custom-range__applied">${escapeHtml(formatReadableDate(state.customFrom))} – ${escapeHtml(formatReadableDate(state.customTo))}</p>` : ""}
+            </div>
+          ` : ""}
+        ` : ""}
         <div data-orders-notice-slot>${renderNotice()}</div>
         <div class="orders-toolbar-controls">
           <div class="orders-search-row">
             <label class="orders-search-field orders-search-field--queue" for="ordersSearch">
               <span class="sr-only">Search orders</span>
               <span aria-hidden="true">⌕</span>
-              <input type="search" id="ordersSearch" placeholder="Search order, customer, phone, product, SKU" value="${escapeHtml(state.query)}" autocomplete="off" ${disabled} />
+              <input type="search" id="ordersSearch" placeholder="${isPaymentDesk ? "Search Orders..." : "Search order, customer, phone, product, SKU"}" value="${escapeHtml(state.query)}" autocomplete="off" ${disabled} />
             </label>
             <div class="orders-search-row__tools">
               <select id="ordersSort" class="input orders-filter-control orders-sort-control" aria-label="Sort orders" ${disabled}>
@@ -4204,6 +4342,8 @@ export async function renderOrders(container, options = {}) {
             <select id="ordersStatusFilter" class="input orders-filter-control" aria-label="Filter by status" ${lockFilter ? "disabled" : ""}>
               <option value="" ${!state.statusFilter ? "selected" : ""}>All statuses</option>
               <option value="pending" ${state.statusFilter === "pending" ? "selected" : ""}>Pending queue</option>
+              <option value="paid" ${state.statusFilter === "paid" ? "selected" : ""}>Paid Orders</option>
+              <option value="cod" ${state.statusFilter === "cod" ? "selected" : ""}>COD / Pay on Delivery</option>
               <option value="completed" ${state.statusFilter === "completed" ? "selected" : ""}>Completed</option>
               <option value="cancelled" ${state.statusFilter === "cancelled" ? "selected" : ""}>Cancelled</option>
               <option value="returns" ${state.statusFilter === "returns" ? "selected" : ""}>Returns &amp; refunds</option>
@@ -4212,12 +4352,28 @@ export async function renderOrders(container, options = {}) {
                 return `<option value="${escapeHtml(value)}" ${state.statusFilter === value ? "selected" : ""}>${escapeHtml(status)} only</option>`;
               }).join("")}
             </select>
-            ${meta.mode === "completed" || meta.mode === "cancelled" || meta.mode === "returns" ? `
+            ${meta.mode === "paid" || meta.mode === "completed" || meta.mode === "cancelled" || meta.mode === "returns" ? `
               <select id="ordersPaymentFilter" class="input orders-filter-control" aria-label="Filter by payment method" ${disabled}>
                 <option value="" ${!state.paymentFilter ? "selected" : ""}>All payment methods</option>
                 <option value="mtn" ${state.paymentFilter === "mtn" ? "selected" : ""}>MTN MoMo</option>
                 <option value="card" ${state.paymentFilter === "card" ? "selected" : ""}>Card</option>
                 <option value="cod" ${state.paymentFilter === "cod" ? "selected" : ""}>Cash on Delivery</option>
+              </select>
+            ` : ""}
+            ${isPaymentDesk ? `
+              <select id="ordersDeliveryFilter" class="input orders-filter-control" aria-label="Filter by delivery status" ${disabled}>
+                <option value="" ${!state.deliveryStatusFilter ? "selected" : ""}>All delivery statuses</option>
+                ${DELIVERY_STATUS_FILTERS.map((item) => (
+                  `<option value="${escapeHtml(item.value)}" ${state.deliveryStatusFilter === item.value ? "selected" : ""}>${escapeHtml(item.label)}</option>`
+                )).join("")}
+              </select>
+            ` : ""}
+            ${meta.mode === "cod" ? `
+              <select id="ordersPaymentStatusFilter" class="input orders-filter-control" aria-label="Filter by payment status" ${disabled}>
+                <option value="" ${!state.paymentStatusFilter ? "selected" : ""}>All payment statuses</option>
+                ${PAYMENT_STATUS_FILTERS.map((item) => (
+                  `<option value="${escapeHtml(item.value)}" ${state.paymentStatusFilter === item.value ? "selected" : ""}>${escapeHtml(item.label)}</option>`
+                )).join("")}
               </select>
             ` : ""}
             ${meta.mode === "returns" ? `
@@ -4306,10 +4462,11 @@ export async function renderOrders(container, options = {}) {
     const start = (state.page - 1) * size;
     const pageItems = filtered.slice(start, start + size);
     const activeEl = document.activeElement;
-    const restoreSearch = meta.mode === "all"
-      && activeEl
+    const restoreSearch = Boolean(
+      activeEl
       && activeEl.id === "ordersSearch"
-      && container.contains(activeEl);
+      && container.contains(activeEl)
+    );
     const searchSelection = restoreSearch
       ? { start: activeEl.selectionStart, end: activeEl.selectionEnd }
       : null;
@@ -4357,27 +4514,13 @@ export async function renderOrders(container, options = {}) {
           ${state.loadError
             ? renderQueueEmptyState("Unable to load orders.", state.loadError)
             : renderQueueEmptyState(
-              meta.mode === "pending" ? "No pending orders found."
-                : meta.mode === "completed" ? "No completed orders found."
-                  : meta.mode === "cancelled" ? "No cancelled orders found."
-                    : meta.mode === "returns" ? "No return/refund requests found."
-                      : "No orders found.",
-              "Records will appear here automatically when they become available."
+              meta.emptyTitle || "No orders found.",
+              meta.emptyMessage || "Records will appear here automatically when they become available."
             )}
         </div>
       `;
       return;
     }
-
-    const emptyCopy = meta.mode === "pending"
-      ? { title: "No pending orders found.", message: "New checkout orders will appear here automatically." }
-      : meta.mode === "completed"
-        ? { title: "No completed orders found.", message: "Orders marked Delivered or Completed will appear here automatically." }
-        : meta.mode === "cancelled"
-          ? { title: "No cancelled orders found.", message: "Customer or admin cancellations will appear here automatically." }
-          : meta.mode === "returns"
-            ? { title: "No return/refund requests found.", message: "Paid cancellations and return requests will appear here automatically." }
-            : { title: "No matching orders", message: "No orders match your search or filters." };
 
     const hasQuery = Boolean(String(state.query || "").trim());
     const hasAttributeFilters = Boolean(
@@ -4386,7 +4529,14 @@ export async function renderOrders(container, options = {}) {
       || state.paymentStatusFilter
       || state.deliveryStatusFilter
       || state.statBucket
+      || (ORDER_QUEUE_MODES.has(meta.mode) && normalizeDateTab(state.dateTab) !== "all")
     );
+    const emptyCopy = hasQuery || hasAttributeFilters
+      ? { title: "No matching orders", message: "No orders match your search or filters." }
+      : {
+        title: meta.emptyTitle || "No matching orders",
+        message: meta.emptyMessage || "No orders match your search or filters."
+      };
     const needsCustomRange = meta.mode === "all"
       && normalizeDateTab(state.dateTab) === "custom"
       && (!state.customFrom || !state.customTo);
@@ -4415,7 +4565,7 @@ export async function renderOrders(container, options = {}) {
           needsCustomRange,
           dateTab: state.dateTab
         })
-        : renderQueueEmptyState(emptyCopy.title, emptyCopy.message));
+        : renderQueueEmptyState(emptyCopy.title, emptyCopy.message, { showClear: hasQuery || hasAttributeFilters }));
 
     if (meta.mode === "all") {
       container.innerHTML = `
@@ -4475,7 +4625,7 @@ export async function renderOrders(container, options = {}) {
         if (query.resetFilter) state.page = 1;
       } else if (query.resetFilter) {
         const current = String(state.statusFilter || "").trim().toLowerCase();
-        if (queueModes.has(current)) {
+        if (ORDER_QUEUE_MODES.has(current)) {
           state.statusFilter = "";
           state.page = 1;
         }
@@ -4705,19 +4855,20 @@ export async function renderOrders(container, options = {}) {
     if (!orderId || !paymentStatus || state.busyOrderId) return;
     const keepExpanded = String(state.expandedId) === String(orderId);
     state.busyOrderId = String(orderId);
-    setNotice(`Updating payment for ${orderId}...`, "warn");
-    paintFromState();
+    setReviewActionBusy(true);
+    notifyWithoutRemount(`Updating payment for ${orderId}...`, "warn");
     try {
       await updateOrderStatus(orderId, "", { paymentStatus });
-      setNotice(successMessage || `Payment updated for ${orderId}.`, "success");
+      notifyWithoutRemount(successMessage || `Payment updated for ${orderId}.`, "success");
       state.expandedId = keepExpanded ? String(orderId) : String(orderId);
       await loadOrders({ force: true });
     } catch (error) {
       console.error(error);
-      setNotice(error?.message || "Unable to update payment status.", "danger");
-      paintFromState();
+      notifyWithoutRemount(error?.message || "Unable to update payment status.", "danger");
     } finally {
       state.busyOrderId = "";
+      reviewDrawer.busy = false;
+      if (isReviewDrawerOpen()) refreshOpenReviewDrawer();
     }
   }
 
@@ -4737,6 +4888,7 @@ export async function renderOrders(container, options = {}) {
       paintFromState();
     } finally {
       state.busyOrderId = "";
+      if (isReviewDrawerOpen()) refreshOpenReviewDrawer();
     }
   }
 
@@ -4828,9 +4980,8 @@ export async function renderOrders(container, options = {}) {
 
     if (target.id === "ordersStatusFilter") {
       const nextValue = target.value;
-      const queueModes = new Set(["pending", "completed", "cancelled", "returns"]);
-      const isQueueJump = queueModes.has(String(nextValue || "").toLowerCase());
-      if (isQueueJump || (nextValue === "" && queueModes.has(String(state.statusFilter || "").toLowerCase()))) {
+      const isQueueJump = ORDER_QUEUE_MODES.has(String(nextValue || "").toLowerCase());
+      if (isQueueJump || (nextValue === "" && ORDER_QUEUE_MODES.has(String(state.statusFilter || "").toLowerCase()))) {
         const nextHash = nextValue
           ? `#/orders?status=${encodeURIComponent(nextValue)}`
           : "#/orders";
@@ -5539,3 +5690,4 @@ export async function renderOrders(container, options = {}) {
     reload: (opts = {}) => loadOrders({ force: true, ...opts })
   };
 }
+
