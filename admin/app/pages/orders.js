@@ -1,4 +1,4 @@
-import { badge, emptyState, formatCurrency, formatDate, panel } from "../components/ui.js";
+import { badge, formatCurrency, formatDate } from "../components/ui.js";
 import { bulkDeleteOrders, bulkUpdateOrderStatus, deleteOrder, getAdminBranding, getInvoiceVerification, getOrderById, getOrders, getSettings, updateOrderStatus } from "../services/admin-data.service.js";
 import { downloadCsvFile, openPrintableReport } from "../services/enterprise-intelligence.service.js";
 import { openInvoiceDocument, resolveInvoiceCompany } from "../services/invoice-document.service.js";
@@ -3308,6 +3308,15 @@ function renderAllOrdersEmptyState({
   `;
 }
 
+function renderQueueEmptyState(title, message) {
+  return `
+    <div class="orders-empty-state orders-empty-state--queue">
+      <h3>${escapeHtml(title)}</h3>
+      <p>${escapeHtml(message)}</p>
+    </div>
+  `;
+}
+
 function renderOrderCard(order, { expanded = false, viewMode = "all", selectedIds = [] } = {}) {
   const items = Array.isArray(order?.items) ? order.items : [];
   const paymentStatus = order?.paymentStatusLabel || order?.paymentStatus || "Pending";
@@ -4149,84 +4158,92 @@ export async function renderOrders(container, options = {}) {
     `;
     }
 
+    const disabled = state.loading ? "disabled" : "";
     return `
-      <section class="orders-toolbar-panel glass-panel">
-        <div class="orders-toolbar-copy">
-          <p class="dashboard-eyebrow">${escapeHtml(meta.eyebrow)}</p>
-          <h2>${escapeHtml(meta.title)}</h2>
-          <p>${escapeHtml(meta.description)}</p>
+      <section class="orders-toolbar-panel orders-toolbar-panel--queue" aria-label="${escapeHtml(meta.eyebrow)}">
+        <div class="orders-toolbar-header-queue">
+          <div class="orders-toolbar-copy orders-toolbar-copy--queue">
+            <h2>${escapeHtml(meta.eyebrow)} <span class="orders-toolbar-count">${escapeHtml(state.loading ? "…" : formatCount(filteredCount))}</span></h2>
+          </div>
+          <div class="orders-toolbar-top-actions" role="toolbar" aria-label="Queue actions">
+            <button type="button" class="orders-tool-btn orders-tool-btn--primary" id="ordersRefreshBtn" ${disabled}>${state.loading ? "Refreshing…" : "Refresh"}</button>
+            <a class="orders-tool-btn" href="#/orders">Open All Orders</a>
+          </div>
         </div>
-        ${renderNotice()}
-        <div class="orders-toolbar-actions">
-          <label class="orders-search-field">
-            <span aria-hidden="true">⌕</span>
-            <input type="search" id="ordersSearch" placeholder="Search order, customer, phone, product, SKU" value="${escapeHtml(state.query)}" ${state.loading ? "disabled" : ""} />
-          </label>
-          <select id="ordersStatusFilter" class="input" aria-label="Filter by status" ${lockFilter ? "disabled" : ""}>
-            <option value="" ${!state.statusFilter ? "selected" : ""}>All statuses</option>
-            <option value="pending" ${state.statusFilter === "pending" ? "selected" : ""}>Pending queue</option>
-            <option value="completed" ${state.statusFilter === "completed" ? "selected" : ""}>Completed</option>
-            <option value="cancelled" ${state.statusFilter === "cancelled" ? "selected" : ""}>Cancelled</option>
-            <option value="returns" ${state.statusFilter === "returns" ? "selected" : ""}>Returns &amp; refunds</option>
-            ${STATUS_OPTIONS.map((status) => {
-              const value = `status:${status.toLowerCase()}`;
-              return `<option value="${escapeHtml(value)}" ${state.statusFilter === value ? "selected" : ""}>${escapeHtml(status)} only</option>`;
-            }).join("")}
-          </select>
-          <select id="ordersSort" class="input" aria-label="Sort orders" ${state.loading ? "disabled" : ""}>
-            <option value="date-desc" ${state.sort === "date-desc" ? "selected" : ""}>Newest first</option>
-            <option value="date-asc" ${state.sort === "date-asc" ? "selected" : ""}>Oldest first</option>
-            ${meta.mode === "completed" ? `
-              <option value="completed-desc" ${state.sort === "completed-desc" ? "selected" : ""}>Newest completion</option>
-              <option value="completed-asc" ${state.sort === "completed-asc" ? "selected" : ""}>Oldest completion</option>
-            ` : ""}
-            ${meta.mode === "cancelled" ? `
-              <option value="cancelled-desc" ${state.sort === "cancelled-desc" ? "selected" : ""}>Newest cancellation</option>
-              <option value="cancelled-asc" ${state.sort === "cancelled-asc" ? "selected" : ""}>Oldest cancellation</option>
+        <div data-orders-notice-slot>${renderNotice()}</div>
+        <div class="orders-toolbar-controls">
+          <div class="orders-search-row">
+            <label class="orders-search-field orders-search-field--queue" for="ordersSearch">
+              <span class="sr-only">Search orders</span>
+              <span aria-hidden="true">⌕</span>
+              <input type="search" id="ordersSearch" placeholder="Search order, customer, phone, product, SKU" value="${escapeHtml(state.query)}" autocomplete="off" ${disabled} />
+            </label>
+            <div class="orders-search-row__tools">
+              <select id="ordersSort" class="input orders-filter-control orders-sort-control" aria-label="Sort orders" ${disabled}>
+                <option value="date-desc" ${state.sort === "date-desc" ? "selected" : ""}>Newest first</option>
+                <option value="date-asc" ${state.sort === "date-asc" ? "selected" : ""}>Oldest first</option>
+                ${meta.mode === "completed" ? `
+                  <option value="completed-desc" ${state.sort === "completed-desc" ? "selected" : ""}>Newest completion</option>
+                  <option value="completed-asc" ${state.sort === "completed-asc" ? "selected" : ""}>Oldest completion</option>
+                ` : ""}
+                ${meta.mode === "cancelled" ? `
+                  <option value="cancelled-desc" ${state.sort === "cancelled-desc" ? "selected" : ""}>Newest cancellation</option>
+                  <option value="cancelled-asc" ${state.sort === "cancelled-asc" ? "selected" : ""}>Oldest cancellation</option>
+                ` : ""}
+                ${meta.mode === "returns" ? `
+                  <option value="return-desc" ${state.sort === "return-desc" ? "selected" : ""}>Newest return request</option>
+                  <option value="return-asc" ${state.sort === "return-asc" ? "selected" : ""}>Oldest return request</option>
+                ` : ""}
+                <option value="total-desc" ${state.sort === "total-desc" ? "selected" : ""}>Highest total</option>
+                <option value="total-asc" ${state.sort === "total-asc" ? "selected" : ""}>Lowest total</option>
+                <option value="status" ${state.sort === "status" ? "selected" : ""}>Status</option>
+              </select>
+            </div>
+          </div>
+          <div class="orders-toolbar-filters orders-toolbar-filters--queue">
+            <select id="ordersStatusFilter" class="input orders-filter-control" aria-label="Filter by status" ${lockFilter ? "disabled" : ""}>
+              <option value="" ${!state.statusFilter ? "selected" : ""}>All statuses</option>
+              <option value="pending" ${state.statusFilter === "pending" ? "selected" : ""}>Pending queue</option>
+              <option value="completed" ${state.statusFilter === "completed" ? "selected" : ""}>Completed</option>
+              <option value="cancelled" ${state.statusFilter === "cancelled" ? "selected" : ""}>Cancelled</option>
+              <option value="returns" ${state.statusFilter === "returns" ? "selected" : ""}>Returns &amp; refunds</option>
+              ${STATUS_OPTIONS.map((status) => {
+                const value = `status:${status.toLowerCase()}`;
+                return `<option value="${escapeHtml(value)}" ${state.statusFilter === value ? "selected" : ""}>${escapeHtml(status)} only</option>`;
+              }).join("")}
+            </select>
+            ${meta.mode === "completed" || meta.mode === "cancelled" || meta.mode === "returns" ? `
+              <select id="ordersPaymentFilter" class="input orders-filter-control" aria-label="Filter by payment method" ${disabled}>
+                <option value="" ${!state.paymentFilter ? "selected" : ""}>All payment methods</option>
+                <option value="mtn" ${state.paymentFilter === "mtn" ? "selected" : ""}>MTN MoMo</option>
+                <option value="card" ${state.paymentFilter === "card" ? "selected" : ""}>Card</option>
+                <option value="cod" ${state.paymentFilter === "cod" ? "selected" : ""}>Cash on Delivery</option>
+              </select>
             ` : ""}
             ${meta.mode === "returns" ? `
-              <option value="return-desc" ${state.sort === "return-desc" ? "selected" : ""}>Newest return request</option>
-              <option value="return-asc" ${state.sort === "return-asc" ? "selected" : ""}>Oldest return request</option>
+              <select id="ordersReturnStatusFilter" class="input orders-filter-control" aria-label="Filter by return status" ${disabled}>
+                <option value="" ${!state.returnStatusFilter ? "selected" : ""}>All return statuses</option>
+                <option value="requested" ${state.returnStatusFilter === "requested" ? "selected" : ""}>Requested</option>
+                <option value="approved" ${state.returnStatusFilter === "approved" ? "selected" : ""}>Approved</option>
+                <option value="rejected" ${state.returnStatusFilter === "rejected" ? "selected" : ""}>Rejected</option>
+              </select>
+              <select id="ordersRefundStatusFilter" class="input orders-filter-control" aria-label="Filter by refund status" ${disabled}>
+                <option value="" ${!state.refundStatusFilter ? "selected" : ""}>All refund statuses</option>
+                <option value="required" ${state.refundStatusFilter === "required" ? "selected" : ""}>Required</option>
+                <option value="completed" ${state.refundStatusFilter === "completed" ? "selected" : ""}>Completed</option>
+                <option value="rejected" ${state.refundStatusFilter === "rejected" ? "selected" : ""}>Rejected</option>
+              </select>
             ` : ""}
-            <option value="total-desc" ${state.sort === "total-desc" ? "selected" : ""}>Highest total</option>
-            <option value="total-asc" ${state.sort === "total-asc" ? "selected" : ""}>Lowest total</option>
-            <option value="status" ${state.sort === "status" ? "selected" : ""}>Status</option>
-          </select>
-          ${meta.mode === "completed" || meta.mode === "cancelled" || meta.mode === "returns" ? `
-            <select id="ordersPaymentFilter" class="input" aria-label="Filter by payment method" ${state.loading ? "disabled" : ""}>
-              <option value="" ${!state.paymentFilter ? "selected" : ""}>All payment methods</option>
-              <option value="mtn" ${state.paymentFilter === "mtn" ? "selected" : ""}>MTN MoMo</option>
-              <option value="card" ${state.paymentFilter === "card" ? "selected" : ""}>Card</option>
-              <option value="cod" ${state.paymentFilter === "cod" ? "selected" : ""}>Cash on Delivery</option>
-            </select>
-          ` : ""}
-          ${meta.mode === "returns" ? `
-            <select id="ordersReturnStatusFilter" class="input" aria-label="Filter by return status" ${state.loading ? "disabled" : ""}>
-              <option value="" ${!state.returnStatusFilter ? "selected" : ""}>All return statuses</option>
-              <option value="requested" ${state.returnStatusFilter === "requested" ? "selected" : ""}>Requested</option>
-              <option value="approved" ${state.returnStatusFilter === "approved" ? "selected" : ""}>Approved</option>
-              <option value="rejected" ${state.returnStatusFilter === "rejected" ? "selected" : ""}>Rejected</option>
-            </select>
-            <select id="ordersRefundStatusFilter" class="input" aria-label="Filter by refund status" ${state.loading ? "disabled" : ""}>
-              <option value="" ${!state.refundStatusFilter ? "selected" : ""}>All refund statuses</option>
-              <option value="required" ${state.refundStatusFilter === "required" ? "selected" : ""}>Required</option>
-              <option value="completed" ${state.refundStatusFilter === "completed" ? "selected" : ""}>Completed</option>
-              <option value="rejected" ${state.refundStatusFilter === "rejected" ? "selected" : ""}>Rejected</option>
-            </select>
-          ` : ""}
-          ${meta.mode === "cancelled" ? `
-            <select id="ordersCancelledByFilter" class="input" aria-label="Filter by cancelled by" ${state.loading ? "disabled" : ""}>
-              <option value="" ${!state.cancelledByFilter ? "selected" : ""}>Cancelled by anyone</option>
-              <option value="admin" ${state.cancelledByFilter === "admin" ? "selected" : ""}>Admin</option>
-              <option value="customer" ${state.cancelledByFilter === "customer" ? "selected" : ""}>Customer</option>
-            </select>
-          ` : ""}
-          <button type="button" class="btn btn-primary" id="ordersRefreshBtn" ${state.loading ? "disabled" : ""}>${state.loading ? "Refreshing..." : "Refresh"}</button>
+            ${meta.mode === "cancelled" ? `
+              <select id="ordersCancelledByFilter" class="input orders-filter-control" aria-label="Filter by cancelled by" ${disabled}>
+                <option value="" ${!state.cancelledByFilter ? "selected" : ""}>Cancelled by anyone</option>
+                <option value="admin" ${state.cancelledByFilter === "admin" ? "selected" : ""}>Admin</option>
+                <option value="customer" ${state.cancelledByFilter === "customer" ? "selected" : ""}>Customer</option>
+              </select>
+            ` : ""}
+          </div>
         </div>
-        <div class="orders-hero-status-row">
-          <span>${escapeHtml(countLabel)}</span>
-          ${meta.mode === "pending" || meta.mode === "completed" || meta.mode === "cancelled" || meta.mode === "returns" ? `<a class="orders-inline-link" href="#/orders">Open All Orders</a>` : ""}
-        </div>
+        <p class="orders-toolbar-meta-line">${escapeHtml(countLabel)}</p>
       </section>
     `;
   }
@@ -4311,7 +4328,12 @@ export async function renderOrders(container, options = {}) {
         bindStickyShell();
         return;
       }
-      container.innerHTML = panel(meta.title, meta.description, `<div class="state-block">Loading ${escapeHtml(meta.title.toLowerCase())}...</div>`);
+      container.innerHTML = `
+        <div class="orders-page-grid orders-page--queue">
+          ${renderToolbar(0, 0)}
+          ${renderQueueEmptyState(`Loading ${meta.title}`, "Fetching the latest records…")}
+        </div>
+      `;
       return;
     }
 
@@ -4329,19 +4351,33 @@ export async function renderOrders(container, options = {}) {
         bindStickyShell();
         return;
       }
-      container.innerHTML = panel(meta.title, meta.description, emptyState("No orders found."));
+      container.innerHTML = `
+        <div class="orders-page-grid orders-page--queue">
+          ${renderToolbar(0, 0)}
+          ${state.loadError
+            ? renderQueueEmptyState("Unable to load orders.", state.loadError)
+            : renderQueueEmptyState(
+              meta.mode === "pending" ? "No pending orders found."
+                : meta.mode === "completed" ? "No completed orders found."
+                  : meta.mode === "cancelled" ? "No cancelled orders found."
+                    : meta.mode === "returns" ? "No return/refund requests found."
+                      : "No orders found.",
+              "Records will appear here automatically when they become available."
+            )}
+        </div>
+      `;
       return;
     }
 
     const emptyCopy = meta.mode === "pending"
-      ? "No pending orders right now. New checkout orders will appear here automatically."
+      ? { title: "No pending orders found.", message: "New checkout orders will appear here automatically." }
       : meta.mode === "completed"
-        ? "No completed orders yet. Orders marked Delivered or Completed will appear here automatically."
+        ? { title: "No completed orders found.", message: "Orders marked Delivered or Completed will appear here automatically." }
         : meta.mode === "cancelled"
-          ? "No cancelled orders yet. Customer or admin cancellations will appear here automatically."
+          ? { title: "No cancelled orders found.", message: "Customer or admin cancellations will appear here automatically." }
           : meta.mode === "returns"
-            ? "No return or refund requests yet. Paid cancellations and return requests will appear here automatically."
-            : "No orders match your search or filters.";
+            ? { title: "No return/refund requests found.", message: "Paid cancellations and return requests will appear here automatically." }
+            : { title: "No matching orders", message: "No orders match your search or filters." };
 
     const hasQuery = Boolean(String(state.query || "").trim());
     const hasAttributeFilters = Boolean(
@@ -4379,7 +4415,7 @@ export async function renderOrders(container, options = {}) {
           needsCustomRange,
           dateTab: state.dateTab
         })
-        : `<div class="orders-empty-state">${emptyState(emptyCopy)}</div>`);
+        : renderQueueEmptyState(emptyCopy.title, emptyCopy.message));
 
     if (meta.mode === "all") {
       container.innerHTML = `
@@ -4404,9 +4440,9 @@ export async function renderOrders(container, options = {}) {
       writeStoredListFilters(state);
     } else {
       container.innerHTML = `
-        <div class="orders-page-grid">
+        <div class="orders-page-grid orders-page--queue">
           ${renderToolbar(filtered.length, state.allOrders.length)}
-          <div class="orders-mobile-grid">${cards}</div>
+          <div class="orders-mobile-grid orders-mobile-grid--queue">${cards}</div>
           ${renderPagination(totalPages, filtered.length)}
         </div>
       `;
