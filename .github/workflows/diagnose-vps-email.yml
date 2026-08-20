@@ -1,0 +1,218 @@
+# Safe production email diagnosis. Never prints secret values.
+# Trigger: workflow_dispatch or a change to this file.
+
+name: Diagnose VPS email
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/diagnose-vps-email.yml'
+      - 'scripts/diagnose-vps-email.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Inspect VPS email configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Diagnose production email environment over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          command_timeout: 8m
+          script_stop: true
+          script: |
+            set -euo pipefail
+            if [[ -d "/root/byose-market/.git" ]]; then
+              DEPLOY_DIR="/root/byose-market"
+            elif [[ -d "/root/BYOSESEMARKET4/.git" ]]; then
+              DEPLOY_DIR="/root/BYOSESEMARKET4"
+            else
+              echo "ERROR: No VPS git clone found" >&2
+              exit 1
+            fi
+            cd "${DEPLOY_DIR}"
+            echo "=== GIT ==="
+            echo "DEPLOY_DIR=${DEPLOY_DIR}"
+            echo "branch=$(git rev-parse --abbrev-ref HEAD)"
+            echo "commit=$(git rev-parse HEAD)"
+            echo "short=$(git rev-parse --short HEAD)"
+            echo "subject=$(git log -1 --format=%s)"
+            echo "expected_step6=530a94d"
+
+            echo "=== PM2 ==="
+            pm2 describe byosemarket-api | sed -n '1,28p' || true
+            echo "pm2_status=$(pm2 jlist | python3 -c 'import json,sys; apps=json.load(sys.stdin); app=next((a for a in apps if a.get("name")=="byosemarket-api"), apps[0] if apps else {}); print(app.get("pm2_env",{}).get("status","missing"))')"
+
+            python3 - <<'PY'
+            import json, os, re, subprocess, socket
+            from pathlib import Path
+
+            def parse_env(path):
+                vals = {}
+                p = Path(path)
+                if not p.is_file():
+                    return None
+                for raw in p.read_text(encoding="utf-8", errors="replace").splitlines():
+                    line = raw.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, value = line.split("=", 1)
+                    vals[key.strip()] = value.strip().strip('"').strip("'")
+                return vals
+
+            def mask_email(value):
+                text = str(value or "").strip().lower()
+                if "@" not in text:
+                    return "invalid-or-empty"
+                local, domain = text.split("@", 1)
+                if not local or not domain:
+                    return "invalid-or-empty"
+                return f"{local[:2]}***@{domain}"
+
+            def report_key(source, key, value, reveal_safe=False):
+                present = value is not None
+                nonempty = bool(str(value or "").strip())
+                secret = bool(re.search(r"PASS|SECRET|KEY|TOKEN|HASH|PWD", key, re.I))
+                if secret:
+                    print(f"{source} {key}: {'configured' if nonempty else ('empty' if present else 'missing')} len={len(str(value)) if nonempty else 0}")
+                    return
+                if key.upper().endswith("USER") or "EMAIL" in key.upper() and "HOST" not in key.upper() and "PORT" not in key.upper() and "SECURE" not in key.upper() and "PROVIDER" not in key.upper() and "ENABLED" not in key.upper() and "FROM_NAME" not in key.upper():
+                    print(f"{source} {key}: {'configured' if nonempty else ('empty' if present else 'missing')} masked={mask_email(value) if nonempty else '-'}")
+                    return
+                extra = ""
+                if nonempty and reveal_safe:
+                    extra = f" value={value}"
+                print(f"{source} {key}: {'configured' if nonempty else ('empty' if present else 'missing')}{extra}")
+
+            deploy = Path.cwd()
+            print("=== ENV FILES ===")
+            candidates = [
+                deploy / ".env",
+                deploy / "backend/.env",
+                deploy / ".env.production",
+                Path("/etc/environment"),
+            ]
+            email_keys = [
+                "EMAIL_PROVIDER","EMAIL_HOST","EMAIL_PORT","EMAIL_SECURE","EMAIL_USER","EMAIL_PASS",
+                "EMAIL_FROM_NAME","EMAIL_FROM_ADDRESS","EMAIL_TRANSPORT",
+                "SMTP_HOST","SMTP_PORT","SMTP_SECURE","SMTP_USER","SMTP_USERNAME","SMTP_PASS","SMTP_PASSWORD",
+                "ADMIN_EMAIL_NOTIFICATIONS_ENABLED","NOTIFY_EMAIL_ENABLED","ADMIN_ALERT_EMAIL","ADMIN_ALERT_EMAIL_2",
+                "ADMIN_EMAIL"
+            ]
+            safe_reveal = {
+                "EMAIL_PROVIDER","EMAIL_HOST","EMAIL_PORT","EMAIL_SECURE","EMAIL_FROM_NAME","EMAIL_TRANSPORT",
+                "SMTP_HOST","SMTP_PORT","SMTP_SECURE","ADMIN_EMAIL_NOTIFICATIONS_ENABLED","NOTIFY_EMAIL_ENABLED"
+            }
+            found_any = False
+            for path in candidates:
+                vals = parse_env(path)
+                print(f"file {path}: {'present' if vals is not None else 'absent'}")
+                if vals is None:
+                    continue
+                found_any = True
+                for key in email_keys:
+                    report_key(str(path), key, vals.get(key), reveal_safe=key in safe_reveal)
+                extra = sorted(k for k in vals if re.search(r"EMAIL|SMTP|MAIL", k, re.I) and k not in email_keys)
+                if extra:
+                    print(f"other mail-like keys in {path}: {', '.join(extra)}")
+
+            print("=== PM2 PROCESS ENV (names only / safe values) ===")
+            try:
+                raw = subprocess.check_output(["pm2", "jlist"], text=True)
+                apps = json.loads(raw)
+                app = next((a for a in apps if a.get("name") == "byosemarket-api"), apps[0] if apps else {})
+                env = (app.get("pm2_env") or {})
+                print(f"pm2 cwd={env.get('pm_cwd')}")
+                print(f"pm2 script={env.get('pm_exec_path')}")
+                print(f"pm2 node_env={env.get('NODE_ENV')}")
+                print(f"pm2 status={env.get('status')}")
+                print(f"pm2 restarts={env.get('restart_time')}")
+                for key in email_keys:
+                    report_key("pm2", key, env.get(key), reveal_safe=key in safe_reveal)
+            except Exception as exc:
+                print(f"pm2 inspect failed: {exc}")
+
+            print("=== NOTIFICATION SETTINGS (sqlite) ===")
+            db_path = deploy / "server/database/byosemarket.sqlite"
+            print(f"sqlite {db_path}: {'present' if db_path.is_file() else 'absent'}")
+            if db_path.is_file():
+                try:
+                    import sqlite3
+                    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+                    cur = con.cursor()
+                    tables = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+                    print("tables_have_settings=" + str(any("setting" in t.lower() for t in tables)))
+                    row = None
+                    for sql in [
+                        "SELECT value_json FROM settings WHERE key='global'",
+                        "SELECT value_json FROM settings LIMIT 1",
+                    ]:
+                        try:
+                            row = cur.execute(sql).fetchone()
+                            if row:
+                                break
+                        except Exception:
+                            continue
+                    payload = None
+                    if row and row[0]:
+                        payload = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                        ns = {}
+                        if isinstance(payload, dict):
+                            ns = payload.get("notificationSettings") or {}
+                        print("recipient1_enabled=" + str(ns.get("adminNotificationEmailEnabled")))
+                        print("recipient1=" + mask_email(ns.get("adminNotificationEmail")))
+                        print("recipient2_enabled=" + str(ns.get("adminNotificationEmail2Enabled")))
+                        print("recipient2=" + mask_email(ns.get("adminNotificationEmail2")))
+                        print("emailNotificationsEnabled=" + str(ns.get("emailNotificationsEnabled")))
+                    con.close()
+                except Exception as exc:
+                    print(f"sqlite inspect failed: {exc}")
+
+            print("=== LOCAL MAIL / NETWORK ===")
+            for cmd in (["which", "postfix"], ["which", "sendmail"], ["ss", "-lnt"]):
+                try:
+                    out = subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
+                    if cmd[0] == "ss":
+                        lines = [ln for ln in out.splitlines() if re.search(r":25|:465|:587", ln)]
+                        print("listening_mail_ports=" + (", ".join(lines) if lines else "none"))
+                    else:
+                        print(" ".join(cmd) + "=" + out.strip())
+                except Exception:
+                    print(" ".join(cmd) + "=unavailable")
+
+            hosts = ["smtp.gmail.com", "smtp.office365.com"]
+            env_host = None
+            try:
+                vals = parse_env(deploy / ".env") or {}
+                env_host = (vals.get("EMAIL_HOST") or vals.get("SMTP_HOST") or "").strip()
+            except Exception:
+                env_host = ""
+            if env_host and env_host not in hosts:
+                hosts.insert(0, env_host)
+            for host in hosts:
+                try:
+                    infos = socket.getaddrinfo(host, 587, type=socket.SOCK_STREAM)
+                    print(f"dns {host}: ok addrs={len(infos)}")
+                except Exception as exc:
+                    print(f"dns {host}: FAIL {exc}")
+                for port in (587, 465):
+                    try:
+                        sock = socket.create_connection((host, port), timeout=8)
+                        sock.close()
+                        print(f"tcp {host}:{port}: open")
+                    except Exception as exc:
+                        print(f"tcp {host}:{port}: FAIL {exc}")
+            PY
+
+            echo "=== HEALTH ==="
+            curl -sS --max-time 10 http://127.0.0.1:5000/healthz || true
+            echo
+            echo "DIAGNOSE_DONE"

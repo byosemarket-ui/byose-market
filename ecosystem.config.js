@@ -71,6 +71,15 @@ module.exports = {
                 PAYMENT_ENCRYPTION_KEY: readEnv('PAYMENT_ENCRYPTION_KEY'),
                 JWT_EXPIRES_IN: readEnv('JWT_EXPIRES_IN', '7d'),
                 LOG_LEVEL: readEnv('LOG_LEVEL', 'info'),
+                EMAIL_PROVIDER: readEnv('EMAIL_PROVIDER', 'smtp'),
+                EMAIL_HOST: readEnv('EMAIL_HOST'),
+                EMAIL_PORT: readEnv('EMAIL_PORT', '587'),
+                EMAIL_SECURE: readEnv('EMAIL_SECURE', 'false'),
+                EMAIL_USER: readEnv('EMAIL_USER'),
+                EMAIL_PASS: readEnv('EMAIL_PASS'),
+                EMAIL_FROM_NAME: readEnv('EMAIL_FROM_NAME', 'BYOSE Market'),
+                EMAIL_FROM_ADDRESS: readEnv('EMAIL_FROM_ADDRESS'),
+                ADMIN_EMAIL_NOTIFICATIONS_ENABLED: readEnv('ADMIN_EMAIL_NOTIFICATIONS_ENABLED', 'true'),
                 NODE_OPTIONS: nodeOptions
             }
         }
