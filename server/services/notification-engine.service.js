@@ -1,12 +1,23 @@
 /**
  * Admin in-app notification engine.
  * Separates event → notification mapping from business controllers.
- * Does NOT send email/SMS (that remains in utils/notifications.js).
+ * Email/SMS delivery is handled by the automation worker + notification hub
+ * after events are persisted. Controllers must only enqueue via the helpers below.
  */
 
 const notificationService = require('./notification.service');
 const getRealtimeEventService = require('./realtimeeventservice');
 const { appLogger } = require('../utils/logger');
+const {
+    isPaidStatus,
+    isFailedPayment,
+    isCancelledPayment,
+    isPendingPayment,
+    mapStatusToEventKey,
+    mapReturnActionToEventKey,
+    listOrderCreatedEvents,
+    listOrderStatusChangedEvents
+} = require('./notification-lifecycle.map');
 
 const LOW_STOCK_THRESHOLD = 5;
 
@@ -18,11 +29,18 @@ const EVENT_CATALOG = Object.freeze({
         title: 'New order received',
         icon: 'order'
     },
+    PAYMENT_PENDING: {
+        key: 'PAYMENT_PENDING',
+        type: 'payment',
+        priority: 'normal',
+        title: 'Payment pending',
+        icon: 'payment'
+    },
     PAYMENT_RECEIVED: {
         key: 'PAYMENT_RECEIVED',
         type: 'payment',
         priority: 'high',
-        title: 'Payment received',
+        title: 'Payment successful',
         icon: 'payment'
     },
     PAYMENT_FAILED: {
@@ -30,6 +48,13 @@ const EVENT_CATALOG = Object.freeze({
         type: 'payment',
         priority: 'high',
         title: 'Payment failed',
+        icon: 'payment'
+    },
+    PAYMENT_CANCELLED: {
+        key: 'PAYMENT_CANCELLED',
+        type: 'payment',
+        priority: 'high',
+        title: 'Payment cancelled',
         icon: 'payment'
     },
     ORDER_CANCELLED: {
@@ -85,7 +110,7 @@ const EVENT_CATALOG = Object.freeze({
         key: 'REFUND_APPROVED',
         type: 'refund',
         priority: 'high',
-        title: 'Refund approved',
+        title: 'Refund completed',
         icon: 'refund'
     },
     REFUND_REJECTED: {
@@ -173,29 +198,6 @@ function productNameOf(product) {
     return text(product?.name || product?.title || product?.catalogId || 'Product');
 }
 
-function isPaidStatus(value) {
-    const status = lower(value);
-    if (!status || status.includes('unpaid') || status.includes('awaiting') || status.includes('refund')) {
-        return false;
-    }
-    return status === 'paid'
-        || status === 'success'
-        || status === 'successful'
-        || status === 'completed'
-        || /(^|_)paid($|_)/.test(status)
-        || status.endsWith('_paid');
-}
-
-function isFailedPayment(value) {
-    const status = lower(value);
-    return status === 'failed'
-        || status === 'fail'
-        || status === 'declined'
-        || status === 'payment_failed'
-        || status.endsWith('_failed')
-        || status.includes('declined');
-}
-
 function isPublishedStatus(value) {
     const status = lower(value);
     return status === 'active' || status === 'published' || status === 'live';
@@ -206,34 +208,6 @@ function isDisabledStatus(value) {
     return status === 'inactive' || status === 'disabled' || status === 'archived' || status === 'draft';
 }
 
-function mapStatusToEventKey(status) {
-    const value = lower(status);
-    if (value.includes('cancel')) return 'ORDER_CANCELLED';
-    if (value.includes('confirm')) return 'ORDER_CONFIRMED';
-    if (value.includes('process')) return 'ORDER_PROCESSING';
-    if (value.includes('pack')) return 'ORDER_PACKED';
-    if (value.includes('ship') || value.includes('out for delivery') || value.includes('out_for_delivery')) {
-        return 'ORDER_SHIPPED';
-    }
-    if (value.includes('deliver') || value.includes('complete')) return 'ORDER_DELIVERED';
-    return '';
-}
-
-function mapReturnActionToEventKey(action) {
-    const value = lower(action);
-    if (
-        value === 'open_return'
-        || value === 'request_return'
-        || value === 'refund_requested'
-        || value === 'refund_required'
-    ) {
-        return 'REFUND_REQUESTED';
-    }
-    if (value === 'approve_refund' || value === 'complete_refund') return 'REFUND_APPROVED';
-    if (value === 'reject_refund') return 'REFUND_REJECTED';
-    return '';
-}
-
 function buildMessage(eventKey, context = {}) {
     const orderId = text(context.orderId || orderIdOf(context.order));
     const customer = text(context.customerName || customerLabel(context.order || context.customer));
@@ -241,12 +215,24 @@ function buildMessage(eventKey, context = {}) {
     const stock = context.stock;
 
     switch (eventKey) {
-    case 'ORDER_CREATED':
-        return `Order ${orderId} was placed by ${customer}.`;
+    case 'ORDER_CREATED': {
+        const paymentLabel = text(
+            context.order?.paymentStatusLabel
+            || context.order?.payment?.statusLabel
+            || context.order?.paymentStatus
+            || context.order?.payment?.status,
+            'pending'
+        );
+        return `Order ${orderId} was placed by ${customer}. Payment status: ${paymentLabel}.`;
+    }
+    case 'PAYMENT_PENDING':
+        return `Payment is still pending for order ${orderId}.`;
     case 'PAYMENT_RECEIVED':
-        return `Payment confirmed for order ${orderId}.`;
+        return `Payment successful for order ${orderId}.`;
     case 'PAYMENT_FAILED':
         return `Payment failed for order ${orderId}.`;
+    case 'PAYMENT_CANCELLED':
+        return `Payment was cancelled for order ${orderId}.`;
     case 'ORDER_CANCELLED':
         return `Order ${orderId} was cancelled.`;
     case 'ORDER_CONFIRMED':
@@ -262,7 +248,7 @@ function buildMessage(eventKey, context = {}) {
     case 'REFUND_REQUESTED':
         return `A refund/return was requested for order ${orderId}.`;
     case 'REFUND_APPROVED':
-        return `Refund approved for order ${orderId}.`;
+        return `Refund completed for order ${orderId}.`;
     case 'REFUND_REJECTED':
         return `Refund rejected for order ${orderId}.`;
     case 'CUSTOMER_REGISTERED':
@@ -376,63 +362,39 @@ function safePublish(eventKey, context = {}) {
 
 async function notifyOrderCreated(order) {
     if (!order) return [];
-    const tasks = [safePublish('ORDER_CREATED', { order })];
-
-    const paymentStatus = order.paymentStatus || order.payment?.status || '';
-    if (isPaidStatus(paymentStatus)) {
-        tasks.push(safePublish('PAYMENT_RECEIVED', { order }));
-    } else if (isFailedPayment(paymentStatus)) {
-        tasks.push(safePublish('PAYMENT_FAILED', { order }));
-    }
-
-    // When platform default status is already Confirmed/Processing/etc, still emit that lifecycle event once.
-    const statusEvent = mapStatusToEventKey(order.status || order.orderStatus || '');
-    if (statusEvent && statusEvent !== 'ORDER_CANCELLED') {
-        tasks.push(safePublish(statusEvent, {
-            order,
-            metadata: { source: 'order_create', nextStatus: order.status || order.orderStatus || '' }
-        }));
-    }
-
+    const tasks = listOrderCreatedEvents(order).map((eventKey) => {
+        if (eventKey === 'ORDER_CREATED') {
+            return safePublish('ORDER_CREATED', { order, title: 'New order received' });
+        }
+        if (eventKey.startsWith('ORDER_')) {
+            return safePublish(eventKey, {
+                order,
+                metadata: { source: 'order_create', nextStatus: order.status || order.orderStatus || '' }
+            });
+        }
+        return safePublish(eventKey, { order });
+    });
     return Promise.all(tasks);
 }
 
 async function notifyOrderStatusChanged(order, previousStatus = '', options = {}) {
     if (!order) return [];
-    const tasks = [];
     const nextStatus = order.status || order.orderStatus || '';
-    const returnAction = text(options.returnAction);
-    const refundRequested = Boolean(options.refundRequested)
-        || lower(order.paymentStatus) === 'refund_required'
-        || lower(order.payment?.returnWorkflow?.refundStatus) === 'required';
-
-    let refundEvent = mapReturnActionToEventKey(returnAction);
-    if (!refundEvent && refundRequested && mapStatusToEventKey(nextStatus) === 'ORDER_CANCELLED') {
-        refundEvent = 'REFUND_REQUESTED';
-    }
-    if (refundEvent) {
-        tasks.push(safePublish(refundEvent, {
-            order,
-            metadata: { returnAction: returnAction || 'refund_required', refundRequested: true }
-        }));
-    }
-
-    const statusEvent = mapStatusToEventKey(nextStatus);
-    const previousKey = mapStatusToEventKey(previousStatus);
-    if (statusEvent && statusEvent !== previousKey) {
-        tasks.push(safePublish(statusEvent, { order, metadata: { previousStatus, nextStatus } }));
-    }
-
-    const previousPayment = lower(options.previousPaymentStatus);
-    const nextPayment = lower(order.paymentStatus || order.payment?.status || '');
-    if (nextPayment && nextPayment !== previousPayment) {
-        if (isPaidStatus(nextPayment) && !isPaidStatus(previousPayment)) {
-            tasks.push(safePublish('PAYMENT_RECEIVED', { order }));
-        } else if (isFailedPayment(nextPayment) && !isFailedPayment(previousPayment)) {
-            tasks.push(safePublish('PAYMENT_FAILED', { order }));
+    const tasks = listOrderStatusChangedEvents(order, previousStatus, options).map((eventKey) => {
+        if (eventKey.startsWith('REFUND_')) {
+            return safePublish(eventKey, {
+                order,
+                metadata: {
+                    returnAction: text(options.returnAction) || 'refund_required',
+                    refundRequested: true
+                }
+            });
         }
-    }
-
+        if (eventKey.startsWith('ORDER_')) {
+            return safePublish(eventKey, { order, metadata: { previousStatus, nextStatus } });
+        }
+        return safePublish(eventKey, { order });
+    });
     return Promise.all(tasks);
 }
 
@@ -559,5 +521,9 @@ module.exports = {
     notifyStockLevel,
     notifyStockFromOrderItems,
     mapStatusToEventKey,
-    mapReturnActionToEventKey
+    mapReturnActionToEventKey,
+    isPaidStatus,
+    isFailedPayment,
+    isPendingPayment,
+    isCancelledPayment
 };

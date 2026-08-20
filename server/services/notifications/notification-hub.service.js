@@ -74,6 +74,9 @@ function resolveEventChannelPreferences(settings = {}, eventKey) {
     if (!settings.soundNotificationsEnabled) {
         resolved[CHANNELS.SOUND] = false;
     }
+    resolved[CHANNELS.SMS] = false;
+    resolved[CHANNELS.WHATSAPP] = false;
+    resolved[CHANNELS.PUSH] = false;
     return resolved;
 }
 
@@ -148,7 +151,12 @@ async function dispatchChannels(notification, eventKey, context = {}) {
     const content = buildEventContent(key, { ...context, notification });
     const dedupeKey = buildDedupeKey(key, context, notification || {});
 
-    const enabledChannels = CHANNEL_ORDER.filter((channel) => prefs[channel]);
+    const enabledChannels = CHANNEL_ORDER.filter((channel) => {
+        if (channel === CHANNELS.SMS || channel === CHANNELS.WHATSAPP || channel === CHANNELS.PUSH) {
+            return false;
+        }
+        return Boolean(prefs[channel]);
+    });
 
     for (const channel of enabledChannels) {
         try {

@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const SQLiteBaseRepository = require('./base.repository');
 
 const ALLOWED_STATUSES = new Set(['pending', 'sent', 'failed', 'skipped']);
+const ALLOWED_ERROR_CATEGORIES = new Set(['temporary', 'permanent', 'config', 'disabled', '']);
 
 class SQLiteNotificationEmailDeliveryRepository extends SQLiteBaseRepository {
     constructor() {
@@ -30,8 +31,16 @@ class SQLiteNotificationEmailDeliveryRepository extends SQLiteBaseRepository {
             createdAt: row.created_at || null,
             updatedAt: row.updated_at || null,
             sentAt: row.sent_at || null,
-            nextRetryAt: row.next_retry_at || null
+            nextRetryAt: row.next_retry_at || null,
+            lastAttemptAt: row.last_attempt_at || null,
+            errorCategory: this.normalizeText(row.error_category) || null,
+            relatedOrderId: this.normalizeText(row.related_order_id) || null
         };
+    }
+
+    normalizeErrorCategory(value) {
+        const category = this.normalizeText(value).toLowerCase();
+        return ALLOWED_ERROR_CATEGORIES.has(category) ? (category || null) : null;
     }
 
     normalizeStatus(value) {
@@ -43,8 +52,30 @@ class SQLiteNotificationEmailDeliveryRepository extends SQLiteBaseRepository {
         const row = this.db.prepare(`
             SELECT * FROM notification_email_deliveries
             WHERE notification_id = ?
+            ORDER BY created_at ASC
             LIMIT 1
         `).get(this.normalizeText(notificationId));
+        return this.mapRow(row);
+    }
+
+    async listByNotificationId(notificationId) {
+        const rows = this.db.prepare(`
+            SELECT * FROM notification_email_deliveries
+            WHERE notification_id = ?
+            ORDER BY created_at ASC, id ASC
+        `).all(this.normalizeText(notificationId));
+        return rows.map((row) => this.mapRow(row));
+    }
+
+    async findByNotificationAndRecipient(notificationId, recipient) {
+        const row = this.db.prepare(`
+            SELECT * FROM notification_email_deliveries
+            WHERE notification_id = ? AND recipient = ?
+            LIMIT 1
+        `).get(
+            this.normalizeText(notificationId),
+            this.normalizeText(recipient).toLowerCase()
+        );
         return this.mapRow(row);
     }
 
@@ -76,8 +107,8 @@ class SQLiteNotificationEmailDeliveryRepository extends SQLiteBaseRepository {
                 INSERT INTO notification_email_deliveries (
                     id, notification_id, event_key, dedupe_key, recipient, status,
                     attempts, max_attempts, last_error, provider, message_id, subject,
-                    created_at, updated_at, sent_at, next_retry_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, updated_at, sent_at, next_retry_at, error_category, last_attempt_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `).run(
                 id,
                 this.normalizeText(payload.notificationId),
@@ -94,12 +125,16 @@ class SQLiteNotificationEmailDeliveryRepository extends SQLiteBaseRepository {
                 now,
                 now,
                 status === 'sent' ? (payload.sentAt || now) : null,
-                payload.nextRetryAt || null
+                payload.nextRetryAt || null,
+                this.normalizeErrorCategory(payload.errorCategory),
+                payload.lastAttemptAt || null
             );
         } catch (error) {
-            // Unique notification_id / dedupe_key — return existing row instead of throwing.
-            const existingByNotification = await this.findByNotificationId(payload.notificationId);
-            if (existingByNotification) return existingByNotification;
+            const existingByPair = await this.findByNotificationAndRecipient(
+                payload.notificationId,
+                payload.recipient
+            );
+            if (existingByPair) return existingByPair;
             const existingByDedupe = await this.findByDedupeKey(payload.dedupeKey);
             if (existingByDedupe) return existingByDedupe;
             throw error;
@@ -128,7 +163,11 @@ class SQLiteNotificationEmailDeliveryRepository extends SQLiteBaseRepository {
             messageId: patch.messageId !== undefined ? (this.normalizeText(patch.messageId) || null) : existing.messageId,
             subject: patch.subject !== undefined ? (this.normalizeText(patch.subject).slice(0, 255) || null) : existing.subject,
             sentAt: patch.sentAt !== undefined ? patch.sentAt : existing.sentAt,
-            nextRetryAt: patch.nextRetryAt !== undefined ? patch.nextRetryAt : existing.nextRetryAt
+            nextRetryAt: patch.nextRetryAt !== undefined ? patch.nextRetryAt : existing.nextRetryAt,
+            lastAttemptAt: patch.lastAttemptAt !== undefined ? patch.lastAttemptAt : existing.lastAttemptAt,
+            errorCategory: patch.errorCategory !== undefined
+                ? this.normalizeErrorCategory(patch.errorCategory)
+                : existing.errorCategory
         };
 
         const now = this.now();
@@ -143,7 +182,9 @@ class SQLiteNotificationEmailDeliveryRepository extends SQLiteBaseRepository {
                 subject = ?,
                 updated_at = ?,
                 sent_at = ?,
-                next_retry_at = ?
+                next_retry_at = ?,
+                last_attempt_at = ?,
+                error_category = ?
             WHERE id = ?
         `).run(
             next.status,
@@ -156,24 +197,75 @@ class SQLiteNotificationEmailDeliveryRepository extends SQLiteBaseRepository {
             now,
             next.sentAt,
             next.nextRetryAt,
+            next.lastAttemptAt,
+            next.errorCategory,
             this.normalizeText(id)
         );
 
         return this.findById(id);
     }
 
-    async listRetryCandidates({ limit = 25, nowIso = null } = {}) {
+    async listRetryCandidates({ limit = 25, nowIso = null, includeStuck = false } = {}) {
         const now = nowIso || this.now();
+        const parsed = Date.parse(now);
+        const staleMs = includeStuck ? 0 : 3 * 60 * 1000;
+        const staleIso = Number.isFinite(parsed)
+            ? new Date(parsed - staleMs).toISOString()
+            : now;
         const safeLimit = Math.min(Math.max(Number(limit) || 25, 1), 100);
         const rows = this.db.prepare(`
             SELECT * FROM notification_email_deliveries
-            WHERE status IN ('pending', 'failed')
+            WHERE status = 'pending'
               AND attempts < max_attempts
-              AND (next_retry_at IS NULL OR next_retry_at <= ?)
-            ORDER BY updated_at ASC
+              AND (
+                (next_retry_at IS NOT NULL AND next_retry_at <= ?)
+                OR (
+                  attempts = 0
+                  AND (next_retry_at IS NULL OR next_retry_at <= ?)
+                  AND created_at <= ?
+                )
+              )
+            ORDER BY COALESCE(next_retry_at, created_at) ASC, updated_at ASC
             LIMIT ?
-        `).all(now, safeLimit);
+        `).all(now, now, staleIso, safeLimit);
         return rows.map((row) => this.mapRow(row));
+    }
+
+    deliverySelectSql() {
+        return `
+            SELECT d.*, n.related_order_id AS related_order_id
+            FROM notification_email_deliveries d
+            LEFT JOIN admin_notifications n ON n.id = d.notification_id
+        `;
+    }
+
+    async listRecent({ limit = 25, status = '' } = {}) {
+        const safeLimit = Math.min(Math.max(Number(limit) || 25, 1), 100);
+        const normalizedStatus = this.normalizeText(status).toLowerCase();
+        let sql = `${this.deliverySelectSql()} WHERE 1 = 1`;
+        const params = [];
+        if (normalizedStatus === 'retrying') {
+            sql += ` AND d.status = 'pending' AND d.attempts > 0`;
+        } else if (normalizedStatus && ALLOWED_STATUSES.has(normalizedStatus)) {
+            sql += ` AND d.status = ?`;
+            params.push(normalizedStatus);
+        }
+        sql += ` ORDER BY COALESCE(d.last_attempt_at, d.updated_at, d.created_at) DESC LIMIT ?`;
+        params.push(safeLimit);
+        return this.db.prepare(sql).all(...params).map((row) => this.mapRow(row));
+    }
+
+    async listFailed({ limit = 25 } = {}) {
+        return this.listRecent({ limit, status: 'failed' });
+    }
+
+    async countRetrying() {
+        const row = this.db.prepare(`
+            SELECT COUNT(*) AS total
+            FROM notification_email_deliveries
+            WHERE status = 'pending' AND attempts > 0
+        `).get();
+        return this.toNumber(row?.total, 0);
     }
 
     async getStats() {
@@ -187,6 +279,7 @@ class SQLiteNotificationEmailDeliveryRepository extends SQLiteBaseRepository {
             sent: 0,
             failed: 0,
             skipped: 0,
+            retrying: 0,
             total: 0,
             retryAttempts: 0
         };
@@ -199,6 +292,8 @@ class SQLiteNotificationEmailDeliveryRepository extends SQLiteBaseRepository {
             stats.total += count;
             stats.retryAttempts += this.toNumber(row.attempts, 0);
         }
+        stats.retrying = await this.countRetrying();
+        stats.pending = Math.max(0, Number(stats.pending || 0) - Number(stats.retrying || 0));
         return stats;
     }
 

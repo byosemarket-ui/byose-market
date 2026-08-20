@@ -266,6 +266,7 @@ function applyGatewayPaymentUpdate(order, {
     historyLabel
 } = {}) {
     const previousPaymentStatus = normalizeText(order.paymentStatus || order.payment?.status);
+    const previousOrderStatus = normalizeText(order.orderStatus || order.status);
     const nextStatus = normalizeText(paymentStatus, 'awaiting_payment').toLowerCase();
     const label = normalizeText(paymentStatusLabel)
         || (nextStatus === 'paid' ? 'Paid'
@@ -343,7 +344,7 @@ function applyGatewayPaymentUpdate(order, {
     });
     order.statusHistory = history.slice(-40);
 
-    return { order, previousPaymentStatus };
+    return { order, previousPaymentStatus, previousOrderStatus };
 }
 
 function sanitizePublicGateway(order) {
@@ -569,7 +570,7 @@ async function initiatePayment({ orderId, req } = {}) {
 async function persistVerifiedPayment(order, verified, token, req) {
     const id = normalizeText(order?.orderId || order?.id);
     const storedToken = normalizeText(order.payment?.gateway?.transToken);
-    const { order: updated, previousPaymentStatus } = applyGatewayPaymentUpdate(order, {
+    const { order: updated, previousPaymentStatus, previousOrderStatus } = applyGatewayPaymentUpdate(order, {
         paymentStatus: verified.paymentStatus,
         paymentStatusLabel: verified.label,
         historyLabel: `DPO verify: ${verified.resultExplanation || verified.label}`,
@@ -599,7 +600,7 @@ async function persistVerifiedPayment(order, verified, token, req) {
     }
 
     await orderDataService.saveOrder(updated);
-    await notifyPaymentChange(updated, previousPaymentStatus);
+    await notifyPaymentChange(updated, previousPaymentStatus, previousOrderStatus);
 
     const appBase = resolveAppBaseUrl(req);
     let redirectPath = `/orders/payment-result.html?status=failed&orderId=${encodeURIComponent(id)}`;
@@ -715,7 +716,7 @@ async function verifyAndUpdateOrderUnlocked({
             }
         }
 
-        const { order: cancelled, previousPaymentStatus } = applyGatewayPaymentUpdate(order, {
+        const { order: cancelled, previousPaymentStatus, previousOrderStatus } = applyGatewayPaymentUpdate(order, {
             paymentStatus: 'cancelled',
             paymentStatusLabel: 'Cancelled',
             historyLabel: 'Customer cancelled DPO payment',
@@ -726,7 +727,7 @@ async function verifyAndUpdateOrderUnlocked({
             }
         });
         await orderDataService.saveOrder(cancelled);
-        await notifyPaymentChange(cancelled, previousPaymentStatus);
+        await notifyPaymentChange(cancelled, previousPaymentStatus, previousOrderStatus);
         return {
             outcome: 'cancelled',
             paymentStatus: 'cancelled',
@@ -759,7 +760,7 @@ async function verifyAndUpdateOrderUnlocked({
         });
     } catch (error) {
         if (error?.code === 'DPO_VERIFY_INPUT_MISSING') {
-            const { order: invalid, previousPaymentStatus } = applyGatewayPaymentUpdate(order, {
+            const { order: invalid, previousPaymentStatus, previousOrderStatus } = applyGatewayPaymentUpdate(order, {
                 paymentStatus: 'failed',
                 paymentStatusLabel: 'Invalid Token',
                 historyLabel: 'DPO verify failed — missing or invalid token',
@@ -770,7 +771,7 @@ async function verifyAndUpdateOrderUnlocked({
                 }
             });
             await orderDataService.saveOrder(invalid);
-            await notifyPaymentChange(invalid, previousPaymentStatus);
+            await notifyPaymentChange(invalid, previousPaymentStatus, previousOrderStatus);
             return {
                 outcome: 'invalid_token',
                 paymentStatus: 'failed',
@@ -821,12 +822,14 @@ async function verifyAndUpdateOrderUnlocked({
     return persistVerifiedPayment(order, verified, token, req);
 }
 
-async function notifyPaymentChange(order, previousPaymentStatus) {
+async function notifyPaymentChange(order, previousPaymentStatus, previousOrderStatus) {
     try {
         const notificationEngine = require('./notification-engine.service');
-        await notificationEngine.notifyOrderStatusChanged(order, order.status || order.orderStatus || '', {
-            previousPaymentStatus
-        });
+        await notificationEngine.notifyOrderStatusChanged(
+            order,
+            previousOrderStatus || order.status || order.orderStatus || '',
+            { previousPaymentStatus }
+        );
     } catch (error) {
         appLogger.warn('dpo.payment.notify_failed', {
             orderId: order?.orderId || order?.id || '',

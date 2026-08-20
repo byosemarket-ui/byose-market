@@ -69,9 +69,6 @@ function buildEventContent(eventKey, context = {}) {
             sound: {
                 cue: 'default'
             },
-            sms: {
-                body: `[BYOSE] ${title}: ${summary}`.slice(0, 320)
-            },
             whatsapp: {
                 body: `*${title}*\n${summary}`.slice(0, 1000)
             },
@@ -112,9 +109,6 @@ function renderChannelTemplate(channel, eventKey, context = {}) {
     }
     if (normalized === CHANNELS.SOUND) {
         return { channel: CHANNELS.SOUND, content, rendered: content.templates.sound };
-    }
-    if (normalized === CHANNELS.SMS) {
-        return { channel: CHANNELS.SMS, content, rendered: content.templates.sms };
     }
     if (normalized === CHANNELS.WHATSAPP) {
         return { channel: CHANNELS.WHATSAPP, content, rendered: content.templates.whatsapp };

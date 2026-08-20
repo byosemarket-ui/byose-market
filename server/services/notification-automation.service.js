@@ -51,15 +51,54 @@ function pickPlain(source, keys = []) {
     return Object.keys(out).length ? out : null;
 }
 
+function serializeOrderItem(item = {}) {
+    if (!item || typeof item !== 'object') return null;
+    const quantity = Number(item.quantity ?? item.qty);
+    const price = Number(item.price ?? item.unitPrice);
+    return {
+        productId: text(item.productId || item.id || item.catalogId) || undefined,
+        productName: text(item.productName || item.name) || undefined,
+        name: text(item.productName || item.name) || undefined,
+        quantity: Number.isFinite(quantity) ? quantity : undefined,
+        qty: Number.isFinite(quantity) ? quantity : undefined,
+        price: Number.isFinite(price) ? price : undefined,
+        sku: text(item.sku || item.variantSku || item.attributes?.SKU || item.attributes?.sku) || undefined,
+        variantSku: text(item.variantSku || item.sku) || undefined,
+        color: text(item.color || item.colorName) || undefined,
+        colorName: text(item.colorName || item.color) || undefined,
+        size: text(item.size || item.sizeLabel) || undefined,
+        sizeLabel: text(item.sizeLabel || item.size) || undefined,
+        variantKey: text(item.variantKey) || undefined,
+        attributeSummary: text(item.attributeSummary) || undefined
+    };
+}
+
+function serializeOrderForNotification(order) {
+    if (!order || typeof order !== 'object') return null;
+    const items = (Array.isArray(order.items) && order.items.length
+        ? order.items
+        : (Array.isArray(order.products) ? order.products : [])
+    ).map(serializeOrderItem).filter(Boolean);
+
+    const snapshot = pickPlain(order, [
+        'orderId', 'id', '_id', 'status', 'orderStatus', 'paymentStatus', 'paymentStatusLabel',
+        'paymentMethod', 'paymentMethodLabel', 'paymentType', 'currency',
+        'subtotal', 'deliveryFee', 'shippingFee', 'codFee', 'couponDiscount', 'couponCode',
+        'totalAmount', 'totalPrice', 'total',
+        'customerName', 'customerEmail', 'customerPhone', 'customerId', 'userId', 'userEmail',
+        'phoneNumber', 'note', 'deliveryNotes', 'deliveryLabel', 'createdAt', 'updatedAt',
+        'paymentReference', 'transactionReference', 'transactionId', 'cancellationReason',
+        'shippingAddress', 'fullAddress', 'payment'
+    ]);
+
+    if (snapshot) {
+        return { ...snapshot, items, products: items };
+    }
+    return items.length ? { items, products: items } : null;
+}
+
 function serializeContext(context = {}) {
-    const order = context.order && typeof context.order === 'object'
-        ? pickPlain(context.order, [
-            'orderId', 'id', '_id', 'status', 'orderStatus', 'paymentStatus',
-            'paymentMethod', 'customerAmount', 'totalPrice', 'customerName',
-            'customerEmail', 'customerPhone', 'customerId', 'userId', 'userEmail',
-            'phoneNumber', 'shippingAddress', 'payment'
-        ])
-        : null;
+    const order = serializeOrderForNotification(context.order);
     const customer = context.customer && typeof context.customer === 'object'
         ? pickPlain(context.customer, [
             'id', '_id', 'customerId', 'name', 'email', 'phone'
@@ -521,5 +560,6 @@ module.exports = {
     getAutomationStatus,
     buildAutomationDedupeKey,
     serializeContext,
+    serializeOrderForNotification,
     validateEvent
 };

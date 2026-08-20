@@ -159,6 +159,10 @@ export const ADMIN_NAVIGATION = [
           routeLink("messages-notifications", "Notification History", "notifications", { description: "Search, filter, and manage the full notification history." }),
           routeLink("messages-notification-monitoring", "Notification Monitoring", "notificationmonitoring", { description: "Health, delivery metrics, recovery, and operations logs for the notification system." }),
           routeLink("messages-notification-analytics", "Analytics & Reports", "notificationanalytics", { description: "Notification volume, delivery performance, and exportable reports." }),
+          routeLink("messages-notification-settings", "Notification Settings", "settings", {
+            query: "?panel=notifications",
+            description: "Configure email recipients for automatic BYOSE Market notifications."
+          }),
           routeLink("messages-activity", "Activity Logs", "activity", { description: "System activity and audit stream." })
         ]
       }
@@ -183,7 +187,7 @@ export const ADMIN_NAVIGATION = [
           routeLink("settings-delivery", "Delivery", "settings", { query: "?panel=delivery", description: "Delivery zones, fees, methods, and timing." }),
           routeLink("settings-payment", "Payment Management", "settings", { query: "?panel=payment", description: "DPO Pay LIVE production control, encrypted credentials, and checkout status." }),
           routeLink("settings-seo", "SEO", "settings", { query: "?panel=seo", description: "Website SEO, social cards, analytics, and structured data." }),
-          routeLink("settings-notifications", "Notifications", "settings", { query: "?panel=notifications", description: "Admin alert email, email/browser/sound notification preferences." }),
+          routeLink("settings-notifications", "Notification Settings", "settings", { query: "?panel=notifications", description: "Email recipients and admin notification preferences." }),
           routeLink("settings-logout", "Logout & Sessions", "settings", { query: "?panel=logout", description: "Active sessions, secure logout, expiration, and audit trail." })
         ]
       }

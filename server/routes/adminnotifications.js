@@ -17,6 +17,7 @@ router.get('/monitoring', adminNotificationsController.getMonitoringDashboard);
 router.get('/monitoring/health', adminNotificationsController.getMonitoringHealth);
 router.get('/monitoring/logs', adminNotificationsController.listOpsLogs);
 router.post('/monitoring/recover', adminNotificationsController.mutationLimiter, adminNotificationsController.runRecovery);
+router.post('/monitoring/deliveries/:id/retry', adminNotificationsController.mutationLimiter, adminNotificationsController.retryEmailDelivery);
 router.get('/analytics', adminNotificationsController.getAnalyticsDashboard);
 router.get('/analytics/report', adminNotificationsController.getAnalyticsReport);
 

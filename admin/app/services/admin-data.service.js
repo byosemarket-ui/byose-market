@@ -1631,10 +1631,14 @@ export async function sendNotificationTestEmail(options = {}) {
   return {
     success: Boolean(payload?.success !== false),
     recipient: String(payload?.recipient || ""),
+    recipients: Array.isArray(payload?.recipients) ? payload.recipients.map((value) => String(value || "").trim()).filter(Boolean) : [],
     provider: String(payload?.provider || ""),
     messageId: payload?.messageId || null,
     connectionStatus: String(payload?.connectionStatus || ""),
-    sentAt: payload?.sentAt || null
+    sentAt: payload?.sentAt || null,
+    partial: Boolean(payload?.partial),
+    message: String(payload?.message || ""),
+    results: Array.isArray(payload?.results) ? payload.results : []
   };
 }
 
@@ -1673,6 +1677,12 @@ export async function getNotificationOpsLogs(options = {}) {
 export async function runNotificationRecovery() {
   const payload = await api.post("admin/notifications/monitoring/recover", {});
   return asObject(payload?.result || payload);
+}
+
+export async function retryNotificationEmailDelivery(deliveryId) {
+  const id = encodeURIComponent(String(deliveryId || "").trim());
+  const payload = await api.post(`admin/notifications/monitoring/deliveries/${id}/retry`, {});
+  return asObject(payload);
 }
 
 export async function getNotificationAnalytics(options = {}) {

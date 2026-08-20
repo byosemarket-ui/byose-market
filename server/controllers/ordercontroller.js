@@ -1511,6 +1511,53 @@ exports.updateAdminOrderStatus = async (req, res) => {
         });
 
         try {
+            const adminSecurityService = require('../services/adminsecurityservice');
+            const repos = getRepositoryBundle();
+            const nextStatus = order.status || order.orderStatus || '';
+            const nextPayment = order.paymentStatus || order.payment?.status || '';
+            const orderId = order.orderId || order.id;
+            const statusChanged = oldStatusLower !== normalizeText(nextStatus).toLowerCase();
+            const paymentChanged = normalizeText(previousPaymentStatus).toLowerCase() !== normalizeText(nextPayment).toLowerCase();
+            const summaryParts = [];
+            if (statusChanged) {
+                summaryParts.push(`Admin changed Order #${orderId} from ${oldStatus} to ${nextStatus}.`);
+            }
+            if (paymentChanged) {
+                summaryParts.push(`Payment status for Order #${orderId} changed from ${previousPaymentStatus || 'unset'} to ${nextPayment}.`);
+            }
+            if (normalizedReturnAction) {
+                summaryParts.push(`Admin applied ${normalizedReturnAction} on Order #${orderId}.`);
+            }
+            const statusEvent = notificationEngine.mapStatusToEventKey(nextStatus);
+            const previousKey = notificationEngine.mapStatusToEventKey(oldStatus);
+            if (statusEvent && statusEvent !== previousKey) {
+                summaryParts.push(`${statusEvent} notification generated.`);
+            }
+            if (summaryParts.length) {
+                await repos.adminProfile.recordActivity({
+                    adminPublicId: String(req.admin?.id || ''),
+                    adminEmail: String(req.admin?.email || ''),
+                    eventType: 'order_status_updated',
+                    category: 'orders',
+                    summary: summaryParts.join(' '),
+                    meta: {
+                        orderId,
+                        from: oldStatus,
+                        to: nextStatus,
+                        paymentStatus: nextPayment,
+                        previousPaymentStatus,
+                        returnAction: normalizedReturnAction || null,
+                        notificationEvent: statusEvent && statusEvent !== previousKey ? statusEvent : null
+                    },
+                    ip: adminSecurityService.buildRequestContext(req).ip,
+                    userAgent: adminSecurityService.buildRequestContext(req).userAgent
+                });
+            }
+        } catch (_activityError) {
+            // Activity logging must never block a successful order status update.
+        }
+
+        try {
           const realtimeService = getRealtimeEventService();
           realtimeService.emitOrderStatusChanged(order._id || order.id, oldStatus, order.status);
         } catch (eventError) {

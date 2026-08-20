@@ -1,6 +1,7 @@
 import { emptyState, escapeHtml, formatDate } from "../components/ui.js";
 import {
   getNotificationMonitoring,
+  retryNotificationEmailDelivery,
   runNotificationRecovery
 } from "../services/admin-data.service.js";
 
@@ -56,6 +57,63 @@ function emailSummary(title, entry) {
   `;
 }
 
+function statusBadge(status) {
+  const value = String(status || "pending").toLowerCase();
+  return `<span class="nm-status nm-status--${escapeHtml(value)}">${escapeHtml(value)}</span>`;
+}
+
+function deliveryRow(item, { retry = false, retryingId = "" } = {}) {
+  const busy = retryingId && retryingId === item.id;
+  return `
+    <tr>
+      <td><strong>${escapeHtml(item.eventKey || "EVENT")}</strong></td>
+      <td>${escapeHtml(String(item.channel || "email").toUpperCase())}</td>
+      <td>${escapeHtml(item.orderId ? `#${item.orderId}` : "—")}</td>
+      <td>${escapeHtml(item.recipient || "—")}</td>
+      <td>${statusBadge(item.status)}</td>
+      <td>${escapeHtml(String(item.attempts ?? "—"))}</td>
+      <td>${escapeHtml(formatDate(item.lastAttemptAt || item.sentAt || item.createdAt))}</td>
+      ${retry ? `
+        <td>
+          <small>${escapeHtml(item.error || "Delivery failed")}</small>
+          ${item.retryable !== false ? `
+            <button type="button" class="btn btn-ghost" data-nm-retry="${escapeHtml(item.id)}" data-nm-channel="${escapeHtml(item.channel || "email")}" ${busy ? "disabled" : ""}>
+              ${busy ? "Retrying…" : "Retry"}
+            </button>
+          ` : ""}
+        </td>
+      ` : ""}
+    </tr>
+  `;
+}
+
+function deliveryTable(rows, { retry = false, retryingId = "", empty = "No records yet." } = {}) {
+  if (!rows.length) {
+    return emptyState(empty);
+  }
+  return `
+    <div class="nm-table-wrap">
+      <table class="nm-table">
+        <thead>
+          <tr>
+            <th>Event</th>
+            <th>Channel</th>
+            <th>Order</th>
+            <th>Recipient</th>
+            <th>Status</th>
+            <th>Attempts</th>
+            <th>Time</th>
+            ${retry ? "<th>Error / Action</th>" : ""}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => deliveryRow(row, { retry, retryingId })).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 function logRow(item) {
   return `
     <article class="nm-log-row nm-log-row--${escapeHtml(String(item.status || "info"))}">
@@ -76,12 +134,15 @@ export async function renderNotificationMonitoring(container) {
   let noticeTone = "success";
   let loading = true;
   let recovering = false;
+  let retryingId = "";
 
   function paint() {
     const health = data?.health || {};
     const components = health.components || {};
     const metrics = data?.metrics || {};
     const logs = Array.isArray(data?.recentLogs) ? data.recentLogs : [];
+    const recent = Array.isArray(data?.recentDeliveries) ? data.recentDeliveries : [];
+    const failures = Array.isArray(data?.failedDeliveries) ? data.failedDeliveries : [];
     const overall = healthClass(health.overall?.code);
 
     container.innerHTML = `
@@ -129,15 +190,36 @@ export async function renderNotificationMonitoring(container) {
             </div>
           </header>
           <div class="nm-metrics-grid">
-            ${metricCard("Notifications processed", metrics.totalNotificationsProcessed)}
-            ${metricCard("Emails sent", metrics.emailsSent)}
-            ${metricCard("Failed emails", metrics.failedEmails)}
+            ${metricCard("Total emails", Number(metrics.emailsSent || 0) + Number(metrics.failedEmails || 0) + Number(metrics.pendingEmails || 0) + Number(metrics.retryingEmails || 0) + Number(metrics.skippedEmails || 0))}
+            ${metricCard("Sent", metrics.emailsSent)}
+            ${metricCard("Failed", metrics.failedEmails)}
+            ${metricCard("Pending", metrics.pendingEmails)}
+            ${metricCard("Retrying", metrics.retryingEmails)}
+            ${metricCard("Last successful email", data?.lastSuccessfulEmail?.sentAt ? formatDate(data.lastSuccessfulEmail.sentAt) : "None")}
             ${metricCard("Retry count", metrics.retryCount)}
             ${metricCard("Queue pending", metrics.queuePending)}
-            ${metricCard("Queue failed", metrics.queueFailed)}
             ${metricCard("Unread in-app", metrics.unreadNotifications)}
-            ${metricCard("Failed jobs (24h)", metrics.failedJobsLast24h)}
           </div>
+        </section>
+
+        <section class="admin-profile-card">
+          <header class="admin-profile-card-header">
+            <div>
+              <h4>Recent Notifications</h4>
+              <p>Latest email delivery attempts, including order ID, recipient, status, and attempt count.</p>
+            </div>
+          </header>
+          ${loading ? `<div class="state-block">Loading monitoring data…</div>` : deliveryTable(recent, { empty: "No email deliveries recorded yet." })}
+        </section>
+
+        <section class="admin-profile-card">
+          <header class="admin-profile-card-header">
+            <div>
+              <h4>Failures</h4>
+              <p>Failed deliveries stay on this list until they succeed. Retry updates the existing record and does not create a duplicate event.</p>
+            </div>
+          </header>
+          ${loading ? `<div class="state-block">Loading failures…</div>` : deliveryTable(failures, { retry: true, retryingId, empty: "No failed email deliveries." })}
         </section>
 
         <section class="nm-two-col">
@@ -181,10 +263,7 @@ export async function renderNotificationMonitoring(container) {
                 ["In-app", data?.channels?.inApp],
                 ["Email", data?.channels?.email],
                 ["Browser", data?.channels?.browser],
-                ["Sound", data?.channels?.sound],
-                ["SMS", data?.channels?.sms],
-                ["WhatsApp", data?.channels?.whatsapp],
-                ["Push", data?.channels?.push]
+                ["Sound", data?.channels?.sound]
               ].map(([label, info]) => {
                 const stats = info?.stats;
                 const detail = stats
@@ -242,6 +321,28 @@ export async function renderNotificationMonitoring(container) {
   }, 45000);
 
   container.onclick = async (event) => {
+    const retryBtn = event.target?.closest?.("[data-nm-retry]");
+    if (retryBtn) {
+      const deliveryId = retryBtn.getAttribute("data-nm-retry");
+      if (!deliveryId || retryingId) return;
+      retryingId = deliveryId;
+      paint();
+      try {
+        const result = await retryNotificationEmailDelivery(deliveryId);
+        notice = result.message || (result.success ? "Retry sent successfully." : "Retry attempted.");
+        noticeTone = result.success ? "success" : (result.retrying ? "warn" : "danger");
+        await load();
+      } catch (error) {
+        notice = error?.message || "Retry failed.";
+        noticeTone = "danger";
+        paint();
+      } finally {
+        retryingId = "";
+        paint();
+      }
+      return;
+    }
+
     if (!event.target?.closest?.("#nmRecoverBtn")) return;
     recovering = true;
     paint();

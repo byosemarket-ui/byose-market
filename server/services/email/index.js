@@ -15,5 +15,6 @@ module.exports = {
     safeDeliverNotificationEmail: delivery.safeDeliverNotificationEmail,
     startNotificationEmailRetryWorker: delivery.startNotificationEmailRetryWorker,
     stopNotificationEmailRetryWorker: delivery.stopNotificationEmailRetryWorker,
-    processEmailRetries: delivery.processEmailRetries
+    processEmailRetries: delivery.processEmailRetries,
+    retryEmailDelivery: delivery.retryEmailDelivery
 };

@@ -129,8 +129,8 @@ async function probeEmailService() {
         if (!provider.configured) {
             return {
                 code: 'warning',
-                label: 'Warning',
-                detail: 'Email provider configuration is incomplete on the server.',
+                label: 'Not configured',
+                detail: 'SMTP host, user, and password are not fully set on the server.',
                 provider: provider.provider,
                 configured: false,
                 ready: false
@@ -139,7 +139,7 @@ async function probeEmailService() {
         if (!master || !runtime.emailNotificationsEnabled) {
             return {
                 code: 'warning',
-                label: 'Warning',
+                label: 'Disabled',
                 detail: 'Email transport is configured but admin email delivery is disabled.',
                 provider: provider.provider,
                 configured: true,
@@ -147,10 +147,13 @@ async function probeEmailService() {
             };
         }
         if (!runtime.readyForEmailDelivery) {
+            const noRecipients = !(Array.isArray(runtime.adminNotificationEmails) && runtime.adminNotificationEmails.length);
             return {
                 code: 'warning',
-                label: 'Warning',
-                detail: 'Email service is not fully ready (destination or settings missing).',
+                label: 'Not ready',
+                detail: noRecipients
+                    ? 'No active email recipients. Order emails will not be sent until Recipient 1 or Recipient 2 is enabled.'
+                    : 'Email service is not fully ready (destination or settings missing).',
                 provider: provider.provider,
                 configured: true,
                 ready: false
@@ -158,8 +161,8 @@ async function probeEmailService() {
         }
         return {
             code: 'healthy',
-            label: 'Healthy',
-            detail: `Email service ready via ${provider.provider}.`,
+            label: 'Ready',
+            detail: `SMTP is configured via ${provider.provider}. Last successful send is shown below when available.`,
             provider: provider.provider,
             configured: true,
             ready: true
@@ -279,7 +282,7 @@ async function probeEngine() {
         }
         return {
             code: 'healthy',
-            label: 'Healthy',
+            label: 'Running',
             detail: `Notification engine loaded with ${catalogSize} event types.`,
             eventTypes: catalogSize
         };
@@ -316,6 +319,34 @@ async function getHealthSnapshot() {
     };
 }
 
+function publicDeliveryStatus(row = {}) {
+    const status = text(row.status, 'pending').toLowerCase();
+    if (status === 'pending' && Number(row.attempts || 0) > 0) return 'retrying';
+    return status;
+}
+
+function toPublicDelivery(row, channel = 'email') {
+    if (!row) return null;
+    const recipient = maskEmailAddress(row.recipient);
+    return {
+        id: row.id,
+        notificationId: row.notificationId,
+        eventKey: row.eventKey,
+        orderId: row.relatedOrderId || null,
+        recipient,
+        channel,
+        status: publicDeliveryStatus(row),
+        attempts: Number(row.attempts || 0),
+        maxAttempts: Number(row.maxAttempts || 0),
+        error: row.lastError || null,
+        errorCategory: row.errorCategory || null,
+        createdAt: row.createdAt,
+        lastAttemptAt: row.lastAttemptAt || row.updatedAt,
+        sentAt: row.sentAt || null,
+        retryable: publicDeliveryStatus(row) === 'failed'
+    };
+}
+
 async function getMonitoringDashboard() {
     const repos = getRepos();
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -329,7 +360,9 @@ async function getMonitoringDashboard() {
         lastFailed,
         recentLogs,
         failedJobs24h,
-        failedEmails24h
+        failedEmails24h,
+        recentDeliveries,
+        failedDeliveries
     ] = await Promise.all([
         getHealthSnapshot(),
         repos.notificationAutomationJobs.getStats(),
@@ -339,7 +372,9 @@ async function getMonitoringDashboard() {
         repos.notificationEmailDeliveries.findLatestByStatus('failed'),
         repos.notificationOpsLogs.list({ limit: 40, offset: 0 }),
         repos.notificationAutomationJobs.countFailedSince(since24h),
-        repos.notificationEmailDeliveries.countFailedSince(since24h)
+        repos.notificationEmailDeliveries.countFailedSince(since24h),
+        repos.notificationEmailDeliveries.listRecent({ limit: 20 }),
+        repos.notificationEmailDeliveries.listFailed({ limit: 15 })
     ]);
 
     let eventCatalog = [];
@@ -352,8 +387,10 @@ async function getMonitoringDashboard() {
 
     const requiredEvents = [
         'ORDER_CREATED',
+        'PAYMENT_PENDING',
         'PAYMENT_RECEIVED',
         'PAYMENT_FAILED',
+        'PAYMENT_CANCELLED',
         'ORDER_CONFIRMED',
         'ORDER_PROCESSING',
         'ORDER_PACKED',
@@ -378,6 +415,8 @@ async function getMonitoringDashboard() {
             totalAutomationJobs: Number(jobStats.total || 0),
             emailsSent: Number(emailStats.sent || 0),
             failedEmails: Number(emailStats.failed || 0),
+            pendingEmails: Number(emailStats.pending || 0),
+            retryingEmails: Number(emailStats.retrying || 0),
             skippedEmails: Number(emailStats.skipped || 0),
             retryCount: Number(emailStats.retryAttempts || 0),
             unreadNotifications: Number(unreadCount || 0),
@@ -409,6 +448,8 @@ async function getMonitoringDashboard() {
                 attempts: lastFailed.attempts
             }
             : null,
+        recentDeliveries: (Array.isArray(recentDeliveries) ? recentDeliveries : []).map((row) => toPublicDelivery(row, 'email')),
+        failedDeliveries: (Array.isArray(failedDeliveries) ? failedDeliveries : []).map((row) => toPublicDelivery(row, 'email')),
         recentLogs: recentLogs.items,
         integration: {
             requiredEvents,
@@ -418,8 +459,10 @@ async function getMonitoringDashboard() {
                 inCatalog: eventCatalog.includes(key),
                 modules: ({
                     ORDER_CREATED: ['Orders'],
+                    PAYMENT_PENDING: ['Orders', 'Payments'],
                     PAYMENT_RECEIVED: ['Orders', 'Payments'],
                     PAYMENT_FAILED: ['Orders', 'Payments'],
+                    PAYMENT_CANCELLED: ['Orders', 'Payments'],
                     ORDER_CONFIRMED: ['Orders'],
                     ORDER_PROCESSING: ['Orders'],
                     ORDER_PACKED: ['Orders'],
@@ -543,6 +586,7 @@ async function runRecoveryPass() {
     const results = {
         recoveredJobs: 0,
         workerRestarted: false,
+        retriedEmails: 0,
         alerts: []
     };
 
@@ -595,6 +639,30 @@ async function runRecoveryPass() {
             status: 'error',
             channel: 'automation',
             message: 'Unable to verify/restart automation worker.',
+            details: { error: String(error?.message || error) }
+        });
+    }
+
+    try {
+        const emailService = require('./email/notification-email.service');
+        emailService.startNotificationEmailRetryWorker();
+        const retryResult = await emailService.processEmailRetries(25, { includeStuck: true });
+        results.retriedEmails = Number(retryResult?.processed || 0);
+        if (results.retriedEmails > 0) {
+            await recordOpsLog({
+                eventType: 'RECOVERY',
+                status: 'info',
+                channel: 'email',
+                message: `Processed ${results.retriedEmails} retryable email delivery(ies).`,
+                details: { processed: results.retriedEmails }
+            });
+        }
+    } catch (error) {
+        await recordOpsLog({
+            eventType: 'RECOVERY',
+            status: 'error',
+            channel: 'email',
+            message: 'Unable to process email retries during recovery.',
             details: { error: String(error?.message || error) }
         });
     }
@@ -715,9 +783,12 @@ function startNotificationMonitor() {
         monitorTimer.unref();
     }
     // Initial pass shortly after boot.
-    setTimeout(() => {
+    const bootTimer = setTimeout(() => {
         void runMonitorCycle();
     }, 2500);
+    if (typeof bootTimer.unref === 'function') {
+        bootTimer.unref();
+    }
     appLogger.info('notification.monitor.started', { intervalMs: MONITOR_INTERVAL_MS });
     void recordOpsLog({
         eventType: 'MONITOR_STARTED',

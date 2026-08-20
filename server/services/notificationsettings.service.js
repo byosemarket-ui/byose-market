@@ -6,11 +6,13 @@ const {
     normalizeEmail,
     normalizeText,
     readEnvSmtpConfig,
-    resolveAdminNotificationEmail,
+    resolveAdminNotificationRecipientSlots,
+    resolveActiveAdminNotificationRecipients,
     resolveEmailProviderName
 } = require('../config/notification-mail.config');
 const { listEmailEventKeys, buildAdminEmailShell } = require('./email/admin-email-templates');
 const { sendViaProvider, getProviderStatus } = require('./email/email-provider.service');
+const { maskEmailAddress } = require('./notifications/notification-identity');
 const { appLogger } = require('../utils/logger');
 const {
     CHANNEL_ORDER,
@@ -31,8 +33,7 @@ function getDefaultEmailEventPreferences() {
 }
 
 function getDefaultChannelPrefsForEvent(eventKey, globals = {}) {
-    const emailDefault = globals.emailEventPreferences?.[eventKey] !== false
-        && globals.emailNotificationsEnabled !== false;
+    const emailDefault = globals.emailEventPreferences?.[eventKey] !== false;
     return {
         [CHANNELS.IN_APP]: true,
         [CHANNELS.EMAIL]: Boolean(emailDefault),
@@ -67,13 +68,14 @@ function normalizeEventChannelPreferences(raw = {}, globals = {}) {
         }
         // Keep emailEventPreferences as source of truth when provided on globals.
         if (globals.emailEventPreferences && Object.prototype.hasOwnProperty.call(globals.emailEventPreferences, eventKey)) {
-            base[CHANNELS.EMAIL] = Boolean(globals.emailEventPreferences[eventKey])
-                && globals.emailNotificationsEnabled !== false;
+            base[CHANNELS.EMAIL] = Boolean(globals.emailEventPreferences[eventKey]);
         }
-        if (globals.emailNotificationsEnabled === false) {
-            base[CHANNELS.EMAIL] = false;
-        }
-        next[eventKey] = base;
+        next[eventKey] = {
+            ...base,
+            [CHANNELS.SMS]: false,
+            [CHANNELS.WHATSAPP]: false,
+            [CHANNELS.PUSH]: false
+        };
     }
     return next;
 }
@@ -81,11 +83,11 @@ function normalizeEventChannelPreferences(raw = {}, globals = {}) {
 function deriveEmailEventPreferencesFromChannels(eventChannelPreferences = {}, emailNotificationsEnabled = true) {
     const prefs = {};
     for (const [eventKey, channels] of Object.entries(eventChannelPreferences || {})) {
-        prefs[eventKey] = Boolean(channels?.[CHANNELS.EMAIL]) && emailNotificationsEnabled !== false;
+        prefs[eventKey] = Boolean(channels?.[CHANNELS.EMAIL]);
     }
     for (const key of listEmailEventKeys()) {
         if (!Object.prototype.hasOwnProperty.call(prefs, key)) {
-            prefs[key] = emailNotificationsEnabled !== false;
+            prefs[key] = true;
         }
     }
     return prefs;
@@ -93,6 +95,9 @@ function deriveEmailEventPreferencesFromChannels(eventChannelPreferences = {}, e
 
 const DEFAULT_NOTIFICATION_SETTINGS = Object.freeze({
     adminNotificationEmail: '',
+    adminNotificationEmail2: '',
+    adminNotificationEmailEnabled: true,
+    adminNotificationEmail2Enabled: true,
     emailNotificationsEnabled: true,
     browserNotificationsEnabled: true,
     soundNotificationsEnabled: false,
@@ -137,6 +142,13 @@ function normalizeEmailEventPreferences(raw = {}) {
 function normalizeSettings(raw = {}) {
     const source = raw && typeof raw === 'object' ? raw : {};
     const adminNotificationEmail = normalizeEmail(source.adminNotificationEmail);
+    const adminNotificationEmail2 = normalizeEmail(source.adminNotificationEmail2);
+    const adminNotificationEmailEnabled = Object.prototype.hasOwnProperty.call(source, 'adminNotificationEmailEnabled')
+        ? normalizeBoolean(source.adminNotificationEmailEnabled, true)
+        : true;
+    const adminNotificationEmail2Enabled = Object.prototype.hasOwnProperty.call(source, 'adminNotificationEmail2Enabled')
+        ? normalizeBoolean(source.adminNotificationEmail2Enabled, true)
+        : true;
     const emailNotificationsEnabled = normalizeBoolean(
         source.emailNotificationsEnabled,
         DEFAULT_NOTIFICATION_SETTINGS.emailNotificationsEnabled
@@ -189,6 +201,9 @@ function normalizeSettings(raw = {}) {
 
     return {
         adminNotificationEmail,
+        adminNotificationEmail2,
+        adminNotificationEmailEnabled,
+        adminNotificationEmail2Enabled,
         emailNotificationsEnabled,
         browserNotificationsEnabled,
         soundNotificationsEnabled,
@@ -209,11 +224,16 @@ function validateForSave(payload = {}) {
         details.adminNotificationEmail = 'Enter a valid notification email address.';
     }
 
-    if (next.emailNotificationsEnabled) {
-        const effective = resolveAdminNotificationEmail(next);
-        if (!effective) {
-            details.adminNotificationEmail = 'Set an admin notification email, or configure ADMIN_ALERT_EMAIL / EMAIL_FROM_ADDRESS in the server environment.';
-        }
+    if (next.adminNotificationEmail2 && !isValidEmail(next.adminNotificationEmail2)) {
+        details.adminNotificationEmail2 = 'Enter a valid second notification email address.';
+    }
+
+    if (next.adminNotificationEmailEnabled && next.adminNotificationEmail && !isValidEmail(next.adminNotificationEmail)) {
+        details.adminNotificationEmail = 'Recipient 1 must be a valid email address before it can be enabled.';
+    }
+
+    if (next.adminNotificationEmail2Enabled && next.adminNotificationEmail2 && !isValidEmail(next.adminNotificationEmail2)) {
+        details.adminNotificationEmail2 = 'Recipient 2 must be a valid email address before it can be enabled.';
     }
 
     if (Object.keys(details).length) {
@@ -248,11 +268,11 @@ function resolveProviderConnectionStatus(settings, runtime, smtp) {
         };
     }
 
-    if (!runtime?.adminNotificationEmail) {
+    if (!runtime?.adminNotificationEmails?.length) {
         return {
             code: 'not_connected',
-            label: 'Not Connected',
-            detail: 'Set an admin notification email destination.'
+            label: 'No Active Recipients',
+            detail: 'Enable Recipient 1 or Recipient 2 and enter a valid email to receive order notifications.'
         };
     }
 
@@ -284,7 +304,22 @@ function toPublicSettings(settings) {
     }
     return {
         ...settings,
+        emailRecipients: resolveAdminNotificationRecipientSlots(settings).map((slot) => ({
+            slot: slot.slot,
+            label: slot.label,
+            email: slot.configuredEmail || '',
+            enabled: Boolean(slot.enabled),
+            active: Boolean(slot.enabled && slot.email),
+            effectiveEmail: slot.email || '',
+            source: slot.source || ''
+        })),
         effectiveAdminNotificationEmail: runtime.adminNotificationEmail,
+        effectiveAdminNotificationEmails: Array.isArray(runtime.adminNotificationEmails)
+            ? runtime.adminNotificationEmails
+            : (runtime.adminNotificationEmail ? [runtime.adminNotificationEmail] : []),
+        activeEmailRecipientCount: Array.isArray(runtime.adminNotificationEmails)
+            ? runtime.adminNotificationEmails.length
+            : 0,
         emailEventCatalog: Object.keys(getDefaultEmailEventPreferences()).map((key) => ({
             key,
             enabled: Boolean(settings.emailEventPreferences?.[key] !== false),
@@ -329,7 +364,12 @@ async function getAdminNotificationSettings() {
 }
 
 async function updateNotificationSettings(payload = {}, admin = {}) {
-    const validated = validateForSave(payload);
+    const current = await getNotificationSettings();
+    const merged = {
+        ...current,
+        ...payload
+    };
+    const validated = validateForSave(merged);
     const next = {
         ...validated,
         updatedAt: new Date().toISOString(),
@@ -373,6 +413,9 @@ async function updateNotificationSettings(payload = {}, admin = {}) {
                 browserEnabled: next.browserNotificationsEnabled,
                 soundEnabled: next.soundNotificationsEnabled,
                 hasAdminEmail: Boolean(next.adminNotificationEmail),
+                hasAdminEmail2: Boolean(next.adminNotificationEmail2),
+                recipient1Enabled: next.adminNotificationEmailEnabled !== false,
+                recipient2Enabled: next.adminNotificationEmail2Enabled !== false,
                 channelEvents: Object.keys(next.eventChannelPreferences || {}).length,
                 updatedByAdminId: next.updatedByAdminId || null
             }
@@ -391,7 +434,8 @@ async function getMailRuntimeConfig() {
 
 /**
  * Send a test email using current saved settings + env SMTP.
- * Never exposes SMTP secrets.
+ * Sends separately to each active recipient so mixed results are reported honestly.
+ * Never exposes SMTP secrets. Never sends unless explicitly requested.
  */
 async function sendTestNotificationEmail(admin = {}, options = {}) {
     const settings = await getNotificationSettings();
@@ -400,13 +444,14 @@ async function sendTestNotificationEmail(admin = {}, options = {}) {
     const provider = getProviderStatus();
 
     const overrideTo = normalizeEmail(options.to);
-    const recipient = (overrideTo && isValidEmail(overrideTo))
-        ? overrideTo
-        : runtime.adminNotificationEmail;
+    const active = resolveActiveAdminNotificationRecipients(settings);
+    const recipients = (overrideTo && isValidEmail(overrideTo))
+        ? [{ slot: 0, label: 'Override', email: overrideTo, enabled: true }]
+        : active;
 
-    if (!recipient || !isValidEmail(recipient)) {
-        throw ValidationError('Set a valid admin notification email before sending a test.', {
-            adminNotificationEmail: 'A valid notification email is required.'
+    if (!recipients.length) {
+        throw ValidationError('Enable at least one recipient with a valid email before sending a test.', {
+            adminNotificationEmail: 'No active email recipients are configured.'
         });
     }
 
@@ -429,60 +474,110 @@ async function sendTestNotificationEmail(admin = {}, options = {}) {
     }
 
     const appBaseUrl = normalizeText(process.env.APP_BASE_URL || process.env.PUBLIC_APP_URL, 'https://byosemarket.com');
-    const shell = buildAdminEmailShell({
-        title: 'Test Notification Email',
-        preview: 'BYOSE Market notification settings test email',
-        summary: 'This is a test email from the BYOSE Market Notification Settings page. If you received this message, admin email delivery is working with the current configuration.',
-        details: [
-            { label: 'Requested By', value: normalizeText(admin.email || admin.id || 'Admin') },
-            { label: 'Recipient', value: recipient },
-            { label: 'Provider', value: provider.provider || 'smtp' },
-            { label: 'From', value: [provider.fromName, provider.fromAddress].filter(Boolean).join(' · ') }
-        ],
-        ctaLabel: 'Open Notification Settings',
-        ctaUrl: `${appBaseUrl.replace(/\/+$/, '')}/admin/dashboard.html#/settings?panel=notifications`,
-        accent: '#0f766e'
-    });
+    const results = [];
 
-    const subject = '[BYOSE] Test Notification Email';
-    const result = await sendViaProvider({
-        to: recipient,
-        subject,
-        html: shell.html,
-        text: shell.text,
-        headers: {
-            'X-BYOSE-Event': 'TEST_EMAIL',
-            'X-BYOSE-Source': 'notification-settings'
-        }
-    });
+    for (const slot of recipients) {
+        const shell = buildAdminEmailShell({
+            title: 'Test Notification Email',
+            preview: 'This is a test notification from BYOSE Market.',
+            summary: 'This is a test notification from BYOSE Market. If you received this message, Notification Settings can deliver emails to this recipient.',
+            details: [
+                { label: 'Requested By', value: normalizeText(admin.email || admin.id || 'Admin') },
+                { label: 'Recipient', value: slot.email },
+                { label: 'Recipient Slot', value: slot.label || `Recipient ${slot.slot || ''}`.trim() },
+                { label: 'Provider', value: provider.provider || 'smtp' },
+                { label: 'From', value: [provider.fromName, provider.fromAddress].filter(Boolean).join(' · ') }
+            ],
+            ctaLabel: 'Open Notification Settings',
+            ctaUrl: `${appBaseUrl.replace(/\/+$/, '')}/admin/dashboard.html#/settings?panel=notifications`,
+            accent: '#0f766e'
+        });
 
-    if (!result.success) {
+        const result = await sendViaProvider({
+            to: slot.email,
+            subject: '[BYOSE] Test Notification Email',
+            html: shell.html,
+            text: shell.text,
+            headers: {
+                'X-BYOSE-Event': 'TEST_EMAIL',
+                'X-BYOSE-Source': 'notification-settings',
+                'X-BYOSE-Recipient-Slot': String(slot.slot || '')
+            }
+        });
+
+        results.push({
+            slot: slot.slot || null,
+            label: slot.label || '',
+            recipient: slot.email,
+            success: Boolean(result.success),
+            status: result.success ? 'sent' : 'failed',
+            provider: result.provider || provider.provider,
+            messageId: result.messageId || null,
+            error: result.success ? null : String(result.error?.message || result.error || 'Unable to send test email.')
+        });
+    }
+
+    const sent = results.filter((item) => item.success);
+    const failed = results.filter((item) => !item.success);
+
+    try {
+        const monitoring = require('./notification-monitoring.service');
+        void monitoring.recordOpsLog({
+            eventType: failed.length && sent.length
+                ? 'TEST_EMAIL_PARTIAL'
+                : failed.length
+                    ? 'TEST_EMAIL_FAILED'
+                    : 'TEST_EMAIL_SENT',
+            status: failed.length && !sent.length ? 'error' : failed.length ? 'warning' : 'success',
+            channel: 'email',
+            message: failed.length && sent.length
+                ? 'Test notification partially delivered.'
+                : failed.length
+                    ? 'Test notification failed.'
+                    : 'Test notification sent.',
+            details: {
+                sent: sent.map((item) => maskEmailAddress(item.recipient)),
+                failed: failed.map((item) => ({ recipient: maskEmailAddress(item.recipient), error: item.error }))
+            }
+        });
+    } catch (_error) {
+        // non-blocking
+    }
+
+    if (!sent.length) {
         appLogger.warn('notification.settings.test_email_failed', {
-            recipient,
-            provider: result.provider,
-            error: String(result.error?.message || result.error || 'send_failed'),
+            recipients: results.map((item) => maskEmailAddress(item.recipient)),
+            provider: provider.provider,
+            error: failed[0]?.error || 'send_failed',
             adminId: admin.id || ''
         });
-        const error = new Error(String(result.error?.message || 'Unable to send test email.'));
+        const error = new Error('Test email failed.');
         error.statusCode = 502;
         error.code = 'TEST_EMAIL_SEND_FAILED';
+        error.details = { results, error: failed[0]?.error || 'send_failed' };
         throw error;
     }
 
     appLogger.info('notification.settings.test_email_sent', {
-        recipient,
-        provider: result.provider,
-        messageId: result.messageId || '',
+        recipients: sent.map((item) => maskEmailAddress(item.recipient)),
+        failed: failed.length,
+        provider: provider.provider,
         adminId: admin.id || ''
     });
 
     return {
-        success: true,
-        recipient,
-        provider: result.provider,
-        messageId: result.messageId || null,
+        success: sent.length > 0,
+        partial: Boolean(sent.length && failed.length),
+        recipient: sent[0]?.recipient || recipients[0].email,
+        recipients: sent.map((item) => item.recipient),
+        results,
+        provider: provider.provider,
+        messageId: sent[0]?.messageId || null,
         connectionStatus: publicSettings.emailTransport.connectionStatus,
-        sentAt: new Date().toISOString()
+        sentAt: new Date().toISOString(),
+        message: failed.length
+            ? `Test email sent to ${sent.map((item) => item.recipient).join(', ')}. Failed for ${failed.map((item) => item.recipient).join(', ')}.`
+            : 'Test email sent successfully.'
     };
 }
 

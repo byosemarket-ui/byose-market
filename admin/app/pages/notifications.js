@@ -86,9 +86,21 @@ function emailDeliveryLabel(item) {
   if (!status) return "";
   if (status === "sent") return "Email sent";
   if (status === "skipped") return "Email skipped";
-  if (status === "retry_scheduled" || status === "pending") return "Email retrying";
-  if (status === "failed") return "Email failed";
+  if (status === "retry_scheduled" || status === "pending" || status === "retrying") return "Email retrying";
+  if (status === "failed" || status === "partial") return status === "partial" ? "Email partial" : "Email failed";
   return `Email ${status}`;
+}
+
+function smsDeliveryLabel(item) {
+  const meta = item?.metadata?.smsDelivery || item?.smsDelivery || null;
+  if (!meta || typeof meta !== "object") return "";
+  const status = String(meta.status || "").toLowerCase();
+  if (!status) return "";
+  if (status === "sent") return "Historical SMS sent";
+  if (status === "skipped") return "Historical SMS skipped";
+  if (status === "retry_scheduled" || status === "pending" || status === "retrying") return "Historical SMS";
+  if (status === "failed" || status === "partial") return status === "partial" ? "Historical SMS partial" : "Historical SMS failed";
+  return `Historical SMS ${status}`;
 }
 
 function renderHistoryRow(item, selected) {
@@ -101,6 +113,7 @@ function renderHistoryRow(item, selected) {
     || "";
   const isSelected = selected.has(id);
   const emailLabel = emailDeliveryLabel(item);
+  const smsLabel = smsDeliveryLabel(item);
   const orderId = String(item.relatedOrderId || "").trim();
 
   return `
@@ -117,6 +130,7 @@ function renderHistoryRow(item, selected) {
           <span class="notification-pill notification-pill--${priorityTone(item.priority)}">${escapeHtml(priorityLabel(item.priority))}</span>
           <span class="notification-pill">${escapeHtml(statusLabel(item.status))}</span>
           ${emailLabel ? `<span class="notification-pill notification-pill--${emailLabel.includes("fail") ? "danger" : "info"}">${escapeHtml(emailLabel)}</span>` : ""}
+          ${smsLabel ? `<span class="notification-pill notification-pill--${smsLabel.includes("fail") ? "danger" : "info"}">${escapeHtml(smsLabel)}</span>` : ""}
         </div>
         <p>${escapeHtml(item.message || "")}</p>
         <div class="nh-meta">

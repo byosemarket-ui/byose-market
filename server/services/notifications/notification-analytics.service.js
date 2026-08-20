@@ -8,8 +8,10 @@ const { appLogger } = require('../../utils/logger');
 
 const EVENT_LABELS = Object.freeze({
     ORDER_CREATED: 'New Orders',
-    PAYMENT_RECEIVED: 'Payments Received',
+    PAYMENT_PENDING: 'Payments Pending',
+    PAYMENT_RECEIVED: 'Payments Successful',
     PAYMENT_FAILED: 'Payments Failed',
+    PAYMENT_CANCELLED: 'Payments Cancelled',
     ORDER_CONFIRMED: 'Order Confirmed',
     ORDER_PROCESSING: 'Order Processing',
     ORDER_PACKED: 'Order Packed',
@@ -17,7 +19,7 @@ const EVENT_LABELS = Object.freeze({
     ORDER_DELIVERED: 'Deliveries',
     ORDER_CANCELLED: 'Cancellations',
     REFUND_REQUESTED: 'Refund Requests',
-    REFUND_APPROVED: 'Refunds Approved',
+    REFUND_APPROVED: 'Refunds Completed',
     REFUND_REJECTED: 'Refunds Rejected',
     CUSTOMER_REGISTERED: 'Customer Registrations',
     LOW_STOCK: 'Low Stock Alerts',

@@ -53,9 +53,9 @@ const CHANNEL_META = Object.freeze({
     [CHANNELS.SMS]: {
         id: CHANNELS.SMS,
         label: 'SMS',
-        description: 'SMS delivery (provider not configured yet)',
+        description: 'Not used for Admin order notifications (email only)',
         runtime: 'server',
-        configurable: true,
+        configurable: false,
         defaultEnabled: false,
         planned: true
     },

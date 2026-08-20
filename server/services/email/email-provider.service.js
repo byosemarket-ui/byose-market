@@ -5,7 +5,7 @@
  */
 
 const { appLogger } = require('../../utils/logger');
-const { readEnvSmtpConfig, normalizeText, normalizeBoolean } = require('../../config/notification-mail.config');
+const { readEnvSmtpConfig, normalizeText, normalizeBoolean, isValidEmail } = require('../../config/notification-mail.config');
 
 const PROVIDERS = Object.freeze({
     SMTP: 'smtp'
@@ -104,6 +104,20 @@ function resetTransporter() {
     transporterCache = { key: '', transporter: null };
 }
 
+function normalizeRecipientList(to) {
+    const source = Array.isArray(to)
+        ? to
+        : String(to == null ? '' : to).split(/[;,]+/);
+    const emails = [];
+    for (const item of source) {
+        const email = normalizeText(item).toLowerCase();
+        if (email && isValidEmail(email) && !emails.includes(email)) {
+            emails.push(email);
+        }
+    }
+    return emails;
+}
+
 /**
  * Send an email through the configured provider.
  * Never throws — returns { success, error?, messageId? }.
@@ -116,13 +130,14 @@ async function sendViaProvider({
     replyTo = '',
     headers = {}
 } = {}) {
-    const recipient = normalizeText(to).toLowerCase();
+    const recipients = normalizeRecipientList(to);
+    const recipient = recipients.join(', ');
     const emailSubject = normalizeText(subject);
     const textBody = normalizeText(text);
     const htmlBody = String(html || '').trim();
     const status = getProviderStatus();
 
-    if (!recipient || !emailSubject || (!textBody && !htmlBody)) {
+    if (!recipients.length || !emailSubject || (!textBody && !htmlBody)) {
         return {
             success: false,
             provider: status.provider,
@@ -167,22 +182,101 @@ async function sendViaProvider({
             provider: status.provider,
             messageId: String(info?.messageId || ''),
             accepted: Array.isArray(info?.accepted) ? info.accepted : [],
-            rejected: Array.isArray(info?.rejected) ? info.rejected : []
+            rejected: Array.isArray(info?.rejected) ? info.rejected : [],
+            recipients
         };
     } catch (error) {
         resetTransporter();
         appLogger.error('email.provider.send_failed', {
             provider: status.provider,
-            recipient,
+            recipientDomain: recipient.includes('@') ? recipient.split('@').pop() : null,
             subject: emailSubject,
-            error: String(error?.message || error)
+            error: sanitizeEmailErrorMessage(error),
+            errorCategory: classifyEmailError(error).category
         });
         return {
             success: false,
             provider: status.provider,
-            error
+            error,
+            errorCategory: classifyEmailError(error).category,
+            retryable: classifyEmailError(error).retryable
         };
     }
+}
+
+function sanitizeEmailErrorMessage(error) {
+    return String(error?.message || error || 'Email send failed')
+        .replace(/(pass(word)?|secret|api[_-]?key|authorization)\s*[:=]\s*\S+/gi, '$1=[redacted]')
+        .slice(0, 500);
+}
+
+/**
+ * Temporary SMTP/network failures are retryable.
+ * Invalid recipients, auth/config errors, and malformed messages are permanent.
+ */
+function classifyEmailError(error, extras = {}) {
+    const message = String(error?.message || error || '').toLowerCase();
+    const code = String(error?.code || extras.code || '').toUpperCase();
+    const responseCode = Number(error?.responseCode || extras.responseCode || 0);
+
+    if (extras.permanent === true) {
+        return { category: extras.category || 'permanent', retryable: false, code: extras.code || 'permanent' };
+    }
+
+    if (!message && !code && !responseCode) {
+        return { category: 'temporary', retryable: true, code: 'unknown' };
+    }
+
+    if (
+        extras.reason === 'missing_recipient'
+        || extras.reason === 'invalid_recipient'
+        || /invalid recipient|invalid address|mailbox unavailable|user unknown|no such user|recipient rejected|eenvelope/.test(message)
+        || code === 'EENVELOPE'
+        || responseCode === 501
+        || responseCode === 550
+        || responseCode === 551
+        || responseCode === 553
+        || responseCode === 554
+    ) {
+        return { category: 'permanent', retryable: false, code: 'invalid_recipient' };
+    }
+
+    if (
+        extras.reason === 'malformed'
+        || extras.reason === 'missing_fields'
+        || /missing required email|malformed/.test(message)
+    ) {
+        return { category: 'permanent', retryable: false, code: 'malformed' };
+    }
+
+    if (
+        extras.reason === 'provider_not_configured'
+        || /not configured|transporter unavailable/.test(message)
+    ) {
+        return { category: 'config', retryable: false, code: 'not_configured' };
+    }
+
+    if (
+        code === 'EAUTH'
+        || /authentication failed|invalid login|535/.test(message)
+        || responseCode === 535
+    ) {
+        return { category: 'permanent', retryable: false, code: 'auth_failed' };
+    }
+
+    if (
+        ['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE', 'ETLS', 'ECONNECTION'].includes(code)
+        || /timed out|timeout|temporarily|try again later|connection|unavailable|greeted|socket/.test(message)
+        || (responseCode >= 400 && responseCode < 500)
+        || responseCode === 421
+        || responseCode === 450
+        || responseCode === 451
+        || responseCode === 452
+    ) {
+        return { category: 'temporary', retryable: true, code: code || 'temporary' };
+    }
+
+    return { category: 'temporary', retryable: true, code: code || 'unknown' };
 }
 
 module.exports = {
@@ -192,6 +286,9 @@ module.exports = {
     getTransporter,
     resetTransporter,
     sendViaProvider,
+    normalizeRecipientList,
+    classifyEmailError,
+    sanitizeEmailErrorMessage,
     // Compatibility helpers used by legacy utils/email.js consumers
     isProviderConfigured: () => getProviderStatus().configured,
     normalizeBoolean

@@ -49,7 +49,8 @@ async function deliverEmail({ notification, eventKey, context }) {
             skipped: true,
             status: DELIVERY_STATUSES.SKIPPED,
             reason: result.reason || 'email_skipped',
-            provider: result.provider || 'smtp'
+            provider: result.provider || 'smtp',
+            payload: { results: result.results || [] }
         };
     }
     if (result.success) {
@@ -62,19 +63,37 @@ async function deliverEmail({ notification, eventKey, context }) {
             messageId: result.messageId || null,
             subject: result.subject || null,
             recipient: result.recipient || null,
-            sentAt: new Date().toISOString()
+            sentAt: new Date().toISOString(),
+            payload: { results: result.results || [] }
         };
     }
+    if (result.partial) {
+        return {
+            channel: CHANNELS.EMAIL,
+            success: false,
+            skipped: false,
+            status: DELIVERY_STATUSES.FAILED,
+            reason: 'partial',
+            provider: result.provider || 'smtp',
+            recipient: result.recipient || null,
+            subject: result.subject || null,
+            payload: { results: result.results || [] }
+        };
+    }
+    const retrying = Array.isArray(result.results)
+        ? result.results.some((item) => item.retrying)
+        : Boolean(result.retrying);
     return {
         channel: CHANNELS.EMAIL,
         success: false,
         skipped: false,
-        status: result.retrying ? DELIVERY_STATUSES.RETRYING : DELIVERY_STATUSES.FAILED,
+        status: retrying ? DELIVERY_STATUSES.RETRYING : DELIVERY_STATUSES.FAILED,
         reason: result.reason || String(result.error?.message || result.error || 'email_failed'),
         provider: result.provider || 'smtp',
         recipient: result.recipient || null,
         subject: result.subject || null,
-        nextRetryAt: result.retrying ? new Date(Date.now() + 60 * 1000).toISOString() : null
+        nextRetryAt: retrying ? new Date(Date.now() + 60 * 1000).toISOString() : null,
+        payload: { results: result.results || [] }
     };
 }
 
@@ -111,7 +130,7 @@ async function deliverSound({ eventKey, context, notification }) {
     };
 }
 
-async function deliverFutureStub(channel, { eventKey }) {
+async function deliverFutureStub(channel) {
     const meta = CHANNEL_META[channel] || {};
     if (!process.env[`${String(channel).toUpperCase()}_PROVIDER`] && !process.env[`${String(channel).toUpperCase()}_API_KEY`]) {
         return skipped(channel, meta.planned ? 'provider_not_configured' : 'channel_disabled');
@@ -125,7 +144,7 @@ const ADAPTERS = Object.freeze({
     [CHANNELS.EMAIL]: deliverEmail,
     [CHANNELS.BROWSER]: deliverBrowser,
     [CHANNELS.SOUND]: deliverSound,
-    [CHANNELS.SMS]: (payload) => deliverFutureStub(CHANNELS.SMS, payload),
+    [CHANNELS.SMS]: () => skipped(CHANNELS.SMS, 'admin_email_only'),
     [CHANNELS.WHATSAPP]: (payload) => deliverFutureStub(CHANNELS.WHATSAPP, payload),
     [CHANNELS.PUSH]: (payload) => deliverFutureStub(CHANNELS.PUSH, payload)
 });

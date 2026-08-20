@@ -17,16 +17,19 @@ const PRESETS = [
 const EVENT_OPTIONS = [
   { value: "", label: "All events" },
   { value: "ORDER_CREATED", label: "New Orders" },
-  { value: "PAYMENT_RECEIVED", label: "Payments" },
+  { value: "PAYMENT_PENDING", label: "Payment Pending" },
+  { value: "PAYMENT_RECEIVED", label: "Payment Successful" },
   { value: "PAYMENT_FAILED", label: "Payment Failed" },
+  { value: "PAYMENT_CANCELLED", label: "Payment Cancelled" },
+  { value: "ORDER_PROCESSING", label: "Order Processing" },
+  { value: "ORDER_SHIPPED", label: "Shipments" },
   { value: "ORDER_DELIVERED", label: "Deliveries" },
+  { value: "ORDER_CANCELLED", label: "Cancellations" },
   { value: "REFUND_REQUESTED", label: "Refunds" },
-  { value: "REFUND_APPROVED", label: "Refunds Approved" },
+  { value: "REFUND_APPROVED", label: "Refunds Completed" },
   { value: "CUSTOMER_REGISTERED", label: "Customer Registrations" },
   { value: "LOW_STOCK", label: "Low Stock Alerts" },
-  { value: "OUT_OF_STOCK", label: "Out of Stock" },
-  { value: "ORDER_SHIPPED", label: "Shipments" },
-  { value: "ORDER_CANCELLED", label: "Cancellations" }
+  { value: "OUT_OF_STOCK", label: "Out of Stock" }
 ];
 
 function attr(value) {

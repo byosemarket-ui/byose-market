@@ -31,6 +31,50 @@ function sendError(req, res, error, eventName) {
     });
 }
 
+const SETTINGS_EVENT_LABELS = {
+    ORDER_CREATED: 'New Order',
+    PAYMENT_PENDING: 'Payment Pending',
+    PAYMENT_RECEIVED: 'Payment Successful',
+    PAYMENT_FAILED: 'Payment Failed',
+    PAYMENT_CANCELLED: 'Payment Cancelled',
+    ORDER_CONFIRMED: 'Order Confirmed',
+    ORDER_PROCESSING: 'Order Processing',
+    ORDER_PACKED: 'Order Packed',
+    ORDER_SHIPPED: 'Order Shipped',
+    ORDER_DELIVERED: 'Order Delivered',
+    ORDER_CANCELLED: 'Order Cancelled',
+    REFUND_REQUESTED: 'Refund Requested',
+    REFUND_APPROVED: 'Refund Completed',
+    REFUND_REJECTED: 'Refund Rejected'
+};
+
+function notificationSettingsSummaries(previous = {}, next = {}) {
+    const summaries = [];
+    const emailChanged = previous.adminNotificationEmail !== next.adminNotificationEmail
+        || previous.adminNotificationEmail2 !== next.adminNotificationEmail2
+        || previous.adminNotificationEmailEnabled !== next.adminNotificationEmailEnabled
+        || previous.adminNotificationEmail2Enabled !== next.adminNotificationEmail2Enabled
+        || previous.emailNotificationsEnabled !== next.emailNotificationsEnabled;
+
+    if (emailChanged) summaries.push('Admin updated notification email recipients.');
+
+    const prevEvents = previous.emailEventPreferences || {};
+    const nextEvents = next.emailEventPreferences || {};
+    const eventKeys = new Set([...Object.keys(prevEvents), ...Object.keys(nextEvents)]);
+    for (const key of eventKeys) {
+        const was = prevEvents[key] !== false;
+        const nowOn = nextEvents[key] !== false;
+        if (was === nowOn) continue;
+        const label = SETTINGS_EVENT_LABELS[key] || key.replace(/_/g, ' ');
+        summaries.push(nowOn ? `Admin enabled email for ${label}.` : `Admin disabled email for ${label}.`);
+    }
+
+    if (!summaries.length) {
+        summaries.push('Admin updated notification settings.');
+    }
+    return summaries.slice(0, 8);
+}
+
 async function recordAudit(req, summary, meta = {}, eventType = 'notification_settings_updated') {
     try {
         await adminSecurityService.recordSecurityEvent(
@@ -235,19 +279,51 @@ exports.getSettings = async (req, res) => {
 
 exports.updateSettings = async (req, res) => {
     try {
+        const previous = await notificationSettingsService.getNotificationSettings();
         const settings = await notificationSettingsService.updateNotificationSettings(req.body || {}, {
             id: req.admin?.id,
             email: req.admin?.email
         });
-        await recordAudit(req, 'Notification settings updated', {
+        const summaries = notificationSettingsSummaries(previous, settings);
+        const meta = {
             emailEnabled: settings.emailNotificationsEnabled,
             browserEnabled: settings.browserNotificationsEnabled,
             soundEnabled: settings.soundNotificationsEnabled,
             soundId: settings.notificationSoundId || 'soft',
-            hasAdminEmail: Boolean(settings.adminNotificationEmail)
-        });
+            hasAdminEmail: Boolean(settings.adminNotificationEmail),
+            hasAdminEmail2: Boolean(settings.adminNotificationEmail2),
+            recipient1Enabled: settings.adminNotificationEmailEnabled !== false,
+            recipient2Enabled: settings.adminNotificationEmail2Enabled !== false,
+            activeEmailRecipients: Array.isArray(settings.effectiveAdminNotificationEmails)
+                ? settings.effectiveAdminNotificationEmails.length
+                : 0
+        };
+        for (const summary of summaries) {
+            await recordAudit(req, summary, meta);
+        }
+        try {
+            const { getRepositoryBundle } = require('../repositories');
+            const repos = getRepositoryBundle();
+            for (const summary of summaries) {
+                await repos.adminProfile.recordActivity({
+                    adminPublicId: String(req.admin?.id || ''),
+                    adminEmail: String(req.admin?.email || ''),
+                    eventType: 'notification_settings_updated',
+                    category: 'settings',
+                    summary,
+                    meta: {
+                        recipient1Enabled: settings.adminNotificationEmailEnabled !== false,
+                        recipient2Enabled: settings.adminNotificationEmail2Enabled !== false
+                    },
+                    ip: adminSecurityService.buildRequestContext(req).ip,
+                    userAgent: adminSecurityService.buildRequestContext(req).userAgent
+                });
+            }
+        } catch (_error) {
+            // Non-blocking activity trail.
+        }
         res.setHeader('Cache-Control', 'no-store');
-        return res.status(200).json({ success: true, settings });
+        return res.status(200).json({ success: true, message: 'Notification settings saved successfully', settings });
     } catch (error) {
         return sendError(req, res, error, 'admin.notifications.settings_update_failed');
     }
@@ -269,6 +345,24 @@ exports.sendTestEmail = async (req, res) => {
         return res.status(200).json({ success: true, ...result });
     } catch (error) {
         return sendError(req, res, error, 'admin.notifications.test_email_failed');
+    }
+};
+
+exports.retryEmailDelivery = async (req, res) => {
+    try {
+        const emailService = require('../services/email/notification-email.service');
+        const result = await emailService.retryEmailDelivery(req.params.id, {
+            admin: { id: req.admin?.id, email: req.admin?.email }
+        });
+        await recordAudit(req, 'Admin retried a failed notification email.', {
+            deliveryId: req.params.id,
+            success: Boolean(result.success),
+            retried: Boolean(result.retried)
+        }, 'notification_email_retried');
+        res.setHeader('Cache-Control', 'no-store');
+        return res.status(200).json({ success: true, ...result });
+    } catch (error) {
+        return sendError(req, res, error, 'admin.notifications.retry_failed');
     }
 };
 

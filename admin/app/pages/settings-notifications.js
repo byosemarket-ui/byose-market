@@ -21,8 +21,10 @@ function isValidEmail(value) {
 
 const EMAIL_EVENT_LABELS = {
   ORDER_CREATED: "New Order",
-  PAYMENT_RECEIVED: "Payment Received",
+  PAYMENT_PENDING: "Payment Pending",
+  PAYMENT_RECEIVED: "Payment Successful",
   PAYMENT_FAILED: "Payment Failed",
+  PAYMENT_CANCELLED: "Payment Cancelled",
   ORDER_CONFIRMED: "Order Confirmed",
   ORDER_PROCESSING: "Order Processing",
   ORDER_PACKED: "Order Packed",
@@ -30,7 +32,7 @@ const EMAIL_EVENT_LABELS = {
   ORDER_DELIVERED: "Order Delivered",
   ORDER_CANCELLED: "Order Cancelled",
   REFUND_REQUESTED: "Refund Requested",
-  REFUND_APPROVED: "Refund Approved",
+  REFUND_APPROVED: "Refund Completed",
   REFUND_REJECTED: "Refund Rejected",
   CUSTOMER_REGISTERED: "New Customer Registration",
   LOW_STOCK: "Low Stock Alert",
@@ -41,10 +43,7 @@ const CHANNEL_COLUMNS = [
   { id: "in_app", label: "Dashboard", planned: false },
   { id: "email", label: "Email", planned: false },
   { id: "browser", label: "Browser", planned: false },
-  { id: "sound", label: "Sound", planned: false },
-  { id: "sms", label: "SMS", planned: true },
-  { id: "whatsapp", label: "WhatsApp", planned: true },
-  { id: "push", label: "Push", planned: true }
+  { id: "sound", label: "Sound", planned: false }
 ];
 
 function defaultChannelsForEvent(settings, eventKey) {
@@ -52,13 +51,31 @@ function defaultChannelsForEvent(settings, eventKey) {
   if (matrix && typeof matrix === "object") return matrix;
   return {
     in_app: true,
-    email: settings?.emailEventPreferences?.[eventKey] !== false && settings?.emailNotificationsEnabled !== false,
+    email: settings?.emailEventPreferences?.[eventKey] !== false,
     browser: settings?.browserNotificationsEnabled !== false,
-    sound: Boolean(settings?.soundNotificationsEnabled),
-    sms: false,
-    whatsapp: false,
-    push: false
+    sound: Boolean(settings?.soundNotificationsEnabled)
   };
+}
+
+function emailEventTogglesMarkup(settings) {
+  const items = Object.keys(EMAIL_EVENT_LABELS).map((eventKey) => {
+    const enabled = settings?.emailEventPreferences?.[eventKey] !== false;
+    return switchField(
+      `emailEvent.${eventKey}`,
+      EMAIL_EVENT_LABELS[eventKey],
+      enabled,
+      enabled ? "ON" : "OFF"
+    );
+  }).join("");
+
+  return `
+    <div class="ns-event-toolbar">
+      <button type="button" class="btn btn-ghost" data-ns-events="enable-all">Enable all events</button>
+      <button type="button" class="btn btn-ghost" data-ns-events="disable-all">Disable all events</button>
+    </div>
+    <div class="ns-event-grid">${items}</div>
+    <p class="admin-profile-help">These switches control which order, payment, and delivery events generate admin emails. Recipients above still apply. New events default to ON so existing New Order emails stay active.</p>
+  `;
 }
 
 function channelMatrixMarkup(settings) {
@@ -112,7 +129,7 @@ function channelMatrixMarkup(settings) {
         <tbody>${rows}</tbody>
       </table>
     </div>
-    <p class="admin-profile-help">Each event can target multiple channels independently. SMS, WhatsApp, and Push adapters are installed and will activate when providers are configured on the VPS.</p>
+    <p class="admin-profile-help">Each event can target Email independently. Admin order notifications are email-only.</p>
   `;
 }
 
@@ -148,6 +165,83 @@ function switchField(name, label, checked, help = "") {
   `;
 }
 
+function recipientSlot(settings, slot) {
+  const list = Array.isArray(settings.emailRecipients) ? settings.emailRecipients : [];
+  const found = list.find((item) => Number(item.slot) === slot);
+  if (found) return found;
+  if (slot === 1) {
+    return {
+      slot: 1,
+      email: settings.adminNotificationEmail || "",
+      enabled: settings.adminNotificationEmailEnabled !== false,
+      active: Boolean(settings.adminNotificationEmailEnabled !== false && (settings.adminNotificationEmail || settings.effectiveAdminNotificationEmail)),
+      effectiveEmail: settings.effectiveAdminNotificationEmail || ""
+    };
+  }
+  return {
+    slot: 2,
+    email: settings.adminNotificationEmail2 || "",
+    enabled: settings.adminNotificationEmail2Enabled !== false,
+    active: Boolean(settings.adminNotificationEmail2Enabled !== false && settings.adminNotificationEmail2),
+    effectiveEmail: ""
+  };
+}
+
+function recipientStatusBadge(slotInfo) {
+  if (slotInfo.active) {
+    return `<span class="ns-status-badge ns-status-badge--connected">Enabled</span>`;
+  }
+  if (slotInfo.enabled) {
+    return `<span class="ns-status-badge ns-status-badge--not_connected">Enabled · No email</span>`;
+  }
+  return `<span class="ns-status-badge ns-status-badge--disabled">Disabled</span>`;
+}
+
+function recipientCard(slot, settings, fieldError = "") {
+  const info = recipientSlot(settings, slot);
+  const name = slot === 1 ? "adminNotificationEmail" : "adminNotificationEmail2";
+  const enabledName = slot === 1 ? "adminNotificationEmailEnabled" : "adminNotificationEmail2Enabled";
+  const invalid = Boolean(fieldError && (slot === 1 || String(fieldError).toLowerCase().includes("second")));
+  return `
+    <article class="ns-recipient-card">
+      <header class="ns-recipient-card__head">
+        <div>
+          <h5>Recipient ${slot}</h5>
+          <p>Receives automatic BYOSE Market order and payment emails.</p>
+        </div>
+        ${recipientStatusBadge(info)}
+      </header>
+      <label class="admin-field">
+        <span>Email address</span>
+        <input
+          class="input ${invalid ? "is-invalid" : ""}"
+          type="email"
+          name="${attr(name)}"
+          value="${attr(info.email || "")}"
+          placeholder="${slot === 1 ? "ops@yourdomain.com" : "manager@yourdomain.com"}"
+          autocomplete="email"
+          inputmode="email"
+          aria-label="Email Recipient ${slot}"
+        />
+        <small>${info.effectiveEmail && info.effectiveEmail !== info.email
+          ? `Currently sending to ${escapeHtml(info.effectiveEmail)} until you save a replacement.`
+          : "Leave empty to remove this recipient."}</small>
+      </label>
+      <div class="ns-recipient-card__actions">
+        ${switchField(
+          enabledName,
+          "Enabled",
+          info.enabled !== false,
+          slot === 1
+            ? "When disabled, Recipient 1 does not receive notifications."
+            : "When disabled, Recipient 2 does not receive notifications."
+        )}
+        <button type="button" class="btn btn-ghost" data-ns-clear="${slot}">Clear email</button>
+      </div>
+    </article>
+  `;
+}
+
 function connectionBadge(transport = {}) {
   const code = String(transport.connectionStatus || (transport.configured ? "not_connected" : "configuration_required"));
   const label = transport.connectionLabel
@@ -168,11 +262,19 @@ function readFormSettings(form) {
       }
       channels[channel.id] = Boolean(data.get(`channel.${key}.${channel.id}`));
     });
+    const hasDedicated = Boolean(form.querySelector(`[name="emailEvent.${key}"]`));
+    const emailOn = hasDedicated
+      ? Boolean(data.get(`emailEvent.${key}`))
+      : Boolean(channels.email);
+    channels.email = emailOn;
     eventChannelPreferences[key] = channels;
-    emailEventPreferences[key] = Boolean(channels.email);
+    emailEventPreferences[key] = emailOn;
   });
   return {
     adminNotificationEmail: String(data.get("adminNotificationEmail") || "").trim().toLowerCase(),
+    adminNotificationEmail2: String(data.get("adminNotificationEmail2") || "").trim().toLowerCase(),
+    adminNotificationEmailEnabled: Boolean(data.get("adminNotificationEmailEnabled")),
+    adminNotificationEmail2Enabled: Boolean(data.get("adminNotificationEmail2Enabled")),
     emailNotificationsEnabled: Boolean(data.get("emailNotificationsEnabled")),
     browserNotificationsEnabled: Boolean(data.get("browserNotificationsEnabled")),
     soundNotificationsEnabled: Boolean(data.get("soundNotificationsEnabled")),
@@ -219,7 +321,7 @@ export async function renderAdminNotificationsPanel(container) {
         { id: "alert", label: "Alert Pulse" }
       ];
     const soundId = String(settings.notificationSoundId || "soft");
-    const hubChannels = Array.isArray(settings.channelCatalog) ? settings.channelCatalog : CHANNEL_COLUMNS;
+    const hubChannels = CHANNEL_COLUMNS;
     const browserDenied = browserPermission === "denied";
 
     container.innerHTML = `
@@ -228,7 +330,7 @@ export async function renderAdminNotificationsPanel(container) {
           <div>
             <p class="admin-profile-eyebrow">Admin Settings</p>
             <h2>Notification Settings</h2>
-            <p class="admin-profile-username">Configure the multi-channel communication hub — email, browser, sound, and future SMS/WhatsApp/Push — without editing source code.</p>
+            <p class="admin-profile-username">Configure email recipients and which order, payment, and delivery events send admin emails. SMTP credentials stay on the VPS.</p>
           </div>
           <div class="ns-hero-actions">
             <a class="btn btn-ghost" href="#/notifications">Notification Center</a>
@@ -245,26 +347,21 @@ export async function renderAdminNotificationsPanel(container) {
 
         <form id="notificationSettingsForm" class="ns-layout" novalidate>
           ${sectionCard(
-            "Email Configuration",
-            "Admin destination for automated alert emails. Falls back to environment variables when empty.",
+            "Email Notification Recipients",
+            "These addresses receive automatic BYOSE Market notifications when customers place orders and when payment status changes. SMTP credentials stay on the server and are not edited here.",
             `
-              <label class="admin-field">
-                <span>Admin Notification Email</span>
-                <input
-                  class="input ${fieldError ? "is-invalid" : ""}"
-                  type="email"
-                  name="adminNotificationEmail"
-                  value="${attr(settings.adminNotificationEmail || "")}"
-                  placeholder="ops@yourdomain.com"
-                  autocomplete="email"
-                  inputmode="email"
-                />
-                <small>${fieldError ? escapeHtml(fieldError) : "Change this anytime. Email addresses are never hardcoded in the application."}</small>
-              </label>
+              <div class="ns-recipient-grid">
+                ${recipientCard(1, settings, fieldError)}
+                ${recipientCard(2, settings, fieldError)}
+              </div>
               <div class="ns-effective-row">
                 <div>
-                  <span>Current effective destination</span>
-                  <strong>${escapeHtml(settings.effectiveAdminNotificationEmail || "Not configured")}</strong>
+                  <span>Active recipients</span>
+                  <strong>${escapeHtml(
+                    (Array.isArray(settings.effectiveAdminNotificationEmails) && settings.effectiveAdminNotificationEmails.length
+                      ? settings.effectiveAdminNotificationEmails.join(", ")
+                      : "None — emails will not be sent")
+                  )}</strong>
                 </div>
                 <div>
                   <span>Email channel</span>
@@ -275,14 +372,27 @@ export async function renderAdminNotificationsPanel(container) {
                 "emailNotificationsEnabled",
                 "Enable Email Notifications",
                 settings.emailNotificationsEnabled !== false,
-                "Master toggle for admin alert emails from business events."
+                "Master switch for all admin alert emails. Individual recipients can still be turned off above."
               )}
+              <div class="ns-test-row">
+                <button type="button" class="btn btn-primary" id="nsTestEmailBtn" ${testing ? "disabled" : ""}>
+                  ${testing ? "Sending test…" : "Send Test Email"}
+                </button>
+                <small>Sends only to currently enabled recipients. Saving settings does not send an email.</small>
+              </div>
             `
           )}
 
           ${sectionCard(
+            "Email Notification Events",
+            "Choose which order, payment, and delivery events send email to the active recipients. Turning one event off does not affect the others.",
+            emailEventTogglesMarkup(settings),
+            { wide: true }
+          )}
+
+          ${sectionCard(
             "Channel Preferences by Event",
-            "Choose which channels deliver each business event. Dashboard, Email, Browser, and Sound are live; SMS/WhatsApp/Push are future-ready.",
+            "Choose which channels deliver each business event. Admin order notifications use Email. Dashboard, browser, and sound alerts remain available in the admin panel.",
             channelMatrixMarkup(settings),
             { wide: true, className: "ns-channel-card" }
           )}
@@ -352,7 +462,7 @@ export async function renderAdminNotificationsPanel(container) {
                 <div><span>Batch size</span><strong>${escapeHtml(String(automation?.batchSize ?? "—"))}</strong></div>
                 <div><span>Interval</span><strong>${automation?.intervalMs != null ? `${escapeHtml(String(automation.intervalMs))} ms` : "—"}</strong></div>
               </div>
-              <p class="admin-profile-help">Failed jobs retry automatically. Duplicate events are skipped. Email delivery uses Notification Settings and environment SMTP configuration.</p>
+              <p class="admin-profile-help">Failed jobs retry automatically. Duplicate events are skipped. Email delivery uses Notification Settings and environment SMTP configuration. Admin notifications are email-only.</p>
             `
           )}
 
@@ -377,13 +487,7 @@ export async function renderAdminNotificationsPanel(container) {
                   <div><span>From</span><strong>${escapeHtml([transport.fromName, transport.fromAddress].filter(Boolean).join(" · ") || "—")}</strong></div>
                   <div><span>Ready for delivery</span><strong>${settings.readyForEmailDelivery ? "Yes" : "Not yet"}</strong></div>
                 </div>
-                <div class="ns-test-row">
-                  <button type="button" class="btn btn-primary" id="nsTestEmailBtn" ${testing ? "disabled" : ""}>
-                    ${testing ? "Sending test…" : "Send Test Email"}
-                  </button>
-                  <small>Uses the current effective destination and server SMTP configuration.</small>
-                </div>
-                <p class="admin-profile-help">Configure EMAIL_PROVIDER, EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASS, EMAIL_FROM_ADDRESS, and optional ADMIN_ALERT_EMAIL on the server. Restart is not required after saving settings in this page.</p>
+                <p class="admin-profile-help">SMTP host, username, and password stay on the VPS. This page only controls who receives notifications, not how mail is sent.</p>
               </div>
             `,
             { wide: true }
@@ -404,16 +508,16 @@ export async function renderAdminNotificationsPanel(container) {
     fieldError = "";
 
     if (payload.adminNotificationEmail && !isValidEmail(payload.adminNotificationEmail)) {
-      fieldError = "Enter a valid notification email address.";
-      notice = fieldError;
+      fieldError = "Enter a valid email address for Recipient 1.";
+      notice = "Invalid email";
       noticeTone = "danger";
       paint();
       return;
     }
 
-    if (payload.emailNotificationsEnabled && !payload.adminNotificationEmail && !settings.effectiveAdminNotificationEmail) {
-      fieldError = "Set an admin notification email, or configure ADMIN_ALERT_EMAIL in the server environment.";
-      notice = fieldError;
+    if (payload.adminNotificationEmail2 && !isValidEmail(payload.adminNotificationEmail2)) {
+      fieldError = "Enter a valid email address for Recipient 2.";
+      notice = "Invalid email";
       noticeTone = "danger";
       paint();
       return;
@@ -432,17 +536,17 @@ export async function renderAdminNotificationsPanel(container) {
           notice = "Settings saved, but browser notifications are blocked by this browser.";
           noticeTone = "warn";
         } else {
-          notice = "Notification settings saved. Changes take effect immediately.";
+          notice = "Saved successfully. Future order emails will use these recipients.";
           noticeTone = "success";
         }
       } else {
-        notice = "Notification settings saved. Changes take effect immediately.";
+        notice = "Saved successfully. Future order emails will use these recipients.";
         noticeTone = "success";
       }
       fieldError = "";
       window.dispatchEvent(new CustomEvent("admin:notifications-changed"));
     } catch (error) {
-      notice = error?.message || "Unable to save notification settings.";
+      notice = error?.message || "Unable to save";
       noticeTone = "danger";
       if (error?.details && typeof error.details === "object") {
         const first = Object.values(error.details)[0];
@@ -472,6 +576,11 @@ export async function renderAdminNotificationsPanel(container) {
             details: { adminNotificationEmail: "Enter a valid notification email address." }
           });
         }
+        if (payload.adminNotificationEmail2 && !isValidEmail(payload.adminNotificationEmail2)) {
+          throw Object.assign(new Error("Enter a valid second notification email before sending a test."), {
+            details: { adminNotificationEmail2: "Enter a valid second notification email address." }
+          });
+        }
         settings = await updateNotificationSettings({
           ...payload,
           // Keep email enabled for a meaningful test when the form has a destination.
@@ -481,13 +590,20 @@ export async function renderAdminNotificationsPanel(container) {
       }
 
       const result = await sendNotificationTestEmail({});
-      notice = `Test email sent to ${result.recipient}.`;
-      noticeTone = "success";
+      if (result.partial) {
+        notice = result.message || "Test email sent to some recipients and failed for others.";
+        noticeTone = "warn";
+      } else {
+        notice = result.message || "Test email sent successfully.";
+        noticeTone = "success";
+      }
     } catch (error) {
-      notice = error?.message || "Unable to send test email.";
+      notice = error?.code === "TEST_EMAIL_SEND_FAILED" || /test email failed/i.test(String(error?.message || ""))
+        ? "Test email failed."
+        : (error?.message || "Test email failed.");
       noticeTone = "danger";
-      if (error?.details && typeof error.details === "object") {
-        const first = Object.values(error.details)[0];
+      if (notice !== "Test email failed." && error?.details && typeof error.details === "object") {
+        const first = Object.values(error.details).find((value) => typeof value === "string" && value.trim());
         if (first) notice = String(first);
       }
     } finally {
@@ -534,6 +650,16 @@ export async function renderAdminNotificationsPanel(container) {
       return;
     }
 
+    const clearBtn = event.target?.closest?.("[data-ns-clear]");
+    if (clearBtn) {
+      event.preventDefault();
+      const slot = String(clearBtn.getAttribute("data-ns-clear") || "");
+      const inputName = slot === "2" ? "adminNotificationEmail2" : "adminNotificationEmail";
+      const input = container.querySelector(`[name="${inputName}"]`);
+      if (input) input.value = "";
+      return;
+    }
+
     if (event.target?.closest?.("#nsPreviewSoundBtn")) {
       event.preventDefault();
       const form = container.querySelector("#notificationSettingsForm");
@@ -555,15 +681,53 @@ export async function renderAdminNotificationsPanel(container) {
         container.querySelectorAll('input[type="checkbox"][name^="channel."][name$=".email"]').forEach((input) => {
           if (!input.disabled) input.checked = true;
         });
+        container.querySelectorAll('input[type="checkbox"][name^="emailEvent."]').forEach((input) => {
+          input.checked = true;
+        });
       } else if (mode === "enable-email") {
         container.querySelectorAll('input[type="checkbox"][name^="channel."][name$=".email"]').forEach((input) => {
           if (!input.disabled) input.checked = true;
+        });
+        container.querySelectorAll('input[type="checkbox"][name^="emailEvent."]').forEach((input) => {
+          input.checked = true;
         });
       } else if (mode === "disable-email") {
         container.querySelectorAll('input[type="checkbox"][name^="channel."][name$=".email"]').forEach((input) => {
           if (!input.disabled) input.checked = false;
         });
+        container.querySelectorAll('input[type="checkbox"][name^="emailEvent."]').forEach((input) => {
+          input.checked = false;
+        });
       }
+    }
+
+    const eventsBtn = event.target?.closest?.("[data-ns-events]");
+    if (eventsBtn) {
+      event.preventDefault();
+      const mode = eventsBtn.getAttribute("data-ns-events");
+      const enable = mode === "enable-all";
+      container.querySelectorAll('input[type="checkbox"][name^="emailEvent."]').forEach((input) => {
+        input.checked = enable;
+      });
+      container.querySelectorAll('input[type="checkbox"][name^="channel."][name$=".email"]').forEach((input) => {
+        if (!input.disabled) input.checked = enable;
+      });
+    }
+  };
+
+  container.onchange = (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || target.type !== "checkbox" || !target.name) return;
+    const eventMatch = target.name.match(/^emailEvent\.(.+)$/);
+    if (eventMatch) {
+      const other = container.querySelector(`[name="channel.${eventMatch[1]}.email"]`);
+      if (other) other.checked = target.checked;
+      return;
+    }
+    const channelMatch = target.name.match(/^channel\.(.+)\.email$/);
+    if (channelMatch) {
+      const other = container.querySelector(`[name="emailEvent.${channelMatch[1]}"]`);
+      if (other) other.checked = target.checked;
     }
   };
 }

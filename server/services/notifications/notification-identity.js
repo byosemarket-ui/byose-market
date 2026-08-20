@@ -44,8 +44,14 @@ function maskEmailAddress(email) {
     return `${visible}***@${domain}`;
 }
 
+function maskPhoneNumber(value) {
+    const { maskPhoneNumber: mask } = require('../../utils/phone');
+    return mask(value);
+}
+
 module.exports = {
     buildNotificationDedupeKey,
     maskEmailAddress,
+    maskPhoneNumber,
     text
 };
