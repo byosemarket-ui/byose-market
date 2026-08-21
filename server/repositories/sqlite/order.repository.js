@@ -169,7 +169,15 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
 
         const transaction = this.db.transaction(() => {
             const productRepository = require('./product.repository');
-            productRepository.decrementStockForOrderItems(Array.isArray(order.items) ? order.items : []);
+            const paymentType = this.normalizeText(order.paymentType || (order.payment && order.payment.type)).toLowerCase();
+            const paymentMethod = this.normalizeText(order.paymentMethod || (order.payment && order.payment.method)).toLowerCase();
+            const isCod = paymentType === 'cod' || paymentMethod === 'cod' || paymentMethod.includes('cash');
+            productRepository.decrementStockForOrderItems(Array.isArray(order.items) ? order.items : [], {
+                orderId: payload.orderId,
+                paymentStatus: payload.paymentStatus,
+                reason: isCod ? 'COD_ORDER_CREATED' : 'ORDER_RESERVED',
+                mode: 'reserve'
+            });
 
             const result = this.db.prepare(`
                 INSERT INTO orders (
@@ -245,7 +253,7 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
             return Number(result.lastInsertRowid);
         });
 
-        const recordId = transaction();
+        const recordId = transaction.immediate();
         return this.findByIdentifier(recordId);
     }
 
@@ -350,6 +358,24 @@ class SQLiteOrderRepository extends SQLiteBaseRepository {
             ORDER BY datetime(coalesce(updated_at, created_at)) DESC
             LIMIT ?
         `).all(resolvedMode, resolvedMode === 'live' ? '112815' : '54841', cap);
+        const itemLookup = this.loadItems(rows.map((row) => Number(row.id)));
+        return rows.map((row) => this.mapOrderRow(row, itemLookup.get(Number(row.id)) || []));
+    }
+
+    listExpiredOnlineReservations(nowIso = null) {
+        const now = this.now(nowIso);
+        const rows = this.db.prepare(`
+            SELECT *
+            FROM orders
+            WHERE lower(coalesce(payment_type, '')) != 'cod'
+              AND lower(coalesce(payment_method, '')) NOT IN ('cod', 'cash', 'cash_on_delivery', 'cash-on-delivery')
+              AND lower(coalesce(payment_status, '')) IN ('awaiting_payment', 'pending', '')
+              AND lower(coalesce(json_extract(payment_json, '$.inventory.state'), '')) = 'reserved'
+              AND json_extract(payment_json, '$.inventory.expiresAt') IS NOT NULL
+              AND datetime(json_extract(payment_json, '$.inventory.expiresAt')) <= datetime(?)
+            ORDER BY datetime(coalesce(updated_at, created_at)) ASC
+            LIMIT 50
+        `).all(now);
         const itemLookup = this.loadItems(rows.map((row) => Number(row.id)));
         return rows.map((row) => this.mapOrderRow(row, itemLookup.get(Number(row.id)) || []));
     }

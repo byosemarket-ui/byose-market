@@ -452,6 +452,9 @@ async function initiatePayment({ orderId, req } = {}) {
             mode: runtime.mode,
             defaultPayment: hosted.defaultPayment
         });
+        const inventoryService = require('./inventory.service');
+        inventoryService.refreshReservationExpiry(order);
+        await orderDataService.saveOrder(order);
         return {
             alreadyPaid: false,
             reused: true,
@@ -546,6 +549,8 @@ async function initiatePayment({ orderId, req } = {}) {
             }
         });
 
+        const inventoryService = require('./inventory.service');
+        inventoryService.refreshReservationExpiry(updated);
         await orderDataService.saveOrder(updated);
 
         appLogger.info('dpo.payment.initiated', {
@@ -592,11 +597,14 @@ async function persistVerifiedPayment(order, verified, token, req) {
         }
     });
 
-    if (verified.outcome === 'pending' && updated.paymentStatus !== 'paid') {
+        if (verified.outcome === 'pending' && updated.paymentStatus !== 'paid') {
         updated.paymentStatus = 'awaiting_payment';
         updated.paymentStatusLabel = 'Awaiting Payment';
         updated.payment.status = 'awaiting_payment';
         updated.payment.statusLabel = 'Awaiting Payment';
+    } else {
+        const inventoryService = require('./inventory.service');
+        inventoryService.applyInventoryForPaymentOutcome(updated, verified.outcome);
     }
 
     await orderDataService.saveOrder(updated);
@@ -671,6 +679,20 @@ async function verifyAndUpdateOrderUnlocked({
 
     const existingStatus = normalizeText(order.paymentStatus || order.payment?.status).toLowerCase();
     if (isSettledPaidStatus(existingStatus)) {
+        try {
+            const inventoryService = require('./inventory.service');
+            const healed = inventoryService.commitStockForOrder(order, {
+                reason: inventoryService.REASONS.ONLINE_PAYMENT_SUCCESS
+            });
+            if (!healed?.skipped) {
+                await orderDataService.saveOrder(order);
+            }
+        } catch (stockError) {
+            appLogger.error('dpo.payment.stock_heal_failed', {
+                error: stockError,
+                orderId: id
+            });
+        }
         return {
             outcome: 'success',
             paymentStatus: 'paid',
@@ -726,6 +748,8 @@ async function verifyAndUpdateOrderUnlocked({
                 cancelledAt: new Date().toISOString()
             }
         });
+        const inventoryService = require('./inventory.service');
+        inventoryService.applyInventoryForPaymentOutcome(cancelled, 'cancelled');
         await orderDataService.saveOrder(cancelled);
         await notifyPaymentChange(cancelled, previousPaymentStatus, previousOrderStatus);
         return {
@@ -770,6 +794,8 @@ async function verifyAndUpdateOrderUnlocked({
                     verifiedAt: new Date().toISOString()
                 }
             });
+            const inventoryService = require('./inventory.service');
+            inventoryService.applyInventoryForPaymentOutcome(invalid, 'invalid_token');
             await orderDataService.saveOrder(invalid);
             await notifyPaymentChange(invalid, previousPaymentStatus, previousOrderStatus);
             return {

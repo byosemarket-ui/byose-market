@@ -24,6 +24,7 @@ const sqliteRecentlyViewedRepository = require('./sqlite/recently-viewed.reposit
 const sqliteCouponRepository = require('./sqlite/coupon.repository');
 const sqliteStoreRepository = require('./sqlite/store.repository');
 const sqliteCustomerNotificationRepository = require('./sqlite/customer-notification.repository');
+const sqliteInventoryMovementRepository = require('./sqlite/inventory-movement.repository');
 
 const sqliteRepositories = {
     activity: sqliteActivityRepository,
@@ -50,7 +51,8 @@ const sqliteRepositories = {
     recentlyViewed: sqliteRecentlyViewedRepository,
     coupons: sqliteCouponRepository,
     stores: sqliteStoreRepository,
-    customerNotifications: sqliteCustomerNotificationRepository
+    customerNotifications: sqliteCustomerNotificationRepository,
+    inventoryMovements: sqliteInventoryMovementRepository
 };
 
 function getRepositoryBundle() {

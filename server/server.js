@@ -71,6 +71,13 @@ async function startServer() {
         });
 
         try {
+            const { startInventoryReservationSweeper } = require('./services/inventory.service');
+            startInventoryReservationSweeper();
+        } catch (inventorySweepError) {
+            appLogger.warn('inventory.reservation_sweeper_start_failed', { error: inventorySweepError });
+        }
+
+        try {
             const { startNotificationAutomationWorker } = require('./services/notification-automation.service');
             startNotificationAutomationWorker();
         } catch (automationError) {
@@ -109,6 +116,13 @@ async function shutdown(signal, exitCode = 0) {
     if (startupReconnectTimer) {
         clearTimeout(startupReconnectTimer);
         startupReconnectTimer = null;
+    }
+
+    try {
+        const { stopInventoryReservationSweeper } = require('./services/inventory.service');
+        stopInventoryReservationSweeper();
+    } catch (_error) {
+        // non-blocking
     }
 
     try {

@@ -29,7 +29,9 @@ function resolveColorVariantImageUrl(entry = {}, normalizeUrl) {
 function normalizeSizeRow(entry = {}) {
     const size = String(entry?.size ?? entry?.label ?? '').trim();
     const stock = Math.max(0, Math.floor(toNumber(entry?.stock, 0)));
-    return { size, stock, value: slugify(size) || size };
+    const reserved = Math.max(0, Math.floor(toNumber(entry?.reserved, 0)));
+    const sold = Math.max(0, Math.floor(toNumber(entry?.sold, 0)));
+    return { size, stock, reserved, sold, value: slugify(size) || size };
 }
 
 function normalizeColorVariant(entry = {}, index = 0) {
@@ -42,6 +44,8 @@ function normalizeColorVariant(entry = {}, index = 0) {
         .map(normalizeSizeRow)
         .filter((row) => row.size);
     const totalStock = sizes.reduce((sum, row) => sum + row.stock, 0);
+    const totalReserved = sizes.reduce((sum, row) => sum + row.reserved, 0);
+    const totalSold = sizes.reduce((sum, row) => sum + row.sold, 0);
 
     return {
         id,
@@ -50,7 +54,11 @@ function normalizeColorVariant(entry = {}, index = 0) {
         image,
         imageStoragePath,
         sizes,
-        totalStock
+        totalStock,
+        reserved: Math.max(0, Math.floor(toNumber(entry?.reserved, totalReserved))),
+        sold: Math.max(0, Math.floor(toNumber(entry?.sold, totalSold))),
+        totalReserved,
+        totalSold
     };
 }
 
@@ -97,6 +105,8 @@ function buildFlatInventoryItems(colorVariants = []) {
                 label: `${color.colorName} / ${sizeRow.size}`,
                 image: color.image,
                 stock,
+                reserved: Math.max(0, Math.floor(toNumber(sizeRow.reserved, 0))),
+                sold: Math.max(0, Math.floor(toNumber(sizeRow.sold, 0))),
                 available: stock
             };
         })

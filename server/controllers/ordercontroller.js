@@ -14,6 +14,7 @@ const {
     resolveStorefrontPaymentMethod,
     storefrontPaymentMethodLabel
 } = require('../payments/storefront-methods');
+const inventoryService = require('../services/inventory.service');
 
 const DELIVERY_FEE = 2000;
 const COD_FEE = 0;
@@ -128,6 +129,13 @@ function applyPaymentStatusUpdate(order, paymentStatus) {
             state: nextStatus
         }
     };
+    if (isSettledPaidStatus(nextStatus)) {
+        inventoryService.commitStockForOrder(order, {
+            reason: isCodPaymentMethod(order.paymentMethod || order.payment?.method)
+                ? inventoryService.REASONS.COD_ORDER_CREATED
+                : inventoryService.REASONS.ONLINE_PAYMENT_SUCCESS
+        });
+    }
     return order;
 }
 
@@ -370,10 +378,11 @@ function isCancelledLike(status) {
 }
 
 function restoreOrderStock(order) {
-    const items = Array.isArray(order?.items) ? order.items : (Array.isArray(order?.products) ? order.products : []);
-    if (!items.length) return;
-    const { products } = getRepositoryBundle();
-    products.restoreStockForOrderItems(items);
+    inventoryService.releaseOrRestoreForCancellation(order);
+}
+
+function reReserveOrderStock(order) {
+    inventoryService.reserveStockForOrder(order, { reason: inventoryService.REASONS.ORDER_RESERVED });
 }
 
 function normalizeItems(items) {
@@ -983,6 +992,8 @@ exports.createOrder = async (req, res) => {
             return res.json({ success: true, existing: true, order: existingOrder });
         }
 
+        inventoryService.attachReservationMetadata(normalizedOrder);
+
         await monitorAsyncOperation(logger, 'database.order.create', {
             orderId: normalizedOrder.orderId,
             customerId: normalizedOrder.customerId,
@@ -1041,7 +1052,13 @@ exports.createOrder = async (req, res) => {
                     if (orders?.remove) {
                         await orders.remove(normalizedOrder.orderId);
                     }
-                    if (items.length && products?.restoreStockForOrderItems) {
+                    if (items.length && products?.releaseReservedStockForOrderItems) {
+                        products.releaseReservedStockForOrderItems(items, {
+                            orderId: normalizedOrder.orderId,
+                            reason: 'STOCK_RELEASED',
+                            paymentStatus: normalizedOrder.paymentStatus
+                        });
+                    } else if (items.length && products?.restoreStockForOrderItems) {
                         products.restoreStockForOrderItems(items);
                     }
                 } catch (rollbackError) {

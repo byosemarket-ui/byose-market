@@ -23,7 +23,9 @@ export const SIZE_ATTR_NAME = "Size";
 export function normalizeSizeRow(entry = {}) {
   const size = String(entry?.size ?? entry?.label ?? "").trim();
   const stock = Math.max(0, Math.floor(toNumber(entry?.stock, 0)));
-  return { size, stock, value: slugify(size) || size };
+  const reserved = Math.max(0, Math.floor(toNumber(entry?.reserved, 0)));
+  const sold = Math.max(0, Math.floor(toNumber(entry?.sold, 0)));
+  return { size, stock, reserved, sold, value: slugify(size) || size };
 }
 
 export function resolveColorVariantImageUrl(entry = {}, normalizeUrl = null) {
@@ -152,6 +154,8 @@ export function normalizeColorVariant(entry = {}, index = 0) {
     .map(normalizeSizeRow)
     .filter((row) => row.size);
   const totalStock = sizes.reduce((sum, row) => sum + row.stock, 0);
+  const totalReserved = sizes.reduce((sum, row) => sum + (Number(row.reserved) || 0), 0);
+  const totalSold = sizes.reduce((sum, row) => sum + (Number(row.sold) || 0), 0);
 
   return {
     id,
@@ -160,7 +164,11 @@ export function normalizeColorVariant(entry = {}, index = 0) {
     image,
     imageStoragePath,
     sizes,
-    totalStock
+    totalStock,
+    reserved: Math.max(0, Math.floor(Number(entry?.reserved) || totalReserved || 0)),
+    sold: Math.max(0, Math.floor(Number(entry?.sold) || totalSold || 0)),
+    totalReserved,
+    totalSold
   };
 }
 

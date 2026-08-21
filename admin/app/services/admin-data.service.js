@@ -621,6 +621,13 @@ function normalizeProduct(product) {
     price: toNumber(product?.price),
     oldPrice: toNumber(product?.oldPrice),
     stock: toNumber(product?.stock),
+    reservedStock: toNumber(product?.inventory?.reservedStock ?? product?.reservedStock),
+    availableStock: toNumber(product?.inventory?.availableStock ?? product?.availableStock ?? product?.stock),
+    physicalStock: toNumber(product?.inventory?.physicalStock ?? product?.physicalStock)
+      || (toNumber(product?.inventory?.availableStock ?? product?.availableStock ?? product?.stock)
+        + toNumber(product?.inventory?.reservedStock ?? product?.reservedStock)),
+    soldStock: toNumber(product?.inventory?.soldStock ?? product?.soldStock),
+    inventory: asObject(product?.inventory),
     gallery: canonicalGallery,
     highlights: asArray(product?.highlights),
     trust: asArray(product?.trust),
@@ -1226,28 +1233,95 @@ export async function getAnalytics(options = {}) {
   }
 }
 
+}
+
+function expandInventoryEntries(product) {
+  const variants = asObject(product?.variants);
+  const metadata = asObject(product?.metadata);
+  const colors = asArray(variants.colorVariants).length
+    ? asArray(variants.colorVariants)
+    : asArray(metadata.colorVariants);
+  const base = {
+    id: product?.id,
+    name: product?.name,
+    sku: product?.sku,
+    category: product?.category,
+    updatedAt: product?.updatedAt
+  };
+
+  if (!colors.length) {
+    const available = toNumber(product?.availableStock ?? product?.stock);
+    const reserved = toNumber(product?.reservedStock);
+    const sold = toNumber(product?.soldStock);
+    return [{
+      ...base,
+      variantLabel: "Default",
+      stock: available,
+      availableStock: available,
+      reservedStock: reserved,
+      physicalStock: available + reserved,
+      soldStock: sold
+    }];
+  }
+
+  const rows = [];
+  colors.forEach((color) => {
+    const sizes = asArray(color?.sizes);
+    if (!sizes.length) {
+      const available = toNumber(color?.stock ?? color?.totalStock);
+      const reserved = toNumber(color?.reserved);
+      const sold = toNumber(color?.sold);
+      rows.push({
+        ...base,
+        sku: normalizeText(color?.sku || `${base.sku || base.id}`),
+        variantLabel: normalizeText(color?.colorName || color?.name || "Color"),
+        stock: available,
+        availableStock: available,
+        reservedStock: reserved,
+        physicalStock: available + reserved,
+        soldStock: sold
+      });
+      return;
+    }
+    sizes.forEach((sizeRow) => {
+      const available = toNumber(sizeRow?.stock);
+      const reserved = toNumber(sizeRow?.reserved);
+      const sold = toNumber(sizeRow?.sold);
+      const colorName = normalizeText(color?.colorName || color?.name || "Color");
+      const sizeLabel = normalizeText(sizeRow?.size || sizeRow?.label);
+      rows.push({
+        ...base,
+        sku: normalizeText(sizeRow?.sku || `${base.sku || base.id}-${colorName}-${sizeLabel}`),
+        variantLabel: sizeLabel ? `${colorName} / ${sizeLabel}` : colorName,
+        stock: available,
+        availableStock: available,
+        reservedStock: reserved,
+        physicalStock: available + reserved,
+        soldStock: sold
+      });
+    });
+  });
+  return rows;
+}
+
 export async function getInventory(options = {}) {
   const scope = "inventory";
   const allowCacheFallback = options?.allowCacheFallback === true;
   try {
     const [products, analytics] = await Promise.all([getProducts(), getAnalytics()]);
 
-    const entries = products.map((product) => ({
-      id: product.id,
-      name: product.name,
-      sku: product.sku,
-      stock: product.stock,
-      category: product.category,
-      updatedAt: product.updatedAt
-    }));
+    const entries = products.flatMap((product) => expandInventoryEntries(product));
 
-    const lowStock = entries.filter((entry) => entry.stock <= 5).length;
+    const lowStock = entries.filter((entry) => toNumber(entry.availableStock ?? entry.stock) <= 5).length;
 
     const payload = {
       totalSku: entries.length,
-      totalStock: entries.reduce((sum, entry) => sum + toNumber(entry.stock), 0),
+      totalStock: entries.reduce((sum, entry) => sum + toNumber(entry.availableStock ?? entry.stock), 0),
+      totalPhysical: entries.reduce((sum, entry) => sum + toNumber(entry.physicalStock), 0),
+      totalReserved: entries.reduce((sum, entry) => sum + toNumber(entry.reservedStock), 0),
+      totalSold: entries.reduce((sum, entry) => sum + toNumber(entry.soldStock), 0),
       lowStock,
-      outOfStock: entries.filter((entry) => entry.stock <= 0).length,
+      outOfStock: entries.filter((entry) => toNumber(entry.availableStock ?? entry.stock) <= 0).length,
       recentlyUpdated: asArray(analytics?.inventory?.recentlyUpdated || []),
       entries
     };
