@@ -154,7 +154,11 @@ function isLoggedIn() {
   const user = getUser();
   const token = (() => {
     try {
-      return sessionStorage.getItem('bm_auth_token') || localStorage.getItem('bm_auth_token') || '';
+      return localStorage.getItem('bm_auth_token')
+        || localStorage.getItem('bm_refresh_token')
+        || sessionStorage.getItem('bm_auth_token')
+        || sessionStorage.getItem('bm_refresh_token')
+        || '';
     } catch (e) {
       return '';
     }
@@ -164,28 +168,25 @@ function isLoggedIn() {
     return false;
   }
 
-  const session = getSession();
-  if (session && typeof session.loggedIn !== 'undefined' && !isSessionValid()) {
-    clearSession();
-    removeUser();
-    return false;
-  }
-
   return true;
 }
 
 function loginUser(userData) {
+  if (window.authService && typeof window.authService.setCurrentUser === 'function') {
+    return window.authService.setCurrentUser(userData);
+  }
   if (!userData) return null;
-  // persist user info and session
   saveUser(userData);
   try { localStorage.setItem('bm_logged_in', 'true'); } catch (e) {}
-  const session = { loggedIn: true, createdAt: Date.now() };
+  const session = { loggedIn: true, createdAt: Date.now(), persistent: true };
   saveSession(session);
   return session;
 }
 
 function logoutUserFull() {
-  // Clear user and session state. Centralized logout page handles redirects.
+  if (window.authService && typeof window.authService.logout === 'function') {
+    return window.authService.logout();
+  }
   removeUser();
   clearSession();
 }
@@ -194,15 +195,17 @@ function redirectIfNotAuth(options) {
   options = options || {};
   const allow = options.allow || [];
   const path = window.location.pathname || '';
-  // if current path is allowed, skip
   for (let i = 0; i < allow.length; i++) if (path.includes(allow[i])) return;
   if (!isLoggedIn()) {
-    // replace to avoid back-loop to protected page
     window.location.replace(resolveSitePath('login.html'));
   }
 }
 
 function handleAccountClick() {
+  if (window.authService && typeof window.authService.openAccount === 'function') {
+    window.authService.openAccount();
+    return;
+  }
   if (isLoggedIn()) {
     window.location.href = resolveSitePath('account/account.html');
   } else {
@@ -210,7 +213,6 @@ function handleAccountClick() {
   }
 }
 
-// compatibility aliases for legacy code
 window.saveData = saveData;
 window.getData = getData;
 window.removeData = removeData;
@@ -220,9 +222,12 @@ window.removeUser = removeUser;
 window.saveSession = saveSession;
 window.getSession = getSession;
 window.clearSession = clearSession;
-window.isLoggedIn = isLoggedIn;
-window.loginUser = loginUser;
-window.logoutUser = logoutUserFull;
 window.redirectIfNotAuth = redirectIfNotAuth;
-window.handleAccountClick = handleAccountClick;
 window.resolveSitePath = resolveSitePath;
+
+if (!(window.authService && typeof window.authService.isLoggedIn === 'function')) {
+  window.isLoggedIn = isLoggedIn;
+  window.loginUser = loginUser;
+  window.logoutUser = logoutUserFull;
+  window.handleAccountClick = handleAccountClick;
+}

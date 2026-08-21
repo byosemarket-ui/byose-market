@@ -1,5 +1,6 @@
 const authService = (function () {
     const TOKEN_KEY = 'bm_auth_token';
+    const REFRESH_TOKEN_KEY = 'bm_refresh_token';
     const CURRENT_USER_KEY = 'bm_current_user';
     const LEGACY_USER_KEY = 'bm_user';
     const STOREFRONT_USER_KEY = 'byose_market_user';
@@ -9,6 +10,10 @@ const authService = (function () {
     const USER_EVENT = 'userUpdated';
     const PRODUCTION_API_ORIGIN = 'https://byosemarket.com';
     const LEGACY_API_PATTERN = /(?:onrender\.com|localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i;
+    const AUTH_KEYS = [TOKEN_KEY, REFRESH_TOKEN_KEY, CURRENT_USER_KEY, LEGACY_USER_KEY, STOREFRONT_USER_KEY, LOGGED_KEY, SESSION_KEY];
+    const AUTH_EPOCH_KEY = 'bm_auth_epoch';
+    let refreshInFlight = null;
+    let sessionReadyPromise = null;
 
     function normalizeBase(value) {
         return String(value || '').trim().replace(/\/+$/, '');
@@ -23,13 +28,23 @@ const authService = (function () {
     }
 
     function resolveApiOrigin() {
+        try {
+            if (window.ByoseAuthApiOrigin && typeof window.ByoseAuthApiOrigin.resolveAuthApiOrigin === 'function') {
+                return window.ByoseAuthApiOrigin.resolveAuthApiOrigin();
+            }
+        } catch (error) {}
+
         const runtimeOverride = normalizeBase(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || '');
         if (runtimeOverride && !LEGACY_API_PATTERN.test(runtimeOverride)) {
             return runtimeOverride.replace(/\/api$/i, '');
         }
 
         const hostname = String(window.location?.hostname || '').trim().toLowerCase();
+        const protocol = String(window.location?.protocol || '').toLowerCase();
         const origin = normalizeBase(window.location?.origin || '');
+        if (protocol === 'file:' || isLocalHost(hostname)) {
+            return `http://${hostname || 'localhost'}:5000`;
+        }
         if (origin && /byosemarket\.com$/i.test(hostname)) {
             return origin;
         }
@@ -108,7 +123,7 @@ const authService = (function () {
         }
     }
 
-    function _isTokenExpired(token) {
+    function _isTokenExpired(token, skewMs) {
         try {
             const payloadSegment = String(token || '').split('.')[1];
             if (!payloadSegment) {
@@ -117,10 +132,30 @@ const authService = (function () {
 
             const base64 = `${payloadSegment.replace(/-/g, '+').replace(/_/g, '/')}${'='.repeat((4 - (payloadSegment.length % 4)) % 4)}`;
             const payload = JSON.parse(atob(base64));
-            return !Number.isFinite(payload.exp) || (payload.exp * 1000) <= Date.now();
+            const skew = Number.isFinite(skewMs) ? skewMs : 0;
+            return !Number.isFinite(payload.exp) || (payload.exp * 1000) <= (Date.now() + skew);
         } catch (e) {
             return true;
         }
+    }
+
+    function _authErrorCode(error) {
+        return String(error?.payload?.code || error?.code || '').trim().toUpperCase();
+    }
+
+    function _isDefinitiveAuthFailure(error) {
+        const status = Number(error?.status || 0);
+        const code = _authErrorCode(error);
+        if (code === 'SESSION_REVOKED' || code === 'INVALID_TOKEN' || code === 'ACCOUNT_BLOCKED' || code === 'UNAUTHORIZED') {
+            return true;
+        }
+        return status === 401 && code !== 'TOKEN_EXPIRED';
+    }
+
+    function _isTransientAuthFailure(error) {
+        const status = Number(error?.status || 0);
+        if (!status) return true;
+        return status === 408 || status === 429 || status >= 500;
     }
 
     function _normalizeUser(user) {
@@ -141,44 +176,59 @@ const authService = (function () {
         };
     }
 
-    function _getActiveStorage() {
-        try {
-            if (sessionStorage.getItem(TOKEN_KEY)) {
-                return sessionStorage;
-            }
-        } catch (e) {}
-
-        return localStorage;
+    function _migrateLegacyStorage() {
+        AUTH_KEYS.forEach((key) => {
+            try {
+                const sessionValue = sessionStorage.getItem(key);
+                if (sessionValue && !localStorage.getItem(key)) {
+                    localStorage.setItem(key, sessionValue);
+                }
+                sessionStorage.removeItem(key);
+            } catch (e) {}
+        });
     }
 
     function _persistSession(user, token, options) {
+        if (options?.epoch != null && options.epoch !== _readAuthEpoch()) {
+            return null;
+        }
+        _migrateLegacyStorage();
         const remember = options?.remember !== false;
         const normalizedUser = _normalizeUser(user);
         const normalizedToken = String(token || '').trim();
+        const refreshToken = String(options?.refreshToken || getRefreshToken() || '').trim();
         if (!normalizedUser || !normalizedToken) {
             _clearSession();
             return null;
         }
 
-        const primary = remember ? localStorage : sessionStorage;
-        const secondary = remember ? sessionStorage : localStorage;
-
-        [TOKEN_KEY, CURRENT_USER_KEY, LEGACY_USER_KEY, STOREFRONT_USER_KEY, LOGGED_KEY, SESSION_KEY].forEach((key) => {
-            try { secondary.removeItem(key); } catch (e) {}
-        });
-
-        try { primary.setItem(CURRENT_USER_KEY, JSON.stringify(normalizedUser)); } catch (e) { console.error(e); }
-        try { primary.setItem(LEGACY_USER_KEY, JSON.stringify(normalizedUser)); } catch (e) { console.error(e); }
-        try { primary.setItem(STOREFRONT_USER_KEY, JSON.stringify(normalizedUser)); } catch (e) { console.error(e); }
-        try { primary.setItem(TOKEN_KEY, normalizedToken); } catch (e) { console.error(e); }
-        try { primary.setItem(LOGGED_KEY, 'true'); } catch (e) { console.error(e); }
+        try { localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(normalizedUser)); } catch (e) { console.error(e); }
+        try { localStorage.setItem(LEGACY_USER_KEY, JSON.stringify(normalizedUser)); } catch (e) { console.error(e); }
+        try { localStorage.setItem(STOREFRONT_USER_KEY, JSON.stringify(normalizedUser)); } catch (e) { console.error(e); }
+        try { localStorage.setItem(TOKEN_KEY, normalizedToken); } catch (e) { console.error(e); }
+        if (refreshToken) {
+            try { localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken); } catch (e) { console.error(e); }
+        }
+        try { localStorage.setItem(LOGGED_KEY, 'true'); } catch (e) { console.error(e); }
         try {
-            primary.setItem(SESSION_KEY, JSON.stringify({ loggedIn: true, createdAt: Date.now(), token: normalizedToken, remember }));
+            localStorage.setItem(SESSION_KEY, JSON.stringify({
+                loggedIn: true,
+                createdAt: Date.now(),
+                remember,
+                persistent: true
+            }));
         } catch (e) { console.error(e); }
         try { localStorage.setItem(REMEMBER_KEY, remember ? '1' : '0'); } catch (e) {}
 
+        AUTH_KEYS.forEach((key) => {
+            try { sessionStorage.removeItem(key); } catch (e) {}
+        });
+
+        sessionReadyPromise = Promise.resolve(normalizedUser);
         _dispatch(USER_EVENT, normalizedUser);
-        void _mergeGuestCartAfterAuth();
+        if (options?.mergeGuestCart) {
+            void _mergeGuestCartAfterAuth();
+        }
         return normalizedUser;
     }
 
@@ -206,22 +256,41 @@ const authService = (function () {
         }
     }
 
+    function _readAuthEpoch() {
+        try { return String(localStorage.getItem(AUTH_EPOCH_KEY) || ''); } catch (e) { return ''; }
+    }
+
+    function _bumpAuthEpoch() {
+        const next = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        try { localStorage.setItem(AUTH_EPOCH_KEY, next); } catch (e) {}
+        return next;
+    }
+
+    function _sessionEndedError() {
+        const error = new Error('session_ended');
+        error.code = 'SESSION_ENDED';
+        return error;
+    }
+
     function _clearSession() {
+        _bumpAuthEpoch();
+        refreshInFlight = null;
+        sessionReadyPromise = Promise.resolve(null);
         [localStorage, sessionStorage].forEach((store) => {
-            try { store.removeItem(CURRENT_USER_KEY); } catch (e) {}
-            try { store.removeItem(LEGACY_USER_KEY); } catch (e) {}
-            try { store.removeItem(STOREFRONT_USER_KEY); } catch (e) {}
-            try { store.removeItem(TOKEN_KEY); } catch (e) {}
-            try { store.removeItem(SESSION_KEY); } catch (e) {}
-            try { store.removeItem(LOGGED_KEY); } catch (e) {}
+            AUTH_KEYS.forEach((key) => {
+                try { store.removeItem(key); } catch (e) {}
+            });
         });
         try { localStorage.removeItem(REMEMBER_KEY); } catch (e) {}
         _dispatch(USER_EVENT, null);
     }
 
     async function _request(path, options) {
+        const epoch = _readAuthEpoch();
         const response = await fetch(`${API_BASE}${path}`, {
             method: options?.method || 'GET',
+            cache: 'no-store',
+            keepalive: Boolean(options?.keepalive),
             headers: {
                 ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
                 ...(options?.token ? { Authorization: `Bearer ${options.token}` } : {}),
@@ -230,6 +299,9 @@ const authService = (function () {
             },
             body: options?.body ? JSON.stringify(options.body) : undefined
         });
+        if (_readAuthEpoch() !== epoch) {
+            throw _sessionEndedError();
+        }
 
         const contentType = String(response.headers.get('content-type') || '').toLowerCase();
         const payload = contentType.includes('application/json')
@@ -302,7 +374,11 @@ const authService = (function () {
                 }
             });
 
-            const normalizedUser = _persistSession(payload?.user, payload?.token, { remember: true });
+            const normalizedUser = _persistSession(payload?.user, payload?.token, {
+                remember: true,
+                refreshToken: payload?.refreshToken,
+                mergeGuestCart: true
+            });
             return { success: true, user: normalizedUser, token: String(payload?.token || '') };
         } catch (error) {
             diagnostics.logApiFailure('authservice.register', error, { identifier: user.email || user.phone || '' });
@@ -325,7 +401,11 @@ const authService = (function () {
                 }
             });
 
-            const normalizedUser = _persistSession(payload?.user, payload?.token, { remember });
+            const normalizedUser = _persistSession(payload?.user, payload?.token, {
+                remember,
+                refreshToken: payload?.refreshToken,
+                mergeGuestCart: true
+            });
             return { success: true, user: normalizedUser, token: String(payload?.token || '') };
         } catch (error) {
             diagnostics.logApiFailure('authservice.login', error, { identifier: id });
@@ -333,58 +413,202 @@ const authService = (function () {
         }
     }
 
-    function logout() {
+    async function logout() {
+        const token = getToken();
+        const refreshToken = getRefreshToken();
         _clearSession();
+        if (!token && !refreshToken) {
+            return;
+        }
+        try {
+            await _request('/logout', {
+                method: 'POST',
+                token,
+                body: { refreshToken },
+                keepalive: true
+            });
+        } catch (error) {
+            if (_authErrorCode(error) !== 'SESSION_ENDED') {
+                diagnostics.logApiFailure('authservice.logout', error);
+            }
+        }
     }
 
     function getCurrentUser() {
-        const store = _getActiveStorage();
+        _migrateLegacyStorage();
         return _normalizeUser(
-            _safeParse(store.getItem(CURRENT_USER_KEY), null)
-            || _safeParse(localStorage.getItem(CURRENT_USER_KEY), null)
+            _safeParse(localStorage.getItem(CURRENT_USER_KEY), null)
             || _safeParse(localStorage.getItem(LEGACY_USER_KEY), null)
             || _safeParse(localStorage.getItem(STOREFRONT_USER_KEY), null)
         );
     }
 
     function getToken() {
-        const store = _getActiveStorage();
-        return String(store.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY) || '').trim();
+        _migrateLegacyStorage();
+        return String(localStorage.getItem(TOKEN_KEY) || '').trim();
+    }
+
+    function getRefreshToken() {
+        _migrateLegacyStorage();
+        return String(localStorage.getItem(REFRESH_TOKEN_KEY) || '').trim();
+    }
+
+    function hasStoredCredentials() {
+        _migrateLegacyStorage();
+        return Boolean(getToken() || getRefreshToken());
     }
 
     function isLoggedIn() {
-        const store = _getActiveStorage();
+        _migrateLegacyStorage();
+        const user = getCurrentUser();
         const token = getToken();
-        if (!token || _isTokenExpired(token)) {
-            if (token) {
-                _clearSession();
-            }
-            return false;
+        const refreshToken = getRefreshToken();
+        if (token && !_isTokenExpired(token) && user) {
+            return true;
         }
-
-        return Boolean(getCurrentUser()) && store.getItem(LOGGED_KEY) === 'true';
+        if (refreshToken) {
+            return true;
+        }
+        return Boolean(token && !_isTokenExpired(token));
     }
 
     function setCurrentUser(user) {
         const currentToken = getToken();
         const remember = localStorage.getItem(REMEMBER_KEY) !== '0';
-        return _persistSession(user, currentToken || '', { remember });
+        return _persistSession(user, currentToken || '', {
+            remember,
+            refreshToken: getRefreshToken()
+        });
+    }
+
+    async function _refreshAccessToken() {
+        const refreshToken = getRefreshToken();
+        if (!refreshToken) {
+            return null;
+        }
+        if (refreshInFlight) {
+            return refreshInFlight;
+        }
+
+        refreshInFlight = (async () => {
+            const payload = await _request('/refresh', {
+                method: 'POST',
+                body: { refreshToken }
+            });
+            const remember = localStorage.getItem(REMEMBER_KEY) !== '0';
+            return _persistSession(payload?.user || getCurrentUser(), payload?.token, {
+                remember,
+                refreshToken: payload?.refreshToken || refreshToken
+            });
+        })().finally(() => {
+            refreshInFlight = null;
+        });
+
+        return refreshInFlight;
+    }
+
+    async function restoreSession() {
+        _migrateLegacyStorage();
+        const token = getToken();
+        const refreshToken = getRefreshToken();
+        const user = getCurrentUser();
+        const remember = localStorage.getItem(REMEMBER_KEY) !== '0';
+
+        if (token && !_isTokenExpired(token, 60 * 1000)) {
+            if (user) {
+                return user;
+            }
+            try {
+                const payload = await _request('/me', { method: 'GET', token });
+                return _persistSession(payload?.user, token, { remember, refreshToken });
+            } catch (error) {
+                if (_authErrorCode(error) === 'SESSION_ENDED') {
+                    return null;
+                }
+                if (_authErrorCode(error) !== 'TOKEN_EXPIRED' || !refreshToken) {
+                    if (_isDefinitiveAuthFailure(error)) {
+                        _clearSession();
+                        return null;
+                    }
+                    return user || null;
+                }
+            }
+        }
+
+        if (refreshToken) {
+            try {
+                return await _refreshAccessToken();
+            } catch (error) {
+                if (_authErrorCode(error) === 'SESSION_ENDED') {
+                    return null;
+                }
+                if (_isDefinitiveAuthFailure(error)) {
+                    _clearSession();
+                    return null;
+                }
+                return user || null;
+            }
+        }
+
+        if (token && _isTokenExpired(token) && !refreshToken) {
+            _clearSession();
+        }
+
+        return null;
     }
 
     async function refreshCurrentUser() {
+        const restored = await restoreSession();
         const token = getToken();
-        if (!token) {
-            _clearSession();
-            return null;
+        if (!token && !getRefreshToken()) {
+            return restored || null;
         }
 
         try {
-            const payload = await _request('/me', { method: 'GET', token });
+            let accessToken = getToken();
+            if (!accessToken || _isTokenExpired(accessToken, 15 * 1000)) {
+                const refreshedUser = await _refreshAccessToken().catch((error) => {
+                    if (_isDefinitiveAuthFailure(error)) {
+                        throw error;
+                    }
+                    return null;
+                });
+                accessToken = getToken();
+                if (!accessToken) {
+                    return refreshedUser || getCurrentUser();
+                }
+            }
+
+            const payload = await _request('/me', { method: 'GET', token: accessToken });
             const remember = localStorage.getItem(REMEMBER_KEY) !== '0';
-            return _persistSession(payload?.user, token, { remember });
+            return _persistSession(payload?.user, accessToken, {
+                remember,
+                refreshToken: getRefreshToken()
+            });
         } catch (error) {
-            _clearSession();
-            return null;
+            if (_authErrorCode(error) === 'SESSION_ENDED') {
+                return null;
+            }
+            if (_authErrorCode(error) === 'TOKEN_EXPIRED') {
+                try {
+                    return await _refreshAccessToken();
+                } catch (refreshError) {
+                    if (_authErrorCode(refreshError) === 'SESSION_ENDED') {
+                        return null;
+                    }
+                    if (_isDefinitiveAuthFailure(refreshError)) {
+                        _clearSession();
+                        return null;
+                    }
+                    return getCurrentUser();
+                }
+            }
+            if (_isDefinitiveAuthFailure(error)) {
+                _clearSession();
+                return null;
+            }
+            diagnostics.logApiFailure('authservice.refreshCurrentUser', error);
+            return getCurrentUser();
         }
     }
 
@@ -400,7 +624,10 @@ const authService = (function () {
             body: data || {}
         });
 
-        const normalizedUser = _persistSession(payload?.user, token, { remember: localStorage.getItem(REMEMBER_KEY) !== '0' });
+        const normalizedUser = _persistSession(payload?.user, payload?.token || token, {
+            remember: localStorage.getItem(REMEMBER_KEY) !== '0',
+            refreshToken: payload?.refreshToken || getRefreshToken()
+        });
         return normalizedUser;
     }
 
@@ -410,22 +637,47 @@ const authService = (function () {
             throw new Error('not_authenticated');
         }
 
-        return _request('/change-password', {
+        const payload = await _request('/change-password', {
             method: 'POST',
             token,
             body: { currentPassword, newPassword }
         });
+
+        if (payload?.token) {
+            _persistSession(getCurrentUser(), payload.token, {
+                remember: localStorage.getItem(REMEMBER_KEY) !== '0',
+                refreshToken: payload.refreshToken || getRefreshToken()
+            });
+        }
+
+        return payload;
     }
 
-    function authFetch(url, options) {
-        const token = getToken();
-        return fetch(url, {
-            ...(options || {}),
-            headers: {
-                ...((options && options.headers) || {}),
-                ...(token ? { Authorization: `Bearer ${token}` } : {})
+    async function authFetch(url, options) {
+        await restoreSession().catch(() => {});
+        const send = () => {
+            const token = getToken();
+            return fetch(url, {
+                ...(options || {}),
+                headers: {
+                    ...((options && options.headers) || {}),
+                    ...(token ? { Authorization: `Bearer ${token}` } : {})
+                }
+            });
+        };
+
+        let response = await send();
+        if (response.status === 401 && getRefreshToken()) {
+            try {
+                await _refreshAccessToken();
+                response = await send();
+            } catch (error) {
+                if (_isDefinitiveAuthFailure(error)) {
+                    _clearSession();
+                }
             }
-        });
+        }
+        return response;
     }
 
     function resolveSitePath(target) {
@@ -447,7 +699,11 @@ const authService = (function () {
         getCurrentUser,
         isLoggedIn,
         getToken,
+        getRefreshToken,
+        hasStoredCredentials,
         setCurrentUser,
+        restoreSession,
+        whenReady,
         refreshCurrentUser,
         updateProfile,
         changePassword,
@@ -458,12 +714,39 @@ const authService = (function () {
     try { window.authService = api; } catch (e) {}
     try { window.createUser = register; window.loginUser = loginByIdentifier; window.logoutUser = logout; window.isLoggedIn = isLoggedIn; window.getCurrentUser = getCurrentUser; window.setCurrentUser = setCurrentUser; window.handleAccountClick = openAccount; } catch (e) {}
 
-    if (typeof document !== 'undefined') {
-        document.addEventListener('DOMContentLoaded', () => {
-            if (isLoggedIn()) {
-                refreshCurrentUser().catch(() => {});
+    function whenReady() {
+        if (!sessionReadyPromise) {
+            sessionReadyPromise = restoreSession().catch(() => getCurrentUser());
+        }
+        return sessionReadyPromise;
+    }
+
+    try {
+        window.addEventListener('storage', (event) => {
+            const key = String(event?.key || '');
+            if (key && !AUTH_KEYS.includes(key) && key !== REMEMBER_KEY && key !== AUTH_EPOCH_KEY) {
+                return;
             }
+            _migrateLegacyStorage();
+            _dispatch(USER_EVENT, isLoggedIn() ? getCurrentUser() : null);
         });
+    } catch (e) {}
+
+    whenReady();
+
+    if (typeof document !== 'undefined') {
+        const boot = () => {
+            whenReady().then((user) => {
+                if (user || isLoggedIn()) {
+                    refreshCurrentUser().catch(() => {});
+                }
+            }).catch(() => {});
+        };
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', boot);
+        } else {
+            boot();
+        }
     }
 
     return api;

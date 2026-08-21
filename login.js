@@ -247,7 +247,7 @@ function bindLogin() {
 
         const password = passwordInputLogin.value;
         const rememberMe = document.getElementById('rememberMe');
-        const remember = rememberMe ? rememberMe.checked : true;
+        const remember = rememberMe ? Boolean(rememberMe.checked) : true;
 
         setLoadingState(true);
 
@@ -293,6 +293,7 @@ function bindLogin() {
             try {
                 localStorage.removeItem('bm_last_identifier');
                 localStorage.removeItem('bm_last_password');
+                sessionStorage.removeItem('bm_last_password');
             } catch (e) { console.error(e); }
 
             setFieldState(isEmailMode() ? emailInput : phoneInput, 'success', 'Byemejwe.');
@@ -331,7 +332,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // Autofill after signup: populate login fields from temporary signup storage
     try {
         const lastIdentifier = localStorage.getItem('bm_last_identifier');
-        const lastPwd = localStorage.getItem('bm_last_password');
         const emailFieldEl = document.getElementById('emailField');
         const phoneFieldEl = document.getElementById('phoneField');
         const emailBtnEl = document.getElementById('emailBtn');
@@ -362,7 +362,9 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
-        if (lastPwd && passwordInputLogin) passwordInputLogin.value = lastPwd;
+        try {
+            localStorage.removeItem('bm_last_password');
+        } catch (e) {}
     } catch (e) { console.error(e); }
 
     // ✅ niba user asanzwe yinjiye

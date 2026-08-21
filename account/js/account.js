@@ -341,7 +341,7 @@
 
     logoutButton.addEventListener('click', function (event) {
       event.preventDefault();
-      window.location.href = '../logout/logout.html';
+      window.location.assign('../logout/logout.html');
     });
   }
 
@@ -382,10 +382,24 @@
 
   function initAccountPage() {
     syncTheme();
-    renderUser(normalizeUser(readStoredUser()));
+    paintUser();
     initLogout();
     initRevealAnimations();
   }
 
-  document.addEventListener('DOMContentLoaded', initAccountPage);
+  function paintUser() {
+    const stored = readStoredUser();
+    if (!stored && window.authService && typeof window.authService.hasStoredCredentials === 'function' && window.authService.hasStoredCredentials()) {
+      return;
+    }
+    renderUser(normalizeUser(stored));
+  }
+
+  window.addEventListener('userUpdated', paintUser);
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initAccountPage);
+  } else {
+    initAccountPage();
+  }
 })();

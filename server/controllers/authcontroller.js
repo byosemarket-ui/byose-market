@@ -3,8 +3,10 @@
 // ===============================
 
 const { hashPassword, comparePasswords } = require('../utils/hash');
-const { generateToken } = require('../utils/token');
 const { generateOTP, saveOTP, verifyOTP, issueResetToken, verifyResetToken } = require('../utils/otp');
+const { readAccessTokenClaims } = require('../utils/token');
+const customerSessionService = require('../services/customersession.service');
+const authMiddleware = require('../middleware/authmiddleware');
 const { sendSMS } = require('../utils/sms');
 const { notifyPasswordReset } = require('../utils/notifications');
 const { appLogger } = require('../utils/logger');
@@ -155,9 +157,15 @@ exports.signup = async (req, res) => {
             // non-blocking
         }
 
-        const token = generateToken({ id: newUser.id, email: newUser.email, phone: newUser.phone, role: newUser.role });
+        const session = customerSessionService.issueCustomerSession(newUser, { remember: true, req });
 
-        return res.json({ success: true, token, user: sanitizedUser });
+        return res.json({
+            success: true,
+            token: session.token,
+            refreshToken: session.refreshToken,
+            expiresIn: session.expiresIn,
+            user: sanitizedUser
+        });
     } catch (err) {
         authLogger.error('auth.signup_failed', { error: err });
         return res.status(500).json({ success: false, message: 'Server error' });
@@ -195,12 +203,18 @@ exports.login = async (req, res) => {
         }
 
         const updatedUser = await userDataService.recordSuccessfulLogin(user.id);
-        const token = generateToken(
-            { id: user.id, email: user.email, phone: user.phone, role: user.role },
-            { expiresIn: rememberMe ? '7d' : '1d' }
-        );
+        const session = customerSessionService.issueCustomerSession(updatedUser || user, {
+            remember: rememberMe !== false,
+            req
+        });
 
-        return res.json({ success: true, token, user: sanitizeUserForClient(updatedUser || user) });
+        return res.json({
+            success: true,
+            token: session.token,
+            refreshToken: session.refreshToken,
+            expiresIn: session.expiresIn,
+            user: sanitizeUserForClient(updatedUser || user)
+        });
     } catch (err) {
         authLogger.error('auth.login_failed', { error: err });
         return res.status(500).json({ success: false, message: 'Server error' });
@@ -221,6 +235,65 @@ exports.me = async (req, res) => {
     } catch (err) {
         authLogger.error('auth.me_failed', { error: err });
         return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.refresh = async (req, res) => {
+    try {
+        const refreshToken = String(req.body?.refreshToken || '').trim();
+        if (!refreshToken) {
+            return res.status(400).json({ success: false, message: 'Refresh token required', code: 'REFRESH_REQUIRED' });
+        }
+
+        const session = customerSessionService.findActiveByRefreshToken(refreshToken);
+        if (!session) {
+            return res.status(401).json({ success: false, message: 'Session expired', code: 'SESSION_REVOKED' });
+        }
+
+        const user = await userDataService.findUserById(session.userPublicId);
+        if (!user || isAdminUser(user)) {
+            customerSessionService.revokeSession(session.sessionId, 'invalid_user');
+            return res.status(401).json({ success: false, message: 'Session expired', code: 'SESSION_REVOKED' });
+        }
+        if (String(user.status || 'active').toLowerCase() === 'blocked') {
+            customerSessionService.revokeSession(session.sessionId, 'blocked');
+            return res.status(403).json({ success: false, message: 'Account blocked', code: 'ACCOUNT_BLOCKED' });
+        }
+
+        const rotated = customerSessionService.rotateCustomerSession(session, user, { req });
+        return res.json({
+            success: true,
+            token: rotated.token,
+            refreshToken: rotated.refreshToken,
+            expiresIn: rotated.expiresIn,
+            user: sanitizeUserForClient(user)
+        });
+    } catch (err) {
+        authLogger.error('auth.refresh_failed', { error: err });
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.logout = async (req, res) => {
+    try {
+        const refreshToken = String(req.body?.refreshToken || '').trim();
+        const bearer = authMiddleware.extractBearerToken(req);
+
+        if (refreshToken) {
+            customerSessionService.revokeByRefreshToken(refreshToken, 'logout');
+        }
+
+        if (bearer) {
+            const claims = readAccessTokenClaims(bearer, { ignoreExpiration: true });
+            if (claims?.sid) {
+                customerSessionService.revokeSession(claims.sid, 'logout');
+            }
+        }
+
+        return res.json({ success: true });
+    } catch (err) {
+        authLogger.error('auth.logout_failed', { error: err });
+        return res.json({ success: true });
     }
 };
 
@@ -331,8 +404,26 @@ exports.changePassword = async (req, res) => {
             password: await hashPassword(String(newPassword))
         });
         await userDataService.recordSuccessfulLogin(user.id);
+        customerSessionService.revokeAllForUser(user.id, {
+            exceptSessionId: req.user?.sid || '',
+            reason: 'password_changed'
+        });
+
+        let sessionTokens = {};
+        if (req.user?.sid) {
+            const current = customerSessionService.findActiveBySessionId(req.user.sid);
+            if (current) {
+                const rotated = customerSessionService.rotateCustomerSession(current, { ...user, password: undefined }, { req });
+                sessionTokens = {
+                    token: rotated.token,
+                    refreshToken: rotated.refreshToken,
+                    expiresIn: rotated.expiresIn
+                };
+            }
+        }
+
         authLogger.info('auth.password_changed', { userId: user.id });
-        return res.json({ success: true });
+        return res.json({ success: true, ...sessionTokens });
     } catch (error) {
         authLogger.error('auth.change_password_failed', { error });
         return res.status(500).json({ success: false, message: 'Server error' });
@@ -432,6 +523,7 @@ exports.resetPassword = async (req, res) => {
             password: await hashPassword(String(newPassword))
         });
         await userDataService.recordSuccessfulLogin(user.id);
+        customerSessionService.revokeAllForUser(user.id, { reason: 'password_reset' });
         authLogger.info('auth.password_reset_completed', { identifier: normalizedIdentifier, userId: user.id });
         return res.json({ success: true });
     } catch (error) {

@@ -585,6 +585,9 @@ window.Util = Util;
 
   async function requestStorefrontState(method, body) {
     const endpoint = getStorefrontStateUrl();
+    if (global.authService?.restoreSession) {
+      await global.authService.restoreSession().catch(() => {});
+    }
     const token = getToken();
 
     if (!endpoint || !token) {
@@ -597,16 +600,26 @@ window.Util = Util;
       : 0;
 
     try {
-      const response = await global.fetch(endpoint, {
-        method,
-        headers: {
-          ...(body ? { 'Content-Type': 'application/json' } : {}),
-          Accept: 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        ...(body ? { body: JSON.stringify(body) } : {}),
-        ...(controller ? { signal: controller.signal } : {})
-      });
+      const response = global.authService?.authFetch
+        ? await global.authService.authFetch(endpoint, {
+            method,
+            headers: {
+              ...(body ? { 'Content-Type': 'application/json' } : {}),
+              Accept: 'application/json'
+            },
+            ...(body ? { body: JSON.stringify(body) } : {}),
+            ...(controller ? { signal: controller.signal } : {})
+          })
+        : await global.fetch(endpoint, {
+            method,
+            headers: {
+              ...(body ? { 'Content-Type': 'application/json' } : {}),
+              Accept: 'application/json',
+              Authorization: `Bearer ${token}`
+            },
+            ...(body ? { body: JSON.stringify(body) } : {}),
+            ...(controller ? { signal: controller.signal } : {})
+          });
 
       const payload = await response.json().catch(() => null);
       if (!response.ok) {

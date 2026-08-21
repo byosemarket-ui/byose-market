@@ -95,6 +95,9 @@ function getAuthToken() {
 
 async function requestStorefrontState(method, body) {
   const endpoint = getStorefrontStateUrl();
+  if (window.authService?.restoreSession) {
+    await window.authService.restoreSession().catch(() => {});
+  }
   const token = getAuthToken();
 
   if (!endpoint || !token) {
@@ -107,16 +110,26 @@ async function requestStorefrontState(method, body) {
     : 0;
 
   try {
-    const response = await fetch(endpoint, {
-      method,
-      headers: {
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-      ...(controller ? { signal: controller.signal } : {})
-    });
+    const response = window.authService?.authFetch
+      ? await window.authService.authFetch(endpoint, {
+          method,
+          headers: {
+            ...(body ? { 'Content-Type': 'application/json' } : {}),
+            Accept: 'application/json'
+          },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+          ...(controller ? { signal: controller.signal } : {})
+        })
+      : await fetch(endpoint, {
+          method,
+          headers: {
+            ...(body ? { 'Content-Type': 'application/json' } : {}),
+            Accept: 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+          ...(controller ? { signal: controller.signal } : {})
+        });
 
     const payload = await response.json().catch(() => null);
     if (!response.ok) {

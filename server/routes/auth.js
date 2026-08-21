@@ -11,6 +11,8 @@ const {
     me,
     updateMe,
     changePassword,
+    refresh,
+    logout,
     forgotPassword,
     verifyCode,
     resetPassword
@@ -50,6 +52,20 @@ const authSensitiveLimiter = createRateLimiter({
     message: 'Too many auth attempts. Please try again later.'
 });
 
+const authRefreshLimiter = createRateLimiter({
+    windowMs: 15 * 60 * 1000,
+    max: 40,
+    code: 'AUTH_REFRESH_LIMITED',
+    message: 'Too many session refresh attempts. Please try again later.'
+});
+
+router.use((req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    next();
+});
+
 // ===============================
 // ROUTES
 // ===============================
@@ -71,6 +87,10 @@ router.post('/reset-password', authSensitiveLimiter, requireDatabase, validatePa
 router.get('/me', authMiddleware, requireDatabase, me);
 router.put('/me', authMiddleware, requireDatabase, updateMe);
 router.post('/change-password', authSensitiveLimiter, authMiddleware, requireDatabase, validatePayload(['currentPassword', 'newPassword']), changePassword);
+
+// Persistent session lifecycle
+router.post('/refresh', authRefreshLimiter, requireDatabase, validatePayload(['refreshToken']), refresh);
+router.post('/logout', requireDatabase, logout);
 
 // ===============================
 // EXPORT

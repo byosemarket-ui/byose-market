@@ -238,17 +238,27 @@ async function postOrder(order) {
     return { success: false, skipped: true, message: 'Checkout API is unavailable. Please refresh and try again.' };
   }
 
+  if (window.authService?.restoreSession) {
+    await window.authService.restoreSession().catch(() => {});
+  }
+
   const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
   try {
     const token = window.authService?.getToken?.() || window.localStorage?.getItem('bm_auth_token') || '';
     if (token) headers.Authorization = `Bearer ${String(token).trim()}`;
   } catch (_) { /* optional auth */ }
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(order)
-  });
+  const response = await (window.authService?.authFetch
+    ? window.authService.authFetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(order)
+      })
+    : fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(order)
+      }));
 
   const payload = await response.json().catch(() => null);
   if (response.ok) {

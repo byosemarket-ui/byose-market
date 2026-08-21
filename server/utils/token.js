@@ -106,4 +106,19 @@ function verifyToken(token) {
     }
 }
 
-module.exports = { generateToken, verifyToken, getJwtConfig, getSecret };
+function readAccessTokenClaims(token, options = {}) {
+    try {
+        const jwtConfig = getJwtConfig();
+        return jwt.verify(String(token || ''), jwtConfig.secret, {
+            algorithms: [JWT_ALGORITHM],
+            issuer: JWT_ISSUER,
+            audience: JWT_AUDIENCE,
+            clockTolerance: 5,
+            ignoreExpiration: Boolean(options.ignoreExpiration)
+        });
+    } catch (_error) {
+        return null;
+    }
+}
+
+module.exports = { generateToken, verifyToken, readAccessTokenClaims, getJwtConfig, getSecret };

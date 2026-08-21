@@ -60,6 +60,7 @@
     "verify:shopping-flow": "node scripts/verify-shopping-flow-step1.js",
     "verify:checkout-order": "node scripts/verify-checkout-order-step2.js",
     "verify:inventory-stock": "node scripts/verify-inventory-stock-flow.js",
+    "verify:customer-auth": "node scripts/verify-customer-auth-session.js",
     "verify:order-e2e": "node scripts/verify-order-system-step3.js",
     "verify:order-created-email": "node scripts/verify-order-created-email.js",
     "verify:notification-reliability": "node scripts/verify-notification-reliability.js",

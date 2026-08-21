@@ -18,7 +18,7 @@ async function optionalAuthMiddleware(req, res, next) {
         }
 
         const result = verifyToken(token);
-        // Guest checkout remains available if a browser sends an expired token.
+        // Guest checkout remains available if a browser sends an expired or revoked token.
         if (!result.valid) {
             return next();
         }
@@ -26,6 +26,14 @@ async function optionalAuthMiddleware(req, res, next) {
         const payload = result.payload || {};
         if (!payload.id || payload.role !== 'user') {
             return next();
+        }
+
+        if (payload.sid) {
+            const customerSessionService = require('../services/customersession.service');
+            const session = customerSessionService.findActiveBySessionId(payload.sid);
+            if (!session || session.userPublicId !== String(payload.id)) {
+                return next();
+            }
         }
 
         const user = await userDataService.findUserById(payload.id);

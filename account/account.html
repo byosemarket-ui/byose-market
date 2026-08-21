@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, private">
+  <meta http-equiv="Pragma" content="no-cache">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>My Account - ByoseMarket</title>
 
@@ -17,6 +19,8 @@
   <link rel="stylesheet" href="css/account-mobile.css">
   <link rel="stylesheet" href="css/account-desktop.css">
   <link rel="stylesheet" href="../mobile-nav.css">
+  <script src="../services/authservice.js"></script>
+  <script src="js/auth-guard.js"></script>
 </head>
 
 <body class="account-page">
@@ -55,9 +59,9 @@
       <div id="userAvatar" class="avatar-box" aria-hidden="true"></div>
 
       <div class="user-info">
-        <h1 id="userName">Guest User</h1>
-        <p id="userContact" class="profile-contact">example@byosemarket.com</p>
-        <span id="userId" class="profile-id-badge">ID: BM00000</span>
+        <h1 id="userName"></h1>
+        <p id="userContact" class="profile-contact"></p>
+        <span id="userId" class="profile-id-badge"></span>
       </div>
     </div>
 
@@ -258,11 +262,9 @@
 </main>
 
 <!-- JS -->
-<script src="../services/authservice.js"></script>
 <script src="../services/wishlist-client.js"></script>
 <script src="../services/favorite-stores-client.js"></script>
 <script src="../services/recently-viewed-tracker.js"></script>
-<script src="js/auth-guard.js"></script>
 <script src="services/orderservice.js"></script>
 <script src="services/account-features-api.js"></script>
 <script src="services/wishlist.service.js"></script>

@@ -229,6 +229,13 @@ function createApp() {
             maxAge: config.isProduction ? '1d' : '5m',
             setHeaders(res, filePath) {
                 if (/\.html$/i.test(filePath)) {
+                    const normalizedPath = String(filePath || '').replace(/\\/g, '/').toLowerCase();
+                    if (normalizedPath.includes('/account/') || normalizedPath.includes('/logout/')) {
+                        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+                        res.setHeader('Pragma', 'no-cache');
+                        res.setHeader('Expires', '0');
+                        return;
+                    }
                     res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
                     return;
                 }

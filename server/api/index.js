@@ -41,13 +41,6 @@ const invoiceRoutes = require('../routes/invoices');
 const publicShippingRoutes = require('../routes/publicshipping');
 const dpoPaymentRoutes = require('../routes/dpopayments');
 
-const authRateLimiter = createRateLimiter({
-    windowMs: 15 * 60 * 1000,
-    max: 20,
-    code: 'AUTH_RATE_LIMITED',
-    message: 'Too many authentication attempts. Please try again later.'
-});
-
 const adminRateLimiter = createRateLimiter({
     windowMs: 10 * 60 * 1000,
     max: 180,
@@ -85,7 +78,7 @@ function createApiRouter() {
     router.use('/admin/products', requireDatabase, adminProductRoutes);
     router.use('/admin/hero-slides', requireDatabase, adminHeroSlideRoutes);
     router.use('/activity', requireDatabase, activityRoutes);
-    router.use('/auth', authRateLimiter, authRoutes);
+    router.use('/auth', authRoutes);
     router.use('/messages', requireDatabase, messageRoutes);
     router.use('/products', requireDatabase, productRoutes);
     router.use('/hero-slides', requireDatabase, heroSlideRoutes);

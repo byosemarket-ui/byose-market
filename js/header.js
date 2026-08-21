@@ -84,33 +84,42 @@ document.addEventListener('DOMContentLoaded', () => {
       // fallback
       window.location.href = resolveHeaderPath('login.html');
     });
-    // render avatar if available
-    (function renderAccountAvatar(){
+    const defaultAccountHtml = accountBtn.innerHTML;
+    const renderAccountAvatar = function renderAccountAvatar(){
       try {
         let u = null;
         if (typeof window.getCurrentUser === 'function') {
           try { u = window.getCurrentUser(); } catch (e) { u = null; }
         }
-        if (!u) {
-          const raw = localStorage.getItem('bm_user');
-          if (!raw) return;
-          u = JSON.parse(raw);
+        if (!u && window.authService && typeof window.authService.getCurrentUser === 'function') {
+          try { u = window.authService.getCurrentUser(); } catch (e) { u = null; }
         }
-        if (!u) return;
+        if (!u) {
+          const raw = localStorage.getItem('bm_current_user') || localStorage.getItem('bm_user') || localStorage.getItem('byose_market_user');
+          if (raw) {
+            u = JSON.parse(raw);
+          }
+        }
+        if (!u || !(u.name || u.avatar || u.email)) {
+          accountBtn.innerHTML = defaultAccountHtml;
+          return;
+        }
         if (u.avatar) {
           accountBtn.innerHTML = `<img src="${u.avatar}" class="header-avatar" alt="${(u.name||'User')}">`;
         } else if (u.name) {
           const letter = (u.name||'U').trim()[0].toUpperCase();
           accountBtn.innerHTML = `<div class="header-avatar header-avatar--letter">${letter}</div>`;
         }
-          // accessible title with name, contact and id
           try {
             const contact = u.email || u.phone || '';
             const id = u.id ? (' • ' + u.id) : '';
             accountBtn.setAttribute('title', `${u.name || 'User'}${contact ? ' — ' + contact : ''}${id}`);
           } catch (e) {}
       } catch (e) { /* ignore */ }
-    })();
+    };
+    renderAccountAvatar();
+    window.addEventListener('userUpdated', renderAccountAvatar);
+    window.addEventListener('storage', renderAccountAvatar);
   }
 
   // ACCOUNT LINK (mobile menu)

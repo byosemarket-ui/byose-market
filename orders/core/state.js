@@ -687,6 +687,10 @@ export async function applyCheckoutCoupon(code) {
     return { ok: false, message: 'Enter a coupon code.' };
   }
 
+  if (window.authService?.restoreSession) {
+    await window.authService.restoreSession().catch(() => {});
+  }
+
   const token = window.authService?.getToken?.() || window.localStorage?.getItem('bm_auth_token') || '';
   if (!token) {
     return { ok: false, message: 'Sign in to use a coupon.' };

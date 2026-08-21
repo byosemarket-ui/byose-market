@@ -323,18 +323,25 @@
 
   async function fetchApiOrders() {
     const orderApi = getOrdersApiUrl();
-    const token = getAuthToken();
-    if (!orderApi || !token) {
+    if (!orderApi) {
       return [];
     }
 
     try {
-      const response = await fetch(orderApi, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
+      if (global.authService?.restoreSession) {
+        await global.authService.restoreSession().catch(() => {});
+      }
+      const response = global.authService?.authFetch
+        ? await global.authService.authFetch(orderApi, {
+            method: 'GET',
+            headers: { Accept: 'application/json' }
+          })
+        : await fetch(orderApi, {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${getAuthToken()}`
+            }
+          });
       if (!response.ok) {
         throw new Error(`Order API request failed with status ${response.status}`);
       }

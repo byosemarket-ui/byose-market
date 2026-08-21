@@ -319,6 +319,9 @@
   }
 
   async function initializeDashboard() {
+    if (window.authService?.whenReady) {
+      await window.authService.whenReady().catch(() => {});
+    }
     const user = window.authService?.getCurrentUser?.();
     if (!user) return;
 

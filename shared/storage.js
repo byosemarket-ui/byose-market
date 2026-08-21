@@ -28,7 +28,7 @@
       appendScript('services/authservice.js');
     }
 
-    if (!(window.handleAccountClick && window.isLoggedIn)) {
+    if (!window.authService || !(window.handleAccountClick && window.isLoggedIn)) {
       appendScript('account/shared/storage.js');
     }
 
