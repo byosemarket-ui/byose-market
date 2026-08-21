@@ -37,10 +37,10 @@ class SQLiteCustomerNotificationRepository extends SQLiteBaseRepository {
 
         return {
             userId: Number(row.user_id),
-            orders: this.normalizeBoolean(row.orders),
-            shipping: this.normalizeBoolean(row.shipping),
-            promo: this.normalizeBoolean(row.promo),
-            system: this.normalizeBoolean(row.system),
+            orders: Boolean(Number(row.orders)),
+            shipping: Boolean(Number(row.shipping)),
+            promo: Boolean(Number(row.promo)),
+            system: true,
             updatedAt: row.updated_at || null
         };
     }
@@ -58,7 +58,8 @@ class SQLiteCustomerNotificationRepository extends SQLiteBaseRepository {
             orders: prefs.orders != null ? Boolean(prefs.orders) : existing.orders,
             shipping: prefs.shipping != null ? Boolean(prefs.shipping) : existing.shipping,
             promo: prefs.promo != null ? Boolean(prefs.promo) : existing.promo,
-            system: prefs.system != null ? Boolean(prefs.system) : existing.system
+            // Account/system alerts stay enabled for security and account reliability.
+            system: true
         };
         const now = this.now();
 

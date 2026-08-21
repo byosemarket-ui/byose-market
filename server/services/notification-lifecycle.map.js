@@ -80,8 +80,9 @@ function mapReturnActionToEventKey(action) {
     ) {
         return 'REFUND_REQUESTED';
     }
-    if (value === 'approve_refund' || value === 'complete_refund') return 'REFUND_APPROVED';
-    if (value === 'reject_refund') return 'REFUND_REJECTED';
+    if (value === 'approve_refund' || value === 'start_refund') return '';
+    if (value === 'complete_refund') return 'REFUND_APPROVED';
+    if (value === 'reject_refund' || value === 'reject_return') return 'REFUND_REJECTED';
     return '';
 }
 

@@ -1,27 +1,127 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, private">
   <meta http-equiv="Pragma" content="no-cache">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Delete Account | Byose Market</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Delete Account — BYOSE Market</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; background: #fff5f5; color: #2d1b1b; }
-    main { max-width: 720px; margin: 0 auto; padding: 32px 20px; }
-    .card { background: #fff; border-radius: 16px; padding: 24px; box-shadow: 0 12px 32px rgba(45, 27, 27, 0.08); }
-    a { color: #c62828; text-decoration: none; }
+    :root{
+      --bg-grad: linear-gradient(180deg,#f7f9fc 0%,#eef4fb 100%);
+      --card-bg: rgba(255,255,255,0.72);
+      --muted: #6b7280;
+      --accent: #0066ff;
+      --danger: #e53935;
+      --glass-border: rgba(255,255,255,0.7);
+      --shadow: 0 6px 18px rgba(18,38,63,0.08);
+      --radius: 14px;
+      --text: #0f172a;
+    }
+    html,body{height:100%;}
+    body{
+      margin:0;font-family:'Poppins',system-ui,-apple-system,'Segoe UI',Roboto,Arial;
+      background:var(--bg-grad);color:var(--text);padding-bottom:40px;
+      -webkit-font-smoothing:antialiased;
+    }
+    .app{max-width:720px;margin:0 auto;padding:18px;box-sizing:border-box;}
+    header.app-header{
+      position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;
+      padding:12px 8px;backdrop-filter:blur(10px);background:rgba(255,255,255,0.55);
+      border:1px solid rgba(15,23,42,0.04);border-radius:12px;box-shadow:var(--shadow);
+    }
+    .back-btn{
+      display:inline-grid;place-items:center;width:40px;height:40px;border-radius:10px;
+      background:var(--card-bg);border:1px solid var(--glass-border);color:var(--accent);text-decoration:none;
+    }
+    .app-title{flex:1;text-align:center;font-weight:600;font-size:16px;}
+    .card{
+      margin-top:14px;padding:16px;border-radius:var(--radius);background:var(--card-bg);
+      border:1px solid var(--glass-border);box-shadow:var(--shadow);
+    }
+    .warn{
+      border-color:rgba(229,57,53,0.25);
+      background:linear-gradient(180deg,rgba(229,57,53,0.08),rgba(255,255,255,0.7));
+    }
+    h2{margin:0 0 8px;font-size:16px;}
+    p{margin:0 0 10px;color:var(--muted);font-size:13px;line-height:1.55;}
+    ul{margin:0 0 12px;padding-left:18px;color:var(--muted);font-size:13px;line-height:1.5;}
+    .field{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;}
+    label{font-size:13px;color:var(--muted);font-weight:600;}
+    input{
+      border:1px solid rgba(15,23,42,0.12);border-radius:10px;padding:12px 14px;
+      font:inherit;font-size:14px;background:#fff;
+    }
+    input:focus{outline:2px solid rgba(0,102,255,0.2);border-color:rgba(0,102,255,0.35);}
+    .actions{display:flex;flex-direction:column;gap:10px;margin-top:8px;}
+    .btn{
+      border:0;border-radius:12px;padding:13px 16px;font:inherit;font-weight:700;
+      cursor:pointer;text-align:center;text-decoration:none;
+    }
+    .btn-danger{background:var(--danger);color:#fff;}
+    .btn-danger:disabled{opacity:0.55;cursor:not-allowed;}
+    .btn-secondary{background:#fff;color:var(--accent);border:1px solid rgba(0,102,255,0.2);}
+    .status{min-height:18px;font-size:13px;margin-top:8px;}
+    .status.error{color:var(--danger);}
+    .status.ok{color:#15803d;}
+    .confirm-box{
+      display:none;margin-top:12px;padding:12px;border-radius:12px;
+      border:1px dashed rgba(229,57,53,0.35);background:rgba(229,57,53,0.04);
+    }
+    .confirm-box.is-open{display:block;}
   </style>
 </head>
 <body>
-  <main>
-    <div class="card">
-      <h1>Delete Account</h1>
-      <p>This route is available so the settings page does not send users to a 404 on GitHub Pages. Connect your real delete-account flow before enabling destructive actions.</p>
-      <p><a href="settings.html">Back to settings</a></p>
-    </div>
-  </main>
-<script src="../../services/authservice.js"></script>
-<script src="../js/auth-guard.js"></script>
+  <div class="app">
+    <header class="app-header">
+      <a class="back-btn" href="settings.html" aria-label="Back to settings"><i class="fa fa-arrow-left"></i></a>
+      <div class="app-title">Danger Zone</div>
+      <div style="width:40px"></div>
+    </header>
+
+    <section class="card warn">
+      <h2>Delete my account</h2>
+      <p>This permanently removes your login identity from BYOSE Market. You will no longer be able to sign in with this account.</p>
+      <ul>
+        <li>Your profile, saved addresses, preferences, and notification settings will be removed.</li>
+        <li>All signed-in sessions for this account will end immediately.</li>
+        <li>Past orders, payments, invoices, refunds, and delivery records are kept for business records and are not destroyed.</li>
+        <li>This cannot be undone. Create a new account if you want to shop again later.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <form id="deleteAccountForm" novalidate>
+        <div class="field">
+          <label for="password">Current password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required placeholder="Enter your password">
+        </div>
+        <div class="field">
+          <label for="confirmation">Type DELETE to confirm</label>
+          <input id="confirmation" name="confirmation" type="text" autocomplete="off" required placeholder="DELETE" spellcheck="false">
+        </div>
+
+        <div class="actions">
+          <button type="button" class="btn btn-danger" id="openConfirmBtn">Continue to delete account</button>
+          <a class="btn btn-secondary" href="settings.html">Cancel and go back</a>
+        </div>
+
+        <div class="confirm-box" id="confirmBox" role="group" aria-label="Final deletion confirmation">
+          <p><strong>Final confirmation:</strong> Delete this account now? This action is permanent.</p>
+          <div class="actions">
+            <button type="submit" class="btn btn-danger" id="deleteBtn">Yes, delete my account</button>
+            <button type="button" class="btn btn-secondary" id="cancelConfirmBtn">Keep my account</button>
+          </div>
+        </div>
+        <p class="status" id="statusMsg" aria-live="polite"></p>
+      </form>
+    </section>
+  </div>
+
+  <script src="../../services/authservice.js"></script>
+  <script src="../js/auth-guard.js"></script>
+  <script src="../js/delete-account.js"></script>
 </body>
 </html>

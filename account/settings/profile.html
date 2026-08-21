@@ -6,289 +6,171 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Profile — ByoseMarket</title>
-  <!-- Google Font: Poppins -->
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
-  <!-- FontAwesome for icons -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
-
-  <meta name="description" content="User profile settings for ByoseMarket">
-
+  <meta name="description" content="Manage your ByoseMarket customer profile">
   <style>
     :root{
-      --bg: #f6f7fb;
-      --card: rgba(255,255,255,0.55);
+      --bg-grad: linear-gradient(180deg,#f7f9fc 0%,#eef4fb 100%);
+      --card-bg: rgba(255,255,255,0.72);
       --muted: #6b7280;
-      --accent: #4b7cf3;
-      --glass-border: rgba(255,255,255,0.6);
-      --shadow: 0 6px 18px rgba(16,24,40,0.08);
+      --accent: #0066ff;
+      --accent-soft: rgba(0,102,255,0.1);
+      --danger: #e53935;
+      --success: #16a34a;
+      --glass-border: rgba(255,255,255,0.7);
+      --shadow: 0 6px 18px rgba(18,38,63,0.08);
       --radius: 14px;
-      --gap: 14px;
-      font-family: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+      --text: #0f172a;
     }
-
     html,body{height:100%;}
     body{
-      margin:0; background: linear-gradient(180deg,#f8fbff 0%, var(--bg) 100%);
-      -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
-      color:#111827; padding-bottom:40px;
+      margin:0;
+      font-family:'Poppins',system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial;
+      background:var(--bg-grad);
+      color:var(--text);
+      -webkit-font-smoothing:antialiased;
+      padding-bottom:40px;
     }
-
-    /* App frame */
-    .app{
-      max-width:820px; margin:0 auto; padding:18px; box-sizing:border-box;
-    }
-
-    /* Sticky header */
+    .app{max-width:820px;margin:0 auto;padding:18px;box-sizing:border-box;}
     header.app-header{
-      position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:12px;
-      padding:12px 8px; backdrop-filter: blur(8px); background: rgba(255,255,255,0.5);
-      border-bottom:1px solid rgba(0,0,0,0.04);
+      position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;
+      padding:12px 8px;backdrop-filter:blur(10px);
+      background:rgba(255,255,255,0.55);border:1px solid rgba(15,23,42,0.04);
+      border-radius:12px;box-shadow:var(--shadow);
     }
-    .back-btn{display:inline-flex; align-items:center; gap:8px; color:var(--accent); text-decoration:none; font-weight:600}
-    .app-title{flex:1; text-align:center; font-weight:600; font-size:16px}
-
-    /* Profile card */
+    .back-btn{
+      display:inline-grid;place-items:center;width:40px;height:40px;border-radius:10px;
+      background:var(--card-bg);border:1px solid var(--glass-border);color:var(--accent);text-decoration:none;
+    }
+    .app-title{flex:1;text-align:center;font-weight:600;font-size:16px;}
     .card{
-      margin-top:14px; background:var(--card); border-radius:var(--radius);
-      padding:16px; box-shadow:var(--shadow); border:1px solid var(--glass-border);
-      backdrop-filter: blur(10px);
+      margin-top:14px;background:var(--card-bg);border-radius:var(--radius);
+      padding:16px;box-shadow:var(--shadow);border:1px solid var(--glass-border);backdrop-filter:blur(8px);
     }
-
-    /* Avatar */
-    .avatar-wrap{display:flex; align-items:center; gap:14px}
+    .avatar-wrap{display:flex;align-items:center;gap:14px;}
     .profile-avatar{
-      width:86px; height:86px; border-radius:50%; overflow:hidden; position:relative;
-      flex:0 0 86px; background:linear-gradient(180deg,#fff,#f1f5f9); display:flex; align-items:center; justify-content:center;
-      border:1px solid rgba(255,255,255,0.6);
+      width:86px;height:86px;border-radius:50%;overflow:hidden;position:relative;
+      flex:0 0 86px;background:linear-gradient(180deg,#fff,#eef2ff);
+      display:flex;align-items:center;justify-content:center;
+      border:1px solid rgba(255,255,255,0.7);
     }
-    .profile-avatar img{width:100%; height:100%; object-fit:cover; display:block}
-    .default-avatar{font-size:34px; color:#9ca3af}
-
-    /* Edit icon overlay */
+    .profile-avatar img{width:100%;height:100%;object-fit:cover;display:block;}
+    .avatar-initial{
+      font-size:34px;font-weight:700;color:var(--accent);
+      width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+      background:var(--accent-soft);
+    }
     .edit-avatar{
-      position:absolute; right:-4px; bottom:-4px; background:var(--accent); color:white; width:34px; height:34px;
-      border-radius:50%; display:flex; align-items:center; justify-content:center; box-shadow:0 6px 12px rgba(75,124,243,0.18);
-      cursor:pointer; border:3px solid rgba(255,255,255,0.6);
+      position:absolute;right:-2px;bottom:-2px;background:var(--accent);color:#fff;
+      width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+      border:3px solid rgba(255,255,255,0.85);cursor:pointer;box-shadow:0 6px 12px rgba(0,102,255,0.2);
     }
-
-    .avatar-meta{flex:1}
-    .user-name{font-weight:600; font-size:16px}
-    .user-sub{color:var(--muted); font-size:13px; margin-top:6px}
-
-    /* Rows */
-    .list{margin-top:12px; display:flex; flex-direction:column; gap:10px}
-    .row{display:flex; align-items:center; justify-content:space-between; padding:12px; border-radius:12px; background:rgba(255,255,255,0.3); cursor:pointer}
-    .row .label{color:var(--muted); font-size:13px}
-    .row .value{font-weight:600; font-size:14px}
-    .row .chev{color:#9ca3af}
-    .row:active{transform:scale(0.998)}
-
-    /* Editable fields */
-    .profile-field{display:flex; flex-direction:column; gap:8px}
-    .field-row{display:flex; align-items:center; justify-content:space-between; gap:12px}
-    .field-input{min-width:120px; text-align:right; border:none; background:transparent; font-weight:600; color:#111827}
-    .field-input[type="date"]{padding:6px 8px; border-radius:8px; background:rgba(255,255,255,0.6); border:1px solid rgba(0,0,0,0.06)}
-
-    /* Toggle */
-    .toggle-wrap{display:flex; align-items:flex-start; gap:12px}
-    .toggle-desc{flex:1}
-    .toggle-switch{position:relative; width:52px; height:30px}
-    .toggle-switch input{opacity:0; width:0; height:0}
-    .slider{position:absolute; cursor:pointer; inset:0; background:#e6e9ef; border-radius:999px; transition:background .2s}
-    .slider:before{content:""; position:absolute; left:4px; top:4px; width:22px; height:22px; border-radius:50%; background:white; transition:transform .2s; box-shadow:0 2px 6px rgba(16,24,40,0.12)}
-    input:checked + .slider{background:linear-gradient(90deg,var(--accent),#6ea0ff)}
-    input:checked + .slider:before{transform:translateX(22px)}
-
-    /* Extra options */
-    .muted{color:var(--muted); font-size:13px}
-
-    /* Responsive */
+    .avatar-meta{flex:1;min-width:0;}
+    .user-name{font-weight:600;font-size:17px;}
+    .user-sub{color:var(--muted);font-size:13px;margin-top:6px;line-height:1.4;}
+    .summary-list{margin-top:14px;display:flex;flex-direction:column;gap:8px;}
+    .summary-row{
+      display:flex;align-items:center;justify-content:space-between;gap:12px;
+      padding:12px;border-radius:12px;background:rgba(255,255,255,0.45);
+    }
+    .summary-row .label{color:var(--muted);font-size:13px;}
+    .summary-row .value{font-weight:600;font-size:14px;text-align:right;word-break:break-word;}
+    .field{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;}
+    label{font-size:13px;color:var(--muted);}
+    input{
+      padding:10px 12px;border-radius:10px;border:1px solid rgba(15,23,42,0.08);
+      background:rgba(255,255,255,0.9);font-size:14px;font-family:inherit;outline:none;
+    }
+    input:focus{border-color:rgba(0,102,255,0.45);box-shadow:0 0 0 3px rgba(0,102,255,0.12);}
+    .hint{font-size:12px;color:var(--muted);line-height:1.4;}
+    .form-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;}
+    .save-btn,.secondary-btn{
+      appearance:none;border:none;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer;font-size:14px;
+    }
+    .save-btn{background:var(--accent);color:#fff;}
+    .save-btn:disabled{opacity:0.65;cursor:wait;}
+    .secondary-btn{background:rgba(15,23,42,0.06);color:var(--text);}
+    .status{font-size:13px;margin:0 0 12px;display:none;}
+    .status.is-visible{display:block;}
+    .status.is-error{color:var(--danger);}
+    .status.is-success{color:var(--success);}
+    .sr-only{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;}
     @media(min-width:720px){
-      .app{padding:28px}
-      .card{padding:20px}
+      .app{padding:28px;}
+      .card{padding:20px;}
     }
-
   </style>
-
 </head>
 <body>
-  <!--
-    Profile page for ByoseMarket
-    - Placeholders use {{user.*}} for server/template injection
-  -->
-
-  <div class="app" data-user-id="{{user.id}}">
-
-    <!-- Sticky header with back button -->
+  <div class="app" id="profileApp">
     <header class="app-header">
       <a class="back-btn" href="settings.html" aria-label="Back to settings">
-        <i class="fa fa-arrow-left"></i>
+        <i class="fa fa-arrow-left" aria-hidden="true"></i>
       </a>
       <div class="app-title">Profile</div>
-      <div style="width:36px"></div>
+      <div style="width:40px"></div>
     </header>
 
-    <!-- Avatar Card -->
     <section class="card" aria-labelledby="profile-heading">
+      <h2 id="profile-heading" class="sr-only">Your profile</h2>
       <div class="avatar-wrap">
-        <div class="profile-avatar" id="avatarContainer" data-field="avatar">
-          <!-- If user has image, render <img src="..."> otherwise show default icon -->
-          <!-- Integration: set src to user.avatar when available -->
-          <img src="{{user.avatarUrl}}" alt="{{user.name}} avatar" onerror="this.style.display='none'">
-          <div class="default-avatar" aria-hidden="true"><i class="fa fa-user"></i></div>
-
-          <!-- Hidden file input for uploading new avatar -->
-          <input id="avatarInput" type="file" accept="image/*" style="display:none" aria-hidden="true">
-
-          <!-- Edit overlay button; JS may open file dialog -->
-          <button class="edit-avatar" id="editAvatarBtn" title="Change avatar" aria-label="Change avatar">
-            <i class="fa fa-camera"></i>
+        <div class="profile-avatar" id="avatarContainer">
+          <input id="avatarInput" type="file" accept="image/*" class="sr-only" aria-label="Upload profile photo">
+          <button type="button" class="edit-avatar" id="editAvatarBtn" title="Change photo" aria-label="Change profile photo">
+            <i class="fa fa-camera" aria-hidden="true"></i>
           </button>
         </div>
-
         <div class="avatar-meta">
-          <div class="user-name">{{user.name}}</div>
-          <div class="user-sub">Member since {{user.memberSince}} • ID: {{user.id}}</div>
+          <div class="user-name" id="profileDisplayName">Loading…</div>
+          <div class="user-sub" id="profileDisplaySub"></div>
         </div>
       </div>
-
-      <!-- Account summary rows -->
-      <div class="list" style="margin-top:12px">
-        <div class="row" aria-hidden="true">
-          <div class="label">Account</div>
-          <div class="value" title="Account">{{user.account}}</div>
+      <div class="summary-list">
+        <div class="summary-row">
+          <div class="label">Customer ID</div>
+          <div class="value" id="profileCustomerId">—</div>
         </div>
-
-        <a class="row" href="#" role="button" onclick="event.preventDefault()" data-field="country">
-          <div class="label">Country</div>
-          <div class="value">{{user.country}} <span class="chev">›</span></div>
-        </a>
-
-        <a class="row" href="#" role="button" onclick="event.preventDefault()" data-field="mobile">
-          <div class="label">Mobile number</div>
-          <div class="value">{{user.mobile}} <span class="chev">›</span></div>
-        </a>
-
-        <a class="row" href="#" role="button" onclick="event.preventDefault()" data-field="email">
+        <div class="summary-row">
           <div class="label">Email</div>
-          <div class="value">{{user.email}} <span class="chev">›</span></div>
-        </a>
-      </div>
-    </section>
-
-    <!-- Subscription Toggle Card -->
-    <section class="card" style="margin-top:12px">
-      <div class="toggle-wrap">
-        <div class="toggle-desc">
-          <div style="font-weight:600">Free subscribe to logistics</div>
-          <div class="muted">Get occasional logistics updates and discounts. Unsubscribe anytime.</div>
+          <div class="value" id="profileSummaryEmail">—</div>
         </div>
-
-        <label class="toggle-switch" aria-label="Subscribe to logistics">
-          <input type="checkbox" id="logisticsToggle" class="toggle-switch-input" data-setting="logistics" checked>
-          <span class="slider"></span>
-        </label>
-      </div>
-    </section>
-
-    <!-- Editable profile fields -->
-    <section class="card" style="margin-top:12px">
-      <div style="font-weight:600; margin-bottom:10px">Profile details</div>
-
-      <div class="profile-field">
-        <!-- Nickname row -->
-        <div class="field-row">
-          <div class="label">Nickname</div>
-          <div style="display:flex; align-items:center; gap:8px">
-            <input class="field-input editable" id="nickname" name="nickname" placeholder="Add a nickname" value="{{user.nickname}}" data-field="nickname" />
-            <button class="btn-icon" aria-label="Edit nickname" onclick="document.getElementById('nickname').focus(); return false;">
-              <i class="fa fa-pen" style="color:var(--muted)"></i>
-            </button>
-          </div>
-        </div>
-
-        <!-- Gender row -->
-        <div class="field-row">
-          <div class="label">Gender</div>
-          <select id="gender" class="field-input editable" data-field="gender">
-            <option value="" disabled selected hidden>{{user.gender}}</option>
-            <option value="male">Male</option>
-            <option value="female">Female</option>
-            <option value="other">Other</option>
-          </select>
-        </div>
-
-        <!-- Birthday row -->
-        <div class="field-row">
-          <div class="label">Birthday</div>
-          <input type="date" id="birthday" class="field-input editable" value="{{user.birthday}}" data-field="birthday">
+        <div class="summary-row">
+          <div class="label">Phone</div>
+          <div class="value" id="profileSummaryPhone">—</div>
         </div>
       </div>
     </section>
 
-    <!-- Extra options -->
-    <section class="card" style="margin-top:12px">
-      <div class="list">
-        <a class="row" href="#" onclick="event.preventDefault()" data-action="friends-code">
-          <div class="label">Friend's code</div>
-          <div class="value">{{user.friendCode}} <span class="chev">›</span></div>
-        </a>
-
-        <a class="row" href="settings.html">
-          <div class="label">Settings</div>
-          <div class="chev">›</div>
-        </a>
-      </div>
+    <section class="card" aria-labelledby="edit-profile-heading">
+      <div id="edit-profile-heading" style="font-weight:600;margin-bottom:10px;">Edit profile</div>
+      <p id="profileStatus" class="status" role="status" aria-live="polite"></p>
+      <form id="profileForm" autocomplete="on">
+        <div class="field">
+          <label for="profileName">Full name</label>
+          <input id="profileName" name="name" type="text" required maxlength="120" placeholder="Your full name">
+        </div>
+        <div class="field">
+          <label for="profileEmail">Email</label>
+          <input id="profileEmail" name="email" type="email" maxlength="160" placeholder="you@example.com">
+          <p class="hint">Email is used for account access and order updates. It must be unique.</p>
+        </div>
+        <div class="field">
+          <label for="profilePhone">Phone number</label>
+          <input id="profilePhone" name="phone" type="tel" maxlength="20" placeholder="+250 7XX XXX XXX">
+          <p class="hint">Use a Rwanda mobile number. Phone updates must not belong to another account.</p>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="save-btn" id="saveProfileBtn">Save changes</button>
+          <button type="button" class="secondary-btn" id="removePhotoBtn" hidden>Remove photo</button>
+        </div>
+      </form>
     </section>
-
   </div>
 
   <script src="../../services/authservice.js"></script>
   <script src="../js/auth-guard.js"></script>
+  <script src="../js/user-display.js"></script>
   <script src="../js/profile.js"></script>
-  <!-- Minimal JS hooks. Keep light; profile.js should replace/enhance interactions. -->
-  <script>
-    // Hook: open file picker when edit avatar clicked
-    document.getElementById('editAvatarBtn').addEventListener('click', function(){
-      document.getElementById('avatarInput').click();
-    });
-
-    // Preview avatar locally (no upload logic here).
-    document.getElementById('avatarInput').addEventListener('change', function(e){
-      const file = e.target.files && e.target.files[0];
-      if(!file) return;
-      const img = document.createElement('img');
-      img.onload = function(){
-        const container = document.getElementById('avatarContainer');
-        // remove existing preview images first
-        const existing = container.querySelector('img');
-        if(existing) existing.remove();
-        // insert new preview
-        container.insertBefore(img, container.firstChild);
-        // data hook for profile.js
-        container.dataset.pendingAvatar = file.name;
-      };
-      img.src = URL.createObjectURL(file);
-      img.alt = '{{user.name}} avatar';
-    });
-
-    // Simple accessibility: allow clicking rows to focus inputs
-    document.querySelectorAll('[data-field]').forEach(el => {
-      el.addEventListener('click', (e) => {
-        const field = el.dataset.field;
-        if(!field) return;
-        const input = document.querySelector('[data-field="'+field+'"], #'+field);
-        if(input){ input.focus && input.focus(); }
-      });
-    });
-
-    // NOTE: profile.js should attach to elements with the following selectors:
-    // - .profile-avatar (avatar container)
-    // - #avatarInput (file input)
-    // - .editable (inputs/selects)
-    // - .toggle-switch-input (subscription toggle)
-    // - [data-action="friends-code"] (friend's code handler)
-  </script>
-
 </body>
 </html>

@@ -434,15 +434,16 @@ function normalizeOrder(order) {
   const paymentStatusLower = paymentStatusValue.toLowerCase();
   const refundRequired = Boolean(paymentCancellation.refundRequired)
     || paymentStatusLower.includes("refund_required")
-    || String(returnWorkflowRaw.refundStatus || "").toLowerCase() === "required";
+    || ["required", "pending", "processing"].includes(String(returnWorkflowRaw.refundStatus || "").toLowerCase());
 
   const returnWorkflow = {
     returnStatus: normalizeText(returnWorkflowRaw.returnStatus || (status.toLowerCase().includes("return") ? status : "")),
     refundStatus: normalizeText(returnWorkflowRaw.refundStatus
       || (paymentStatusLower.includes("refund_required") ? "required"
-        : paymentStatusLower.includes("refund") ? "completed"
+        : paymentStatusLower === "refunded" ? "completed"
           : "")),
     returnReason: normalizeText(returnWorkflowRaw.returnReason || paymentCancellation.reason || order?.cancellationReason),
+    reasonCode: normalizeText(returnWorkflowRaw.reasonCode),
     customerNotes: normalizeText(returnWorkflowRaw.customerNotes),
     adminNotes: normalizeText(returnWorkflowRaw.adminNotes),
     productCondition: normalizeText(returnWorkflowRaw.productCondition),
@@ -450,13 +451,26 @@ function normalizeOrder(order) {
     returnRequestedAt: normalizeText(returnWorkflowRaw.returnRequestedAt || paymentCancellation.cancelledAt),
     returnApprovedAt: normalizeText(returnWorkflowRaw.returnApprovedAt),
     returnRejectedAt: normalizeText(returnWorkflowRaw.returnRejectedAt),
+    returnReceivedAt: normalizeText(returnWorkflowRaw.returnReceivedAt),
+    inspectedAt: normalizeText(returnWorkflowRaw.inspectedAt),
+    inspectPassed: returnWorkflowRaw.inspectPassed !== false,
+    restockEligible: Boolean(returnWorkflowRaw.restockEligible),
+    requiresPhysicalReturn: returnWorkflowRaw.requiresPhysicalReturn !== false
+      && !paymentCancellation.cancelledAt
+      && normalizeText(returnWorkflowRaw.reasonCode).toLowerCase() !== "delivery_delay"
+      && normalizeText(returnWorkflowRaw.reasonCode).toLowerCase() !== "cancel",
     refundApprovedAt: normalizeText(returnWorkflowRaw.refundApprovedAt),
     refundRejectedAt: normalizeText(returnWorkflowRaw.refundRejectedAt),
-    refundDate: normalizeText(returnWorkflowRaw.refundDate || returnWorkflowRaw.refundApprovedAt),
-    refundAmount: toNumber(returnWorkflowRaw.refundAmount ?? (String(returnWorkflowRaw.refundStatus || "").toLowerCase() === "completed" ? (order?.totalAmount ?? order?.total) : 0)),
+    refundCompletedAt: normalizeText(returnWorkflowRaw.refundCompletedAt),
+    refundDate: normalizeText(returnWorkflowRaw.refundDate || returnWorkflowRaw.refundCompletedAt || returnWorkflowRaw.refundApprovedAt),
+    refundAmount: toNumber(returnWorkflowRaw.refundAmount ?? (["completed", "processing"].includes(String(returnWorkflowRaw.refundStatus || "").toLowerCase()) ? (order?.totalAmount ?? order?.total) : 0)),
     refundMethod: normalizeText(returnWorkflowRaw.refundMethod),
+    refundProcessingNote: normalizeText(returnWorkflowRaw.refundProcessingNote),
     stockRestored: Boolean(returnWorkflowRaw.stockRestored)
   };
+  if (Object.prototype.hasOwnProperty.call(returnWorkflowRaw, "requiresPhysicalReturn")) {
+    returnWorkflow.requiresPhysicalReturn = Boolean(returnWorkflowRaw.requiresPhysicalReturn);
+  }
 
   const normalized = {
     id: normalizeText(order?.id || order?.orderId || order?._id),
@@ -2261,6 +2275,10 @@ export async function updateOrderStatus(orderId, status, options = {}) {
   if (Array.isArray(options?.returnImages)) {
     body.returnImages = options.returnImages.map((image) => normalizeText(image)).filter(Boolean);
   }
+  if (options?.inspectResult != null) body.inspectResult = normalizeText(options.inspectResult);
+  if (options?.inspectPassed != null) body.inspectPassed = Boolean(options.inspectPassed);
+  if (options?.restockEligible != null) body.restockEligible = Boolean(options.restockEligible);
+  if (options?.reasonCode) body.reasonCode = normalizeText(options.reasonCode);
 
   const payload = await api.put(`admin/orders/${encodeURIComponent(id)}/status`, body);
   await resyncEnterpriseScopes(["orders", "products", "inventory", "analytics"]);

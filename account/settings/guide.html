@@ -1,270 +1,224 @@
 <!doctype html>
-<!--
-  ByoseMarket — User Guide (Help Center)
-  Location: /account/settings/guide.html
-  Notes:
-    - Mobile-first, responsive, card-based layout
-    - Minimal JS hooks only; prepared for `guide.js`
-    - Uses Poppins font and Font Awesome icons (CDN)
--->
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="utf-8">
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, private">
   <meta http-equiv="Pragma" content="no-cache">
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="theme-color" content="#ffffff" />
-  <title>User Guide — ByoseMarket</title>
-
-  <!-- Fonts & Icons -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>User Guide — BYOSE Market</title>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
-  <!-- Basic, scoped styles for the guide page -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
   <style>
     :root{
-      --bg: #f7f8fb;
-      --card: rgba(255,255,255,0.7);
+      --bg-grad: linear-gradient(180deg,#f7f9fc 0%,#eef4fb 100%);
+      --card-bg: rgba(255,255,255,0.72);
       --muted: #6b7280;
-      --accent: #075985; /* deep teal-ish */
-      --shadow: 0 6px 18px rgba(16,24,40,0.06);
+      --accent: #0066ff;
+      --glass-border: rgba(255,255,255,0.7);
+      --shadow: 0 6px 18px rgba(18,38,63,0.08);
       --radius: 14px;
-      --glass: rgba(255,255,255,0.55);
+      --text: #0f172a;
     }
     html,body{height:100%;}
     body{
-      margin:0;
-      font-family: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
-      background: linear-gradient(180deg, var(--bg), #ffffff);
-      color:#0f172a;
+      margin:0;font-family:'Poppins',system-ui,-apple-system,'Segoe UI',Roboto,Arial;
+      background:var(--bg-grad);color:var(--text);padding-bottom:40px;
       -webkit-font-smoothing:antialiased;
-      -moz-osx-font-smoothing:grayscale;
-      padding-bottom:40px;
     }
-
-    /* Sticky header */
-    .topbar{
-      position:sticky; top:0; z-index:40;
-      display:flex; align-items:center; gap:12px;
-      padding:12px 16px; background:rgba(255,255,255,0.7);
-      backdrop-filter: blur(6px);
-      box-shadow: 0 1px 0 rgba(15,23,42,0.04);
+    .app{max-width:900px;margin:0 auto;padding:18px;box-sizing:border-box;}
+    header.app-header{
+      position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;
+      padding:12px 8px;backdrop-filter:blur(10px);background:rgba(255,255,255,0.55);
+      border:1px solid rgba(15,23,42,0.04);border-radius:12px;box-shadow:var(--shadow);
     }
-    .back-btn{display:inline-flex; align-items:center; gap:10px; text-decoration:none; color:var(--accent); font-weight:600}
-    .title{flex:1; text-align:center; font-size:16px; font-weight:600}
-
-    /* Container */
-    .container{max-width:980px; margin:18px auto; padding:0 16px;}
-
-    /* Search */
-    .search-wrap{margin:12px 0 18px;}
+    .back-btn{
+      display:inline-grid;place-items:center;width:40px;height:40px;border-radius:10px;
+      background:var(--card-bg);border:1px solid var(--glass-border);color:var(--accent);text-decoration:none;
+    }
+    .app-title{flex:1;text-align:center;font-weight:600;font-size:16px;}
     .search{
-      display:flex; align-items:center; gap:8px; background:var(--card);
-      padding:10px 12px; border-radius:12px; box-shadow:var(--shadow);
-      border:1px solid rgba(15,23,42,0.04);
+      margin:16px 0;display:flex;align-items:center;gap:10px;padding:12px 14px;
+      border-radius:12px;background:var(--card-bg);border:1px solid var(--glass-border);box-shadow:var(--shadow);
     }
-    .search input{flex:1; border:0; outline:0; font-size:15px; background:transparent}
-    .search .fa-magnifying-glass{color:var(--muted)}
-
-    /* Guide sections grid */
-    .grid{display:grid; grid-template-columns:1fr; gap:12px;}
-    @media(min-width:720px){.grid{grid-template-columns:repeat(2,1fr)}}
-    @media(min-width:1100px){.grid{grid-template-columns:repeat(3,1fr)}}
-
+    .search input{flex:1;border:0;outline:0;background:transparent;font:inherit;font-size:15px;}
+    .search i{color:var(--muted)}
+    .section-label{font-size:13px;color:var(--muted);margin:8px 4px 10px;}
+    .grid{display:grid;grid-template-columns:1fr;gap:10px;}
+    @media(min-width:720px){.grid{grid-template-columns:1fr 1fr;}}
+    .topic{
+      display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:var(--radius);
+      background:var(--card-bg);border:1px solid var(--glass-border);box-shadow:var(--shadow);
+      text-decoration:none;color:inherit;transition:transform .12s ease, box-shadow .12s ease;
+    }
+    .topic:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(12,20,40,0.08);}
+    .topic-icon{
+      width:44px;height:44px;border-radius:12px;display:grid;place-items:center;flex:0 0 44px;
+      background:rgba(0,102,255,0.1);color:var(--accent);
+    }
+    .topic h3{margin:0;font-size:15px;}
+    .topic p{margin:4px 0 0;color:var(--muted);font-size:13px;line-height:1.4;}
     .card{
-      display:flex; gap:12px; align-items:flex-start;
-      background:var(--glass); padding:14px; border-radius:var(--radius);
-      box-shadow:var(--shadow); border:1px solid rgba(15,23,42,0.04);
-      transition:transform .18s ease, box-shadow .18s ease; cursor:pointer;
+      margin-top:14px;padding:14px;border-radius:var(--radius);background:var(--card-bg);
+      border:1px solid var(--glass-border);box-shadow:var(--shadow);
     }
-    .card:hover{transform:translateY(-6px); box-shadow:0 14px 40px rgba(16,24,40,0.08)}
-    .icon-wrap{width:48px;height:48px;border-radius:12px; display:flex; align-items:center; justify-content:center; color:white; flex:0 0 48px}
-    .icon--green{background:linear-gradient(180deg,#10b981,#059669)}
-    .icon--yellow{background:linear-gradient(180deg,#f59e0b,#d97706)}
-    .icon--blue{background:linear-gradient(180deg,#3b82f6,#2563eb)}
-    .icon--red{background:linear-gradient(180deg,#ef4444,#dc2626)}
-
-    .card h3{margin:0;font-size:15px}
-    .card p{margin:4px 0 0;color:var(--muted); font-size:13px}
-
-    /* FAQ section */
-    .faq{margin-top:18px}
-    .faq h2{font-size:16px;margin:8px 0}
-    .faq-list{list-style:none;padding:0;margin:8px 0;display:flex;flex-direction:column;gap:8px}
-    .faq-item{
-      background:var(--card); border-radius:12px; overflow:hidden; border:1px solid rgba(15,23,42,0.04);
-      box-shadow:var(--shadow);
-    }
+    .card h2{margin:0 0 10px;font-size:16px;}
+    .guide-block{margin:0 0 16px;}
+    .guide-block h3{margin:0 0 6px;font-size:14px;}
+    .guide-block p,.guide-block li{color:var(--muted);font-size:13px;line-height:1.55;margin:0;}
+    .guide-block ul{margin:6px 0 0;padding-left:18px;}
+    .guide-block a{color:var(--accent);font-weight:600;text-decoration:none;}
+    .faq-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;}
+    .faq-item{border-radius:12px;overflow:hidden;border:1px solid rgba(15,23,42,0.05);background:rgba(255,255,255,0.55);}
     .faq-question{
-      display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%;
-      padding:12px 14px; font-weight:600; background:transparent; border:0; text-align:left; cursor:pointer;
+      width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;
+      padding:12px 14px;border:0;background:transparent;font:inherit;font-weight:600;text-align:left;cursor:pointer;
     }
-    .faq-question:focus{outline:2px solid rgba(3,105,161,0.12); outline-offset:2px}
-
-    .faq-answer{
-      max-height:0; overflow:hidden; transition:max-height .28s cubic-bezier(.2,.9,.2,1), padding .22s ease;
-      padding:0 14px;
+    .faq-answer{display:none;padding:0 14px 14px;color:var(--muted);font-size:13px;line-height:1.5;}
+    .faq-item.open .faq-answer{display:block;}
+    .faq-item.open .faq-question i{transform:rotate(180deg);}
+    .support-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}
+    .btn{
+      display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;
+      background:var(--accent);color:#fff;text-decoration:none;font-weight:600;font-size:13px;
     }
-    .faq-item.open .faq-answer{max-height:480px; padding:12px 14px 16px}
-    .faq-answer p{margin:0;color:var(--muted);line-height:1.5}
-
-    /* Contact support */
-    .support{margin:18px 0;padding:14px;border-radius:12px;background:linear-gradient(180deg,#fff, #fbfdff);box-shadow:var(--shadow);border:1px solid rgba(15,23,42,0.04)}
-    .support .row{display:flex;flex-direction:column;gap:8px}
-    @media(min-width:720px){.support .row{flex-direction:row;justify-content:space-between;align-items:center}}
-    .support a.btn{display:inline-flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;text-decoration:none;color:white;background:var(--accent)}
-
-    /* footer spacing */
-    .meta{font-size:12px;color:var(--muted);margin-top:8px}
-
+    .btn.secondary{background:#fff;color:var(--accent);border:1px solid rgba(0,102,255,0.25);}
+    .meta{font-size:12px;color:var(--muted);text-align:center;margin-top:18px;}
+    .is-hidden{display:none !important;}
   </style>
-
 </head>
 <body>
+  <div class="app">
+    <header class="app-header">
+      <a class="back-btn" href="settings.html" aria-label="Back to settings"><i class="fa fa-arrow-left"></i></a>
+      <div class="app-title">User Guide</div>
+      <div style="width:40px"></div>
+    </header>
 
-  <!-- Sticky header -->
-  <header class="topbar">
-    <a class="back-btn" href="settings.html" aria-label="Back to settings">
-      <i class="fa-solid fa-arrow-left"></i>
-      <span class="visually-hidden">Back</span>
-    </a>
-    <div class="title">User Guide</div>
-    <!-- spacer for center alignment -->
-    <div style="width:34px"></div>
-  </header>
-
-  <main class="container" id="main">
-
-    <!-- Search prepared for future JS search -->
-    <div class="search-wrap">
-      <div class="search" role="search" aria-label="Search help">
-        <i class="fa-solid fa-magnifying-glass"></i>
-        <input id="searchInput" type="search" placeholder="Search for help..." aria-label="Search for help" />
-      </div>
+    <div class="search" role="search">
+      <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+      <input id="guideSearch" type="search" placeholder="Search account help…" aria-label="Search user guide">
     </div>
 
-    <!-- Guide sections -->
-    <section aria-labelledby="guide-sections">
-      <h2 id="guide-sections" style="font-size:13px;color:var(--muted);margin:0 0 8px">Browse topics</h2>
-      <div class="grid">
+    <p class="section-label">Quick links</p>
+    <div class="grid" id="topicGrid">
+      <a class="topic" data-keywords="profile photo name email phone" href="profile.html">
+        <div class="topic-icon"><i class="fa-solid fa-user"></i></div>
+        <div><h3>Profile</h3><p>Update your name, phone, email, and photo.</p></div>
+      </a>
+      <a class="topic" data-keywords="address delivery shipping location" href="address.html">
+        <div class="topic-icon"><i class="fa-solid fa-map-marker-alt"></i></div>
+        <div><h3>Saved Addresses</h3><p>Manage delivery addresses used at checkout.</p></div>
+      </a>
+      <a class="topic" data-keywords="password security reset" href="reset-password.html">
+        <div class="topic-icon"><i class="fa-solid fa-key"></i></div>
+        <div><h3>Password &amp; Security</h3><p>Change your password while signed in.</p></div>
+      </a>
+      <a class="topic" data-keywords="orders status delivery tracking" href="../orders/all.html">
+        <div class="topic-icon"><i class="fa-solid fa-bag-shopping"></i></div>
+        <div><h3>My Orders</h3><p>View order history and delivery status.</p></div>
+      </a>
+      <a class="topic" data-keywords="cancel return refund policy" href="policy.html">
+        <div class="topic-icon"><i class="fa-solid fa-undo-alt"></i></div>
+        <div><h3>Cancellation &amp; Refunds</h3><p>Request cancellations or returns under policy.</p></div>
+      </a>
+      <a class="topic" data-keywords="preferences language notifications" href="preferences.html">
+        <div class="topic-icon"><i class="fa-solid fa-sliders-h"></i></div>
+        <div><h3>Preferences</h3><p>Interests, language, and notification choices.</p></div>
+      </a>
+    </div>
 
-        <article class="card guide-section" data-section="how-to-order" tabindex="0">
-          <div class="icon-wrap icon--green" aria-hidden="true"><i class="fa-solid fa-bag-shopping"></i></div>
-          <div>
-            <h3>How to Order</h3>
-            <p>Learn how to find and buy products quickly and safely.</p>
-          </div>
-        </article>
+    <section class="card" id="howToUse" data-keywords="signup login account checkout payment delivery logout">
+      <h2>How to use BYOSE Market</h2>
 
-        <article class="card guide-section" data-section="payment-methods" tabindex="0">
-          <div class="icon-wrap icon--yellow" aria-hidden="true"><i class="fa-solid fa-wallet"></i></div>
-          <div>
-            <h3>Payment Methods</h3>
-            <p>How to pay using Mobile Money, card, and other options.</p>
-          </div>
-        </article>
+      <div class="guide-block" data-keywords="signup login account">
+        <h3>1. Create or sign in to your account</h3>
+        <p>Use <a href="../../signup.html">Sign Up</a> to create an account, or <a href="../../login.html">Sign In</a> with your email/phone and password. Stay signed in to keep your session active on this device.</p>
+      </div>
 
-        <article class="card guide-section" data-section="shipping-delivery" tabindex="0">
-          <div class="icon-wrap icon--blue" aria-hidden="true"><i class="fa-solid fa-truck-fast"></i></div>
-          <div>
-            <h3>Shipping & Delivery</h3>
-            <p>Track and receive your orders — shipping times and policies.</p>
-          </div>
-        </article>
+      <div class="guide-block" data-keywords="profile password address">
+        <h3>2. Manage your account</h3>
+        <ul>
+          <li><a href="profile.html">Profile</a> — name, contact details, and photo</li>
+          <li><a href="address.html">Address Management</a> — saved delivery addresses</li>
+          <li><a href="reset-password.html">Reset Password</a> — change your password securely</li>
+          <li><a href="preferences.html">My Preferences</a>, <a href="language.html">Language</a>, and <a href="notifications.html">Notifications</a></li>
+        </ul>
+      </div>
 
-        <article class="card guide-section" data-section="account-help" tabindex="0">
-          <div class="icon-wrap icon--red" aria-hidden="true"><i class="fa-solid fa-user"></i></div>
-          <div>
-            <h3>Account Help</h3>
-            <p>Login, signup, password reset, and updating your profile.</p>
-          </div>
-        </article>
+      <div class="guide-block" data-keywords="shop checkout payment delivery">
+        <h3>3. Shop and checkout</h3>
+        <p>Browse products on the storefront, add items to your cart, then checkout with a saved or new delivery address. Choose an available payment method (for example Cash on Delivery or online payment when enabled) and confirm your order.</p>
+      </div>
 
+      <div class="guide-block" data-keywords="orders status delivered cancelled">
+        <h3>4. Follow your orders</h3>
+        <p>Open <a href="../orders/all.html">My Orders</a> to see each order’s status (for example Pending, Paid, Processing, Out for Delivery, Delivered, Cancelled, or Completed). Open an order for product details and delivery information.</p>
+      </div>
+
+      <div class="guide-block" data-keywords="cancel return refund">
+        <h3>5. Cancellation, returns, and refunds</h3>
+        <p>Use <a href="policy.html">Cancellation &amp; Refunds</a> to review the official policy and submit eligible requests for your own orders. Admin reviews requests; refunds are not marked complete until processing is confirmed.</p>
+      </div>
+
+      <div class="guide-block" data-keywords="logout">
+        <h3>6. Log out</h3>
+        <p>From Settings, tap <strong>LOG OUT</strong>, or use Logout from My Account. This ends your session on this device. You can sign in again anytime.</p>
       </div>
     </section>
 
-    <!-- FAQ Section -->
-    <section class="faq" aria-labelledby="faq-heading">
-      <h2 id="faq-heading">Frequently Asked Questions</h2>
-      <ul class="faq-list" id="faq-list">
-
-        <!-- FAQ item skeleton — prepared for JS toggle. Use .faq-item.open to expand -->
-        <li class="faq-item" data-faq-index="1">
-          <button class="faq-question" aria-expanded="false" aria-controls="faq1-answer" id="faq1-question">
-            <span>How do I track my order?</span>
+    <section class="card" id="faqSection" data-keywords="faq questions help">
+      <h2>Frequently asked questions</h2>
+      <ul class="faq-list" id="faqList">
+        <li class="faq-item" data-keywords="track order status">
+          <button type="button" class="faq-question" aria-expanded="false">
+            <span>How do I check my order status?</span>
             <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
           </button>
-          <div class="faq-answer" id="faq1-answer" role="region" aria-labelledby="faq1-question">
-            <p>Open your Orders page, select the order you want to track, and tap 'Track Package' to see the latest status and expected delivery date.</p>
-          </div>
+          <div class="faq-answer">Open <a href="../orders/all.html">My Orders</a>, select the order, and review its current status and delivery details on the order page.</div>
         </li>
-
-        <li class="faq-item" data-faq-index="2">
-          <button class="faq-question" aria-expanded="false" aria-controls="faq2-answer" id="faq2-question">
+        <li class="faq-item" data-keywords="cancel order">
+          <button type="button" class="faq-question" aria-expanded="false">
             <span>Can I cancel an order?</span>
             <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
           </button>
-          <div class="faq-answer" id="faq2-answer" role="region" aria-labelledby="faq2-question">
-            <p>Orders can be cancelled if they haven't entered the shipping process. Go to the order details and choose 'Cancel Order' if the option is available.</p>
-          </div>
+          <div class="faq-answer">Eligible orders can be cancelled within the policy window before dispatch. Go to <a href="policy.html">Cancellation &amp; Refunds</a> and use the cancel action when it is available for that order.</div>
         </li>
-
-        <li class="faq-item" data-faq-index="3">
-          <button class="faq-question" aria-expanded="false" aria-controls="faq3-answer" id="faq3-question">
-            <span>How do I change my address?</span>
+        <li class="faq-item" data-keywords="address change">
+          <button type="button" class="faq-question" aria-expanded="false">
+            <span>How do I change my delivery address?</span>
             <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
           </button>
-          <div class="faq-answer" id="faq3-answer" role="region" aria-labelledby="faq3-question">
-            <p>Update your shipping addresses from your Profile &gt; Addresses. For existing orders, contact support as soon as possible to request a change.</p>
-          </div>
+          <div class="faq-answer">Manage saved addresses in <a href="address.html">Address Management</a>. Choose a saved address during checkout. For an order already placed, contact support as soon as possible.</div>
         </li>
-
+        <li class="faq-item" data-keywords="password">
+          <button type="button" class="faq-question" aria-expanded="false">
+            <span>How do I change my password?</span>
+            <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+          </button>
+          <div class="faq-answer">Open <a href="reset-password.html">Reset Password</a> while signed in, enter your current password, then choose a new strong password.</div>
+        </li>
       </ul>
-      <p class="meta">Tip: Tap or click a question to reveal the answer. This list is prepared for JS accordion behavior.</p>
     </section>
 
-    <!-- Contact Support -->
-    <section class="support" aria-labelledby="support-heading">
-      <h2 id="support-heading">Contact Support</h2>
-      <div class="row">
-        <div>
-          <div style="font-weight:600">We're here to help</div>
-          <div style="margin-top:6px;color:var(--muted)">
-            <div>Email: <a href="mailto:support@byosemarket.com">support@byosemarket.com</a></div>
-            <div>Phone: <a href="tel:+1234567890">+1 (234) 567-890</a></div>
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
-          <a class="btn" href="mailto:support@byosemarket.com" style="background:#0ea5a4">Email Us <i class="fa-solid fa-envelope"></i></a>
-          <a class="btn" href="#chat" style="background:#2563eb">Chat with us <i class="fa-solid fa-comments"></i></a>
-        </div>
+    <section class="card" id="supportCard" data-keywords="contact email phone whatsapp support">
+      <h2>Contact support</h2>
+      <p style="margin:0;color:var(--muted);font-size:13px;line-height:1.5">
+        <strong data-store-setting="companyName">BYOSE Market Ltd</strong><br>
+        Email: <a data-store-setting="supportEmail" data-store-href="supportEmail" href="mailto:byosemarket@gmail.com">byosemarket@gmail.com</a><br>
+        Phone: <a data-store-setting="customerServicePhone" data-store-href="customerServicePhone" href="tel:+250780430710">+250 780 430 710</a>
+      </p>
+      <div class="support-actions">
+        <a class="btn" data-store-href="supportEmail" href="mailto:byosemarket@gmail.com"><i class="fa-solid fa-envelope"></i> Email us</a>
+        <a class="btn secondary" data-store-href="whatsappContact" href="https://wa.me/250723731250" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp"></i> WhatsApp</a>
       </div>
     </section>
 
-    <p class="meta" style="text-align:center;margin-top:22px">Last updated: April 2026</p>
+    <p class="meta">BYOSE Market customer help · Settings</p>
+  </div>
 
-  </main>
-
-  <!-- Minimal notes for future JS: guide.js should attach handlers to elements with these classes/IDs -->
-  <script>
-    /*
-      guide.js (future)
-      - Hook search: #searchInput
-      - Hook guide cards: .guide-section (data-section)
-      - Hook FAQs: .faq-question to toggle parent .faq-item.open and aria-expanded
-
-      Example (for later use):
-        document.querySelectorAll('.faq-question').forEach(btn => {
-          btn.addEventListener('click', () => { ... });
-        });
-
-      Intentionally no interactive JS is executed here — structure and ARIA attributes are prepared.
-    */
-  </script>
-
-<script src="../../services/authservice.js"></script>
-<script src="../js/auth-guard.js"></script>
+  <script src="../../js/storefront-settings.js"></script>
+  <script src="../../services/authservice.js"></script>
+  <script src="../js/auth-guard.js"></script>
+  <script src="../js/guide.js"></script>
 </body>
 </html>

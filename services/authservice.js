@@ -163,6 +163,11 @@ const authService = (function () {
             return null;
         }
 
+        const preferences = user.preferences && typeof user.preferences === 'object' ? user.preferences : {};
+        const interestCategories = Array.isArray(preferences.interestCategories)
+            ? preferences.interestCategories.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean)
+            : [];
+
         return {
             ...user,
             id: String(user.id || user.userId || '').trim(),
@@ -172,8 +177,35 @@ const authService = (function () {
             avatar: String(user.avatar || '').trim(),
             status: String(user.status || 'active').trim().toLowerCase() === 'blocked' ? 'blocked' : 'active',
             verified: Boolean(user.verified),
+            preferredLanguage: String(user.preferredLanguage || user.language || 'en').trim().toLowerCase() || 'en',
+            preferences: {
+                interestCategories
+            },
             address: user.address && typeof user.address === 'object' ? user.address : {}
         };
+    }
+
+    function _syncPreferredLanguage(user) {
+        const lang = String(user?.preferredLanguage || '').trim().toLowerCase();
+        if (!lang || !['en', 'rw', 'fr'].includes(lang)) return;
+        try {
+            localStorage.setItem('bm_lang', lang);
+            localStorage.setItem('byose_language', lang);
+            localStorage.setItem('byose_market_language', lang);
+        } catch (_error) {}
+        try {
+            document.documentElement.setAttribute('lang', lang);
+        } catch (_error) {}
+        try {
+            if (typeof window.setLanguage === 'function') {
+                window.setLanguage(lang);
+            } else if (typeof window.applyLanguage === 'function') {
+                window.applyLanguage(lang);
+            }
+        } catch (_error) {}
+        try {
+            window.dispatchEvent(new CustomEvent('byose:languageChanged', { detail: { lang, source: 'account' } }));
+        } catch (_error) {}
     }
 
     function _migrateLegacyStorage() {
@@ -225,6 +257,7 @@ const authService = (function () {
         });
 
         sessionReadyPromise = Promise.resolve(normalizedUser);
+        _syncPreferredLanguage(normalizedUser);
         _dispatch(USER_EVENT, normalizedUser);
         if (options?.mergeGuestCart) {
             void _mergeGuestCartAfterAuth();
@@ -631,6 +664,54 @@ const authService = (function () {
         return normalizedUser;
     }
 
+    async function uploadProfilePhoto(file) {
+        const token = getToken();
+        if (!token) {
+            throw new Error('not_authenticated');
+        }
+        if (!file) {
+            throw new Error('Select a photo to upload.');
+        }
+
+        const formData = new FormData();
+        formData.append('photo', file);
+        formData.append('avatar', file);
+
+        const response = await authFetch(`${API_BASE}/me/photo`, {
+            method: 'POST',
+            body: formData
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || payload?.success === false) {
+            const error = new Error(payload?.message || 'Unable to upload profile photo');
+            error.status = response.status;
+            error.payload = payload;
+            throw error;
+        }
+
+        return _persistSession(payload?.user, token, {
+            remember: localStorage.getItem(REMEMBER_KEY) !== '0',
+            refreshToken: getRefreshToken()
+        });
+    }
+
+    async function removeProfilePhoto() {
+        const token = getToken();
+        if (!token) {
+            throw new Error('not_authenticated');
+        }
+
+        const payload = await _request('/me/photo', {
+            method: 'DELETE',
+            token
+        });
+
+        return _persistSession(payload?.user, token, {
+            remember: localStorage.getItem(REMEMBER_KEY) !== '0',
+            refreshToken: getRefreshToken()
+        });
+    }
+
     async function changePassword(currentPassword, newPassword) {
         const token = getToken();
         if (!token) {
@@ -640,16 +721,38 @@ const authService = (function () {
         const payload = await _request('/change-password', {
             method: 'POST',
             token,
-            body: { currentPassword, newPassword }
+            body: {
+                currentPassword: String(currentPassword || ''),
+                newPassword: String(newPassword || '')
+            }
         });
 
-        if (payload?.token) {
-            _persistSession(getCurrentUser(), payload.token, {
+        if (payload?.token || payload?.refreshToken) {
+            _persistSession(getCurrentUser(), payload.token || token, {
                 remember: localStorage.getItem(REMEMBER_KEY) !== '0',
                 refreshToken: payload.refreshToken || getRefreshToken()
             });
         }
 
+        return payload;
+    }
+
+    async function deleteAccount(password, confirmation) {
+        const token = getToken();
+        if (!token) {
+            throw new Error('not_authenticated');
+        }
+
+        const payload = await _request('/me', {
+            method: 'DELETE',
+            token,
+            body: {
+                password: String(password || ''),
+                confirmation: String(confirmation || '')
+            }
+        });
+
+        _clearSession();
         return payload;
     }
 
@@ -706,7 +809,10 @@ const authService = (function () {
         whenReady,
         refreshCurrentUser,
         updateProfile,
+        uploadProfilePhoto,
+        removeProfilePhoto,
         changePassword,
+        deleteAccount,
         authFetch,
         openAccount
     };

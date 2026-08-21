@@ -395,7 +395,7 @@
     return orders.find((order) => String(order.orderId) === String(orderId || '')) || null;
   }
 
-  async function cancelOrder(orderId, userId) {
+  async function cancelOrder(orderId, userId, options = {}) {
     const currentUser = readCurrentUser();
 
     const targetOrder = await getOrderById(orderId, userId);
@@ -416,7 +416,10 @@
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ status: 'Cancelled' })
+        body: JSON.stringify({
+          status: 'Cancelled',
+          reason: String(options.reason || options.cancellationReason || 'Cancelled by customer').trim()
+        })
       });
 
       const payload = await response.json().catch(() => null);
@@ -425,11 +428,36 @@
       }
 
       global.dispatchEvent(new CustomEvent('byose:orders-changed', { detail: { action: 'cancel', orderId } }));
+      return { success: true, message: payload.message || 'Order cancelled successfully.', order: payload.order || null };
     } catch (error) {
       return { success: false, message: 'Unable to reach the order service right now.' };
     }
+  }
 
-    return { success: true, message: 'Order cancelled successfully.' };
+  async function requestReturn(orderId, payload = {}) {
+    const orderApi = getOrdersApiUrl();
+    const token = getAuthToken();
+    if (!orderApi || !token) {
+      return { success: false, message: 'Authentication is required.' };
+    }
+    try {
+      const response = await fetch(`${orderApi}/${encodeURIComponent(String(orderId || ''))}/return-request`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload || {})
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body?.success) {
+        return { success: false, message: (body && body.message) || 'Unable to submit return request.' };
+      }
+      global.dispatchEvent(new CustomEvent('byose:orders-changed', { detail: { action: 'return-request', orderId } }));
+      return { success: true, message: body.message || 'Request submitted.', order: body.order || null };
+    } catch (error) {
+      return { success: false, message: 'Unable to reach the order service right now.' };
+    }
   }
 
   function subscribe(listener) {
@@ -451,6 +479,7 @@
 
   const service = {
     cancelOrder,
+    requestReturn,
     formatCurrency,
     getCurrentUser: readCurrentUser,
     getOrderById,

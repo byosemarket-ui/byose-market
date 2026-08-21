@@ -113,6 +113,17 @@
     };
   }
 
+  function resolveAvatarUrl(avatar) {
+    const raw = String(avatar || '').trim();
+    if (!raw) return '';
+    if (/^(?:https?:|data:|blob:)/i.test(raw)) return raw;
+    if (raw.startsWith('/uploads/')) return raw;
+    if (raw.startsWith('uploads/')) return `/${raw}`;
+    if (/^(?:users|products|categories|reviews|hero|temp)\//i.test(raw)) return `/uploads/${raw}`;
+    if (raw.startsWith('/')) return raw;
+    return raw;
+  }
+
   function normalizeUser(rawUser) {
     const sourceUser = rawUser && typeof rawUser === 'object' ? rawUser : FALLBACK_USER;
     const baseName = sourceUser.name || sourceUser.fullName || sourceUser.username || '';
@@ -124,7 +135,9 @@
     const phone = sourceUser.phone || sourceUser.phoneNumber || sourceUser.tel || '';
     const contact = email || phone || 'No contact information';
     const userId = sourceUser.userId || sourceUser.id || sourceUser.uid || '—';
-    const profileImage = sourceUser.profileImage || sourceUser.avatar || sourceUser.image || sourceUser.photoURL || '';
+    const profileImage = resolveAvatarUrl(
+      sourceUser.profileImage || sourceUser.avatar || sourceUser.image || sourceUser.photoURL || ''
+    );
 
     return {
       firstName,
@@ -149,6 +162,13 @@
       const image = document.createElement('img');
       image.src = user.profileImage;
       image.alt = user.fullName + ' profile photo';
+      image.addEventListener('error', () => {
+        avatarContainer.innerHTML = '';
+        const initial = document.createElement('span');
+        initial.className = 'avatar-initial';
+        initial.textContent = user.initial;
+        avatarContainer.appendChild(initial);
+      });
       avatarContainer.appendChild(image);
       return;
     }

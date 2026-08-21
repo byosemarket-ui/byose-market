@@ -173,7 +173,8 @@ function isReturnsOrder(order) {
   const needsRefund = Boolean(order?.refundRequired)
     || payment.includes("refund_required")
     || refundStatus === "required"
-    || refundStatus === "pending";
+    || refundStatus === "pending"
+    || refundStatus === "processing";
   return status.includes("return")
     || status.includes("refund")
     || needsRefund

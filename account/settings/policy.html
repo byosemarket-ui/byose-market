@@ -1,227 +1,194 @@
 <!doctype html>
-<html lang="rw">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, private">
   <meta http-equiv="Pragma" content="no-cache">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Refund Policy — ByoseMarket</title>
+  <title>Cancellation &amp; Refunds — ByoseMarket</title>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-  <meta name="description" content="ByoseMarket — Refund, Delivery and Payment Policy">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <style>
-    :root{--bg:#0f1724;--card:rgba(255,255,255,0.04);--glass:rgba(255,255,255,0.06);--accent:#0ea5a4;--muted:rgba(255,255,255,0.75)}
-    html,body{height:100%;margin:0;font-family:Poppins,system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;background:linear-gradient(180deg,#071126 0%,#071826 60%);color:var(--muted);-webkit-font-smoothing:antialiased}
-    .wrap{max-width:980px;margin:76px auto 48px;padding:16px}
-    header.sticky{position:fixed;top:0;left:0;right:0;height:64px;display:flex;align-items:center;backdrop-filter:blur(6px);background:linear-gradient(180deg,rgba(7,17,38,0.6),rgba(7,17,38,0.4));border-bottom:1px solid rgba(255,255,255,0.04);z-index:40}
-    .header-inner{max-width:980px;margin:0 auto;padding:0 16px;display:flex;align-items:center;gap:12px}
-    .back{display:inline-flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font-weight:600}
-    .back i{font-size:18px}
-    h1.title{color:#fff;margin:0;font-size:18px}
-    .intro{margin:16px 0 24px;color:rgba(255,255,255,0.88)}
-    .card{background:var(--card);border-radius:12px;padding:18px;margin:18px 0;box-shadow:0 6px 18px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.02)}
-    .lang-head{display:flex;align-items:center;gap:10px}
-    .lang-flag{width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff}
-    h2.section{margin:4px 0 12px;color:#fff}
-    .grid{display:grid;grid-template-columns:1fr;gap:12px}
-    .row{display:flex;gap:12px;flex-wrap:wrap}
-    p,li{line-height:1.5;color:rgba(255,255,255,0.85);margin:8px 0}
-    ul{padding-left:18px;margin:8px 0}
-    .muted{color:rgba(255,255,255,0.6);font-size:14px}
-    .contact{display:flex;flex-direction:column;gap:6px}
-    .pill{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:var(--glass);color:#fff;font-weight:600}
-    footer{margin:28px 0 80px;color:rgba(255,255,255,0.6);font-size:13px;text-align:center}
-    @media(min-width:720px){.grid{grid-template-columns:repeat(2,1fr)}.card{padding:22px}}
-    @media(min-width:1024px){.wrap{padding:28px}}
+    :root{
+      --bg:#f6f7fb;
+      --card:#fff;
+      --accent:#2563eb;
+      --danger:#dc2626;
+      --muted:#6b7280;
+      --border:rgba(15,23,42,0.08);
+      --radius:14px;
+      --shadow:0 6px 18px rgba(16,24,40,0.06);
+      --success:#166534;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;font-family:'Poppins',system-ui,-apple-system,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#f8fafc 0%,var(--bg) 100%);color:#0f172a}
+    .header{
+      position:sticky;top:0;z-index:20;
+      display:flex;align-items:center;gap:12px;
+      padding:12px 16px;
+      background:rgba(255,255,255,0.86);
+      backdrop-filter:blur(8px);
+      border-bottom:1px solid var(--border);
+    }
+    .back-btn{
+      width:40px;height:40px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;
+      color:var(--accent);text-decoration:none;background:transparent;border:none;font-size:18px
+    }
+    .title{font-weight:600;font-size:16px}
+    .container{max-width:920px;margin:0 auto;padding:18px 16px 48px}
+    .intro{color:var(--muted);font-size:14px;margin:0 0 16px;line-height:1.5}
+    .section-card{
+      background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+      box-shadow:var(--shadow);padding:16px;margin-bottom:16px
+    }
+    .section-card h2{margin:0 0 8px;font-size:16px}
+    .section-card h3{margin:0 0 8px;font-size:14px}
+    .accordion-btn{
+      width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;
+      background:transparent;border:none;padding:0;font:inherit;font-weight:600;cursor:pointer;text-align:left
+    }
+    .accordion-btn i{color:var(--muted)}
+    .policy-list{margin:10px 0 0;padding-left:18px;color:#334155;font-size:14px;line-height:1.55}
+    .policy-list li{margin:6px 0}
+    .muted{color:var(--muted);font-size:13px;line-height:1.5}
+    .note{margin:10px 0 0;padding:10px 12px;border-radius:10px;background:rgba(37,99,235,0.08);color:#1e3a8a;font-size:13px;line-height:1.45}
+    .contact-grid{display:grid;gap:8px;margin-top:10px}
+    .contact-pill{
+      display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;
+      background:#f8fafc;border:1px solid var(--border);font-size:14px;text-decoration:none;color:#0f172a
+    }
+    .layout{display:grid;gap:16px}
+    @media(min-width:860px){
+      .layout{grid-template-columns:1.05fr 1fr;align-items:start}
+    }
+    .orders-col,.detail-col{min-width:0}
+    .order-card{
+      width:100%;text-align:left;border:1px solid var(--border);background:#fff;border-radius:12px;
+      padding:12px;margin:0 0 10px;cursor:pointer;transition:border-color .15s ease, box-shadow .15s ease
+    }
+    .order-card.is-selected{border-color:rgba(37,99,235,0.45);box-shadow:0 0 0 3px rgba(37,99,235,0.1)}
+    .order-card-top{display:flex;justify-content:space-between;gap:8px;align-items:center}
+    .order-card-meta,.order-card-items{color:var(--muted);font-size:12px;margin-top:4px}
+    .badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:11px;font-weight:600;white-space:nowrap}
+    .badge-ok{background:#dcfce7;color:#166534}
+    .badge-info{background:#dbeafe;color:#1d4ed8}
+    .detail-card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px}
+    .eligibility-row{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)}
+    .eligibility-row:last-child{border-bottom:none}
+    .eligibility-row p{margin:4px 0 0;color:var(--muted);font-size:12px;line-height:1.45}
+    .field-label{display:block;margin:10px 0 6px;font-size:12px;font-weight:600;color:#334155}
+    textarea,select{
+      width:100%;border:1px solid var(--border);border-radius:10px;padding:10px 12px;font:inherit;font-size:14px;background:#fff
+    }
+    .attestations{margin-top:10px;display:grid;gap:8px}
+    .check-row{display:flex;align-items:center;gap:8px;font-size:13px;color:#334155}
+    .btn{
+      display:inline-flex;align-items:center;justify-content:center;margin-top:12px;border:none;border-radius:10px;
+      padding:11px 14px;font-weight:600;font-size:14px;cursor:pointer
+    }
+    .btn:disabled{opacity:.7;cursor:not-allowed}
+    .btn-primary{background:var(--accent);color:#fff}
+    .btn-danger{background:var(--danger);color:#fff}
+    .refund-status{margin:12px 0 0;padding:10px 12px;border-radius:10px;font-size:13px;display:none}
+    .refund-status:not([hidden]){display:block}
+    .refund-status.is-saving{color:#1d4ed8;background:rgba(37,99,235,0.08)}
+    .refund-status.is-success{color:var(--success);background:rgba(22,163,74,0.1)}
+    .refund-status.is-error{color:#b91c1c;background:rgba(185,28,28,0.08)}
+    .empty{padding:18px;border:1px dashed var(--border);border-radius:12px;color:var(--muted);font-size:13px;text-align:center}
   </style>
 </head>
 <body>
-  <header class="sticky" role="banner">
-    <div class="header-inner">
-      <a class="back" href="settings.html" aria-label="Back to settings"><i class="fas fa-arrow-left"></i><span>Settings</span></a>
-      <h1 class="title">Refund Policy</h1>
-    </div>
+  <header class="header">
+    <a class="back-btn" href="settings.html" aria-label="Back to settings"><i class="fa-solid fa-arrow-left"></i></a>
+    <div class="title">Cancellation &amp; Refunds</div>
   </header>
 
-  <main class="wrap" role="main">
-    <p class="intro">Iyi ni politiki ya ByoseMarket ivuga neza uko gutumiza, kwishyura, kugeza ibicuruzwa n'uburyo bwo gusubizwa amafaranga bikora. / This page explains ByoseMarket's order, delivery, payment and refund procedures. / Cette page décrit les procédures de commande, livraison, paiement et remboursement de ByoseMarket.</p>
+  <main class="container">
+    <p class="intro">Official BYOSE Market cancellation and refund rules, plus actions for your own orders. Requests are reviewed by BYOSE Market — this page never invents a completed refund.</p>
 
-    <!-- KINYARWANDA -->
-    <section class="card" lang="rw" aria-labelledby="rw-title">
-      <div class="lang-head">
-        <div class="lang-flag">RW</div>
-        <div>
-          <h2 id="rw-title" class="section">🇷🇼 Politiki yo Gusubizwa Amafaranga (Kinyarwanda)</h2>
-          <p class="muted">Iyi ngingo isobanura uko gutumiza, kwishyura, kugeza n'uburyo bwo gusubizwa amafaranga bikorwa kuri ByoseMarket.</p>
-        </div>
-      </div>
-
-      <div class="card" style="margin-top:12px">
-        <h3 class="section">Gutwara no Kugeza (Delivery)</h3>
-        <ul>
-          <li><strong>Kigali:</strong> Igihe cyo kugeza: iminota 30 kugeza 1 isaha.</li>
-          <li><strong>Uturere hanze ya Kigali:</strong> Igihe cyo kugeza kiratandukana bitewe n'aho uri; gishobora gufata iminsi.</li>
+    <section class="section-card">
+      <button type="button" class="accordion-btn" data-accordion-btn="cancel" aria-expanded="true">
+        <span>Cancellation Policy</span><i class="fa-solid fa-chevron-down"></i>
+      </button>
+      <div data-accordion-panel="cancel">
+        <ul class="policy-list">
+          <li>Customers may cancel an order within <strong>48 business hours</strong> after placing it, provided the order has not yet been dispatched.</li>
         </ul>
-
-        <h3 class="section">Uburyo bwo Kwishyura (Payment)</h3>
-        <ul>
-          <li><strong>Abakiriya bo muri Kigali:</strong> Bashobora kwishyura ku gihe cyo kugeza (Cash on Delivery) cyangwa mbere y'uko ibintu biheruka kugera.</li>
-          <li><strong>Abakiriya hanze ya Kigali:</strong> Bagomba kwishyura mbere y'uko ibicuruzwa byoherezwa.</li>
-        </ul>
-
-        <h3 class="section">Guhagarika Itegeko (Order cancellation)</h3>
-        <p>Umuguzi ashobora gukuraho itegeko niba ibicuruzwa bitagejejwe mu minsi 3.</p>
-
-        <h3 class="section">Amategeko yo Gusubizwa Amafaranga (Refund Conditions)</h3>
-        <p>Umuguzi afite uburenganzira bwo gusaba gusubizwa amafaranga niba:</p>
-        <ul>
-          <li>Ibicuruzwa byangiritse.</li>
-          <li>Ibicuruzwa bitari gukora.</li>
-          <li>Hatanzwe igicuruzwa kitari cyo.</li>
-        </ul>
-        <p>Mu byo umuguzi ashobora gukora: kugarura igicuruzwa no gusubizwa amafaranga.</p>
-
-        <h3 class="section">Uko Gusubizwa Amafaranga Bikora (Refund Process)</h3>
-        <ol>
-          <li>Umuguzi atangaza ikibazo (email cyangwa telefoni).</li>
-          <li>Igicuruzwa gisesengurwa n'itsinda ryacu.</li>
-          <li>Niba byemejwe, amafaranga asubizwa mu minsi 3–7 y'akazi.</li>
-        </ol>
-
-        <h3 class="section">Ibyo Tutasubizamo Amafaranga (Non-refundable)</h3>
-        <ul>
-          <li>Kwambara nabi cyangwa gukoresha bitari ngombwa.</li>
-          <li>Kwangirika gutewe n'umuguzi ku giti cye.</li>
-          <li>Gusaba nyuma y'igihe cyagenwe.</li>
-        </ul>
-
-        <h3 class="section">Twandikire (Contact Support)</h3>
-        <div class="contact">
-          <div class="pill"><i class="fas fa-envelope"></i> support@byosemarket.com</div>
-          <div class="pill"><i class="fas fa-phone"></i> +250 788 000 000</div>
-        </div>
       </div>
     </section>
 
-    <!-- ENGLISH -->
-    <section class="card" lang="en" aria-labelledby="en-title">
-      <div class="lang-head">
-        <div class="lang-flag">EN</div>
-        <div>
-          <h2 id="en-title" class="section">🇬🇧 Refund & Delivery Policy (English)</h2>
-          <p class="muted">This section describes how orders, payments, delivery and refunds work on ByoseMarket.</p>
-        </div>
-      </div>
-
-      <div class="card" style="margin-top:12px">
-        <h3 class="section">Delivery Policy</h3>
-        <ul>
-          <li><strong>Kigali:</strong> Delivery time: 30 minutes to 1 hour.</li>
-          <li><strong>Outside Kigali (provinces):</strong> Delivery times vary by location and may take longer.</li>
+    <section class="section-card">
+      <button type="button" class="accordion-btn" data-accordion-btn="return" aria-expanded="true">
+        <span>Return &amp; Refund Policy</span><i class="fa-solid fa-chevron-down"></i>
+      </button>
+      <div data-accordion-panel="return">
+        <ul class="policy-list">
+          <li>If an order is not delivered within <strong>48 business hours after confirmation</strong>, and the delay was not communicated in advance, the customer may request a <strong>full refund</strong>.</li>
+          <li>If the customer receives a <strong>different product</strong> from what was ordered, the company may replace it or issue a full refund. Notify BYOSE Market within <strong>24 hours</strong> of receiving the order.</li>
+          <li>If the delivered product is <strong>significantly different from its description</strong> or <strong>unsuitable for its intended purpose</strong>, the customer may request a return within <strong>24 hours</strong>. The product must be unused and in its original packaging.</li>
+          <li>Approved refunds are processed within <strong>24 business hours</strong> after the returned product has been received and inspected.</li>
+          <li>Refunds are made through the <strong>original payment method</strong> whenever possible.</li>
         </ul>
-
-        <h3 class="section">Payment Policy</h3>
-        <ul>
-          <li><strong>Customers in Kigali:</strong> May pay on delivery (Cash on Delivery) or pay before delivery.</li>
-          <li><strong>Customers outside Kigali:</strong> Are required to pay before delivery.</li>
-        </ul>
-
-        <h3 class="section">Order Cancellation</h3>
-        <p>Customers may cancel their order if the product has not been delivered within 3 days.</p>
-
-        <h3 class="section">Refund Conditions</h3>
-        <p>Customers are eligible for a refund when:</p>
-        <ul>
-          <li>The product is damaged.</li>
-          <li>The product is not functioning.</li>
-          <li>An incorrect product was delivered.</li>
-        </ul>
-        <p>Customers may return the product and receive a refund if eligibility is confirmed.</p>
-
-        <h3 class="section">Refund Process</h3>
-        <ol>
-          <li>Customer reports the issue via email or phone.</li>
-          <li>The product is inspected by our team.</li>
-          <li>If approved, refund is processed within 3–7 business days.</li>
-        </ol>
-
-        <h3 class="section">Non-Refundable Cases</h3>
-        <ul>
-          <li>Products damaged due to misuse.</li>
-          <li>Damage caused by the customer.</li>
-          <li>Requests submitted after the permitted timeframe.</li>
-        </ul>
-
-        <h3 class="section">Contact Support</h3>
-        <div class="contact">
-          <div class="pill"><i class="fas fa-envelope"></i> support@byosemarket.com</div>
-          <div class="pill"><i class="fas fa-phone"></i> +250 788 000 000</div>
-        </div>
       </div>
     </section>
 
-    <!-- FRENCH -->
-    <section class="card" lang="fr" aria-labelledby="fr-title">
-      <div class="lang-head">
-        <div class="lang-flag">FR</div>
-        <div>
-          <h2 id="fr-title" class="section">🇫🇷 Politique de Remboursement & Livraison (Français)</h2>
-          <p class="muted">Cette section explique le fonctionnement des commandes, paiements, livraisons et remboursements sur ByoseMarket.</p>
-        </div>
-      </div>
-
-      <div class="card" style="margin-top:12px">
-        <h3 class="section">Politique de Livraison</h3>
-        <ul>
-          <li><strong>Kigali :</strong> Délai de livraison : 30 minutes à 1 heure.</li>
-          <li><strong>Hors Kigali (provinces) :</strong> Les délais de livraison varient selon la localisation et peuvent être plus longs.</li>
+    <section class="section-card">
+      <button type="button" class="accordion-btn" data-accordion-btn="nonrefund" aria-expanded="true">
+        <span>Non-refundable situations</span><i class="fa-solid fa-chevron-down"></i>
+      </button>
+      <div data-accordion-panel="nonrefund">
+        <ul class="policy-list">
+          <li>The product has been used.</li>
+          <li>The product has been damaged by the customer.</li>
+          <li>The product is returned without original packaging.</li>
+          <li>The request is outside the stated time limits.</li>
         </ul>
-
-        <h3 class="section">Politique de Paiement</h3>
-        <ul>
-          <li><strong>Clients à Kigali :</strong> Paiement à la livraison ou paiement avant livraison.</li>
-          <li><strong>Clients hors Kigali :</strong> Paiement avant livraison requis.</li>
-        </ul>
-
-        <h3 class="section">Annulation de Commande</h3>
-        <p>Le client peut annuler la commande si le produit n'est pas livré sous 3 jours.</p>
-
-        <h3 class="section">Conditions de Remboursement</h3>
-        <p>Le client a droit à un remboursement si :</p>
-        <ul>
-          <li>Le produit est endommagé.</li>
-          <li>Le produit ne fonctionne pas.</li>
-          <li>Un produit incorrect a été livré.</li>
-        </ul>
-        <p>Le client peut retourner le produit et recevoir un remboursement si l'éligibilité est confirmée.</p>
-
-        <h3 class="section">Processus de Remboursement</h3>
-        <ol>
-          <li>Le client signale le problème par email ou téléphone.</li>
-          <li>Le produit est examiné par notre équipe.</li>
-          <li>Si approuvé, le remboursement est traité sous 3–7 jours ouvrables.</li>
-        </ol>
-
-        <h3 class="section">Cas non remboursables</h3>
-        <ul>
-          <li>Produits endommagés par mauvaise utilisation.</li>
-          <li>Dommages causés par le client.</li>
-          <li>Demande faite après le délai autorisé.</li>
-        </ul>
-
-        <h3 class="section">Contact Support</h3>
-        <div class="contact">
-          <div class="pill"><i class="fas fa-envelope"></i> support@byosemarket.com</div>
-          <div class="pill"><i class="fas fa-phone"></i> +250 788 000 000</div>
-        </div>
+        <p class="note">Final decisions are made by BYOSE Market after review. Submitting a request does not automatically approve or reject a refund.</p>
       </div>
     </section>
 
-    <footer>
-      ByoseMarket — Quality Footwear Online • For questions, contact support@byosemarket.com
-    </footer>
+    <section class="section-card">
+      <h2>Business days</h2>
+      <p class="muted" style="margin:0">Business days are Monday through Saturday. Sundays and official public holidays are excluded.</p>
+    </section>
+
+    <section class="section-card">
+      <h2>Contact BYOSE Market</h2>
+      <div class="contact-grid">
+        <div class="contact-pill"><i class="fa-solid fa-building"></i> BYOSE MARKET LTD</div>
+        <a class="contact-pill" href="https://byosemarket.com" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-globe"></i> https://byosemarket.com</a>
+        <a class="contact-pill" href="mailto:byosemarket@gmail.com"><i class="fa-solid fa-envelope"></i> byosemarket@gmail.com</a>
+      </div>
+    </section>
+
+    <section class="section-card" aria-labelledby="how-heading">
+      <h2 id="how-heading">How to request</h2>
+      <ol class="policy-list">
+        <li>Select one of your orders below.</li>
+        <li>Review eligibility for cancellation or return/refund.</li>
+        <li>Submit a request. Status updates when BYOSE Market processes it.</li>
+      </ol>
+    </section>
+
+    <div id="refundActionStatus" class="refund-status" role="status" aria-live="polite" hidden></div>
+
+    <div class="layout" style="margin-top:8px">
+      <section class="orders-col section-card">
+        <h2>Your orders</h2>
+        <p class="muted">Only orders belonging to your signed-in account are shown.</p>
+        <div id="refundOrdersEmpty" class="empty" hidden>No orders found for your account yet.</div>
+        <div id="refundOrdersList"></div>
+      </section>
+      <section class="detail-col">
+        <div id="refundOrderDetail" class="section-card">
+          <p class="muted">Select one of your orders to check eligibility or submit a request.</p>
+        </div>
+      </section>
+    </div>
   </main>
-<script src="../../services/authservice.js"></script>
-<script src="../js/auth-guard.js"></script>
+
+  <script src="../../services/authservice.js"></script>
+  <script src="../js/auth-guard.js"></script>
+  <script src="../js/cancellation-refund.js"></script>
 </body>
 </html>

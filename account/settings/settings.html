@@ -3,8 +3,8 @@
   Main Settings dashboard (HTML-only, modular, mobile-first)
   - Uses Poppins font and FontAwesome icons (CDN)
   - Glassmorphism style, semantic HTML, accessible
-  - Placeholders for dynamic data: {{user.name}}, {{user.avatar}}
-  - Each row uses .settings-item and data-link for future JS integration
+  - Profile card is bound at runtime by settings.js from authService
+  - Each row uses .settings-item and data-link for navigation
 -->
 <!doctype html>
 <html lang="en">
@@ -88,6 +88,11 @@
       background:linear-gradient(135deg,#f0f4ff,#e6f7ff);
       display:inline-grid;place-items:center;font-weight:600;color:var(--accent);
     }
+    .avatar img{width:100%;height:100%;object-fit:cover;display:block;}
+    .avatar .avatar-initial{
+      font-size:24px;font-weight:700;color:var(--accent);
+      width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+    }
     .profile-meta{flex:1;min-width:0}
     .profile-meta .name{font-weight:600;font-size:16px}
     .profile-meta .sub{font-size:13px;color:var(--muted);margin-top:4px}
@@ -143,13 +148,9 @@
 
     <!-- Profile preview card (clickable) -->
     <a href="profile.html" class="profile-card" aria-label="Open profile" data-link="profile.html">
-      <div class="avatar" aria-hidden="true">
-        <!-- Placeholder avatar; replace with <img src="{{user.avatar}}"> -->
-        <img src="../../img/logo.png" alt="User avatar" style="width:100%;height:100%;object-fit:cover;border-radius:12px;" onerror="this.style.display='none'">
-        <span style="display:none">{{user.avatar}}</span>
-      </div>
+      <div class="avatar" id="settingsProfileAvatar" aria-hidden="true"></div>
       <div class="profile-meta">
-        <div class="name">{{user.name}}</div>
+        <div class="name">Loading…</div>
         <div class="sub">Profile</div>
       </div>
       <div class="chev"><i class="fa fa-chevron-right"></i></div>
@@ -217,7 +218,7 @@
         <a class="settings-item" href="policy.html" data-link="policy.html">
           <div class="settings-left">
             <div class="icon"><i class="fa fa-undo-alt" aria-hidden="true"></i></div>
-            <div><div class="settings-label">Refund Policy</div></div>
+            <div><div class="settings-label">Cancellation &amp; Refunds</div></div>
           </div>
           <div class="settings-right"><i class="fa fa-chevron-right" aria-hidden="true"></i></div>
         </a>
@@ -235,7 +236,7 @@
       <section class="settings-section" aria-labelledby="danger-zone">
         <h3 id="danger-zone" style="font-size:13px;margin:14px 4px;color:var(--muted)">Danger Zone</h3>
         <div class="danger">
-          <a href="delete-account.html" class="danger-btn" data-link="delete-account.html" role="button" aria-label="Delete my account">
+          <a href="delete-account.html" class="danger-btn" data-link="delete-account.html" aria-label="Delete my account">
             <i class="fa fa-trash-alt" aria-hidden="true"></i>
             <span>Delete My Account</span>
           </a>
@@ -249,13 +250,10 @@
     <a class="logout-btn" href="../../logout/logout.html" data-link="../../logout/logout.html">LOG OUT</a>
   </div>
 
-  <!-- Minimal JS hooks for future integration (no logic) -->
-  <script>
-    // JS hooks: rows have data-link attributes and .settings-item class.
-    // Future JS can use these selectors to bind navigation or SPA routing.
-    // No runtime logic included per requirements.
-  </script>
 <script src="../../services/authservice.js"></script>
 <script src="../js/auth-guard.js"></script>
+<script src="../js/user-display.js"></script>
+<script src="../js/language-preference.js"></script>
+<script src="../js/settings.js"></script>
 </body>
 </html>

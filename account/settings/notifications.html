@@ -121,6 +121,16 @@
 
     /* Small info */
     .info{font-size:13px;color:var(--muted);padding:10px 12px;text-align:center}
+    .notif-status{
+      margin:12px 0 0;padding:10px 12px;border-radius:10px;font-size:13px;display:none
+    }
+    .notif-status:not([hidden]){display:block}
+    .notif-status.is-saving{color:#1d4ed8;background:rgba(37,99,235,0.08)}
+    .notif-status.is-success{color:#166534;background:rgba(22,163,74,0.1)}
+    .notif-status.is-error{color:#b91c1c;background:rgba(185,28,28,0.08)}
+    .notification-item.is-locked{opacity:.95}
+    .toggle-input:disabled + .switch{opacity:.85;cursor:not-allowed}
+    .locked-note{font-size:12px;color:var(--muted);margin-top:4px}
 
     /* Responsive tweaks */
     @media(min-width:640px){
@@ -192,17 +202,18 @@
           </div>
         </div>
 
-        <!-- System Notifications -->
-        <div class="notification-item" role="listitem" data-type="system">
+        <!-- System Notifications (required) -->
+        <div class="notification-item is-locked" role="listitem" data-type="system">
           <div class="icon-wrap" aria-hidden="true">
-            <i class="fas fa-bell"></i>
+            <i class="fas fa-shield-halved"></i>
           </div>
           <div class="meta">
-            <div class="name">System Notifications</div>
-            <div class="desc">Important account updates</div>
+            <div class="name">System &amp; Security Notifications</div>
+            <div class="desc">Important account and security updates</div>
+            <div class="locked-note">Required for account security and cannot be turned off.</div>
           </div>
           <div class="toggle-switch">
-            <input class="toggle-input" id="toggle-system" type="checkbox" data-type="system" checked>
+            <input class="toggle-input" id="toggle-system" type="checkbox" data-type="system" checked disabled aria-disabled="true">
             <label class="switch" for="toggle-system" aria-hidden="true"></label>
           </div>
         </div>
@@ -210,149 +221,13 @@
       </div>
     </section>
 
-    <!-- Optional info text -->
-    <div class="info">You can manage how you receive notifications at any time.</div>
+    <div id="notificationStatus" class="notif-status" role="status" aria-live="polite" hidden></div>
+    <div class="info">Optional notifications can be changed anytime. Security alerts stay on.</div>
 
   </main>
 
-  <!-- Minimal JS hooks: auto-save to localStorage and integration points for storage/notification services -->
-  <script>
-    /*
-      notifications state is stored under key: 'byose_notifications'
-      Structure: { orders: true, shipping: true, promo: true, system: true }
-      This script is intentionally minimal — it will:
-       - initialize toggles from storage/localStorage
-       - auto-save on change
-       - call integration hooks if available (window.storage.saveNotifications, window.notificationService.updatePreference)
-    */
-
-    (function(){
-      const KEY = 'byose_notifications';
-
-      function apiOrigin() {
-        const explicit = String(window.BYOSE_API_BASE_URL || window.__BYOSE_API_BASE__ || '').replace(/\/+$/, '');
-        if (explicit) return explicit.replace(/\/api$/i, '');
-        const hostname = String(window.location?.hostname || '');
-        if (hostname === 'localhost' || hostname === '127.0.0.1') {
-          return `http://${hostname || 'localhost'}:5000`;
-        }
-        return String(window.location?.origin || '').replace(/\/+$/, '');
-      }
-
-      function readStored(){
-        try{
-          if(window.storage && typeof window.storage.readNotifications === 'function'){
-            return window.storage.readNotifications() || {};
-          }
-        }catch(e){/* ignore */}
-        try{
-          const raw = localStorage.getItem(KEY);
-          return raw ? JSON.parse(raw) : {}; 
-        }catch(e){return {}};
-      }
-
-      function saveStored(value){
-        try{
-          if(window.storage && typeof window.storage.saveNotifications === 'function'){
-            window.storage.saveNotifications(value);
-            return;
-          }
-        }catch(e){/* fallthrough to localStorage */}
-        try{localStorage.setItem(KEY, JSON.stringify(value));}catch(e){}
-      }
-
-      async function syncFromServer() {
-        if (!window.authService?.isLoggedIn?.() || !window.authService.authFetch) return null;
-        try {
-          const response = await window.authService.authFetch(`${apiOrigin()}/api/customer-notifications/prefs`, {
-            headers: { Accept: 'application/json' }
-          });
-          const payload = await response.json().catch(() => null);
-          if (!response.ok || !payload?.prefs) return null;
-          return {
-            orders: Boolean(payload.prefs.orders),
-            shipping: Boolean(payload.prefs.shipping),
-            promo: Boolean(payload.prefs.promo),
-            system: Boolean(payload.prefs.system)
-          };
-        } catch (_error) {
-          return null;
-        }
-      }
-
-      async function syncToServer(state) {
-        if (!window.authService?.isLoggedIn?.() || !window.authService.authFetch) return;
-        try {
-          await window.authService.authFetch(`${apiOrigin()}/api/customer-notifications/prefs`, {
-            method: 'PUT',
-            headers: {
-              Accept: 'application/json',
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(state)
-          });
-        } catch (_error) {}
-      }
-
-      const inputs = Array.from(document.querySelectorAll('.toggle-input'));
-
-      function applyState(state) {
-        inputs.forEach(inp => {
-          const type = inp.dataset.type;
-          if (Object.prototype.hasOwnProperty.call(state, type)) {
-            inp.checked = !!state[type];
-          }
-        });
-      }
-
-      const stored = readStored();
-      applyState(stored);
-
-      syncFromServer().then((remote) => {
-        if (!remote) return;
-        applyState(remote);
-        saveStored(remote);
-      });
-
-      function buildState(){
-        const s = {};
-        inputs.forEach(i=> s[i.dataset.type] = !!i.checked);
-        return s;
-      }
-
-      function handleChange(e){
-        const state = buildState();
-        saveStored(state);
-        syncToServer(state);
-
-        try{
-          if(window.notificationService && typeof window.notificationService.updatePreference === 'function'){
-            const type = e.target.dataset.type;
-            window.notificationService.updatePreference(type, !!e.target.checked);
-          }
-        }catch(err){/* not critical */}
-
-        try{
-          window.dispatchEvent(new CustomEvent('byose:notifications:changed', {detail: state}));
-        }catch(err){}
-      }
-
-      inputs.forEach(i=> i.addEventListener('change', handleChange, {passive:true}));
-
-      window.ByoseNotifications = {
-        getState: buildState,
-        save: (obj) => {
-          saveStored(obj);
-          applyState(obj);
-          syncToServer(obj);
-          window.dispatchEvent(new CustomEvent('byose:notifications:changed',{detail:obj}));
-        }
-      };
-
-    })();
-  </script>
-
 <script src="../../services/authservice.js"></script>
 <script src="../js/auth-guard.js"></script>
+<script src="../js/notification-settings.js"></script>
 </body>
 </html>

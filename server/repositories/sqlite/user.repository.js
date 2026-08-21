@@ -27,6 +27,7 @@ class SQLiteUserRepository extends SQLiteBaseRepository {
             preferredLanguage: this.normalizeText(row.preferred_language, 'en'),
             timeZone: this.normalizeText(row.time_zone, 'Africa/Kigali'),
             address: this.parseJson(row.address_json, {}),
+            preferences: this.parseJson(row.preferences_json, {}),
             createdAt: row.created_at || null,
             updatedAt: row.updated_at || null,
             lastLoginAt: row.last_login_at || null,
@@ -177,9 +178,9 @@ class SQLiteUserRepository extends SQLiteBaseRepository {
         const result = this.db.prepare(`
             INSERT INTO users (
                 public_id, name, username, email, phone, password_hash, role, avatar, status, verified,
-                job_title, department, preferred_language, time_zone, address_json,
+                job_title, department, preferred_language, time_zone, address_json, preferences_json,
                 last_password_change_at, login_count, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             this.normalizeText(user.id),
             this.normalizeText(user.name),
@@ -196,6 +197,7 @@ class SQLiteUserRepository extends SQLiteBaseRepository {
             this.normalizeText(user.preferredLanguage, 'en'),
             this.normalizeText(user.timeZone, 'Africa/Kigali'),
             this.stringifyJson(user.address || {}, {}),
+            this.stringifyJson(user.preferences || {}, {}),
             this.now(user.lastPasswordChangeAt || now),
             Math.max(0, Number(user.loginCount || 0) || 0),
             now,
@@ -218,7 +220,7 @@ class SQLiteUserRepository extends SQLiteBaseRepository {
         this.db.prepare(`
             UPDATE users
             SET name = ?, username = ?, email = ?, phone = ?, password_hash = ?, role = ?, avatar = ?, status = ?, verified = ?,
-                job_title = ?, department = ?, preferred_language = ?, time_zone = ?, address_json = ?,
+                job_title = ?, department = ?, preferred_language = ?, time_zone = ?, address_json = ?, preferences_json = ?,
                 last_password_change_at = ?, login_count = ?, updated_at = ?
             WHERE public_id = ?
         `).run(
@@ -250,6 +252,12 @@ class SQLiteUserRepository extends SQLiteBaseRepository {
                 'Africa/Kigali'
             ),
             this.stringifyJson(updates.address || existing.address || {}, {}),
+            this.stringifyJson(
+                Object.prototype.hasOwnProperty.call(updates, 'preferences')
+                    ? updates.preferences
+                    : (existing.preferences || {}),
+                {}
+            ),
             Object.prototype.hasOwnProperty.call(updates, 'lastPasswordChangeAt')
                 ? this.now(updates.lastPasswordChangeAt)
                 : (existing.lastPasswordChangeAt || null),

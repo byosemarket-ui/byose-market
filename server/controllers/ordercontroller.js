@@ -15,6 +15,7 @@ const {
     storefrontPaymentMethodLabel
 } = require('../payments/storefront-methods');
 const inventoryService = require('../services/inventory.service');
+const customerCancellationRefundService = require('../services/customercancellationrefundservice');
 
 const DELIVERY_FEE = 2000;
 const COD_FEE = 0;
@@ -654,6 +655,8 @@ function applyCancellationMetadata(order, meta = {}) {
         workflow.returnStatus = workflow.returnStatus || 'requested';
         workflow.returnRequestedAt = workflow.returnRequestedAt || timestamp;
         workflow.returnReason = workflow.returnReason || reason;
+        workflow.reasonCode = workflow.reasonCode || 'cancel';
+        workflow.requiresPhysicalReturn = false;
         workflow.stockRestored = true;
         order.payment.returnWorkflow = workflow;
     }
@@ -682,12 +685,77 @@ function clearCancellationMetadata(order) {
     order.cancellationReason = '';
 }
 
+function appendReturnHistory(order, label, meta = {}) {
+    const previousStatus = order.status;
+    const previousOrderStatus = order.orderStatus;
+    appendStatusHistory(order, label, meta);
+    if (previousStatus) order.status = previousStatus;
+    if (previousOrderStatus) order.orderStatus = previousOrderStatus;
+}
+
 function ensureReturnWorkflow(order) {
     order.payment = order.payment && typeof order.payment === 'object' ? order.payment : {};
     if (!order.payment.returnWorkflow || typeof order.payment.returnWorkflow !== 'object') {
         order.payment.returnWorkflow = {};
     }
     return order.payment.returnWorkflow;
+}
+
+function resolveRefundablePaidAmount(order) {
+    const paymentStatus = normalizeText(order?.paymentStatus || order?.payment?.status).toLowerCase();
+    const wasPaid = isSettledPaidStatus(paymentStatus)
+        || paymentStatus === 'refund_required'
+        || paymentStatus === 'refunded'
+        || paymentStatus === 'processing'
+        || Boolean(order?.payment?.cancellation?.refundRequired);
+    if (!wasPaid) {
+        return 0;
+    }
+    const total = Number(order?.totalAmount ?? order?.total ?? 0) || 0;
+    return Math.max(0, total);
+}
+
+function resolveRequiresPhysicalReturn(order, workflow = {}, reasonCode = '') {
+    if (typeof workflow.requiresPhysicalReturn === 'boolean') {
+        return workflow.requiresPhysicalReturn;
+    }
+    const code = normalizeText(reasonCode || workflow.reasonCode).toLowerCase();
+    if (code === 'delivery_delay' || code === 'cancel') {
+        return false;
+    }
+    if (order?.payment?.cancellation?.cancelledAt || order?.cancelledAt) {
+        return false;
+    }
+    if (['incorrect_product', 'description_mismatch', 'unsuitable_product'].includes(code)) {
+        return true;
+    }
+    // Admin-opened returns without a cancel/delay code expect a physical return.
+    return Boolean(normalizeText(workflow.returnStatus) || code);
+}
+
+function canStartRefund(order, workflow) {
+    const refundStatus = normalizeText(workflow.refundStatus).toLowerCase();
+    const returnStatus = normalizeText(workflow.returnStatus).toLowerCase();
+    const paymentStatus = normalizeText(order?.paymentStatus || order?.payment?.status).toLowerCase();
+    if (['completed', 'refunded'].includes(refundStatus) || paymentStatus === 'refunded') {
+        return false;
+    }
+    if (refundStatus === 'rejected' || returnStatus === 'rejected') {
+        return false;
+    }
+    if (resolveRefundablePaidAmount(order) <= 0) {
+        return false;
+    }
+    const physical = resolveRequiresPhysicalReturn(order, workflow);
+    if (physical) {
+        return returnStatus === 'inspected' && workflow.inspectPassed !== false;
+    }
+    return refundStatus === 'required'
+        || refundStatus === 'pending'
+        || paymentStatus === 'refund_required'
+        || returnStatus === 'requested'
+        || returnStatus === 'approved'
+        || Boolean(order?.payment?.cancellation?.cancelledAt || order?.cancelledAt);
 }
 
 function applyReturnAction(order, action, meta = {}) {
@@ -697,82 +765,303 @@ function applyReturnAction(order, action, meta = {}) {
     const reason = normalizeText(meta.reason || meta.note || meta.adminNotes);
     const adminNotes = normalizeText(meta.adminNotes || meta.note || meta.reason);
     const normalizedAction = normalizeText(action).toLowerCase();
+    const actor = normalizeText(meta.actor) || 'Admin';
 
     if (normalizedAction === 'open_return' || normalizedAction === 'request_return') {
-        if (['approved', 'received'].includes(String(workflow.returnStatus || '').toLowerCase())
-            || ['completed'].includes(String(workflow.refundStatus || '').toLowerCase())) {
+        const returnStatus = String(workflow.returnStatus || '').toLowerCase();
+        const refundStatus = String(workflow.refundStatus || '').toLowerCase();
+        if (['approved', 'received', 'inspected'].includes(returnStatus) || refundStatus === 'completed' || refundStatus === 'processing') {
             const error = new Error('A return or refund is already in progress or completed for this order.');
             error.code = 'DUPLICATE_RETURN';
             throw error;
         }
+        if (returnStatus === 'requested' && normalizedAction === 'request_return') {
+            // Idempotent customer re-submit while still under review.
+            order.payment.returnWorkflow = workflow;
+            return workflow;
+        }
+
+        const reasonCode = normalizeText(meta.reasonCode) || workflow.reasonCode || '';
         workflow.returnStatus = 'requested';
         workflow.returnRequestedAt = workflow.returnRequestedAt || now;
         workflow.returnReason = reason || workflow.returnReason || 'Return requested';
+        workflow.reasonCode = reasonCode;
         workflow.customerNotes = normalizeText(meta.customerNotes) || workflow.customerNotes || '';
         workflow.productCondition = normalizeText(meta.productCondition) || workflow.productCondition || 'Not specified';
         workflow.returnImages = Array.isArray(meta.returnImages) ? meta.returnImages : (Array.isArray(workflow.returnImages) ? workflow.returnImages : []);
-        if (!workflow.refundStatus || workflow.refundStatus === 'rejected') {
+        workflow.requiresPhysicalReturn = resolveRequiresPhysicalReturn(order, workflow, reasonCode);
+
+        if (workflow.requiresPhysicalReturn) {
+            // Physical returns wait for receive + inspect before refund becomes actionable.
+            if (!workflow.refundStatus || workflow.refundStatus === 'rejected') {
+                workflow.refundStatus = '';
+            }
+        } else if (!workflow.refundStatus || workflow.refundStatus === 'rejected') {
             workflow.refundStatus = 'required';
         }
-        appendStatusHistory(order, 'Return Requested', { actor: 'Admin', adminId, reason: workflow.returnReason });
+
+        appendReturnHistory(order, 'Return Requested', {
+            actor,
+            adminId,
+            reason: workflow.returnReason
+        });
         order.payment.returnWorkflow = workflow;
         return workflow;
     }
 
     if (normalizedAction === 'approve_return') {
+        const returnStatus = String(workflow.returnStatus || '').toLowerCase();
+        if (returnStatus === 'approved' || returnStatus === 'received' || returnStatus === 'inspected') {
+            order.payment.returnWorkflow = workflow;
+            return workflow;
+        }
+        if (returnStatus === 'rejected') {
+            const error = new Error('This return was rejected and cannot be approved.');
+            error.code = 'INVALID_RETURN_STATE';
+            throw error;
+        }
+        if (returnStatus && returnStatus !== 'requested') {
+            const error = new Error('Only requested returns can be approved.');
+            error.code = 'INVALID_RETURN_STATE';
+            throw error;
+        }
+
         workflow.returnStatus = 'approved';
         workflow.returnApprovedAt = now;
         workflow.adminNotes = adminNotes || workflow.adminNotes || '';
-        order.status = 'Returned';
-        order.orderStatus = 'returned';
-        if (!order.payment?.cancellation?.cancelledAt && !workflow.stockRestored) {
+
+        // Stock is restored only after inspection accepts the item for resale (physical returns),
+        // or immediately for non-physical cancel/delay refunds that never leave sellable stock out.
+        if (!workflow.requiresPhysicalReturn && !order.payment?.cancellation?.cancelledAt && !workflow.stockRestored) {
             restoreOrderStock(order);
             workflow.stockRestored = true;
         }
-        if (!workflow.refundStatus || workflow.refundStatus === 'rejected') {
+        if (!workflow.requiresPhysicalReturn && (!workflow.refundStatus || workflow.refundStatus === 'rejected')) {
             workflow.refundStatus = 'required';
         }
-        appendStatusHistory(order, 'Returned', { actor: 'Admin', adminId, reason: adminNotes || 'Return approved' });
+
+        appendReturnHistory(order, 'Return Approved', {
+            actor: 'Admin',
+            adminId,
+            reason: adminNotes || 'Return approved'
+        });
+        order.status = 'Returned';
+        order.orderStatus = 'returned';
         order.payment.returnWorkflow = workflow;
         return workflow;
     }
 
     if (normalizedAction === 'reject_return') {
+        const returnStatus = String(workflow.returnStatus || '').toLowerCase();
+        if (returnStatus === 'rejected') {
+            order.payment.returnWorkflow = workflow;
+            return workflow;
+        }
+        if (['received', 'inspected'].includes(returnStatus) || String(workflow.refundStatus || '').toLowerCase() === 'completed') {
+            const error = new Error('This return can no longer be rejected.');
+            error.code = 'INVALID_RETURN_STATE';
+            throw error;
+        }
         workflow.returnStatus = 'rejected';
         workflow.returnRejectedAt = now;
         workflow.adminNotes = adminNotes || workflow.adminNotes || '';
-        appendStatusHistory(order, 'Return Rejected', { actor: 'Admin', adminId, reason: adminNotes || 'Return rejected' });
+        appendReturnHistory(order, 'Return Rejected', {
+            actor: 'Admin',
+            adminId,
+            reason: adminNotes || 'Return rejected'
+        });
         order.payment.returnWorkflow = workflow;
         return workflow;
     }
 
-    if (normalizedAction === 'approve_refund') {
+    if (normalizedAction === 'receive_return') {
+        const returnStatus = String(workflow.returnStatus || '').toLowerCase();
+        if (returnStatus === 'received' || returnStatus === 'inspected') {
+            order.payment.returnWorkflow = workflow;
+            return workflow;
+        }
+        if (returnStatus !== 'approved') {
+            const error = new Error('Mark the return as approved before recording that it was received.');
+            error.code = 'INVALID_RETURN_STATE';
+            throw error;
+        }
+        if (!resolveRequiresPhysicalReturn(order, workflow)) {
+            const error = new Error('This request does not require a physical return.');
+            error.code = 'INVALID_RETURN_STATE';
+            throw error;
+        }
+        workflow.returnStatus = 'received';
+        workflow.returnReceivedAt = now;
+        workflow.adminNotes = adminNotes || workflow.adminNotes || '';
+        appendReturnHistory(order, 'Return Received', {
+            actor: 'Admin',
+            adminId,
+            reason: adminNotes || 'Returned product received'
+        });
+        order.payment.returnWorkflow = workflow;
+        return workflow;
+    }
+
+    if (normalizedAction === 'inspect_return') {
+        const returnStatus = String(workflow.returnStatus || '').toLowerCase();
+        if (returnStatus === 'inspected') {
+            order.payment.returnWorkflow = workflow;
+            return workflow;
+        }
+        if (returnStatus !== 'received') {
+            const error = new Error('Record return received before inspection.');
+            error.code = 'INVALID_RETURN_STATE';
+            throw error;
+        }
+
+        const inspectPassed = meta.inspectPassed !== false && String(meta.inspectResult || 'pass').toLowerCase() !== 'fail';
+        const restockEligible = meta.restockEligible === true
+            || String(meta.restockEligible).toLowerCase() === 'true'
+            || (meta.restockEligible == null && inspectPassed);
+
+        workflow.returnStatus = 'inspected';
+        workflow.inspectedAt = now;
+        workflow.inspectPassed = inspectPassed;
+        workflow.restockEligible = Boolean(restockEligible && inspectPassed);
+        workflow.inspectionNotes = adminNotes || workflow.inspectionNotes || '';
+        workflow.adminNotes = adminNotes || workflow.adminNotes || '';
+        workflow.productCondition = normalizeText(meta.productCondition) || workflow.productCondition || (inspectPassed ? 'Inspected – acceptable' : 'Inspected – not acceptable');
+
+        if (workflow.restockEligible && !workflow.stockRestored && !order.payment?.cancellation?.cancelledAt) {
+            restoreOrderStock(order);
+            workflow.stockRestored = true;
+        }
+
+        if (inspectPassed) {
+            if (!workflow.refundStatus || workflow.refundStatus === 'rejected') {
+                workflow.refundStatus = 'required';
+            }
+        } else if (workflow.refundStatus !== 'completed') {
+            workflow.refundStatus = 'rejected';
+            workflow.refundRejectedAt = now;
+        }
+
+        appendReturnHistory(order, inspectPassed ? 'Return Inspected' : 'Return Inspection Failed', {
+            actor: 'Admin',
+            adminId,
+            reason: adminNotes || (inspectPassed ? 'Inspection passed' : 'Inspection failed')
+        });
+        order.payment.returnWorkflow = workflow;
+        return workflow;
+    }
+
+    if (normalizedAction === 'approve_refund' || normalizedAction === 'start_refund') {
         const refundStatus = String(workflow.refundStatus || order.paymentStatus || '').toLowerCase();
         if (refundStatus === 'completed' || refundStatus === 'refunded' || String(order.paymentStatus || '').toLowerCase() === 'refunded') {
             const error = new Error('Refund already completed for this order.');
             error.code = 'DUPLICATE_REFUND';
             throw error;
         }
-        workflow.refundStatus = 'completed';
+        if (refundStatus === 'processing') {
+            order.payment.returnWorkflow = workflow;
+            return workflow;
+        }
+        if (!canStartRefund(order, workflow)) {
+            const error = new Error(
+                resolveRequiresPhysicalReturn(order, workflow)
+                    ? 'Refund can start only after the returned product has been received and inspected.'
+                    : 'This order is not eligible for refund processing yet.'
+            );
+            error.code = 'REFUND_NOT_ELIGIBLE';
+            throw error;
+        }
+
+        const paidAmount = resolveRefundablePaidAmount(order);
+        if (paidAmount <= 0) {
+            const error = new Error('No payment was received for this order, so a refund cannot be issued.');
+            error.code = 'REFUND_NOT_ELIGIBLE';
+            throw error;
+        }
+
+        const requestedAmount = Number(meta.refundAmount);
+        const amount = Number.isFinite(requestedAmount) && requestedAmount >= 0
+            ? Math.min(requestedAmount, paidAmount)
+            : paidAmount;
+        if (Number.isFinite(requestedAmount) && requestedAmount > paidAmount) {
+            const error = new Error(`Refund amount cannot exceed the paid amount (${paidAmount}).`);
+            error.code = 'INVALID_REFUND_AMOUNT';
+            throw error;
+        }
+
+        // No automated payment-provider refund exists — mark as manual processing, not completed.
+        workflow.refundStatus = 'processing';
         workflow.refundApprovedAt = now;
-        workflow.refundDate = now;
-        workflow.refundAmount = Number(meta.refundAmount ?? order.totalAmount ?? order.total ?? 0) || 0;
+        workflow.refundAmount = amount;
         workflow.refundMethod = normalizeText(meta.refundMethod) || normalizeText(order.paymentMethod) || 'original_payment';
+        workflow.adminNotes = adminNotes || workflow.adminNotes || '';
+        workflow.refundProcessingNote = 'Manual refund via original payment method. Mark completed only after the refund is confirmed.';
+        if (String(order.paymentStatus || '').toLowerCase() !== 'refunded') {
+            order.paymentStatus = 'refund_required';
+            order.paymentStatusLabel = 'Refund Processing';
+        }
+        appendReturnHistory(order, 'Refund Processing', {
+            actor: 'Admin',
+            adminId,
+            reason: adminNotes || `Refund processing started (${amount})`
+        });
+        order.payment.returnWorkflow = workflow;
+        return workflow;
+    }
+
+    if (normalizedAction === 'complete_refund') {
+        const refundStatus = String(workflow.refundStatus || '').toLowerCase();
+        if (refundStatus === 'completed' || String(order.paymentStatus || '').toLowerCase() === 'refunded') {
+            order.payment.returnWorkflow = workflow;
+            return workflow;
+        }
+        if (refundStatus !== 'processing') {
+            const error = new Error('Start refund processing before marking the refund as completed.');
+            error.code = 'INVALID_REFUND_STATE';
+            throw error;
+        }
+        const paidAmount = resolveRefundablePaidAmount(order);
+        const amount = Math.min(
+            Number(workflow.refundAmount || meta.refundAmount || paidAmount) || 0,
+            paidAmount
+        );
+        workflow.refundStatus = 'completed';
+        workflow.refundDate = now;
+        workflow.refundCompletedAt = now;
+        workflow.refundAmount = amount;
+        workflow.refundMethod = normalizeText(meta.refundMethod) || workflow.refundMethod || normalizeText(order.paymentMethod) || 'original_payment';
         workflow.adminNotes = adminNotes || workflow.adminNotes || '';
         order.paymentStatus = 'refunded';
         order.paymentStatusLabel = 'Refunded';
+        appendStatusHistory(order, 'Refunded', {
+            actor: 'Admin',
+            adminId,
+            reason: adminNotes || 'Refund completed'
+        });
         order.status = 'Refunded';
         order.orderStatus = 'refunded';
-        appendStatusHistory(order, 'Refunded', { actor: 'Admin', adminId, reason: adminNotes || 'Refund approved' });
         order.payment.returnWorkflow = workflow;
         return workflow;
     }
 
     if (normalizedAction === 'reject_refund') {
+        const refundStatus = String(workflow.refundStatus || '').toLowerCase();
+        if (refundStatus === 'rejected') {
+            order.payment.returnWorkflow = workflow;
+            return workflow;
+        }
+        if (refundStatus === 'completed' || String(order.paymentStatus || '').toLowerCase() === 'refunded') {
+            const error = new Error('A completed refund cannot be rejected.');
+            error.code = 'INVALID_REFUND_STATE';
+            throw error;
+        }
         workflow.refundStatus = 'rejected';
         workflow.refundRejectedAt = now;
         workflow.adminNotes = adminNotes || workflow.adminNotes || '';
-        appendStatusHistory(order, 'Refund Rejected', { actor: 'Admin', adminId, reason: adminNotes || 'Refund rejected' });
+        appendReturnHistory(order, 'Refund Rejected', {
+            actor: 'Admin',
+            adminId,
+            reason: adminNotes || 'Refund rejected'
+        });
         order.payment.returnWorkflow = workflow;
         return workflow;
     }
@@ -1369,11 +1658,27 @@ exports.updateOrderStatus = async (req, res) => {
 
         const requestedStatus = normalizeText(status).toLowerCase();
         const currentStatus = normalizeText(order.orderStatus || order.status).toLowerCase();
-        const cancellableStatuses = new Set(['pending', 'confirmed', 'processing']);
-        if (requestedStatus !== 'cancelled' || !cancellableStatuses.has(currentStatus)) {
+        if (requestedStatus !== 'cancelled') {
             return res.status(409).json({
                 success: false,
-                message: 'Only pending, confirmed, or processing orders can be cancelled by the customer'
+                message: 'Customers can only cancel orders through this endpoint.'
+            });
+        }
+
+        const holidays = await customerCancellationRefundService.loadHolidays();
+        const eligibility = customerCancellationRefundService.evaluateEligibility(order, {
+            now: new Date(),
+            holidays
+        });
+        const cancelAction = (eligibility.actions || []).find(
+            (entry) => entry.reasonCode === customerCancellationRefundService.REASON_CODES.CANCEL
+        );
+        if (!cancelAction?.eligible) {
+            return res.status(409).json({
+                success: false,
+                code: 'CANCEL_NOT_ELIGIBLE',
+                message: cancelAction?.reason
+                    || 'Only pending, confirmed, or processing orders can be cancelled by the customer within 48 business hours before dispatch.'
             });
         }
 
@@ -1421,10 +1726,166 @@ exports.updateOrderStatus = async (req, res) => {
         void notifyOrderStatusEmail(order, 'Cancelled').catch((notifyError) => {
             logger.warn('notification.order_status_failed', { error: notifyError, orderId: order.orderId || order.id });
         });
-        return res.json({ success: true, order });
+
+        const refreshedEligibility = customerCancellationRefundService.evaluateEligibility(order, {
+            now: new Date(),
+            holidays
+        });
+        return res.json({
+            success: true,
+            order: customerCancellationRefundService.sanitizeCustomerOrder(order, refreshedEligibility),
+            message: 'Order cancelled successfully.'
+        });
     } catch (err) {
         logger.error('order.status_update_by_customer_failed', { error: err, requestedOrderId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.getCancellationRefundCenter = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'orders.refund_center' });
+    try {
+        const user = await resolveUser(req);
+        if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const holidays = await customerCancellationRefundService.loadHolidays();
+        const orders = await orderDataService.listOrdersForUser(user);
+        const now = new Date();
+        const items = (Array.isArray(orders) ? orders : []).map((order) => {
+            const eligibility = customerCancellationRefundService.evaluateEligibility(order, { now, holidays });
+            return customerCancellationRefundService.sanitizeCustomerOrder(order, eligibility);
+        });
+
+        return res.json({
+            success: true,
+            policy: {
+                businessDays: 'Monday through Saturday. Sundays and official public holidays are excluded.',
+                contact: {
+                    company: 'BYOSE MARKET LTD',
+                    website: 'https://byosemarket.com',
+                    email: 'byosemarket@gmail.com'
+                }
+            },
+            orders: items
+        });
+    } catch (err) {
+        logger.error('order.refund_center_failed', { error: err });
+        return res.status(500).json({ success: false, message: 'Unable to load cancellation and refund options.' });
+    }
+};
+
+exports.requestOrderReturn = async (req, res) => {
+    const logger = (req.log || appLogger).child({ scope: 'orders.return_request' });
+    try {
+        const user = await resolveUser(req);
+        if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const order = await orderDataService.findOrderByIdentifier(req.params.id);
+        if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+        const ownedOrders = await orderDataService.listOrdersForUser(user);
+        const ownsOrder = ownedOrders.some((entry) => String(entry.orderId || entry.id) === String(order.orderId || order.id));
+        if (!ownsOrder) {
+            return res.status(403).json({ success: false, message: 'Unauthorized to update this order' });
+        }
+
+        let reasonCode;
+        try {
+            reasonCode = customerCancellationRefundService.assertReturnReason(req.body?.reasonCode || req.body?.reason);
+        } catch (reasonError) {
+            return res.status(reasonError.status || 400).json({
+                success: false,
+                code: reasonError.code || 'INVALID_REASON',
+                message: reasonError.message
+            });
+        }
+
+        const holidays = await customerCancellationRefundService.loadHolidays();
+        const eligibility = customerCancellationRefundService.evaluateEligibility(order, {
+            now: new Date(),
+            holidays
+        });
+        const action = (eligibility.actions || []).find((entry) => entry.reasonCode === reasonCode);
+        if (!action?.eligible) {
+            return res.status(409).json({
+                success: false,
+                code: 'RETURN_NOT_ELIGIBLE',
+                message: action?.reason || 'This order is not eligible for that return or refund request.'
+            });
+        }
+
+        if (action.requiresUnusedAttestation || action.requiresOriginalPackagingAttestation) {
+            const unusedOk = req.body?.attestUnused === true || req.body?.productUnused === true;
+            const packagingOk = req.body?.attestOriginalPackaging === true || req.body?.originalPackaging === true;
+            if (action.requiresUnusedAttestation && !unusedOk) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Confirm that the product is unused before submitting this return request.'
+                });
+            }
+            if (action.requiresOriginalPackagingAttestation && !packagingOk) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Confirm that the product is in its original packaging before submitting this return request.'
+                });
+            }
+        }
+
+        const reasonLabel = customerCancellationRefundService.REASON_LABELS[reasonCode] || reasonCode;
+        const customerNotes = normalizeText(req.body?.customerNotes || req.body?.notes || req.body?.explanation);
+        const productCondition = normalizeText(req.body?.productCondition)
+            || ((action.requiresUnusedAttestation)
+                ? 'Customer attested unused and original packaging'
+                : 'Not specified');
+
+        try {
+            applyReturnAction(order, 'request_return', {
+                actor: 'Customer',
+                reasonCode,
+                reason: reasonLabel,
+                customerNotes,
+                productCondition
+            });
+        } catch (actionError) {
+            if (actionError?.code === 'DUPLICATE_RETURN') {
+                return res.status(409).json({
+                    success: false,
+                    code: actionError.code,
+                    message: actionError.message
+                });
+            }
+            throw actionError;
+        }
+
+        await monitorAsyncOperation(
+            logger,
+            'database.order.save_return_request',
+            { orderId: order.orderId || order.id },
+            () => orderDataService.saveOrder(order),
+            { slowThresholdMs: 700 }
+        );
+
+        const refreshed = customerCancellationRefundService.evaluateEligibility(order, {
+            now: new Date(),
+            holidays
+        });
+        const sanitized = customerCancellationRefundService.sanitizeCustomerOrder(order, refreshed);
+
+        void notificationEngine.notifyOrderStatusChanged(order, order.status || order.orderStatus, {
+            returnAction: 'request_return',
+            refundRequested: true
+        }).catch((engineError) => {
+            logger.warn('notification.engine.return_request_failed', { error: engineError, orderId: order.orderId || order.id });
+        });
+
+        return res.json({
+            success: true,
+            message: 'Your request was submitted and is under review.',
+            order: sanitized
+        });
+    } catch (err) {
+        logger.error('order.return_request_failed', { error: err, requestedOrderId: req.params.id });
+        return res.status(500).json({ success: false, message: 'Unable to submit return or refund request.' });
     }
 };
 
@@ -1472,7 +1933,11 @@ exports.updateAdminOrderStatus = async (req, res) => {
             refundAmount,
             refundMethod,
             returnImages,
-            paymentStatus
+            paymentStatus,
+            inspectResult,
+            inspectPassed,
+            restockEligible,
+            reasonCode
         } = req.body || {};
 
         const normalizedReturnAction = normalizeText(returnAction).toLowerCase();
@@ -1494,16 +1959,29 @@ exports.updateAdminOrderStatus = async (req, res) => {
             try {
                 applyReturnAction(order, normalizedReturnAction, {
                     adminId: req.admin?.id || '',
+                    actor: 'Admin',
                     reason: normalizeText(reason || cancellationReason || note || adminNotes),
                     adminNotes: normalizeText(adminNotes || note || reason),
                     customerNotes,
                     productCondition,
                     refundAmount,
                     refundMethod,
-                    returnImages
+                    returnImages,
+                    reasonCode,
+                    inspectResult,
+                    inspectPassed,
+                    restockEligible
                 });
             } catch (actionError) {
-                if (actionError?.code === 'DUPLICATE_RETURN' || actionError?.code === 'DUPLICATE_REFUND' || actionError?.code === 'INVALID_RETURN_ACTION') {
+                if ([
+                    'DUPLICATE_RETURN',
+                    'DUPLICATE_REFUND',
+                    'INVALID_RETURN_ACTION',
+                    'INVALID_RETURN_STATE',
+                    'INVALID_REFUND_STATE',
+                    'INVALID_REFUND_AMOUNT',
+                    'REFUND_NOT_ELIGIBLE'
+                ].includes(actionError?.code)) {
                     return res.status(409).json({
                         success: false,
                         message: actionError.message,
@@ -1718,3 +2196,10 @@ exports.deleteAdminOrder = async (req, res) => {
 };
 
 exports.applyCatalogPricing = applyCatalogPricing;
+exports.__testHooks = {
+    applyReturnAction,
+    applyCancellationMetadata,
+    resolveRefundablePaidAmount,
+    canStartRefund,
+    resolveRequiresPhysicalReturn
+};

@@ -90,8 +90,11 @@ function main() {
   assert(ordersJs.includes('Uploaded Return Images') || ordersJs.includes('return images'), 'must support return images');
   assert(ordersJs.includes('Approve Return'), 'must support approve return');
   assert(ordersJs.includes('Reject Return'), 'must support reject return');
-  assert(ordersJs.includes('Approve Refund'), 'must support approve refund');
+  assert(ordersJs.includes('Start Refund Processing') || ordersJs.includes('Approve Refund'), 'must support refund processing');
+  assert(ordersJs.includes('Mark Refund Completed') || ordersJs.includes('complete-refund'), 'must support refund completion');
   assert(ordersJs.includes('Reject Refund'), 'must support reject refund');
+  assert(ordersJs.includes('Mark Return Received') || ordersJs.includes('receive-return'), 'must support return received');
+  assert(ordersJs.includes('Record Inspection') || ordersJs.includes('inspect-return'), 'must support inspection');
   assert(ordersJs.includes('View Complete Return'), 'must support view complete return');
   assert(ordersJs.includes('View Original Order'), 'must support view original order');
   assert(ordersJs.includes('Print Return Report'), 'must support print return report');

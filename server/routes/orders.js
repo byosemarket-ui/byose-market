@@ -41,7 +41,9 @@ const confirmationLimiter = createRateLimiter({
 
 router.post('/', createOrderLimiter, optionalAuthMiddleware, validateOrderPayload, orderController.createOrder);
 router.get('/confirmation/:id', confirmationLimiter, optionalAuthMiddleware, orderController.getPublicOrderConfirmation);
+router.get('/cancellation-refunds', authMiddleware, orderController.getCancellationRefundCenter);
 router.get('/', authMiddleware, orderController.getUserOrders);
 router.put('/:id/status', updateOrderLimiter, authMiddleware, orderController.updateOrderStatus);
+router.post('/:id/return-request', updateOrderLimiter, authMiddleware, orderController.requestOrderReturn);
 
 module.exports = router;

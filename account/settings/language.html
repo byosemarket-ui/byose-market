@@ -95,6 +95,14 @@
     /* Current language footer */
     .current-row{margin-top:18px;font-size:14px;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
     .current-row strong{color:#111827}
+    .lang-status{
+      margin-top:14px;padding:10px 12px;border-radius:10px;font-size:13px;display:none
+    }
+    .lang-status:not([hidden]){display:block}
+    .lang-status.is-saving{color:#1d4ed8;background:rgba(37,99,235,0.08)}
+    .lang-status.is-success{color:#166534;background:rgba(22,163,74,0.1)}
+    .lang-status.is-error{color:#b91c1c;background:rgba(185,28,28,0.08)}
+    .language-item[aria-disabled="true"]{opacity:.7;pointer-events:none}
 
     /* Responsive spacing */
     @media(min-width:700px){
@@ -107,14 +115,14 @@
 
   <!-- HEADER -->
   <header class="header" role="banner">
-    <a class="back-btn" href="settings.html" aria-label="Back to settings">←</a>
+    <a class="back-btn" href="settings.html" aria-label="Back to settings"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i></a>
     <div class="title">Language</div>
   </header>
 
   <main class="container" role="main">
 
     <!-- Short intro / instruction -->
-    <p style="margin:0 0 12px 0;color:var(--muted);font-size:14px">Select your preferred language for ByoseMarket.</p>
+    <p style="margin:0 0 12px 0;color:var(--muted);font-size:14px">Select your preferred language for ByoseMarket. Guest browsing still works without an account.</p>
 
     <!-- LANGUAGE LIST -->
     <ul id="languageList" role="list" aria-label="Available languages">
@@ -156,65 +164,16 @@
     <!-- CURRENT LANGUAGE DISPLAY -->
     <div class="current-row" aria-live="polite">
       <div>Current language:</div>
-      <!-- Placeholder for dynamic value; integration scripts should replace {{current_language}} -->
-      <div><strong id="currentLanguage">{{current_language}}</strong></div>
+      <div><strong id="currentLanguage">English</strong></div>
     </div>
+    <div id="languageStatus" class="lang-status" role="status" aria-live="polite" hidden></div>
 
   </main>
 
-    <!-- Lightweight inline language UI logic for this page. -->
-
-  <script>
-    // Lightweight UI logic: highlights selection and saves to localStorage.
-    (function(){
-      const LIST_ID = 'languageList';
-      const STORAGE_KEY = 'byose_language';
-      const list = document.getElementById('languageList');
-      const items = Array.from(list.querySelectorAll('.language-item'));
-      const currentLabel = document.getElementById('currentLanguage');
-
-      function setSelected(lang, persist = true){
-        items.forEach(it => {
-          const is = it.dataset.lang === lang;
-          it.classList.toggle('selected', is);
-          it.setAttribute('aria-pressed', is? 'true':'false');
-        });
-        // Update visible label
-        currentLabel.textContent = (lang === 'rw') ? 'Kinyarwanda' : (lang === 'fr' ? 'Français' : 'English');
-
-        // Persist selection (localStorage-ready). If you have a custom storage module, it can override this.
-        if(persist && window.localStorage){
-          try{ localStorage.setItem(STORAGE_KEY, lang); }catch(e){}
-        }
-
-        // Dispatch a custom event so other modules can react (e.g., shared/language.js)
-        const ev = new CustomEvent('byose:languageChanged', { detail: { lang } });
-        window.dispatchEvent(ev);
-      }
-
-      // Initialize from storage or default (Kinyarwanda)
-      const saved = (function(){
-        try{ return localStorage.getItem(STORAGE_KEY); }catch(e){return null}
-      })();
-      setSelected(saved || 'rw', false);
-
-      // Click / keyboard handlers
-      items.forEach(it => {
-        it.addEventListener('click', () => setSelected(it.dataset.lang, true));
-        it.addEventListener('keydown', (e) => {
-          if(e.key === 'Enter' || e.key === ' ') { e.preventDefault(); it.click(); }
-        });
-      });
-
-      // Expose small helper for integration: window.ByoseLanguage.set(lang)
-      window.ByoseLanguage = window.ByoseLanguage || {};
-      window.ByoseLanguage.set = function(lang){ setSelected(lang, true); };
-      window.ByoseLanguage.get = function(){ return (localStorage.getItem(STORAGE_KEY) || 'rw'); };
-
-    })();
-  </script>
-
 <script src="../../services/authservice.js"></script>
 <script src="../js/auth-guard.js"></script>
+<script src="../js/language-preference.js"></script>
+<script src="../../language.js"></script>
+<script src="../js/language-settings.js"></script>
 </body>
 </html>

@@ -22,6 +22,7 @@ function getRepos() {
 
 function isPrefEnabled(prefs, type) {
     const gate = PREF_GATES[String(type || '').toUpperCase()] || 'system';
+    if (gate === 'system') return true;
     return Boolean(prefs?.[gate]);
 }
 

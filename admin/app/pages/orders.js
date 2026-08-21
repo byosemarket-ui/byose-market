@@ -1077,10 +1077,11 @@ function resolveRefundDate(order) {
 function formatReturnStatusLabel(value) {
   const raw = String(value || "").trim().toLowerCase();
   if (!raw) return "Not started";
-  if (raw === "requested") return "Requested";
+  if (raw === "requested") return "Requested / Under Review";
   if (raw === "approved") return "Approved";
   if (raw === "rejected") return "Rejected";
-  if (raw === "received") return "Received";
+  if (raw === "received") return "Return Received";
+  if (raw === "inspected") return "Inspected";
   return String(value);
 }
 
@@ -1088,6 +1089,7 @@ function formatRefundStatusLabel(value) {
   const raw = String(value || "").trim().toLowerCase();
   if (!raw) return "Not required";
   if (raw === "required" || raw === "pending") return "Required";
+  if (raw === "processing") return "Refund Processing";
   if (raw === "completed" || raw === "refunded") return "Completed";
   if (raw === "rejected") return "Rejected";
   return String(value);
@@ -1429,21 +1431,29 @@ function renderReturnInfoBlock(order) {
   const workflow = getReturnWorkflow(order);
   const images = Array.isArray(workflow.returnImages) ? workflow.returnImages : [];
   const refundAmount = Number(workflow.refundAmount || order.refundAmount || 0);
-  const showAmount = refundAmount > 0 || String(workflow.refundStatus || "").toLowerCase() === "completed";
+  const refundStatus = String(workflow.refundStatus || "").toLowerCase();
+  const showAmount = refundAmount > 0 || ["completed", "processing"].includes(refundStatus);
   return `
     <div class="orders-detail-card">
       <h4>Return Information</h4>
       ${renderInfoGrid([
+        ["Request Type", workflow.reasonCode || (order.cancelledAt || order.paymentCancellation?.cancelledAt ? "Cancellation refund" : "Return / refund")],
         ["Return Reason", workflow.returnReason || order.returnReason || resolveCancellationReason(order) || "—"],
         ["Customer Notes", workflow.customerNotes || "—"],
         ["Admin Notes", workflow.adminNotes || "—"],
         ["Product Condition", workflow.productCondition || "—"],
+        ["Physical Return Required", workflow.requiresPhysicalReturn === false ? "No" : "Yes"],
         ["Return Approval Status", formatReturnStatusLabel(workflow.returnStatus || order.returnStatus)],
         ["Refund Status", formatRefundStatusLabel(workflow.refundStatus || order.refundStatus || (order.refundRequired ? "required" : ""))],
         ["Refund Amount", showAmount ? formatCurrency(refundAmount || order.total || 0) : "Pending approval"],
         ["Refund Method", workflow.refundMethod || order.refundMethod || paymentLabel(order)],
+        ["Return Request Date", resolveReturnRequestDate(order) ? formatDate(resolveReturnRequestDate(order)) : "—"],
+        ["Return Received", workflow.returnReceivedAt ? formatDate(workflow.returnReceivedAt) : "—"],
+        ["Inspected", workflow.inspectedAt ? formatDate(workflow.inspectedAt) : "—"],
         ["Refund Date", resolveRefundDate(order) ? formatDate(resolveRefundDate(order)) : "—"],
-        ["Return Request Date", resolveReturnRequestDate(order) ? formatDate(resolveReturnRequestDate(order)) : "—"]
+        ["Processing Note", workflow.refundProcessingNote || (refundStatus === "processing"
+          ? "Approved refunds are processed within 24 business hours after receive & inspection (Mon–Sat)."
+          : "—")]
       ])}
       ${images.length ? `
         <div class="orders-return-images">
@@ -2506,20 +2516,38 @@ function getReturnActionFlags(order) {
   const refundStatus = String(workflow.refundStatus || order?.paymentStatus || "").toLowerCase();
   const refundDone = refundStatus === "completed" || refundStatus === "refunded" || String(order?.paymentStatus || "").toLowerCase() === "refunded";
   const returnRejected = returnStatus === "rejected";
-  const returnApproved = returnStatus === "approved" || returnStatus === "received";
-  const canWorkRefund = !refundDone && refundStatus !== "rejected" && (
-    order?.refundRequired
-    || returnApproved
-    || refundStatus === "required"
-    || refundStatus === "pending"
-    || String(order?.paymentStatus || "").toLowerCase().includes("refund_required")
-  );
+  const reasonCode = String(workflow.reasonCode || "").toLowerCase();
+  const requiresPhysical = Object.prototype.hasOwnProperty.call(workflow, "requiresPhysicalReturn")
+    ? Boolean(workflow.requiresPhysicalReturn)
+    : !(order?.paymentCancellation?.cancelledAt || order?.cancelledAt || reasonCode === "delivery_delay" || reasonCode === "cancel");
+
+  const canStartRefund = !refundDone
+    && refundStatus !== "rejected"
+    && refundStatus !== "processing"
+    && (
+      (requiresPhysical && returnStatus === "inspected" && workflow.inspectPassed !== false)
+      || (!requiresPhysical && (
+        order?.refundRequired
+        || refundStatus === "required"
+        || refundStatus === "pending"
+        || returnStatus === "requested"
+        || returnStatus === "approved"
+        || String(order?.paymentStatus || "").toLowerCase().includes("refund_required")
+      ))
+    );
+
   return {
-    canOpenReturn: !returnApproved && !refundDone && returnStatus !== "requested" && !returnRejected,
-    canApproveReturn: (returnStatus === "requested" || (!returnStatus && order?.refundRequired)) && !returnApproved && !returnRejected && !refundDone,
-    canRejectReturn: (returnStatus === "requested" || (!returnStatus && order?.refundRequired)) && !returnApproved && !refundDone,
-    canApproveRefund: canWorkRefund,
-    canRejectRefund: canWorkRefund
+    requiresPhysical,
+    canOpenReturn: !["approved", "received", "inspected", "requested"].includes(returnStatus) && !refundDone && !returnRejected,
+    canApproveReturn: returnStatus === "requested" && !refundDone,
+    canRejectReturn: returnStatus === "requested" && !refundDone,
+    canReceiveReturn: requiresPhysical && returnStatus === "approved" && !refundDone,
+    canInspectReturn: requiresPhysical && returnStatus === "received" && !refundDone,
+    canApproveRefund: canStartRefund,
+    canCompleteRefund: refundStatus === "processing" && !refundDone,
+    canRejectRefund: !refundDone && refundStatus !== "rejected" && (
+      canStartRefund || refundStatus === "processing" || refundStatus === "required" || Boolean(order?.refundRequired)
+    )
   };
 }
 
@@ -2570,7 +2598,10 @@ function renderAllOrdersActions(order, expanded = false, viewMode = "all") {
             ${flags.canOpenReturn ? `<button type="button" role="menuitem" data-order-action="open-return" data-order-id="${id}">Open Return Request</button>` : ""}
             ${flags.canApproveReturn ? `<button type="button" role="menuitem" data-order-action="approve-return" data-order-id="${id}">Approve Return</button>` : ""}
             ${flags.canRejectReturn ? `<button type="button" role="menuitem" class="orders-danger-button" data-order-action="reject-return" data-order-id="${id}">Reject Return</button>` : ""}
-            ${flags.canApproveRefund ? `<button type="button" role="menuitem" data-order-action="approve-refund" data-order-id="${id}">Approve Refund</button>` : ""}
+            ${flags.canReceiveReturn ? `<button type="button" role="menuitem" data-order-action="receive-return" data-order-id="${id}">Mark Return Received</button>` : ""}
+            ${flags.canInspectReturn ? `<button type="button" role="menuitem" data-order-action="inspect-return" data-order-id="${id}">Record Inspection</button>` : ""}
+            ${flags.canApproveRefund ? `<button type="button" role="menuitem" data-order-action="approve-refund" data-order-id="${id}">Start Refund Processing</button>` : ""}
+            ${flags.canCompleteRefund ? `<button type="button" role="menuitem" data-order-action="complete-refund" data-order-id="${id}">Mark Refund Completed</button>` : ""}
             ${flags.canRejectRefund ? `<button type="button" role="menuitem" class="orders-danger-button" data-order-action="reject-refund" data-order-id="${id}">Reject Refund</button>` : ""}
             <button type="button" role="menuitem" data-order-action="print-return" data-order-id="${id}">Print Return Report</button>
             <button type="button" role="menuitem" data-order-action="print-refund" data-order-id="${id}">Print Refund Report</button>
@@ -3184,17 +3215,7 @@ function renderActions(order, viewMode = "all") {
   const isPaidView = viewMode === ORDER_VIEWS.PAID;
   const isCodView = viewMode === ORDER_VIEWS.COD;
   const isPaymentDesk = isPaidView || isCodView;
-  const workflow = getReturnWorkflow(order);
-  const returnStatus = String(workflow.returnStatus || "").toLowerCase();
-  const refundStatus = String(workflow.refundStatus || order.paymentStatus || "").toLowerCase();
-  const refundDone = refundStatus === "completed" || refundStatus === "refunded" || String(order.paymentStatus || "").toLowerCase() === "refunded";
-  const returnRejected = returnStatus === "rejected";
-  const returnApproved = returnStatus === "approved" || returnStatus === "received";
-  const canOpenReturn = !returnApproved && !refundDone && returnStatus !== "requested" && !returnRejected;
-  const canApproveReturn = (returnStatus === "requested" || (!returnStatus && order.refundRequired)) && !returnApproved && !returnRejected && !refundDone;
-  const canRejectReturn = (returnStatus === "requested" || (!returnStatus && order.refundRequired)) && !returnApproved && !refundDone;
-  const canApproveRefund = !refundDone && refundStatus !== "rejected" && (order.refundRequired || returnApproved || refundStatus === "required" || refundStatus === "pending" || String(order.paymentStatus || "").toLowerCase().includes("refund_required"));
-  const canRejectRefund = canApproveRefund;
+  const flags = isReturnsView ? getReturnActionFlags(order) : null;
   const restoreLabel = ctx.statusOptions.length === 1 && ctx.statusOptions[0] === "Pending" ? "Restore Order" : "Update Status";
 
   return `
@@ -3221,13 +3242,16 @@ function renderActions(order, viewMode = "all") {
         <button type="button" class="orders-secondary-link" data-order-action="summary" data-order-id="${id}">Print Order Summary</button>
         ${order.refundRequired ? `<a class="orders-secondary-link" href="#/orders?status=returns">Open Returns &amp; Refunds</a>` : ""}
       ` : ""}
-      ${isReturnsView ? `
+      ${isReturnsView && flags ? `
         <a class="orders-secondary-link" href="#/orders" data-order-action="view-original" data-order-id="${id}">View Original Order</a>
-        ${canOpenReturn ? `<button type="button" class="orders-secondary-link orders-action--primary" data-order-action="open-return" data-order-id="${id}">Open Return Request</button>` : ""}
-        ${canApproveReturn ? `<button type="button" class="orders-secondary-link orders-action--primary" data-order-action="approve-return" data-order-id="${id}">Approve Return</button>` : ""}
-        ${canRejectReturn ? `<button type="button" class="orders-danger-button" data-order-action="reject-return" data-order-id="${id}">Reject Return</button>` : ""}
-        ${canApproveRefund ? `<button type="button" class="orders-secondary-link orders-action--primary" data-order-action="approve-refund" data-order-id="${id}">Approve Refund</button>` : ""}
-        ${canRejectRefund ? `<button type="button" class="orders-danger-button" data-order-action="reject-refund" data-order-id="${id}">Reject Refund</button>` : ""}
+        ${flags.canOpenReturn ? `<button type="button" class="orders-secondary-link orders-action--primary" data-order-action="open-return" data-order-id="${id}">Open Return Request</button>` : ""}
+        ${flags.canApproveReturn ? `<button type="button" class="orders-secondary-link orders-action--primary" data-order-action="approve-return" data-order-id="${id}">Approve Return</button>` : ""}
+        ${flags.canRejectReturn ? `<button type="button" class="orders-danger-button" data-order-action="reject-return" data-order-id="${id}">Reject Return</button>` : ""}
+        ${flags.canReceiveReturn ? `<button type="button" class="orders-secondary-link orders-action--primary" data-order-action="receive-return" data-order-id="${id}">Mark Return Received</button>` : ""}
+        ${flags.canInspectReturn ? `<button type="button" class="orders-secondary-link orders-action--primary" data-order-action="inspect-return" data-order-id="${id}">Record Inspection</button>` : ""}
+        ${flags.canApproveRefund ? `<button type="button" class="orders-secondary-link orders-action--primary" data-order-action="approve-refund" data-order-id="${id}">Start Refund Processing</button>` : ""}
+        ${flags.canCompleteRefund ? `<button type="button" class="orders-secondary-link orders-action--primary" data-order-action="complete-refund" data-order-id="${id}">Mark Refund Completed</button>` : ""}
+        ${flags.canRejectRefund ? `<button type="button" class="orders-danger-button" data-order-action="reject-refund" data-order-id="${id}">Reject Refund</button>` : ""}
         <button type="button" class="orders-secondary-link" data-order-action="print-return" data-order-id="${id}">Print Return Report</button>
         <button type="button" class="orders-secondary-link" data-order-action="print-refund" data-order-id="${id}">Print Refund Report</button>
       ` : ""}
@@ -4409,11 +4433,14 @@ export async function renderOrders(container, options = {}) {
                 <option value="" ${!state.returnStatusFilter ? "selected" : ""}>All return statuses</option>
                 <option value="requested" ${state.returnStatusFilter === "requested" ? "selected" : ""}>Requested</option>
                 <option value="approved" ${state.returnStatusFilter === "approved" ? "selected" : ""}>Approved</option>
+                <option value="received" ${state.returnStatusFilter === "received" ? "selected" : ""}>Return Received</option>
+                <option value="inspected" ${state.returnStatusFilter === "inspected" ? "selected" : ""}>Inspected</option>
                 <option value="rejected" ${state.returnStatusFilter === "rejected" ? "selected" : ""}>Rejected</option>
               </select>
               <select id="ordersRefundStatusFilter" class="input orders-filter-control" aria-label="Filter by refund status" ${disabled}>
                 <option value="" ${!state.refundStatusFilter ? "selected" : ""}>All refund statuses</option>
                 <option value="required" ${state.refundStatusFilter === "required" ? "selected" : ""}>Required</option>
+                <option value="processing" ${state.refundStatusFilter === "processing" ? "selected" : ""}>Processing</option>
                 <option value="completed" ${state.refundStatusFilter === "completed" ? "selected" : ""}>Completed</option>
                 <option value="rejected" ${state.refundStatusFilter === "rejected" ? "selected" : ""}>Rejected</option>
               </select>
@@ -5540,13 +5567,62 @@ export async function renderOrders(container, options = {}) {
       const note = window.prompt(`Approve return for ${orderId}?\n\nOptional admin notes:`, getReturnWorkflow(order).adminNotes || "Return approved") || "";
       const confirmed = await openOrdersConfirmDialog({
         title: "Approve return",
-        message: `Approve return for order ${orderId}? Stock will be restored when appropriate.`,
+        message: `Approve return for order ${orderId}? Physical returns still need receive + inspection before refund processing. Stock is restored only after an accepted inspection (or immediately for non-physical cancel/delay cases).`,
         confirmLabel: "Approve Return",
         tone: "warn"
       });
       if (!confirmed) return;
       void applyReturnAction(orderId, "approve_return", `Return approved for ${orderId}.`, {
         adminNotes: note.trim() || "Return approved"
+      });
+      return;
+    }
+    if (action === "receive-return") {
+      const note = window.prompt(`Mark returned product received for ${orderId}?\n\nOptional notes:`, "Returned product received") || "";
+      const confirmed = await openOrdersConfirmDialog({
+        title: "Return received",
+        message: `Confirm that the returned product for order ${orderId} has been received?`,
+        confirmLabel: "Mark Received",
+        tone: "warn"
+      });
+      if (!confirmed) return;
+      void applyReturnAction(orderId, "receive_return", `Return received for ${orderId}.`, {
+        adminNotes: note.trim() || "Returned product received"
+      });
+      return;
+    }
+    if (action === "inspect-return") {
+      const resultRaw = window.prompt(
+        `Inspection result for ${orderId}?\n\nType PASS or FAIL:`,
+        "PASS"
+      );
+      if (resultRaw == null) return;
+      const passed = !/^fail/i.test(String(resultRaw).trim());
+      let restockEligible = false;
+      if (passed) {
+        const restockRaw = window.prompt(
+          `Restock this item into sellable inventory?\n\nType YES to restock, NO if damaged/unsellable:`,
+          "YES"
+        );
+        if (restockRaw == null) return;
+        restockEligible = /^y(es)?$/i.test(String(restockRaw).trim());
+      }
+      const note = window.prompt("Inspection notes:", passed ? "Inspection passed" : "Inspection failed") || "";
+      const confirmed = await openOrdersConfirmDialog({
+        title: "Record inspection",
+        message: passed
+          ? `Record PASS for ${orderId}?${restockEligible ? " Stock will be restored once." : " Item will not be returned to sellable stock."}`
+          : `Record FAIL for ${orderId}? Refund will be rejected and stock will not be restored.`,
+        confirmLabel: "Save Inspection",
+        tone: "warn"
+      });
+      if (!confirmed) return;
+      void applyReturnAction(orderId, "inspect_return", `Inspection recorded for ${orderId}.`, {
+        adminNotes: note.trim() || (passed ? "Inspection passed" : "Inspection failed"),
+        inspectResult: passed ? "pass" : "fail",
+        inspectPassed: passed,
+        restockEligible,
+        productCondition: passed ? (restockEligible ? "Inspected – restockable" : "Inspected – not restockable") : "Inspected – not acceptable"
       });
       return;
     }
@@ -5567,7 +5643,7 @@ export async function renderOrders(container, options = {}) {
     }
     if (action === "approve-refund") {
       const defaultAmount = String(getReturnWorkflow(order).refundAmount || order.total || 0);
-      const amountRaw = window.prompt(`Approve refund for ${orderId}?\n\nRefund amount:`, defaultAmount);
+      const amountRaw = window.prompt(`Start refund processing for ${orderId}?\n\nRefund amount (cannot exceed paid total):`, defaultAmount);
       if (amountRaw == null) return;
       const amount = Number(amountRaw);
       if (!Number.isFinite(amount) || amount < 0) {
@@ -5575,19 +5651,33 @@ export async function renderOrders(container, options = {}) {
         paintFromState();
         return;
       }
-      const method = window.prompt("Refund method:", getReturnWorkflow(order).refundMethod || paymentLabel(order) || "original_payment") || "original_payment";
-      const note = window.prompt("Optional admin notes:", getReturnWorkflow(order).adminNotes || "Refund approved") || "Refund approved";
+      const method = window.prompt("Refund method (original payment method preferred):", getReturnWorkflow(order).refundMethod || paymentLabel(order) || "original_payment") || "original_payment";
+      const note = window.prompt("Optional admin notes:", getReturnWorkflow(order).adminNotes || "Refund processing started") || "Refund processing started";
       const confirmed = await openOrdersConfirmDialog({
-        title: "Confirm refund",
-        message: `Confirm refund of ${formatCurrency(amount)} for order ${orderId}? This updates payment records, reports, and dashboard statistics. Duplicate refunds are blocked.`,
-        confirmLabel: "Complete Refund",
+        title: "Start refund processing",
+        message: `Start manual refund of ${formatCurrency(amount)} for order ${orderId} via ${method}? This does NOT mark the refund completed. Policy: process within 24 business hours after receive & inspection (Mon–Sat).`,
+        confirmLabel: "Start Processing",
         tone: "warn"
       });
       if (!confirmed) return;
-      void applyReturnAction(orderId, "approve_refund", `Refund approved for ${orderId}.`, {
+      void applyReturnAction(orderId, "approve_refund", `Refund processing started for ${orderId}.`, {
         refundAmount: amount,
         refundMethod: method.trim(),
-        adminNotes: note.trim() || "Refund approved"
+        adminNotes: note.trim() || "Refund processing started"
+      });
+      return;
+    }
+    if (action === "complete-refund") {
+      const note = window.prompt(`Confirm refund completed for ${orderId}?\n\nOnly confirm after the money has actually been returned.`, "Refund completed via original payment method") || "";
+      const confirmed = await openOrdersConfirmDialog({
+        title: "Mark refund completed",
+        message: `Mark refund as COMPLETED for order ${orderId}? Only do this after the payment/refund is confirmed. Duplicate completions are blocked.`,
+        confirmLabel: "Mark Completed",
+        tone: "warn"
+      });
+      if (!confirmed) return;
+      void applyReturnAction(orderId, "complete_refund", `Refund completed for ${orderId}.`, {
+        adminNotes: note.trim() || "Refund completed"
       });
       return;
     }

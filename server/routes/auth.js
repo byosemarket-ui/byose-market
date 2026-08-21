@@ -10,7 +10,10 @@ const {
     login,
     me,
     updateMe,
+    uploadMePhoto,
+    removeMePhoto,
     changePassword,
+    deleteAccount,
     refresh,
     logout,
     forgotPassword,
@@ -21,6 +24,7 @@ const {
 const authMiddleware = require('../middleware/authmiddleware');
 const requireDatabase = require('../middleware/requiredatabase');
 const { createRateLimiter } = require('../middleware/ratelimiter');
+const { createLocalUploadMiddleware } = require('../middleware/upload/localupload');
 
 function validatePayload(requiredFields = []) {
     return function payloadValidator(req, res, next) {
@@ -59,6 +63,22 @@ const authRefreshLimiter = createRateLimiter({
     message: 'Too many session refresh attempts. Please try again later.'
 });
 
+const profilePhotoLimiter = createRateLimiter({
+    windowMs: 10 * 60 * 1000,
+    max: 20,
+    code: 'PROFILE_PHOTO_RATE_LIMITED',
+    message: 'Too many profile photo updates. Please retry shortly.'
+});
+
+function optionalUsersUpload(req, res, next) {
+    const contentType = String(req.headers['content-type'] || '').toLowerCase();
+    if (!contentType.includes('multipart/form-data')) {
+        return next();
+    }
+    req.params = { ...(req.params || {}), bucket: 'users' };
+    return createLocalUploadMiddleware()(req, res, next);
+}
+
 router.use((req, res, next) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     res.setHeader('Pragma', 'no-cache');
@@ -86,7 +106,10 @@ router.post('/reset-password', authSensitiveLimiter, requireDatabase, validatePa
 // Protected: current user
 router.get('/me', authMiddleware, requireDatabase, me);
 router.put('/me', authMiddleware, requireDatabase, updateMe);
+router.post('/me/photo', profilePhotoLimiter, authMiddleware, requireDatabase, optionalUsersUpload, uploadMePhoto);
+router.delete('/me/photo', profilePhotoLimiter, authMiddleware, requireDatabase, removeMePhoto);
 router.post('/change-password', authSensitiveLimiter, authMiddleware, requireDatabase, validatePayload(['currentPassword', 'newPassword']), changePassword);
+router.delete('/me', authSensitiveLimiter, authMiddleware, requireDatabase, validatePayload(['password', 'confirmation']), deleteAccount);
 
 // Persistent session lifecycle
 router.post('/refresh', authRefreshLimiter, requireDatabase, validatePayload(['refreshToken']), refresh);
