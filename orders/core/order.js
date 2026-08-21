@@ -171,6 +171,7 @@ export function buildOrderPayload(options = {}) {
     products: items,
     shippingAddress: {
       ...clone(state.shipping),
+      savedAddressId: String(state.shipping.savedAddressId || '').trim(),
       phone: customerPhone,
       city: state.shipping.provinceCity,
       provinceCity: state.shipping.provinceCity,
@@ -178,6 +179,7 @@ export function buildOrderPayload(options = {}) {
       sector: state.shipping.sector,
       cell: state.shipping.cell,
       village: state.shipping.village,
+      street: state.shipping.street || '',
       note: state.shipping.note,
       latitude: state.shipping.latitude,
       longitude: state.shipping.longitude,
@@ -189,6 +191,7 @@ export function buildOrderPayload(options = {}) {
       sector: state.shipping.sector,
       cell: state.shipping.cell,
       village: state.shipping.village,
+      street: state.shipping.street || '',
       note: state.shipping.note
     },
     gpsLocation: {

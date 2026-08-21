@@ -113,7 +113,8 @@ export function resolveOrderAddress(order) {
   const additional = uniqueOptional(pickAddressText(
     ship.additionalAddress, ship.additional, full.additionalAddress, ship.addressLine, full.addressLine
   ), usedOptional);
-  const landmark = uniqueOptional(pickAddressText(ship.note, full.note, ship.landmark, full.landmark), usedOptional);
+  // Landmark/note is a separate delivery field — keep it even when the text matches street.
+  const landmark = pickAddressText(ship.note, full.note, ship.landmark, full.landmark);
 
   return {
     province,

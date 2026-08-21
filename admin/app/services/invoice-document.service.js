@@ -608,6 +608,7 @@ export function buildInvoiceHtml(order, options = {}) {
           { label: "Street / House", value: streetHouse },
           { label: "Building / Apartment", value: buildingApt },
           { label: "Additional Address", value: address.additional },
+          { label: "Landmark / Note", value: address.landmark },
           { label: "Delivery Instructions", value: notes.instructions, wrap: true },
           { label: "Customer Notes", value: notes.notes, wrap: true }
         ])}

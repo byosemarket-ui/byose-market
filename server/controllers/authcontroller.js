@@ -6,6 +6,7 @@ const { hashPassword, comparePasswords } = require('../utils/hash');
 const { generateOTP, saveOTP, verifyOTP, issueResetToken, verifyResetToken } = require('../utils/otp');
 const { readAccessTokenClaims } = require('../utils/token');
 const customerSessionService = require('../services/customersession.service');
+const customerAddressService = require('../services/customeraddress.service');
 const authMiddleware = require('../middleware/authmiddleware');
 const { sendSMS } = require('../utils/sms');
 const { notifyPasswordReset } = require('../utils/notifications');
@@ -340,13 +341,17 @@ exports.updateMe = async (req, res) => {
                 ...address,
                 line1: String(address.line1 ?? address.street ?? '').trim(),
                 street: String(address.street ?? address.line1 ?? '').trim(),
-                city: String(address.city ?? '').trim(),
+                city: String(address.city ?? address.provinceCity ?? '').trim(),
+                provinceCity: String(address.provinceCity ?? address.city ?? '').trim(),
                 district: String(address.district ?? '').trim(),
                 sector: String(address.sector ?? '').trim(),
                 cell: String(address.cell ?? '').trim(),
                 village: String(address.village ?? '').trim(),
                 firstName: String(address.firstName ?? '').trim(),
                 lastName: String(address.lastName ?? '').trim(),
+                fullName: String(address.fullName ?? `${address.firstName || ''} ${address.lastName || ''}`).trim(),
+                note: String(address.note ?? address.additional ?? '').trim(),
+                additional: String(address.additional ?? address.note ?? '').trim(),
                 phone: String(address.phone ?? nextPhone).trim()
             }
             : (user.address || {});
@@ -358,6 +363,17 @@ exports.updateMe = async (req, res) => {
             phone: nextPhone,
             address: nextAddress
         });
+
+        if (hasAddressUpdate) {
+            try {
+                await customerAddressService.upsertFromProfile(user.id, nextAddress, {
+                    name: nextName,
+                    phone: nextPhone
+                });
+            } catch (addressError) {
+                authLogger.warn('auth.update_me_address_sync_failed', { error: addressError, userId: user.id });
+            }
+        }
 
         const sanitizedUser = sanitizeUserForClient(updatedUser);
         const realtimeService = getRealtimeEventService();

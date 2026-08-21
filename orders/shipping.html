@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="checkout.css?v=20260815-step3-dpo-handoff">
+  <link rel="stylesheet" href="checkout.css?v=20260821-address-checkout">
 </head>
 <body>
   <div class="ck-shell">
@@ -21,7 +21,35 @@
             <p>Enter your delivery address in Rwanda.</p>
           </header>
           <div id="message" class="ck-message" hidden role="alert"></div>
+          <section id="savedAddressPanel" class="ck-saved-addresses" hidden>
+            <div class="ck-saved-addresses__head">
+              <h2>Saved addresses</h2>
+              <p>Select a delivery address. Your default is chosen automatically when available.</p>
+            </div>
+            <div id="savedAddressList" class="ck-saved-address-list"></div>
+            <div class="ck-saved-addresses__actions">
+              <button type="button" class="ck-btn ck-btn--ghost" id="useNewAddressBtn">
+                Add New Address
+              </button>
+            </div>
+          </section>
           <form id="shippingForm" class="ck-form-grid ck-shipping-form" novalidate>
+            <input type="hidden" name="savedAddressId" id="savedAddressId" value="">
+            <p id="addressModeHint" class="ck-address-mode-hint" hidden></p>
+            <div id="addressBookOptions" class="ck-address-book-options" hidden>
+              <label class="ck-check" id="saveToAccountLabel" hidden>
+                <input type="checkbox" name="saveToAccount" id="saveToAccount" value="1">
+                <span>Save this address to my account</span>
+              </label>
+              <label class="ck-check" id="updateSavedLabel" hidden>
+                <input type="checkbox" name="updateSavedAddress" id="updateSavedAddress" value="1">
+                <span>Also update my saved address</span>
+              </label>
+              <label class="ck-check" id="saveAsDefaultLabel" hidden>
+                <input type="checkbox" name="saveAsDefault" id="saveAsDefault" value="1">
+                <span>Set as default shipping address</span>
+              </label>
+            </div>
             <section class="ck-shipping-section" aria-labelledby="shippingContactTitle">
               <h2 class="ck-shipping-section__title" id="shippingContactTitle">Contact</h2>
               <div class="ck-shipping-section__grid">
@@ -157,8 +185,10 @@
   </div>
   <div id="stickyBar"></div>
   <script src="../config/runtime-api-bootstrap.js"></script>
+  <script src="../services/authservice.js"></script>
+  <script src="../services/customer-addresses.js"></script>
   <script src="../js/storefront-settings.js" defer></script>
   <script src="shipping-api.js?v=20260813-delivery-fee"></script>
-  <script type="module" src="shipping.js?v=20260813-step4-lifecycle"></script>
+  <script type="module" src="shipping.js?v=20260821-address-checkout"></script>
 </body>
 </html>

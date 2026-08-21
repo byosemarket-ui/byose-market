@@ -1179,3 +1179,156 @@ a { color: var(--ck-accent); text-decoration: none; }
   .ck-sidebar { display: none; }
 }
 
+.ck-saved-addresses {
+  margin: 0 0 18px;
+  padding: 14px;
+  border: 1px solid var(--ck-border);
+  border-radius: var(--ck-radius);
+  background: var(--ck-surface);
+}
+
+.ck-saved-addresses__head h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.ck-saved-addresses__head p {
+  margin: 0 0 12px;
+  color: var(--ck-muted);
+  font-size: 13px;
+}
+
+.ck-saved-address-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ck-saved-address {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--ck-border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px;
+  font: inherit;
+  color: inherit;
+}
+
+.ck-saved-address.is-selected {
+  border-color: var(--ck-accent);
+  box-shadow: 0 0 0 2px rgba(225, 29, 72, 0.12);
+}
+
+.ck-saved-address__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.ck-saved-address__name {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.ck-saved-address__phone,
+.ck-saved-address__line {
+  color: var(--ck-muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.ck-saved-address__badges {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.ck-saved-address__badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ck-success);
+  background: rgba(5, 150, 105, 0.1);
+  border-radius: 999px;
+  padding: 4px 8px;
+}
+
+.ck-saved-address__badge--selected {
+  color: var(--ck-accent);
+  background: rgba(225, 29, 72, 0.1);
+}
+
+.ck-saved-address__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ck-btn--compact {
+  padding: 8px 10px;
+  font-size: 13px;
+  width: auto;
+}
+
+.ck-saved-addresses__actions {
+  margin-top: 10px;
+}
+
+.ck-saved-addresses__actions .ck-btn {
+  width: 100%;
+}
+
+.ck-address-mode-hint {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.04);
+  color: var(--ck-muted);
+  font-size: 13px;
+}
+
+.ck-address-book-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 12px;
+  border: 1px dashed var(--ck-border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.ck-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ck-text);
+  cursor: pointer;
+}
+
+.ck-check input {
+  margin-top: 2px;
+}
+
+.ck-saved-tag {
+  display: inline-block;
+  margin: 0 0 10px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(5, 150, 105, 0.1);
+  color: var(--ck-success);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ck-address-change {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+

@@ -61,6 +61,8 @@
     "verify:checkout-order": "node scripts/verify-checkout-order-step2.js",
     "verify:inventory-stock": "node scripts/verify-inventory-stock-flow.js",
     "verify:customer-auth": "node scripts/verify-customer-auth-session.js",
+    "verify:customer-addresses": "node scripts/verify-customer-addresses.js",
+    "verify:admin-order-address": "node scripts/verify-admin-order-address.js",
     "verify:order-e2e": "node scripts/verify-order-system-step3.js",
     "verify:order-created-email": "node scripts/verify-order-created-email.js",
     "verify:notification-reliability": "node scripts/verify-notification-reliability.js",

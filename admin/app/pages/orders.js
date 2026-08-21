@@ -990,6 +990,8 @@ function readHashQuery() {
 }
 
 function resolveMapLink(order) {
+  const location = resolveOrderLocation(order);
+  if (location.mapLink) return location.mapLink;
   const gps = order?.gpsLocation || {};
   const ship = order?.shippingAddress || {};
   const lat = gps.latitude || ship.latitude;
@@ -1325,33 +1327,48 @@ function renderInfoGrid(rows) {
   `;
 }
 
+function formatResolvedAddressLine(address, { includeLandmark = true } = {}) {
+  return [
+    address?.province,
+    address?.district,
+    address?.sector,
+    address?.cell,
+    address?.village,
+    [address?.street, address?.house].filter(Boolean).join(", "),
+    [address?.apartment, address?.building].filter(Boolean).join(", "),
+    address?.additional,
+    includeLandmark ? address?.landmark : ""
+  ].map((part) => String(part || "").trim()).filter(Boolean).join(", ");
+}
+
 function renderCustomerBlock(order) {
-  const ship = order.shippingAddress || {};
-  const full = order.fullAddress || {};
-  const phone = ship.phone || order.customerPhone || "";
-  const email = order.customerEmail || "";
-  const mapLink = resolveMapLink(order);
-  const gps = order.gpsLocation || {};
+  const customer = resolveOrderCustomer(order);
+  const address = resolveOrderAddress(order);
+  const location = resolveOrderLocation(order);
+  const phone = customer.phone || "";
+  const email = customer.email || "";
+  const mapLink = location.mapLink || resolveMapLink(order);
 
   return `
     <div class="orders-detail-card">
       <h4>Customer Information</h4>
       ${renderInfoGrid([
-        ["Full Name", ship.fullName || order.customerName],
+        ["Full Name", customer.name || order.customerName],
         ["Phone Number", phone
           ? { html: `<a class="orders-inline-link" href="tel:${escapeHtml(phone)}">${escapeHtml(phone)}</a>` }
           : "—"],
         ["Email", email
           ? { html: `<a class="orders-inline-link" href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a>` }
           : ""],
-        ["Province / City", ship.provinceCity || full.province],
-        ["District", ship.district || full.district],
-        ["Sector", ship.sector || full.sector],
-        ["Cell", ship.cell || full.cell],
-        ["Village", ship.village || full.village],
-        ["Landmark / Note", ship.note || full.note || full.street],
-        ["Latitude", gps.latitude || ship.latitude],
-        ["Longitude", gps.longitude || ship.longitude]
+        ["Province / City", address.province || "Not provided"],
+        ["District", address.district || "Not provided"],
+        ["Sector", address.sector || "Not provided"],
+        ["Cell", address.cell || "Not provided"],
+        ["Village", address.village || "Not provided"],
+        ["Street / House", [address.street, address.house].filter(Boolean).join(", ")],
+        ["Landmark / Note", address.landmark],
+        ["Latitude", location.latitude],
+        ["Longitude", location.longitude]
       ])}
       ${mapLink ? `<p class="orders-inline-link-wrap"><a class="orders-inline-link" href="${escapeHtml(mapLink)}" target="_blank" rel="noopener">Open Customer Location in Google Maps</a></p>` : ""}
     </div>
@@ -1446,23 +1463,25 @@ function renderReturnInfoBlock(order) {
 }
 
 function renderDeliveryBlock(order) {
-  const ship = order.shippingAddress || {};
-  const full = order.fullAddress || {};
-  const mapLink = resolveMapLink(order);
+  const customer = resolveOrderCustomer(order);
+  const address = resolveOrderAddress(order);
+  const location = resolveOrderLocation(order);
+  const mapLink = location.mapLink || resolveMapLink(order);
   return `
     <div class="orders-detail-card">
       <h4>Delivery Information</h4>
       ${renderInfoGrid([
         ["Delivery Status", order.deliveryStatus || order.status],
         ["Shipping Method", order.deliveryLabel || order.deliveryMethod || "Home delivery"],
-        ["Recipient", ship.fullName || order.customerName],
-        ["Phone", ship.phone || order.customerPhone],
-        ["Province / City", ship.provinceCity || full.province],
-        ["District", ship.district || full.district],
-        ["Sector", ship.sector || full.sector],
-        ["Cell", ship.cell || full.cell],
-        ["Village", ship.village || full.village],
-        ["Landmark / Note", ship.note || full.note],
+        ["Recipient", customer.name || order.customerName],
+        ["Phone", customer.phone || order.customerPhone],
+        ["Province / City", address.province || "Not provided"],
+        ["District", address.district || "Not provided"],
+        ["Sector", address.sector || "Not provided"],
+        ["Cell", address.cell || "Not provided"],
+        ["Village", address.village || "Not provided"],
+        ["Street / House", [address.street, address.house].filter(Boolean).join(", ")],
+        ["Landmark / Note", address.landmark],
         ["Completion Date", resolveCompletionDate(order) ? formatDate(resolveCompletionDate(order)) : ""]
       ])}
       ${mapLink ? `<p class="orders-inline-link-wrap"><a class="orders-inline-link" href="${escapeHtml(mapLink)}" target="_blank" rel="noopener">Open Customer Location in Google Maps</a></p>` : ""}
@@ -1496,15 +1515,16 @@ function resolveProductImage(item) {
 }
 
 function resolveCustomerLocation(order) {
-  const ship = order?.shippingAddress || {};
-  const full = order?.fullAddress || {};
+  const address = resolveOrderAddress(order);
   const parts = [
-    ship.province || ship.provinceCity || full.province || full.provinceCity || order.provinceCity,
-    ship.district || full.district,
-    ship.sector || full.sector
+    address.province,
+    address.district,
+    address.sector,
+    address.cell,
+    address.village
   ].map((part) => String(part || "").trim()).filter(Boolean);
   if (parts.length) return parts.join(", ");
-  return String(ship.city || full.city || ship.addressLine || full.addressLine || "").trim() || "—";
+  return formatResolvedAddressLine(address) || "—";
 }
 
 function resolveProductVariant(item) {
@@ -2015,9 +2035,15 @@ function renderReviewPaymentPreview(order) {
 
 function resolveReviewDeliverySummary(order) {
   const address = resolveReviewAddressRecord(order);
-  const line1 = [address.sector, address.district].filter(Boolean).join(", ");
-  const line2 = address.province;
-  return [line1, line2].filter(Boolean).join("\n");
+  return [
+    address.province,
+    address.district,
+    address.sector,
+    address.cell,
+    address.village,
+    [address.street, address.house].filter(Boolean).join(", "),
+    address.landmark
+  ].filter(Boolean).join("\n");
 }
 
 function renderReviewDeliverySection(order) {
@@ -2700,38 +2726,40 @@ function resolveInternalNotes(order) {
     || order?.notes
     || workflow.adminNotes
     || order?.paymentNote
-    || order?.shippingAddress?.note
     || ""
   ).trim();
 }
 
 function buildCustomerInfoText(order) {
-  const ship = order?.shippingAddress || {};
-  const full = order?.fullAddress || {};
+  const customer = resolveOrderCustomer(order);
+  const address = resolveOrderAddress(order);
   return [
-    `Name: ${ship.fullName || order?.customerName || "—"}`,
-    `Phone: ${ship.phone || order?.customerPhone || "—"}`,
-    `Email: ${order?.customerEmail || "—"}`,
-    `Province: ${ship.provinceCity || ship.province || full.province || full.provinceCity || "—"}`,
-    `District: ${ship.district || full.district || "—"}`,
-    `Sector: ${ship.sector || full.sector || "—"}`,
-    `Cell: ${ship.cell || full.cell || "—"}`,
-    `Village: ${ship.village || full.village || "—"}`
+    `Name: ${customer.name || order?.customerName || "—"}`,
+    `Phone: ${customer.phone || order?.customerPhone || "—"}`,
+    `Email: ${customer.email || order?.customerEmail || "—"}`,
+    `Province: ${address.province || "—"}`,
+    `District: ${address.district || "—"}`,
+    `Sector: ${address.sector || "—"}`,
+    `Cell: ${address.cell || "—"}`,
+    `Village: ${address.village || "—"}`,
+    `Street: ${address.street || "—"}`,
+    `Landmark: ${address.landmark || "—"}`
   ].join("\n");
 }
 
 function buildDeliveryAddressText(order) {
-  const ship = order?.shippingAddress || {};
-  const full = order?.fullAddress || {};
+  const customer = resolveOrderCustomer(order);
+  const address = resolveOrderAddress(order);
   return [
-    ship.fullName || order?.customerName || "",
-    ship.phone || order?.customerPhone || "",
-    ship.provinceCity || ship.province || full.province || full.provinceCity || "",
-    ship.district || full.district || "",
-    ship.sector || full.sector || "",
-    ship.cell || full.cell || "",
-    ship.village || full.village || "",
-    ship.note || full.note || full.street || full.addressLine || ship.addressLine || ""
+    customer.name || order?.customerName || "",
+    customer.phone || order?.customerPhone || "",
+    address.province || "",
+    address.district || "",
+    address.sector || "",
+    address.cell || "",
+    address.village || "",
+    [address.street, address.house].filter(Boolean).join(", "),
+    address.landmark || ""
   ].map((part) => String(part || "").trim()).filter(Boolean).join("\n");
 }
 
@@ -2895,28 +2923,23 @@ function renderAllOrdersDetailNav(order) {
 
 function renderAllOrdersDetails(order, viewMode = "all") {
   const items = Array.isArray(order?.items) ? order.items : [];
-  const ship = order?.shippingAddress || {};
-  const full = order?.fullAddress || {};
+  const customer = resolveOrderCustomer(order);
+  const address = resolveOrderAddress(order);
+  const location = resolveOrderLocation(order);
   const paymentStatus = order?.paymentStatusLabel || order?.paymentStatus || "Pending";
   const orderStatus = order?.status || order?.orderStatus || "Pending";
-  const phone = ship.phone || order?.customerPhone || "";
-  const email = order?.customerEmail || "";
-  const province = ship.provinceCity || ship.province || full.province || full.provinceCity || "—";
-  const district = ship.district || full.district || "—";
-  const sector = ship.sector || full.sector || "—";
-  const cell = ship.cell || full.cell || "—";
-  const village = ship.village || full.village || "—";
-  const landmark = ship.note || full.note || full.street || full.addressLine || ship.addressLine || "";
-  const fullAddress = [
-    province !== "—" ? province : "",
-    district !== "—" ? district : "",
-    sector !== "—" ? sector : "",
-    cell !== "—" ? cell : "",
-    village !== "—" ? village : "",
-    landmark
-  ].filter(Boolean).join(", ") || "—";
+  const phone = customer.phone || order?.customerPhone || "";
+  const email = customer.email || order?.customerEmail || "";
+  const province = address.province || "—";
+  const district = address.district || "—";
+  const sector = address.sector || "—";
+  const cell = address.cell || "—";
+  const village = address.village || "—";
+  const landmark = address.landmark || "";
+  const streetHouse = [address.street, address.house].filter(Boolean).join(", ");
+  const fullAddress = formatResolvedAddressLine(address) || "—";
   const internalNotes = resolveInternalNotes(order);
-  const mapLink = resolveMapLink(order);
+  const mapLink = location.mapLink || resolveMapLink(order);
   const orderKey = escapeHtml(order.orderId || order.id);
   const detailsMode = String(viewMode || "all").toLowerCase();
   const isAllDetails = detailsMode === ORDER_VIEWS.ALL || detailsMode === "all";
@@ -2977,7 +3000,7 @@ function renderAllOrdersDetails(order, viewMode = "all") {
             <h3>Customer Information</h3>
           </header>
           ${renderInfoGrid([
-            ["Customer Name", ship.fullName || order.customerName || "—"],
+            ["Customer Name", customer.name || order.customerName || "—"],
             ["Phone Number", phone
               ? { html: `<a class="orders-inline-link" href="tel:${escapeHtml(phone)}">${escapeHtml(phone)}</a>` }
               : "—"],
@@ -2989,6 +3012,8 @@ function renderAllOrdersDetails(order, viewMode = "all") {
             ["Sector", sector],
             ["Cell", cell],
             ["Village", village],
+            ["Street / House", streetHouse || "—"],
+            ["Landmark / Note", landmark || "—"],
             ["Full Delivery Address", fullAddress]
           ])}
         </section>
@@ -2998,13 +3023,14 @@ function renderAllOrdersDetails(order, viewMode = "all") {
             <h3>Delivery Address</h3>
           </header>
           ${renderInfoGrid([
-            ["Recipient", ship.fullName || order.customerName || "—"],
+            ["Recipient", customer.name || order.customerName || "—"],
             ["Phone", phone || "—"],
             ["Province", province],
             ["District", district],
             ["Sector", sector],
             ["Cell", cell],
             ["Village", village],
+            ["Street / House", streetHouse || "—"],
             ["Landmark / Note", landmark || "—"],
             ["Full Address", fullAddress]
           ])}
@@ -3534,23 +3560,16 @@ function renderOrderCard(order, { expanded = false, viewMode = "all", selectedId
 }
 
 function buildPrintRows(order) {
-  const ship = order.shippingAddress || {};
-  const full = order.fullAddress || {};
+  const customer = resolveOrderCustomer(order);
+  const address = resolveOrderAddress(order);
   return [
     ["Order", order.orderId || order.id],
     ["Date", formatDate(order.date)],
     ["Status", order.status],
-    ["Customer", ship.fullName || order.customerName],
-    ["Phone", ship.phone || order.customerPhone],
-    ["Email", order.customerEmail || "—"],
-    ["Address", [
-      ship.provinceCity || full.province,
-      ship.district || full.district,
-      ship.sector || full.sector,
-      ship.cell || full.cell,
-      ship.village || full.village,
-      ship.note || full.note
-    ].filter(Boolean).join(", ")],
+    ["Customer", customer.name || order.customerName],
+    ["Phone", customer.phone || order.customerPhone],
+    ["Email", customer.email || order.customerEmail || "—"],
+    ["Address", formatResolvedAddressLine(address) || "—"],
     ["Payment", `${paymentLabel(order)} · ${order.paymentStatusLabel || order.paymentStatus || "Pending"}`],
     ["Subtotal", formatCurrency(order.subtotal || 0)],
     ["Shipping", formatCurrency(order.deliveryFee || 0)],
@@ -3655,19 +3674,13 @@ function viewInvoice(order) {
 }
 
 function printPackingSlip(order) {
-  const ship = order.shippingAddress || {};
+  const customer = resolveOrderCustomer(order);
+  const address = resolveOrderAddress(order);
   const items = Array.isArray(order.items) ? order.items : [];
   openPrintableReport(`Packing Slip ${order.orderId || order.id}`, [
     {
       title: "Ship To",
-      content: `<p><strong>${escapeHtml(ship.fullName || order.customerName)}</strong><br>${escapeHtml(ship.phone || order.customerPhone || "")}<br>${escapeHtml([
-        ship.provinceCity,
-        ship.district,
-        ship.sector,
-        ship.cell,
-        ship.village,
-        ship.note
-      ].filter(Boolean).join(", "))}</p>`
+      content: `<p><strong>${escapeHtml(customer.name || order.customerName)}</strong><br>${escapeHtml(customer.phone || order.customerPhone || "")}<br>${escapeHtml(formatResolvedAddressLine(address))}</p>`
     },
     {
       title: "Pack Contents",
@@ -3704,25 +3717,28 @@ function downloadInvoicePdf(order) {
 }
 
 function showCustomerDetails(order) {
-  const ship = order.shippingAddress || {};
+  const customer = resolveOrderCustomer(order);
+  const address = resolveOrderAddress(order);
   void openOrdersInfoDialog({
     title: `Customer · ${order.orderId || order.id || ""}`,
     lines: [
-      ["Customer", ship.fullName || order.customerName || "—"],
-      ["Phone", ship.phone || order.customerPhone || "—"],
-      ["Email", order.customerEmail || "—"],
-      ["Province/City", ship.provinceCity || order.fullAddress?.province || "—"],
-      ["District", ship.district || order.fullAddress?.district || "—"],
-      ["Sector", ship.sector || order.fullAddress?.sector || "—"],
-      ["Cell", ship.cell || order.fullAddress?.cell || "—"],
-      ["Village", ship.village || order.fullAddress?.village || "—"],
-      ["Landmark", ship.note || order.fullAddress?.note || "—"]
+      ["Customer", customer.name || order.customerName || "—"],
+      ["Phone", customer.phone || order.customerPhone || "—"],
+      ["Email", customer.email || order.customerEmail || "—"],
+      ["Province/City", address.province || "—"],
+      ["District", address.district || "—"],
+      ["Sector", address.sector || "—"],
+      ["Cell", address.cell || "—"],
+      ["Village", address.village || "—"],
+      ["Street / House", [address.street, address.house].filter(Boolean).join(", ") || "—"],
+      ["Landmark", address.landmark || "—"]
     ]
   });
 }
 
 function showDeliveryDetails(order) {
-  const ship = order.shippingAddress || {};
+  const address = resolveOrderAddress(order);
+  const location = resolveOrderLocation(order);
   const completionDate = resolveCompletionDate(order);
   void openOrdersInfoDialog({
     title: `Delivery · ${order.orderId || order.id || ""}`,
@@ -3731,15 +3747,8 @@ function showDeliveryDetails(order) {
       ["Delivery status", order.deliveryStatus || order.status || "—"],
       ["Shipping method", order.deliveryLabel || order.deliveryMethod || "Home delivery"],
       ["Completed", completionDate ? formatDate(completionDate) : "—"],
-      ["Address", [
-        ship.provinceCity,
-        ship.district,
-        ship.sector,
-        ship.cell,
-        ship.village,
-        ship.note
-      ].filter(Boolean).join(", ") || "—"],
-      ["Maps", resolveMapLink(order) || "—"]
+      ["Address", formatResolvedAddressLine(address) || "—"],
+      ["Maps", location.mapLink || resolveMapLink(order) || "—"]
     ]
   });
 }

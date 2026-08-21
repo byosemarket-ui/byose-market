@@ -161,15 +161,16 @@ function formatDeliveryAddress(order = {}) {
     const full = order.fullAddress && typeof order.fullAddress === 'object' ? order.fullAddress : {};
     const lines = [
         normalizeText(shipping.fullName || order.customerName),
+        normalizeText(shipping.phone || order.customerPhone),
         [
-            normalizeText(shipping.village || shipping.villageName || full.village),
-            normalizeText(shipping.cell || shipping.cellName || full.cell),
-            normalizeText(shipping.sector || shipping.sectorName || full.sector)
-        ].filter(Boolean).join(', '),
-        [
+            normalizeText(shipping.provinceCity || shipping.city || shipping.province || full.province || full.city || full.provinceCity),
             normalizeText(shipping.district || shipping.districtName || full.district),
-            normalizeText(shipping.provinceCity || shipping.city || shipping.province || full.province || full.city || full.provinceCity)
+            normalizeText(shipping.sector || shipping.sectorName || full.sector),
+            normalizeText(shipping.cell || shipping.cellName || full.cell),
+            normalizeText(shipping.village || shipping.villageName || full.village)
         ].filter(Boolean).join(', '),
+        normalizeText(shipping.street || shipping.line1 || full.street || full.line1),
+        normalizeText(shipping.note || shipping.landmark || full.note || full.landmark),
         normalizeText(shipping.country || full.country || 'Rwanda')
     ].filter(Boolean);
     return lines.join('\n');

@@ -7,7 +7,6 @@ import {
   getUserAddress,
   hydrateStorefrontState,
   normalizePhone,
-  persistUserAddress,
   readCartItems,
   readCheckoutConfirmation,
   readCurrentUser,
@@ -35,6 +34,7 @@ const STEP1_COMMIT_KEY = 'byose_checkout_step1_commit_v1';
 const STEP1_COMMIT_TTL_MS = 60 * 60 * 1000;
 
 const DEFAULT_ADDRESS = {
+  savedAddressId: '',
   fullName: '',
   phone: '',
   provinceCity: '',
@@ -42,6 +42,7 @@ const DEFAULT_ADDRESS = {
   sector: '',
   cell: '',
   village: '',
+  street: '',
   note: '',
   latitude: '',
   longitude: '',
@@ -57,6 +58,7 @@ const state = {
   source: 'cart',
   products: [],
   customer: { id: '', name: '', email: '', phone: '', avatar: '' },
+  savedAddresses: [],
   shipping: clone(DEFAULT_ADDRESS),
   deliveryMethodKey: 'homeDelivery',
   deliveryEstimate: '',
@@ -597,17 +599,19 @@ function loadShipping() {
   const fromDraft = draftMatches ? (draft?.shipping || draft?.shippingAddress) : null;
   const user = readCurrentUser();
   const saved = getUserAddress(user);
-  const savedFullName = [saved.firstName, saved.lastName].filter(Boolean).join(' ').trim();
+  const savedFullName = String(saved.fullName || [saved.firstName, saved.lastName].filter(Boolean).join(' ')).trim();
   const baseline = {
     ...clone(DEFAULT_ADDRESS),
+    savedAddressId: saved.savedAddressId || '',
     fullName: savedFullName || String(user?.name || '').trim(),
     phone: normalizePhone(saved.phone || user?.phone || ''),
-    provinceCity: saved.city || '',
+    provinceCity: saved.provinceCity || saved.city || '',
     district: saved.district || '',
     sector: saved.sector || '',
     cell: saved.cell || '',
     village: saved.village || '',
-    note: saved.street || ''
+    street: saved.street || '',
+    note: saved.note || ''
   };
   const current = state.shipping && typeof state.shipping === 'object' ? state.shipping : {};
   // Prefer already-applied handoff values over stale drafts/profile defaults.
@@ -981,6 +985,102 @@ export function guardStep(stepId) {
   return { ok: true, code: 'OK' };
 }
 
+function mapSavedAddressToShipping(address) {
+  if (window.ByoseCustomerAddresses && typeof window.ByoseCustomerAddresses.toShipping === 'function') {
+    return window.ByoseCustomerAddresses.toShipping(address);
+  }
+  return {
+    savedAddressId: String(address?.id || '').trim(),
+    fullName: String(address?.fullName || '').trim(),
+    phone: String(address?.phone || '').trim(),
+    provinceCity: String(address?.provinceCity || address?.city || '').trim(),
+    district: String(address?.district || '').trim(),
+    sector: String(address?.sector || '').trim(),
+    cell: String(address?.cell || '').trim(),
+    village: String(address?.village || '').trim(),
+    street: String(address?.street || address?.line1 || '').trim(),
+    note: String(address?.note || address?.additional || '').trim(),
+    latitude: String(address?.latitude || '').trim(),
+    longitude: String(address?.longitude || '').trim(),
+    mapLink: String(address?.mapLink || '').trim()
+  };
+}
+
+function applySavedAddressToShipping(address, { overwrite = false } = {}) {
+  const mapped = mapSavedAddressToShipping(address);
+  if (overwrite) {
+    state.shipping = mergeShippingPreferFilled(clone(DEFAULT_ADDRESS), mapped);
+  } else {
+    state.shipping = mergeShippingPreferFilled(mapped, state.shipping);
+    if (!state.shipping.savedAddressId) {
+      state.shipping.savedAddressId = mapped.savedAddressId;
+    }
+  }
+}
+
+export async function hydrateSavedAddresses() {
+  const user = readCurrentUser();
+  state.savedAddresses = [];
+  if (!user?.id || !window.ByoseCustomerAddresses || typeof window.ByoseCustomerAddresses.list !== 'function') {
+    return [];
+  }
+
+  try {
+    const addresses = await window.ByoseCustomerAddresses.list();
+    state.savedAddresses = Array.isArray(addresses) ? addresses : [];
+  } catch (error) {
+    console.warn('Unable to load saved shipping addresses.', error);
+    state.savedAddresses = [];
+    return [];
+  }
+
+  const selectedId = String(state.shipping.savedAddressId || '').trim();
+  const selected = state.savedAddresses.find((entry) => entry.id === selectedId);
+  const defaultAddress = state.savedAddresses.find((entry) => entry.isDefault) || state.savedAddresses[0];
+  const draftComplete = countFilledShippingFields(state.shipping) >= 7;
+
+  if (selected) {
+    if (!draftComplete) {
+      applySavedAddressToShipping(selected, { overwrite: true });
+    } else {
+      state.shipping.savedAddressId = selected.id;
+    }
+  } else if (defaultAddress && !draftComplete) {
+    applySavedAddressToShipping(defaultAddress, { overwrite: true });
+  } else if (defaultAddress && draftComplete) {
+    const mapped = mapSavedAddressToShipping(defaultAddress);
+    const samePlace = ['provinceCity', 'district', 'sector', 'cell', 'village']
+      .every((key) => String(state.shipping[key] || '').trim() === String(mapped[key] || '').trim());
+    if (samePlace) {
+      state.shipping.savedAddressId = defaultAddress.id;
+    }
+  }
+
+  emit('shipping-changed');
+  return state.savedAddresses;
+}
+
+export function selectSavedAddress(addressId) {
+  const nextId = String(addressId || '').trim();
+  if (!nextId) {
+    const user = readCurrentUser();
+    state.shipping = {
+      ...clone(DEFAULT_ADDRESS),
+      fullName: String(user?.name || state.customer.name || '').trim(),
+      phone: normalizePhone(user?.phone || state.customer.phone || '')
+    };
+    emit('shipping-changed');
+    return getState();
+  }
+
+  const address = (state.savedAddresses || []).find((entry) => entry.id === nextId);
+  if (address) {
+    applySavedAddressToShipping(address, { overwrite: true });
+    emit('shipping-changed');
+  }
+  return getState();
+}
+
 export function updateShipping(patch) {
   state.shipping = { ...state.shipping, ...patch };
   if (patch.phone) state.shipping.phone = normalizePhone(patch.phone);
@@ -1031,6 +1131,7 @@ export function continueToReview(formData = {}) {
   // Latest typed values win completely (no merge with stale empties).
   state.shipping = {
     ...clone(DEFAULT_ADDRESS),
+    savedAddressId: String(data.savedAddressId || state.shipping.savedAddressId || '').trim(),
     fullName: String(data.fullName || '').trim(),
     phone: normalizePhone(data.phone),
     provinceCity: String(data.provinceCity || '').trim(),
@@ -1038,6 +1139,7 @@ export function continueToReview(formData = {}) {
     sector: String(data.sector || '').trim(),
     cell: String(data.cell || '').trim(),
     village: String(data.village || '').trim(),
+    street: String(data.street || state.shipping.street || '').trim(),
     note: String(data.note == null ? '' : data.note).trim(),
     ...gpsFields
   };
@@ -1067,7 +1169,8 @@ export function continueToReview(formData = {}) {
     };
   }
 
-  persistUserAddress(state.shipping);
+  // Order-only: never mutate the customer's saved address book from Continue.
+  // Explicit create/update happens on the shipping page before this commit.
   persistDraft();
   writeHandoff();
   emit('shipping-changed');

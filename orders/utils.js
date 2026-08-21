@@ -714,44 +714,99 @@ export function readCurrentUser() {
 
 export function getUserAddress(user) {
   const address = user?.address && typeof user.address === 'object' ? user.address : {};
-  const [firstName, ...rest] = String(user?.name || '').trim().split(/\s+/).filter(Boolean);
+  const fullName = String(address.fullName || user?.name || '').trim();
+  const [firstName, ...rest] = fullName.split(/\s+/).filter(Boolean);
 
   return {
+    savedAddressId: String(address.id || address.savedAddressId || '').trim(),
+    fullName,
     firstName: String(address.firstName || firstName || '').trim(),
     lastName: String(address.lastName || rest.join(' ') || '').trim(),
     phone: String(address.phone || user?.phone || '').trim(),
-    city: String(address.city || '').trim(),
+    city: String(address.provinceCity || address.city || '').trim(),
+    provinceCity: String(address.provinceCity || address.city || '').trim(),
     district: String(address.district || '').trim(),
     sector: String(address.sector || '').trim(),
     cell: String(address.cell || '').trim(),
     village: String(address.village || '').trim(),
-    street: String(address.street || address.line1 || '').trim()
+    street: String(address.street || address.line1 || '').trim(),
+    note: String(address.note || address.additional || '').trim()
   };
 }
 
-export function persistUserAddress(address) {
+function buildAddressBookPayload(address, currentUser = {}, { isDefault = false } = {}) {
+  return {
+    fullName: String(address.fullName || currentUser.name || '').trim(),
+    phone: normalizePhone(address.phone) || currentUser.phone || '',
+    provinceCity: String(address.provinceCity || address.city || '').trim(),
+    district: String(address.district || '').trim(),
+    sector: String(address.sector || '').trim(),
+    cell: String(address.cell || '').trim(),
+    village: String(address.village || '').trim(),
+    street: String(address.street || address.line1 || '').trim(),
+    note: String(address.note || address.additional || '').trim(),
+    latitude: String(address.latitude || '').trim(),
+    longitude: String(address.longitude || '').trim(),
+    mapLink: String(address.mapLink || '').trim(),
+    isDefault: Boolean(isDefault || address.isDefault)
+  };
+}
+
+/**
+ * Persist checkout address to the customer's address book only when explicitly requested.
+ * Modes:
+ * - none / omit: do nothing (order-only; default for selected saved addresses)
+ * - create: POST a new saved address
+ * - update: PUT an existing owned address by id
+ */
+export function persistUserAddress(address, options = {}) {
   const currentUser = readCurrentUser();
   if (!currentUser || !currentUser.id) {
     return;
   }
 
-  const nextUser = {
-    ...currentUser,
-    phone: normalizePhone(address.phone) || currentUser.phone || '',
-    address: {
-      ...(currentUser.address || {}),
-      ...clone(address),
-      phone: normalizePhone(address.phone) || currentUser.phone || '',
-      line1: address.street || currentUser.address?.line1 || ''
-    }
-  };
+  const mode = String(options.mode || options.saveMode || 'none').trim().toLowerCase();
+  if (!mode || mode === 'none' || mode === 'order-only') {
+    return;
+  }
 
+  const payload = buildAddressBookPayload(address, currentUser, {
+    isDefault: options.isDefault === true
+  });
+
+  const addressId = String(options.addressId || address.savedAddressId || '').trim();
+  const client = window.ByoseCustomerAddresses;
+  if (client && typeof client.create === 'function') {
+    const request = (async () => {
+      if (mode === 'update') {
+        if (!addressId) {
+          throw new Error('Cannot update a saved address without an id.');
+        }
+        return client.update(addressId, payload);
+      }
+      if (mode === 'create') {
+        return client.create(payload);
+      }
+      return null;
+    })();
+    return request.catch((error) => {
+      console.warn('Unable to sync the customer address to the API.', error);
+    });
+  }
+
+  // Legacy fallback only when the address API client is unavailable.
   if (window.authService && typeof window.authService.updateProfile === 'function') {
     return window.authService.updateProfile({
-      name: nextUser.name || currentUser.name || '',
-      phone: nextUser.phone || currentUser.phone || '',
-      avatar: nextUser.avatar || currentUser.avatar || '',
-      address: nextUser.address || {}
+      name: currentUser.name || '',
+      phone: payload.phone || currentUser.phone || '',
+      avatar: currentUser.avatar || '',
+      address: {
+        ...(currentUser.address || {}),
+        ...payload,
+        city: payload.provinceCity,
+        line1: payload.street,
+        additional: payload.note
+      }
     }).catch((error) => {
       console.warn('Unable to sync the customer address to the API.', error);
     });

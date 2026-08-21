@@ -479,6 +479,7 @@ function normalizeStorefrontOrder(payload, user) {
     const cell = locationText(shippingAddress.cell, shippingAddress.cellName, shippingAddress.cell_name, incomingFull.cell, incomingFull.cellName);
     const village = locationText(shippingAddress.village, shippingAddress.villageName, shippingAddress.village_name, incomingFull.village, incomingFull.villageName);
     const landmark = locationText(shippingAddress.note, shippingAddress.landmark, incomingFull.note, incomingFull.landmark);
+    const street = locationText(shippingAddress.street, shippingAddress.line1, incomingFull.street, incomingFull.line1);
     const latitude = locationText(incomingGps.latitude, shippingAddress.latitude);
     const longitude = locationText(incomingGps.longitude, shippingAddress.longitude);
     const mapLink = locationText(incomingGps.googleMapsLink, incomingGps.mapLink, shippingAddress.mapLink);
@@ -553,6 +554,7 @@ function normalizeStorefrontOrder(payload, user) {
             sector,
             cell,
             village,
+            street,
             note: landmark,
             latitude,
             longitude,
@@ -565,6 +567,7 @@ function normalizeStorefrontOrder(payload, user) {
             sector,
             cell,
             village,
+            street,
             note: landmark
         },
         gpsLocation: {
@@ -861,6 +864,64 @@ exports.createOrder = async (req, res) => {
         const shippingErrors = validateShippingAddress(normalizedOrder.shippingAddress, normalizedOrder.paymentMethod);
         if (shippingErrors.length) {
             return res.status(400).json({ success: false, message: shippingErrors[0], errors: shippingErrors });
+        }
+
+        const savedAddressId = locationText(
+            req.body?.shippingAddress?.savedAddressId,
+            normalizedOrder.shippingAddress?.savedAddressId
+        );
+        if (savedAddressId) {
+            if (!user?.id) {
+                return res.status(401).json({
+                    success: false,
+                    code: 'ADDRESS_LOGIN_REQUIRED',
+                    message: 'Sign in to use a saved shipping address.'
+                });
+            }
+            const customerAddressService = require('../services/customeraddress.service');
+            const ownedAddress = customerAddressService.findOwned(user.id, savedAddressId);
+            if (!ownedAddress) {
+                return res.status(403).json({
+                    success: false,
+                    code: 'ADDRESS_FORBIDDEN',
+                    message: 'This shipping address does not belong to your account.'
+                });
+            }
+            // Freeze a full delivery snapshot on the order. Prefer values submitted
+            // for this checkout (order-only edits), then fill gaps from the owned row.
+            const ownedClient = customerAddressService.toClientAddress(ownedAddress);
+            const snap = normalizedOrder.shippingAddress || {};
+            normalizedOrder.shippingAddress = {
+                ...snap,
+                savedAddressId: ownedAddress.id,
+                fullName: locationText(snap.fullName, ownedClient.fullName),
+                phone: locationText(snap.phone, ownedClient.phone),
+                provinceCity: locationText(snap.provinceCity, snap.city, ownedClient.provinceCity),
+                city: locationText(snap.provinceCity, snap.city, ownedClient.provinceCity),
+                district: locationText(snap.district, ownedClient.district),
+                sector: locationText(snap.sector, ownedClient.sector),
+                cell: locationText(snap.cell, ownedClient.cell),
+                village: locationText(snap.village, ownedClient.village),
+                note: locationText(snap.note, ownedClient.note),
+                street: locationText(snap.street, ownedClient.street),
+                latitude: locationText(snap.latitude, ownedClient.latitude),
+                longitude: locationText(snap.longitude, ownedClient.longitude),
+                mapLink: locationText(snap.mapLink, ownedClient.mapLink)
+            };
+            if (normalizedOrder.fullAddress) {
+                normalizedOrder.fullAddress = {
+                    ...normalizedOrder.fullAddress,
+                    province: locationText(normalizedOrder.fullAddress.province, normalizedOrder.shippingAddress.provinceCity),
+                    district: locationText(normalizedOrder.fullAddress.district, normalizedOrder.shippingAddress.district),
+                    sector: locationText(normalizedOrder.fullAddress.sector, normalizedOrder.shippingAddress.sector),
+                    cell: locationText(normalizedOrder.fullAddress.cell, normalizedOrder.shippingAddress.cell),
+                    village: locationText(normalizedOrder.fullAddress.village, normalizedOrder.shippingAddress.village),
+                    street: locationText(normalizedOrder.fullAddress.street, normalizedOrder.shippingAddress.street),
+                    note: locationText(normalizedOrder.fullAddress.note, normalizedOrder.shippingAddress.note)
+                };
+            }
+        } else if (normalizedOrder.shippingAddress) {
+            delete normalizedOrder.shippingAddress.savedAddressId;
         }
 
         if (!normalizedOrder.paymentMethod) {

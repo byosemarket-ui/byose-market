@@ -2,140 +2,279 @@
   'use strict';
 
   const $ = (selector) => document.querySelector(selector);
+  let addresses = [];
+  let editingId = '';
+
+  function addressesApi() {
+    return window.ByoseCustomerAddresses;
+  }
+
+  function setStatus(message, isError) {
+    const banner = $('#statusBanner');
+    if (!banner) return;
+    const text = String(message || '').trim();
+    banner.textContent = text;
+    banner.classList.toggle('is-visible', Boolean(text));
+    banner.classList.toggle('is-error', Boolean(isError && text));
+  }
 
   function setFormVisible(visible) {
     $('#addressFormWrapper')?.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    document.body.classList.toggle('is-form-open', Boolean(visible));
+    const listSection = $('#addressListSection');
+    if (listSection) listSection.hidden = Boolean(visible);
+    if (visible) {
+      $('#fullName')?.focus();
+    }
+  }
+
+  function setError(message) {
+    const el = $('#addressFormError');
+    if (!el) return;
+    el.hidden = !message;
+    el.textContent = message || '';
   }
 
   function getFields() {
     return {
+      addressId: $('#addressId'),
       fullName: $('#fullName'),
       phone: $('#phone'),
-      city: $('#city'),
+      provinceCity: $('#provinceCity'),
       district: $('#district'),
       sector: $('#sector'),
+      cell: $('#cell'),
+      village: $('#village'),
       street: $('#street'),
-      additional: $('#additional')
+      note: $('#note'),
+      isDefault: $('#isDefault')
     };
   }
 
-  function fillForm(user) {
+  function readForm() {
     const fields = getFields();
-    const address = user?.address || {};
-    const name = String(user?.name || [address.firstName, address.lastName].filter(Boolean).join(' ') || '').trim();
-
-    fields.fullName.value = name;
-    fields.phone.value = String(address.phone || user?.phone || '');
-    fields.city.value = String(address.city || '');
-    fields.district.value = String(address.district || '');
-    fields.sector.value = String(address.sector || '');
-    fields.street.value = String(address.street || address.line1 || '');
-    fields.additional.value = String(address.additional || address.note || '');
+    return {
+      id: String(fields.addressId?.value || '').trim(),
+      fullName: String(fields.fullName?.value || '').trim(),
+      phone: String(fields.phone?.value || '').trim(),
+      provinceCity: String(fields.provinceCity?.value || '').trim(),
+      district: String(fields.district?.value || '').trim(),
+      sector: String(fields.sector?.value || '').trim(),
+      cell: String(fields.cell?.value || '').trim(),
+      village: String(fields.village?.value || '').trim(),
+      street: String(fields.street?.value || '').trim(),
+      note: String(fields.note?.value || '').trim(),
+      isDefault: Boolean(fields.isDefault?.checked)
+    };
   }
 
-  function createElement(tagName, className, text) {
-    const element = document.createElement(tagName);
-    element.className = className;
-    element.textContent = text;
-    return element;
+  function fillForm(address, user) {
+    const fields = getFields();
+    const currentUser = user || window.authService?.getCurrentUser?.() || {};
+    fields.addressId.value = String(address?.id || '');
+    fields.fullName.value = String(address?.fullName || currentUser.name || '');
+    fields.phone.value = String(address?.phone || currentUser.phone || '');
+    fields.provinceCity.value = String(address?.provinceCity || address?.city || '');
+    fields.district.value = String(address?.district || '');
+    fields.sector.value = String(address?.sector || '');
+    fields.cell.value = String(address?.cell || '');
+    fields.village.value = String(address?.village || '');
+    fields.street.value = String(address?.street || address?.line1 || '');
+    fields.note.value = String(address?.note || address?.additional || '');
+    fields.isDefault.checked = address ? Boolean(address.isDefault) : addresses.length === 0;
+    $('#address-form-heading').textContent = address?.id ? 'Edit address' : 'Add address';
   }
 
-  function renderAddress(user) {
+  function appendHierarchyRow(parent, label, value) {
+    const text = String(value || '').trim();
+    if (!text) return;
+    const row = document.createElement('span');
+    const key = document.createElement('strong');
+    key.textContent = label;
+    const val = document.createElement('span');
+    val.textContent = text;
+    row.append(key, val);
+    parent.append(row);
+  }
+
+  function renderAddresses() {
     const list = $('#addressList');
     const emptyState = $('#emptyState');
     if (!list || !emptyState) return;
 
-    const address = user?.address || {};
-    const hasAddress = [address.city, address.district, address.sector, address.street, address.line1]
-      .some((value) => String(value || '').trim());
-
     list.replaceChildren();
-    emptyState.style.display = hasAddress ? 'none' : 'flex';
-    if (!hasAddress) return;
+    const hasAddresses = addresses.length > 0;
+    emptyState.style.display = hasAddresses ? 'none' : 'flex';
+    if (!hasAddresses) return;
 
-    const card = createElement('article', 'address-card');
-    const row = createElement('div', 'address-row');
-    const detail = document.createElement('div');
-    const recipient = createElement('div', 'recipient', user.name || 'Saved address');
-    const phone = createElement('div', 'phone', address.phone || user.phone || '');
-    const addressText = createElement(
-      'div',
-      'address-text',
-      [address.city, address.district, address.sector, address.street || address.line1].filter(Boolean).join(', ')
-    );
-    const meta = createElement('div', 'meta', address.additional || address.note || '');
-    const actions = createElement('div', 'card-actions');
-    const edit = createElement('button', 'edit-btn', 'Edit');
-    edit.type = 'button';
-    edit.addEventListener('click', () => {
-      fillForm(user);
-      setFormVisible(true);
-    });
-    const remove = createElement('button', 'delete-btn', 'Delete');
-    remove.type = 'button';
-    remove.addEventListener('click', async () => {
-      if (!window.confirm('Remove this saved address?')) return;
-      await saveAddress(user, true);
-    });
+    addresses.forEach((address) => {
+      const card = document.createElement('article');
+      card.className = `address-card${address.isDefault ? ' is-default' : ''}`;
+      card.dataset.id = address.id;
 
-    detail.append(recipient, phone, addressText, meta);
-    row.append(detail);
-    actions.append(edit, remove);
-    card.append(row, actions);
-    list.append(card);
+      const row = document.createElement('div');
+      row.className = 'address-row';
+
+      const detail = document.createElement('div');
+      const recipient = document.createElement('div');
+      recipient.className = 'recipient';
+      recipient.textContent = address.fullName || 'Saved address';
+      const phone = document.createElement('div');
+      phone.className = 'phone';
+      phone.textContent = address.phone || '';
+
+      const hierarchy = document.createElement('div');
+      hierarchy.className = 'address-hierarchy';
+      appendHierarchyRow(hierarchy, 'Province', address.provinceCity || address.city);
+      appendHierarchyRow(hierarchy, 'District', address.district);
+      appendHierarchyRow(hierarchy, 'Sector', address.sector);
+      appendHierarchyRow(hierarchy, 'Cell', address.cell);
+      appendHierarchyRow(hierarchy, 'Village', address.village);
+      appendHierarchyRow(hierarchy, 'Street', address.street || address.line1);
+
+      detail.append(recipient, phone, hierarchy);
+      if (address.note) {
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.textContent = address.note;
+        detail.append(meta);
+      }
+
+      const badgeWrap = document.createElement('div');
+      if (address.isDefault) {
+        const badge = document.createElement('div');
+        badge.className = 'default-badge';
+        badge.innerHTML = '<i class="fa-solid fa-check" aria-hidden="true"></i> Default';
+        badgeWrap.append(badge);
+      }
+
+      row.append(detail, badgeWrap);
+
+      const actions = document.createElement('div');
+      actions.className = 'card-actions';
+
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'edit-btn';
+      edit.innerHTML = '<i class="fa-regular fa-pen-to-square" aria-hidden="true"></i> Edit';
+      edit.addEventListener('click', () => openForm(address));
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'delete-btn';
+      remove.innerHTML = '<i class="fa-regular fa-trash-can" aria-hidden="true"></i> Delete';
+      remove.addEventListener('click', () => deleteAddress(address));
+
+      actions.append(edit, remove);
+      if (!address.isDefault) {
+        const makeDefault = document.createElement('button');
+        makeDefault.type = 'button';
+        makeDefault.className = 'default-btn';
+        makeDefault.innerHTML = '<i class="fa-regular fa-star" aria-hidden="true"></i> Set as Default';
+        makeDefault.addEventListener('click', () => setDefault(address));
+        actions.append(makeDefault);
+      }
+
+      card.append(row, actions);
+      list.append(card);
+    });
   }
 
-  async function saveAddress(user, clear) {
-    const fields = getFields();
-    const fullName = clear ? '' : fields.fullName.value.trim();
-    const nameParts = fullName.split(/\s+/).filter(Boolean);
-    const address = clear
-      ? { line1: '', street: '', city: '', district: '', sector: '', cell: '', village: '', firstName: '', lastName: '', phone: '', additional: '' }
-      : {
-          line1: fields.street.value.trim(),
-          street: fields.street.value.trim(),
-          city: fields.city.value.trim(),
-          district: fields.district.value.trim(),
-          sector: fields.sector.value.trim(),
-          cell: '',
-          village: '',
-          firstName: nameParts[0] || '',
-          lastName: nameParts.slice(1).join(' '),
-          phone: fields.phone.value.trim(),
-          additional: fields.additional.value.trim()
-        };
+  function openForm(address) {
+    editingId = String(address?.id || '');
+    setError('');
+    setStatus('');
+    fillForm(address || null);
+    setFormVisible(true);
+  }
 
+  async function refresh() {
+    const api = addressesApi();
+    if (!api) return;
+    addresses = await api.list();
+    renderAddresses();
+  }
+
+  async function saveAddress(event) {
+    event.preventDefault();
+    const api = addressesApi();
+    if (!api) return;
+    const payload = readForm();
+    const saveBtn = $('#saveAddressBtn');
+    setError('');
+    if (saveBtn) saveBtn.disabled = true;
     try {
-      const updatedUser = await window.authService.updateProfile({
-        name: clear ? user.name : (fullName || user.name),
-        phone: clear ? user.phone : (fields.phone.value.trim() || user.phone),
-        address
-      });
-      renderAddress(updatedUser);
-      fillForm(updatedUser);
+      if (payload.id) {
+        await api.update(payload.id, payload);
+      } else {
+        await api.create(payload);
+      }
+      await refresh();
       setFormVisible(false);
+      editingId = '';
+      setStatus('Address saved.');
     } catch (error) {
-      window.alert('Unable to save your address. Please try again.');
+      setError(error?.message || 'Unable to save this address. Please try again.');
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
     }
   }
 
-  function init() {
+  async function deleteAddress(address) {
+    if (!window.confirm('Remove this shipping address? Existing orders keep the address used when they were placed.')) {
+      return;
+    }
+    try {
+      await addressesApi().remove(address.id);
+      if (editingId === address.id) {
+        setFormVisible(false);
+        editingId = '';
+      }
+      await refresh();
+      setStatus('Address removed.');
+    } catch (error) {
+      window.alert(error?.message || 'Unable to delete this address.');
+    }
+  }
+
+  async function setDefault(address) {
+    try {
+      await addressesApi().setDefault(address.id);
+      await refresh();
+      setStatus('Default address updated.');
+    } catch (error) {
+      window.alert(error?.message || 'Unable to set the default address.');
+    }
+  }
+
+  async function init() {
+    if (window.authService?.whenReady) {
+      await window.authService.whenReady().catch(() => {});
+    }
     const user = window.authService?.getCurrentUser?.();
     if (!user) return;
 
-    renderAddress(user);
-    fillForm(user);
     document.querySelectorAll('.add-address-btn').forEach((button) => {
       button.addEventListener('click', (event) => {
         event.preventDefault();
-        fillForm(window.authService.getCurrentUser());
-        setFormVisible(true);
+        openForm(null);
       });
     });
-    $('#addressForm')?.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      await saveAddress(window.authService.getCurrentUser(), false);
+    $('#addressForm')?.addEventListener('submit', saveAddress);
+    $('#cancelAddressBtn')?.addEventListener('click', () => {
+      setFormVisible(false);
+      editingId = '';
+      setError('');
     });
+
+    setStatus('Loading addresses…');
+    try {
+      await refresh();
+      setStatus(addresses.length ? '' : '');
+    } catch (error) {
+      setStatus(error?.message || 'Unable to load your shipping addresses.', true);
+      setFormVisible(false);
+    }
   }
 
   document.addEventListener('DOMContentLoaded', init);

@@ -212,6 +212,7 @@ export function renderShippingSummary(shipping) {
     shipping.village
   ].filter(Boolean).join(', ');
   const note = String(shipping.note || '').trim();
+  const savedId = String(shipping.savedAddressId || '').trim();
 
   const mapLink = String(shipping.mapLink || shipping.googleMapsLink || '').trim()
     || (shipping.latitude && shipping.longitude
@@ -221,12 +222,14 @@ export function renderShippingSummary(shipping) {
   return `
     <section class="ck-card">
       <h3>Delivery Address</h3>
+      ${savedId ? '<p class="ck-saved-tag">Saved address selected for this order</p>' : ''}
       ${customer ? `<p><strong>Customer:</strong> ${escapeHtml(customer)}</p>` : ''}
       ${phone ? `<p><strong>Phone:</strong> ${escapeHtml(phone)}</p>` : ''}
       ${address ? `<p><strong>Address:</strong> ${escapeHtml(address)}</p>` : ''}
       ${note ? `<p><strong>Landmark / Note:</strong> ${escapeHtml(note)}</p>` : ''}
       ${shipping.latitude && shipping.longitude ? `<p class="ck-gps">GPS: ${escapeHtml(shipping.latitude)}, ${escapeHtml(shipping.longitude)}</p>` : ''}
       ${mapLink ? `<p class="ck-gps"><a class="ck-map-link" href="${escapeHtml(mapLink)}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a></p>` : ''}
+      <p class="ck-address-change"><a href="shipping.html">Change address</a></p>
     </section>
   `;
 }
