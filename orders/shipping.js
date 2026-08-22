@@ -5,7 +5,7 @@ import {
   formatCoordinates,
   initializeShippingLocation
 } from './location-service.js';
-import { normalizePhone } from './utils.js';
+import { escapeHtml, normalizePhone } from './utils.js';
 
 function formatPhoneLocal(phone) {
   const normalized = normalizePhone(phone);
@@ -26,20 +26,16 @@ const gpsMapLink = document.getElementById('gpsMapLink');
 const gpsBadge = document.getElementById('gpsBadge');
 const gpsRetryBtn = document.getElementById('gpsRetryBtn');
 const shippingBackLink = document.getElementById('shippingBackLink');
+const selectedAddressPanel = document.getElementById('selectedAddressPanel');
+const selectedAddressContent = document.getElementById('selectedAddressContent');
+const changeAddressBtn = document.getElementById('changeAddressBtn');
 const savedAddressPanel = document.getElementById('savedAddressPanel');
 const savedAddressList = document.getElementById('savedAddressList');
 const useNewAddressBtn = document.getElementById('useNewAddressBtn');
 const addressModeHint = document.getElementById('addressModeHint');
-const addressBookOptions = document.getElementById('addressBookOptions');
-const saveToAccountInput = document.getElementById('saveToAccount');
-const updateSavedInput = document.getElementById('updateSavedAddress');
-const saveAsDefaultInput = document.getElementById('saveAsDefault');
-const saveToAccountLabel = document.getElementById('saveToAccountLabel');
-const updateSavedLabel = document.getElementById('updateSavedLabel');
-const saveAsDefaultLabel = document.getElementById('saveAsDefaultLabel');
 let continueInFlight = false;
-/** @type {'select'|'new'|'edit'} */
-let addressUiMode = 'select';
+/** @type {'ready'|'change'|'form'} */
+let addressUiMode = 'form';
 
 const FIELD_LABELS_UI = {
   fullName: 'Full Name',
@@ -53,6 +49,14 @@ const FIELD_LABELS_UI = {
 
 function isSignedIn() {
   return Boolean(window.authService?.isLoggedIn?.() || getState().customer?.id);
+}
+
+function wantsChangeAddressFlow() {
+  try {
+    return new URLSearchParams(window.location.search).get('change') === '1';
+  } catch (_error) {
+    return false;
+  }
 }
 
 function applyConfiguredDeliveryFee() {
@@ -84,69 +88,144 @@ function formatSavedLine(address) {
   ].filter(Boolean).join(', ');
 }
 
-function syncAddressBookOptions() {
-  const signedIn = isSignedIn();
-  if (!addressBookOptions) return;
+function resolveSelectedSavedAddress() {
+  const state = getState();
+  const selectedId = String(state.shipping?.savedAddressId || '').trim();
+  if (!selectedId) return null;
+  return (state.savedAddresses || []).find((entry) => entry.id === selectedId) || null;
+}
 
-  if (!signedIn) {
-    addressBookOptions.hidden = true;
-    if (addressModeHint) addressModeHint.hidden = true;
-    return;
-  }
-
-  const showSaveNew = addressUiMode === 'new';
-  const showUpdate = addressUiMode === 'edit';
-  const showDefault = showSaveNew || showUpdate;
-
-  if (saveToAccountLabel) saveToAccountLabel.hidden = !showSaveNew;
-  if (updateSavedLabel) updateSavedLabel.hidden = !showUpdate;
-  if (saveAsDefaultLabel) saveAsDefaultLabel.hidden = !showDefault;
-  addressBookOptions.hidden = !(showSaveNew || showUpdate);
-
-  if (addressModeHint) {
-    if (addressUiMode === 'new') {
-      addressModeHint.hidden = false;
-      addressModeHint.textContent = 'Enter a delivery address for this order. Optionally save it to your account.';
-    } else if (addressUiMode === 'edit') {
-      addressModeHint.hidden = false;
-      addressModeHint.textContent = 'Editing for this order. Check “Also update my saved address” only if you want to change the saved copy.';
-    } else {
-      const selectedId = String(getState().shipping?.savedAddressId || '').trim();
-      if (selectedId) {
-        addressModeHint.hidden = false;
-        addressModeHint.textContent = 'Using your selected saved address. You can continue without retyping.';
-      } else {
-        addressModeHint.hidden = true;
-        addressModeHint.textContent = '';
-      }
-    }
-  }
+function canUseReadyMode() {
+  if (!isSignedIn()) return false;
+  const addresses = getState().savedAddresses || [];
+  if (!addresses.length) return false;
+  const selectedId = String(getState().shipping?.savedAddressId || '').trim();
+  return Boolean(selectedId);
 }
 
 function setAddressUiMode(mode) {
-  addressUiMode = mode === 'new' || mode === 'edit' ? mode : 'select';
-  if (addressUiMode !== 'new' && saveToAccountInput) saveToAccountInput.checked = false;
-  if (addressUiMode !== 'edit' && updateSavedInput) updateSavedInput.checked = false;
-  if (addressUiMode === 'select' && saveAsDefaultInput) saveAsDefaultInput.checked = false;
-  syncAddressBookOptions();
+  if (mode === 'ready' && !canUseReadyMode()) {
+    addressUiMode = 'form';
+  } else if (mode === 'ready' || mode === 'change' || mode === 'form') {
+    addressUiMode = mode;
+  } else {
+    addressUiMode = 'form';
+  }
+  syncAddressModeHint();
+  syncUiVisibility();
+}
+
+function syncAddressModeHint() {
+  if (!addressModeHint) return;
+
+  if (!isSignedIn()) {
+    addressModeHint.hidden = true;
+    addressModeHint.textContent = '';
+    return;
+  }
+
+  if (addressUiMode === 'ready') {
+    addressModeHint.hidden = true;
+    addressModeHint.textContent = '';
+    return;
+  }
+
+  if (addressUiMode === 'change') {
+    addressModeHint.hidden = false;
+    addressModeHint.textContent = 'Choose another saved address, edit the delivery details for this order, or add a new address.';
+    return;
+  }
+
+  if (!(getState().savedAddresses || []).length) {
+    addressModeHint.hidden = false;
+    addressModeHint.textContent = 'Enter your delivery address. It will be saved to your account for future orders.';
+    return;
+  }
+
+  addressModeHint.hidden = true;
+  addressModeHint.textContent = '';
+}
+
+function syncUiVisibility() {
+  const ready = addressUiMode === 'ready';
+  const change = addressUiMode === 'change';
+  const showForm = !ready;
+
+  if (selectedAddressPanel) {
+    selectedAddressPanel.hidden = !ready;
+  }
+  if (savedAddressPanel) {
+    savedAddressPanel.hidden = !change || !(getState().savedAddresses || []).length;
+  }
+  if (form) {
+    form.hidden = !showForm;
+    form.classList.toggle('ck-shipping-form--hidden', !showForm);
+  }
+  if (gpsCard) {
+    gpsCard.hidden = ready;
+  }
+}
+
+function renderSelectedAddressSummary() {
+  if (!selectedAddressContent) return;
+
+  const shipping = getState().shipping || {};
+  const saved = resolveSelectedSavedAddress();
+  const fullName = String(shipping.fullName || saved?.fullName || '').trim();
+  const phone = formatPhoneLocal(shipping.phone || saved?.phone || '');
+  const provinceCity = String(shipping.provinceCity || saved?.provinceCity || '').trim();
+  const district = String(shipping.district || saved?.district || '').trim();
+  const sector = String(shipping.sector || saved?.sector || '').trim();
+  const cell = String(shipping.cell || saved?.cell || '').trim();
+  const village = String(shipping.village || saved?.village || '').trim();
+  const note = String(shipping.note || saved?.note || '').trim();
+  const latitude = String(shipping.latitude || saved?.latitude || '').trim();
+  const longitude = String(shipping.longitude || saved?.longitude || '').trim();
+  const mapLink = String(shipping.mapLink || saved?.mapLink || '').trim()
+    || (latitude && longitude
+      ? `https://www.google.com/maps?q=${encodeURIComponent(`${latitude},${longitude}`)}`
+      : '');
+
+  const rows = [
+    ['Full Name', fullName],
+    ['Phone Number', phone],
+    ['Province / City', provinceCity],
+    ['District', district],
+    ['Sector', sector],
+    ['Cell', cell],
+    ['Village', village],
+    ['Landmark / Note', note],
+    ['GPS / Location', latitude && longitude ? `${latitude}, ${longitude}` : '']
+  ].filter(([, value]) => Boolean(String(value || '').trim()));
+
+  selectedAddressContent.innerHTML = `
+    <dl class="ck-selected-address__details">
+      ${rows.map(([label, value]) => `
+        <div class="ck-selected-address__row">
+          <dt>${escapeHtml(label)}</dt>
+          <dd>${escapeHtml(value)}</dd>
+        </div>
+      `).join('')}
+    </dl>
+    ${mapLink ? `<a class="ck-map-link" href="${escapeHtml(mapLink)}" target="_blank" rel="noopener">Open in Maps</a>` : ''}
+  `;
 }
 
 function renderSavedAddresses() {
   const state = getState();
   const addresses = Array.isArray(state.savedAddresses) ? state.savedAddresses : [];
-  if (!savedAddressPanel || !savedAddressList) return;
+  if (!savedAddressList) return;
 
   if (!addresses.length) {
-    savedAddressPanel.hidden = true;
+    if (savedAddressPanel) savedAddressPanel.hidden = true;
     savedAddressList.replaceChildren();
-    if (isSignedIn() && addressUiMode === 'select') {
-      setAddressUiMode('new');
+    if (isSignedIn() && addressUiMode !== 'ready') {
+      setAddressUiMode('form');
     }
-    syncAddressBookOptions();
+    syncAddressModeHint();
     return;
   }
 
-  savedAddressPanel.hidden = false;
   savedAddressList.replaceChildren();
   const selectedId = String(state.shipping?.savedAddressId || '').trim();
 
@@ -192,60 +271,37 @@ function renderSavedAddresses() {
     const selectBtn = document.createElement('button');
     selectBtn.type = 'button';
     selectBtn.className = 'ck-btn ck-btn--ghost ck-btn--compact';
-    selectBtn.textContent = address.id === selectedId ? 'Selected' : 'Select Address';
+    selectBtn.textContent = address.id === selectedId ? 'Selected' : 'Use This Address';
     selectBtn.disabled = address.id === selectedId;
     selectBtn.addEventListener('click', () => {
       selectSavedAddress(address.id);
-      setAddressUiMode('select');
       fillForm(getState().shipping);
+      setAddressUiMode('ready');
       renderSavedAddresses();
+      renderSelectedAddressSummary();
       void refreshBackendDeliveryQuote();
     });
 
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.className = 'ck-btn ck-btn--ghost ck-btn--compact';
-    editBtn.textContent = 'Edit Address';
+    editBtn.textContent = 'Edit for This Order';
     editBtn.addEventListener('click', () => {
       selectSavedAddress(address.id);
-      setAddressUiMode('edit');
       fillForm(getState().shipping);
+      setAddressUiMode('change');
       renderSavedAddresses();
       form?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
       form?.elements?.namedItem('fullName')?.focus?.();
     });
 
     actions.append(selectBtn, editBtn);
-
-    if (!address.isDefault) {
-      const defaultBtn = document.createElement('button');
-      defaultBtn.type = 'button';
-      defaultBtn.className = 'ck-btn ck-btn--ghost ck-btn--compact';
-      defaultBtn.textContent = 'Set as Default';
-      defaultBtn.addEventListener('click', async () => {
-        try {
-          defaultBtn.disabled = true;
-          await window.ByoseCustomerAddresses.setDefault(address.id);
-          await hydrateSavedAddresses();
-          selectSavedAddress(address.id);
-          setAddressUiMode('select');
-          fillForm(getState().shipping);
-          render();
-          void refreshBackendDeliveryQuote();
-        } catch (error) {
-          showMessage(messageEl, error?.message || 'Unable to set the default address.');
-        } finally {
-          defaultBtn.disabled = false;
-        }
-      });
-      actions.append(defaultBtn);
-    }
-
     card.append(top, actions);
     savedAddressList.append(card);
   });
 
-  syncAddressBookOptions();
+  syncAddressModeHint();
+  syncUiVisibility();
 }
 
 function render() {
@@ -254,7 +310,9 @@ function render() {
   sidebarEl.innerHTML = renderSidebar(state.products, state.totals);
   stickyEl.innerHTML = renderStickyBar('Continue to Review', 'shippingContinueBtn');
   syncShippingBackLink();
+  renderSelectedAddressSummary();
   renderSavedAddresses();
+  syncUiVisibility();
 }
 
 function fillForm(shipping, { onlyEmpty = false } = {}) {
@@ -281,8 +339,15 @@ function readForm() {
   return data;
 }
 
+function readShippingData() {
+  if (addressUiMode === 'ready') {
+    return { ...getState().shipping };
+  }
+  return readForm();
+}
+
 function readAddressFields() {
-  const data = readForm();
+  const data = readShippingData();
   return {
     provinceCity: data.provinceCity || '',
     district: data.district || '',
@@ -377,18 +442,20 @@ function applyPositionToState(position) {
 }
 
 /**
- * Explicit address-book sync only when the customer opts in.
- * Selecting a saved address alone never writes the book.
+ * Automatically save new addresses for signed-in customers.
+ * Saved-address selection and order-only edits never mutate the address book.
  */
-async function maybeSyncAddressBook(formData) {
+async function autoSyncAddressBook(formData) {
   if (!isSignedIn() || !window.ByoseCustomerAddresses) {
     return formData;
   }
 
-  const saveAsDefault = Boolean(saveAsDefaultInput?.checked);
-  const shouldCreate = addressUiMode === 'new' && Boolean(saveToAccountInput?.checked);
-  const shouldUpdate = addressUiMode === 'edit' && Boolean(updateSavedInput?.checked);
-  if (!shouldCreate && !shouldUpdate) {
+  if (addressUiMode === 'ready') {
+    return formData;
+  }
+
+  const savedId = String(formData.savedAddressId || '').trim();
+  if (savedId) {
     return formData;
   }
 
@@ -401,39 +468,20 @@ async function maybeSyncAddressBook(formData) {
     cell: formData.cell,
     village: formData.village,
     note: formData.note || '',
-    isDefault: saveAsDefault
+    latitude: formData.latitude || getState().shipping?.latitude || '',
+    longitude: formData.longitude || getState().shipping?.longitude || '',
+    mapLink: formData.mapLink || getState().shipping?.mapLink || '',
+    isDefault: !(getState().savedAddresses || []).length
   };
 
-  if (shouldUpdate) {
-    const addressId = String(formData.savedAddressId || '').trim();
-    if (!addressId) {
-      throw new Error('Select a saved address before updating it.');
-    }
-    const updated = await window.ByoseCustomerAddresses.update(addressId, payload);
-    if (saveAsDefault && updated?.id) {
-      await window.ByoseCustomerAddresses.setDefault(updated.id);
-    }
-    await hydrateSavedAddresses();
-    return { ...formData, savedAddressId: updated?.id || addressId };
-  }
-
   const created = await window.ByoseCustomerAddresses.create(payload);
-  if (saveAsDefault && created?.id && !created.isDefault) {
-    await window.ByoseCustomerAddresses.setDefault(created.id);
-  }
   await hydrateSavedAddresses();
   if (created?.id) {
     selectSavedAddress(created.id);
-    setAddressUiMode('select');
   }
   return { ...formData, savedAddressId: String(created?.id || '').trim() };
 }
 
-/**
- * ONE authoritative Continue → Review handler.
- * Path: optional explicit address-book sync → validate → save commit → verify → navigate.
- * GPS / landmark / quote never blocks.
- */
 async function handleContinue(event) {
   event?.preventDefault?.();
   event?.stopPropagation?.();
@@ -452,9 +500,9 @@ async function handleContinue(event) {
   showMessage(messageEl, '');
 
   try {
-    let formData = readForm();
+    let formData = readShippingData();
     try {
-      formData = await maybeSyncAddressBook(formData);
+      formData = await autoSyncAddressBook(formData);
     } catch (syncError) {
       showMessage(messageEl, syncError?.message || 'Unable to save the shipping address.');
       return;
@@ -464,6 +512,10 @@ async function handleContinue(event) {
 
     if (!result.ok) {
       console.error(result.code || 'VALIDATION_FAILED', result);
+      if (addressUiMode === 'ready') {
+        setAddressUiMode('change');
+        render();
+      }
       showErrors(result.errors || {});
       const missing = Object.keys(result.errors || {});
       const labels = missing.map((key) => FIELD_LABELS_UI[key] || key);
@@ -501,6 +553,8 @@ const GPS_UI_FAILSAFE_MS = 8500;
 let locationRunId = 0;
 
 async function startLocationService({ allowReprompt = false } = {}) {
+  if (addressUiMode === 'ready') return;
+
   const runId = ++locationRunId;
   const existing = getState().shipping || {};
   if (existing.latitude && existing.longitude) {
@@ -599,9 +653,15 @@ gpsRetryBtn?.addEventListener('click', () => {
   void startLocationService({ allowReprompt: true });
 });
 
+changeAddressBtn?.addEventListener('click', () => {
+  setAddressUiMode('change');
+  renderSavedAddresses();
+  savedAddressPanel?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+});
+
 useNewAddressBtn?.addEventListener('click', () => {
   selectSavedAddress('');
-  setAddressUiMode('new');
+  setAddressUiMode('change');
   fillForm(getState().shipping);
   renderSavedAddresses();
   const fullNameInput = form?.elements?.namedItem('fullName');
@@ -618,33 +678,18 @@ form?.addEventListener('input', (event) => {
   if (messageEl && !messageEl.hidden) {
     showMessage(messageEl, '');
   }
-  // Typing while a saved address is selected means an order-only edit unless
-  // the customer already chose Edit / Add New. Promote to edit mode quietly.
-  if (
-    addressUiMode === 'select'
-    && isSignedIn()
-    && String(getState().shipping?.savedAddressId || '').trim()
-    && target?.name
-    && target.name !== 'savedAddressId'
-    && !['saveToAccount', 'updateSavedAddress', 'saveAsDefault'].includes(target.name)
-  ) {
-    setAddressUiMode('edit');
-  }
   updateShipping(readForm());
-  syncAddressBookOptions();
 });
 
-// ONE submit path only (primary button is type=submit).
 form?.addEventListener('submit', (event) => {
   handleContinue(event);
 });
 
-// Sticky bar: delegate once — requestSubmit feeds the same submit handler.
 stickyEl?.addEventListener('click', (event) => {
   const btn = event.target?.closest?.('#stickyContinueBtn');
   if (!btn) return;
   event.preventDefault();
-  if (typeof form?.requestSubmit === 'function') {
+  if (typeof form?.requestSubmit === 'function' && addressUiMode !== 'ready') {
     form.requestSubmit();
     return;
   }
@@ -661,21 +706,28 @@ if (!access.ok) {
 } else {
   await hydrateSavedAddresses();
   const state = getState();
-  if (isSignedIn() && !(state.savedAddresses || []).length) {
-    setAddressUiMode('new');
-  } else if (String(state.shipping?.savedAddressId || '').trim()) {
-    setAddressUiMode('select');
-  } else if (isSignedIn()) {
-    setAddressUiMode('new');
+  const hasSaved = (state.savedAddresses || []).length > 0;
+  const hasSelected = String(state.shipping?.savedAddressId || '').trim();
+
+  if (!isSignedIn()) {
+    setAddressUiMode('form');
+  } else if (wantsChangeAddressFlow() && hasSaved) {
+    setAddressUiMode('change');
+  } else if (hasSaved && hasSelected) {
+    setAddressUiMode('ready');
+  } else if (hasSaved) {
+    setAddressUiMode('ready');
   } else {
-    setAddressUiMode('select');
+    setAddressUiMode('form');
   }
+
   fillForm(getState().shipping);
   render();
   window.__ckStep = 'shipping';
 
-  // GPS is optional and must never block Continue.
-  void startLocationService();
+  if (addressUiMode !== 'ready') {
+    void startLocationService();
+  }
   applyConfiguredDeliveryFee();
   void refreshBackendDeliveryQuote();
   render();

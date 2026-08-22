@@ -49,16 +49,16 @@ function checkSourceGuards() {
   assert(addressJs.includes('ByoseCustomerAddresses'), 'account page uses the address API client');
   assert(addressJs.includes('setDefault'), 'account page can set default');
   assert(client.includes("'/addresses'"), 'frontend address client calls /api/addresses');
-  assert(shippingHtml.includes('savedAddressPanel'), 'checkout shows saved address picker');
+  assert(shippingHtml.includes('selectedAddressPanel'), 'checkout shows selected saved address summary');
+  assert(shippingHtml.includes('changeAddressBtn'), 'checkout offers Change Address action');
   assert(shippingHtml.includes('customer-addresses.js'), 'checkout loads address client');
   assert(shippingHtml.includes('Add New Address'), 'checkout can add a new address');
-  assert(shippingHtml.includes('saveToAccount'), 'checkout can optionally save a new address');
-  assert(shippingHtml.includes('updateSavedAddress'), 'checkout can optionally update a saved address');
+  assert(!shippingHtml.includes('saveToAccount'), 'checkout no longer shows save-to-account checkbox');
+  assert(!shippingHtml.includes('updateSavedAddress'), 'checkout no longer shows update-saved checkbox');
   assert(shippingJs.includes('hydrateSavedAddresses'), 'checkout hydrates saved addresses');
-  assert(shippingJs.includes('Select Address'), 'checkout offers Select Address');
-  assert(shippingJs.includes('Edit Address'), 'checkout offers Edit Address');
-  assert(shippingJs.includes('Set as Default'), 'checkout offers Set as Default');
-  assert(shippingJs.includes('maybeSyncAddressBook'), 'checkout syncs address book only when opted in');
+  assert(shippingJs.includes('Use This Address'), 'checkout offers saved address selection');
+  assert(shippingJs.includes('Edit for This Order'), 'checkout offers order-only address edit');
+  assert(shippingJs.includes('autoSyncAddressBook'), 'checkout auto-saves new addresses for signed-in customers');
   assert(stateJs.includes('hydrateSavedAddresses'), 'checkout state exposes hydrateSavedAddresses');
   assert(stateJs.includes('selectSavedAddress'), 'checkout state can select a saved address');
   assert(!stateJs.includes('persistUserAddress(state.shipping'), 'continueToReview must not overwrite saved addresses');
@@ -66,7 +66,8 @@ function checkSourceGuards() {
   assert(orderController.includes('findOwned'), 'orders verify saved address ownership');
   assert(orderController.includes('toClientAddress(ownedAddress)'), 'orders freeze a snapshot from the owned address');
   assert(read('orders/utils.js').includes("mode === 'none'"), 'address persist supports order-only mode');
-  assert(read('orders/ui/layout.js').includes('Saved address selected'), 'review shows selected saved address');
+  assert(read('orders/ui/layout.js').includes('Saved address selected'), 'review shows selected saved address tag');
+  assert(read('orders/ui/layout.js').includes('shipping.html?change=1'), 'review Change Address opens address selection flow');
 }
 
 function request(baseUrl, method, pathname, { body, token } = {}) {

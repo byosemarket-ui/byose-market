@@ -229,7 +229,7 @@ export function renderShippingSummary(shipping) {
       ${note ? `<p><strong>Landmark / Note:</strong> ${escapeHtml(note)}</p>` : ''}
       ${shipping.latitude && shipping.longitude ? `<p class="ck-gps">GPS: ${escapeHtml(shipping.latitude)}, ${escapeHtml(shipping.longitude)}</p>` : ''}
       ${mapLink ? `<p class="ck-gps"><a class="ck-map-link" href="${escapeHtml(mapLink)}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a></p>` : ''}
-      <p class="ck-address-change"><a href="shipping.html">Change address</a></p>
+      <p class="ck-address-change"><a href="shipping.html?change=1">Change Address</a></p>
     </section>
   `;
 }
