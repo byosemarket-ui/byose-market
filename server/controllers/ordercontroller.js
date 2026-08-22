@@ -16,6 +16,7 @@ const {
 } = require('../payments/storefront-methods');
 const inventoryService = require('../services/inventory.service');
 const customerCancellationRefundService = require('../services/customercancellationrefundservice');
+const customerNotificationDataService = require('../services/customernotificationdataservice');
 
 const DELIVERY_FEE = 2000;
 const COD_FEE = 0;
@@ -2134,6 +2135,19 @@ exports.updateAdminOrderStatus = async (req, res) => {
         void notifyOrderStatusEmail(order, order.status).catch((notifyError) => {
           logger.warn('notification.order_status_failed', { error: notifyError, orderId: order.orderId || order.id });
         });
+
+        if (oldStatusLower !== normalizeText(order.status || order.orderStatus).toLowerCase()) {
+            void customerNotificationDataService.notifyOrderStatusUpdate({
+                order,
+                previousStatus: oldStatus,
+                nextStatus: order.status || order.orderStatus
+            }).catch((customerNotifyError) => {
+                logger.warn('customer_notification.order_status_failed', {
+                    error: customerNotifyError,
+                    orderId: order.orderId || order.id
+                });
+            });
+        }
 
         return res.json({ success: true, order });
     } catch (err) {

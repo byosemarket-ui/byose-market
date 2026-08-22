@@ -158,6 +158,135 @@ async function notifyWishlistProductPromotion(userId, product, priceFingerprint 
     });
 }
 
+function normalizeStatusKey(status) {
+    return String(status || '').toLowerCase().replace(/\s+/g, '_').trim();
+}
+
+function formatOrderTag(orderId) {
+    const id = String(orderId || '').trim();
+    return id ? `#${id}` : '';
+}
+
+function buildOrderStatusNotificationCopy(orderId, status) {
+    const tag = formatOrderTag(orderId);
+    const value = String(status || '').toLowerCase();
+
+    if (value.includes('confirm')) {
+        return {
+            type: 'ORDER_UPDATE',
+            title: 'Order confirmed',
+            body: tag ? `Your order ${tag} has been confirmed.` : 'Your order has been confirmed.'
+        };
+    }
+    if (value.includes('process')) {
+        return {
+            type: 'ORDER_UPDATE',
+            title: 'Order processing',
+            body: tag ? `Your order ${tag} is now being processed.` : 'Your order is now being processed.'
+        };
+    }
+    if (value.includes('pack')) {
+        return {
+            type: 'ORDER_UPDATE',
+            title: 'Order packed',
+            body: tag ? `Your order ${tag} has been packed and is ready for shipping.` : 'Your order has been packed and is ready for shipping.'
+        };
+    }
+    if (value.includes('out for delivery') || value.includes('out_for_delivery')) {
+        return {
+            type: 'SHIPPING_UPDATE',
+            title: 'Out for delivery',
+            body: tag ? `Your order ${tag} is out for delivery.` : 'Your order is out for delivery.'
+        };
+    }
+    if (value.includes('ship')) {
+        return {
+            type: 'SHIPPING_UPDATE',
+            title: 'Order shipped',
+            body: tag ? `Your order ${tag} is on the way.` : 'Your order is on the way.'
+        };
+    }
+    if (value.includes('deliver') || value === 'completed' || value === 'complete') {
+        return {
+            type: 'ORDER_UPDATE',
+            title: 'Order delivered',
+            body: tag ? `Your order ${tag} has been delivered successfully.` : 'Your order has been delivered successfully.'
+        };
+    }
+    if (value.includes('cancel')) {
+        return {
+            type: 'ORDER_UPDATE',
+            title: 'Order cancelled',
+            body: tag ? `Your order ${tag} has been cancelled.` : 'Your order has been cancelled.'
+        };
+    }
+    if (value.includes('return')) {
+        return {
+            type: 'ORDER_UPDATE',
+            title: 'Return update',
+            body: tag ? `There is an update on your return for order ${tag}.` : 'There is an update on your order return.'
+        };
+    }
+    if (value.includes('refund')) {
+        return {
+            type: 'ORDER_UPDATE',
+            title: 'Refund update',
+            body: tag ? `There is a refund update for order ${tag}.` : 'There is a refund update on your order.'
+        };
+    }
+
+    return null;
+}
+
+async function resolveCustomerRecordIdForOrder(order) {
+    if (!order || order.isGuest) return null;
+
+    const publicId = String(
+        order.customerId
+        || order.userId
+        || order.customer?.id
+        || order.accountId
+        || ''
+    ).trim();
+    if (!publicId) return null;
+
+    const { getRepositoryBundle } = require('../repositories');
+    const user = await getRepositoryBundle().users.findByPublicId(publicId);
+    return user?.recordId ? Number(user.recordId) : null;
+}
+
+/**
+ * Create a customer inbox notification after a meaningful order-status transition.
+ * Skips guests, unchanged statuses, and duplicate status keys (dedupeKey).
+ */
+async function notifyOrderStatusUpdate({ order, previousStatus, nextStatus } = {}) {
+    if (!order) return null;
+
+    const previousKey = normalizeStatusKey(previousStatus);
+    const nextKey = normalizeStatusKey(nextStatus || order.orderStatus || order.status);
+    if (!nextKey || previousKey === nextKey) return null;
+
+    const userId = await resolveCustomerRecordIdForOrder(order);
+    if (!userId) return null;
+
+    const orderId = String(order.orderId || order.id || '').trim();
+    const copy = buildOrderStatusNotificationCopy(orderId, nextStatus || order.status || order.orderStatus);
+    if (!copy) return null;
+
+    return enqueueEventSafe({
+        userId,
+        type: copy.type,
+        title: copy.title,
+        body: copy.body,
+        deeplink: orderId
+            ? `/account/order-details.html?id=${encodeURIComponent(orderId)}`
+            : '/account/orders/all.html',
+        entityType: 'order',
+        entityId: orderId,
+        dedupeKey: `ORDER_STATUS:${userId}:${orderId}:${nextKey}`
+    });
+}
+
 module.exports = {
     getPrefs,
     updatePrefs,
@@ -169,5 +298,8 @@ module.exports = {
     notifyCouponExpiring,
     notifyFavoriteStorePromotion,
     notifyWishlistProductPromotion,
+    notifyOrderStatusUpdate,
+    buildOrderStatusNotificationCopy,
+    resolveCustomerRecordIdForOrder,
     PREF_GATES
 };
