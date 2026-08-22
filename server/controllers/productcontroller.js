@@ -1,3 +1,4 @@
+const fs = require('fs');
 const { appLogger, monitorAsyncOperation } = require('../utils/logger');
 const config = require('../config/env');
 const productDataService = require('../services/productdataservice');
@@ -12,11 +13,49 @@ const {
     resolvePublicProductStatus
 } = require('../utils/product-visibility');
 const { enrichSerializedProductColorVariants } = require('../utils/colorVariantSerialization');
-const { hasUsableProductImageValue, isProductCardImagePath, productImageStem, resolveCanonicalImageValue } = require('../services/uploadstorage.service');
+const {
+    hasUsableProductImageValue,
+    isProductCardImagePath,
+    productImageStem,
+    resolveCanonicalImageValue,
+    buildPublicUrlFromPath,
+    normalizeManagedPath,
+    resolveManagedAbsolutePath,
+    isPlaceholderProductImage
+} = require('../services/uploadstorage.service');
 const productCardImage = require('../services/product-card-image.service');
 
 const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
 const DEFAULT_SITE_ORIGIN = 'https://byosemarket.com';
+const PLACEHOLDER_PRODUCT_IMAGE = '/img/logo.png';
+
+function managedUploadExists(value) {
+    const managedPath = normalizeManagedPath(value);
+    if (!managedPath || isPlaceholderProductImage(managedPath)) {
+        return Boolean(managedPath);
+    }
+
+    const absolutePath = resolveManagedAbsolutePath(managedPath);
+    try {
+        return Boolean(absolutePath && fs.existsSync(absolutePath) && fs.statSync(absolutePath).size > 0);
+    } catch (_error) {
+        return false;
+    }
+}
+
+function resolveStorefrontCardUrl(rawMainImage) {
+    const cardUrl = productCardImage.resolveCardPublicUrl(rawMainImage);
+    if (cardUrl) {
+        return absolutizePublicAssetUrl(cardUrl);
+    }
+
+    if (hasUsableProductImageValue(rawMainImage) && managedUploadExists(rawMainImage)) {
+        const managedPath = normalizeManagedPath(rawMainImage);
+        return absolutizePublicAssetUrl(buildPublicUrlFromPath(managedPath) || rawMainImage);
+    }
+
+    return absolutizePublicAssetUrl(PLACEHOLDER_PRODUCT_IMAGE);
+}
 
 function absolutizePublicAssetUrl(value) {
     const normalized = toTrimmedString(value);
@@ -722,11 +761,9 @@ function serializeProduct(product, options = {}) {
             : (rawGallery[0] || ''));
     const originalMainImage = absolutizePublicAssetUrl(rawMainImage);
     const mainImage = originalMainImage;
-    const cardImage = absolutizePublicAssetUrl(productCardImage.resolveCardPublicUrl(rawMainImage || originalMainImage)) || '';
+    const cardImage = resolveStorefrontCardUrl(rawMainImage || originalMainImage);
     const gallery = absolutizePublicAssetList(rawGallery.length ? rawGallery : [rawMainImage]);
-    const galleryCardImages = gallery.map((entry) => (
-        absolutizePublicAssetUrl(productCardImage.resolveCardPublicUrl(entry)) || ''
-    ));
+    const galleryCardImages = gallery.map((entry) => resolveStorefrontCardUrl(entry));
 
     return enrichSerializedProductColorVariants({
         ...source,
@@ -798,14 +835,11 @@ function serializeProductCard(product, options = {}) {
         ? source.mainImage
         : (hasUsableProductImageValue(source.image) ? source.image : (rawGallery[0] || ''));
     const originalMainImage = absolutizePublicAssetUrl(rawMainImage);
-    const cardImage = absolutizePublicAssetUrl(productCardImage.resolveCardPublicUrl(rawMainImage || originalMainImage))
-        || originalMainImage;
+    const cardImage = resolveStorefrontCardUrl(rawMainImage || originalMainImage);
     const originalGallery = absolutizePublicAssetList(
         (rawGallery.slice(0, 1).concat(rawMainImage ? [rawMainImage] : []))
     ).slice(0, 1);
-    const gallery = originalGallery.map((entry) => (
-        absolutizePublicAssetUrl(productCardImage.resolveCardPublicUrl(entry)) || entry
-    ));
+    const gallery = originalGallery.map((entry) => resolveStorefrontCardUrl(entry));
     const placements = Array.isArray(metadataObject.placements) && metadataObject.placements.length
         ? metadataObject.placements
         : (Array.isArray(metadataObject.placement) ? metadataObject.placement : []);
@@ -1053,8 +1087,8 @@ exports.getAllProducts = async (req, res) => {
         if (forPublic) {
             // Short browser cache + SWR keeps homepage fast while admin edits propagate quickly.
             const cacheControl = serializeMode === 'card'
-                ? 'public, max-age=15, stale-while-revalidate=60'
-                : 'public, max-age=10, stale-while-revalidate=30';
+                ? 'public, max-age=60, stale-while-revalidate=300'
+                : 'public, max-age=30, stale-while-revalidate=120';
             res.setHeader('Cache-Control', cacheControl);
             res.setHeader('Vary', 'Accept-Encoding, Authorization');
             res.setHeader('X-Byose-Catalog-Generation', String(queryCache.getGeneration()));

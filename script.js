@@ -27,10 +27,7 @@ const DEFAULT_FILTER = 'all';
 const DEFAULT_CATEGORY = 'featured';
 const DEFAULT_DETAIL_PAGE = 'details/product-details1.html';
 const FALLBACK_IMAGE = 'img/logo.png';
-const SPOTLIGHT_LIMIT = 6;
-const SPOTLIGHT_START_OFFSET = 5;
-const HOME_INITIAL_CARD_COUNT = 12;
-const HOME_EAGER_IMAGE_COUNT = 2;
+const HOME_EAGER_IMAGE_COUNT = 4;
 const HERO_INTERVAL_MS = 3500;
 const HERO_BRAND_EYEBROW = 'Byose Market Rwanda';
 const NEWSLETTER_STORAGE_KEY = 'byose_market_newsletter_subscribers';
@@ -50,8 +47,6 @@ const state = {
   currentFilter: DEFAULT_FILTER,
   pendingGridExpansion: null
 };
-
-const PLACEMENT_SECTION_LIMIT = 6;
 
 const elements = {
   filterPills: document.getElementById('filterPills'),
@@ -395,14 +390,8 @@ function renderGrid(grid, cacheKey, items, options = {}) {
 
   const isHomeMainGrid = grid.id === 'homeProductGrid';
   const eagerCount = Math.max(0, Number(options.eagerCount ?? (isHomeMainGrid ? HOME_EAGER_IMAGE_COUNT : 2)) || 0);
-  const progressiveEligible = isHomeMainGrid && items.length > HOME_INITIAL_CARD_COUNT;
   const cachedMarkup = state.markupCache.get(cacheKey);
-  const markup = cachedMarkup
-    || ProductCardSystem.renderCards(
-      progressiveEligible ? items.slice(0, HOME_INITIAL_CARD_COUNT) : items,
-      { eagerCount }
-    );
-  const needsProgressiveExpand = progressiveEligible && !cachedMarkup;
+  const markup = cachedMarkup || ProductCardSystem.renderCards(items, { eagerCount });
 
   if (!cachedMarkup) {
     state.markupCache.set(cacheKey, markup);
@@ -421,23 +410,6 @@ function renderGrid(grid, cacheKey, items, options = {}) {
   grid.dataset.renderKey = cacheKey;
   grid.dataset.renderMarkup = markup;
   grid.removeAttribute('aria-busy');
-
-  if (needsProgressiveExpand) {
-    const remaining = items.slice(HOME_INITIAL_CARD_COUNT);
-    state.pendingGridExpansion = scheduleIdleWork(() => {
-      if (grid.dataset.renderKey !== cacheKey) {
-        state.pendingGridExpansion = null;
-        return;
-      }
-      const remainingMarkup = ProductCardSystem.renderCards(remaining, { eagerCount: 0 });
-      grid.insertAdjacentHTML('beforeend', remainingMarkup);
-      bindGridImageFallback(grid);
-      const fullMarkup = `${markup}${remainingMarkup}`;
-      state.markupCache.set(cacheKey, fullMarkup);
-      grid.dataset.renderMarkup = fullMarkup;
-      state.pendingGridExpansion = null;
-    });
-  }
 }
 
 function getProductsForFilter(filter) {
@@ -492,12 +464,12 @@ function renderProductGrid(filter) {
   renderGrid(elements.productGrid, `home:${filter}`, items);
 }
 
-function renderPlacementSection(sectionEl, gridEl, cacheKey, placement, limit = PLACEMENT_SECTION_LIMIT) {
+function renderPlacementSection(sectionEl, gridEl, cacheKey, placement) {
   if (!gridEl) {
     return;
   }
 
-  const items = filterProductsForSection(state.catalog, placement, 'home').slice(0, limit);
+  const items = filterProductsForSection(state.catalog, placement, 'home');
   if (sectionEl) {
     sectionEl.hidden = items.length === 0;
   }
@@ -527,12 +499,10 @@ function getSpotlightProducts() {
   });
 
   if (combined.length) {
-    return combined.slice(0, SPOTLIGHT_LIMIT);
+    return combined;
   }
 
-  const spotlightSource = state.catalog;
-  const startIndex = Math.min(SPOTLIGHT_START_OFFSET, Math.max(0, spotlightSource.length - SPOTLIGHT_LIMIT));
-  return spotlightSource.slice(startIndex, startIndex + SPOTLIGHT_LIMIT);
+  return state.catalog.slice();
 }
 
 function renderSpotlightGrid() {
@@ -597,6 +567,21 @@ function renderHeroSlides(slides) {
   root.dataset.heroSource = items.length ? 'api' : 'empty';
   root.dataset.heroFingerprint = fingerprint;
   root.setAttribute('aria-busy', 'false');
+
+  const firstSlide = items[0];
+  const firstImage = firstSlide ? normalizeStorefrontAssetUrl(firstSlide.imageUrl) : '';
+  if (firstImage && document.head) {
+    const escaped = firstImage.replace(/"/g, '\\"');
+    if (!document.querySelector(`link[rel="preload"][as="image"][href="${escaped}"]`)) {
+      const preload = document.createElement('link');
+      preload.rel = 'preload';
+      preload.as = 'image';
+      preload.href = firstImage;
+      preload.setAttribute('fetchpriority', 'high');
+      document.head.appendChild(preload);
+    }
+  }
+
   return true;
 }
 

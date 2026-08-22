@@ -3,7 +3,7 @@
  * Single card layout used across Home, Shop, Search, Categories, Featured, Related, etc.
  */
 
-import { normalizeStorefrontAssetUrl, resolveProductImageUrl } from '../services/storefront-asset-url.js';
+import { isProductCardImageUrl, normalizeStorefrontAssetUrl, resolveProductFullImageUrl, resolveProductImageUrl } from '../services/storefront-asset-url.js';
 import { formatDiscountBadgeLabel, resolveProductDiscount } from './storefront-discount.js';
 import { hasPurchasableVariant } from './color-variant-inventory.js';
 
@@ -177,8 +177,10 @@ export const ProductCardSystem = (() => {
       discountPercent: discount.discountPercent
     };
     const productName = escapeHtml(getCardDisplayName(product));
-    const productImage = resolveProductImageUrl(product);
-    const displayImage = productImage || normalizeStorefrontAssetUrl(FALLBACK_IMAGE) || FALLBACK_IMAGE;
+    const cardImage = resolveProductImageUrl(product);
+    const fullImage = resolveProductFullImageUrl(product);
+    const displayImage = cardImage || fullImage || normalizeStorefrontAssetUrl(FALLBACK_IMAGE) || FALLBACK_IMAGE;
+    const fallbackSource = fullImage || cardImage || '';
     const productDetailUrl = escapeHtml(getProductDetailUrl(productId));
     const discountBadge = renderDiscountBadge(normalizedProduct);
     const highlightBadge = renderHighlightBadge(product);
@@ -198,8 +200,8 @@ export const ProductCardSystem = (() => {
           <a class="byose-product-image-link" href="${productDetailUrl}" aria-label="View ${productName}">
             <img class="byose-product-image"
                  src="${escapeHtml(displayImage)}"
-                 data-product-image-src="${escapeHtml(productImage || '')}"
-                 data-has-product-image="${productImage ? 'true' : 'false'}"
+                 data-product-image-src="${escapeHtml(fallbackSource)}"
+                 data-has-product-image="${fallbackSource ? 'true' : 'false'}"
                  alt="${productName}"
                  width="640"
                  height="640"
@@ -265,12 +267,27 @@ export const ProductCardSystem = (() => {
         return;
       }
 
-      if (img.dataset.hasProductImage === 'true') {
-        const originalSrc = String(img.dataset.productImageSrc || img.getAttribute('src') || '').trim();
-        if (originalSrc && img.dataset.retried !== 'true') {
+      const currentSrc = String(img.getAttribute('src') || '').trim();
+      const originalSrc = String(img.dataset.productImageSrc || '').trim();
+
+      if (img.dataset.hasProductImage === 'true' && originalSrc) {
+        // Card derivative failed: try the full-resolution original once.
+        if (
+          isProductCardImageUrl(currentSrc)
+          && originalSrc
+          && currentSrc !== originalSrc
+          && img.dataset.retriedFull !== 'true'
+        ) {
+          img.dataset.retriedFull = 'true';
+          img.src = originalSrc;
+          return;
+        }
+
+        // Never retry the same URL — repeating 404/timeout requests causes multi-second blank images.
+        if (currentSrc === originalSrc && img.dataset.retried !== 'true') {
           img.dataset.retried = 'true';
-          // One silent retry without cache-busting (avoids forcing a second full download).
-          img.removeAttribute('src');
+        } else if (currentSrc !== originalSrc && img.dataset.retried !== 'true') {
+          img.dataset.retried = 'true';
           img.src = originalSrc;
           return;
         }

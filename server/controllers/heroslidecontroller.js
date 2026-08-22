@@ -2,6 +2,7 @@ const config = require('../config/env');
 const HeroSlide = require('../models/heroslide');
 const heroSlideDataService = require('../services/heroslidedataservice');
 const { deleteManagedFiles } = require('../services/uploadstorage.service');
+const heroImage = require('../services/hero-image.service');
 const getRealtimeEventService = require('../services/realtimeeventservice');
 const { appLogger } = require('../utils/logger');
 
@@ -156,8 +157,33 @@ function extractSlidePayload(body = {}) {
     return payload;
 }
 
+function resolvePublicHeroImageUrl(serialized) {
+    const source = serialized.imagePath || serialized.imageUrl || '';
+    const optimized = heroImage.resolveOptimizedPublicUrl(source);
+    if (optimized) {
+        return optimized;
+    }
+
+    const normalized = normalizeText(serialized.imageUrl);
+    if (normalized) {
+        return normalized;
+    }
+
+    const imagePath = normalizeText(serialized.imagePath);
+    if (!imagePath) {
+        return '';
+    }
+
+    if (/^(?:https?:|\/)/i.test(imagePath)) {
+        return imagePath;
+    }
+
+    return `/uploads/${imagePath.replace(/^\/+/, '')}`;
+}
+
 function serializePublicSlide(slide) {
     const serialized = serializeSlide(slide);
+    const imageUrl = resolvePublicHeroImageUrl(serialized);
     return {
         id: serialized.id,
         slideId: serialized.slideId,
@@ -166,7 +192,7 @@ function serializePublicSlide(slide) {
         description: serialized.description,
         buttonText: serialized.buttonText,
         buttonLink: serialized.buttonLink,
-        imageUrl: serialized.imageUrl,
+        imageUrl,
         imagePath: serialized.imagePath,
         displayOrder: serialized.displayOrder,
         status: serialized.status
@@ -187,9 +213,8 @@ function isUniqueConstraintError(error) {
 }
 
 function setPublicHeroCacheHeaders(res) {
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
+    res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+    res.setHeader('Vary', 'Accept-Encoding');
 }
 
 function emitHeroRealtime(action, slides = []) {

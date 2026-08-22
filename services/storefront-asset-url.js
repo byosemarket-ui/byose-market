@@ -106,6 +106,46 @@ export function resolveProductImageUrl(product) {
       continue;
     }
 
+    if (isProductCardImageUrl(normalized)) {
+      return normalized;
+    }
+
+    const cardDerived = toProductCardImageUrl(normalized);
+    return cardDerived || normalized;
+  }
+
+  return "";
+}
+
+export function resolveProductFullImageUrl(product) {
+  if (!product || typeof product !== "object") {
+    return "";
+  }
+
+  const gallery = Array.isArray(product.gallery) ? product.gallery : [];
+  const galleryStoragePaths = Array.isArray(product.galleryStoragePaths) ? product.galleryStoragePaths : [];
+  const candidates = [
+    product.originalImage,
+    product.mainImage,
+    product.image,
+    product.thumbnail,
+    ...gallery,
+    product.mainImageStoragePath,
+    product.imageStoragePath,
+    ...galleryStoragePaths
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeStorefrontAssetUrl(candidate);
+    if (!normalized || /^javascript:/i.test(normalized) || isProductCardImageUrl(normalized)) {
+      continue;
+    }
+
+    const lowered = normalized.replace(/\\/g, "/").toLowerCase();
+    if (/(?:^|\/)img\/logo\.png(?:\?|#|$)/.test(lowered) || lowered.endsWith("/img/logo.png")) {
+      continue;
+    }
+
     return normalized;
   }
 
@@ -202,6 +242,7 @@ export default {
   productImagesMatch,
   purgeLegacyStorefrontCatalogCache,
   resolveProductDisplayImage,
+  resolveProductFullImageUrl,
   resolveProductImageUrl,
   resolveStorefrontOrigin,
   toProductCardImageUrl

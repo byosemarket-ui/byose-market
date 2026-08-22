@@ -190,11 +190,11 @@ jobs:
             const headers = fs.readFileSync(process.argv[1], 'utf8').toLowerCase();
             const payload = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
             if (!payload || payload.success !== true || !Array.isArray(payload.slides)) process.exit(1);
-            if (!headers.includes('cache-control') || !headers.includes('no-store')) {
-              console.error('Hero API missing no-store Cache-Control');
+            if (!headers.includes('cache-control')) {
+              console.error('Hero API missing Cache-Control header');
               process.exit(1);
             }
-            console.log('Hero slides OK count=', payload.slides.length);
+            console.log('Hero slides OK count=', payload.slides.length, 'cache=', headers.match(/cache-control:[^\r\n]+/)?.[0] || '');
           " "${hero_headers}" "${hero_body}"
           rm -f "${hero_headers}" "${hero_body}"
           echo "Production verification passed."

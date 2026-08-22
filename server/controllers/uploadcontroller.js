@@ -1,14 +1,19 @@
 const { getUploadFoundationSnapshot, resolveUploadBucket } = require('../services/storage-foundation.service');
 const { buildPublicUploadUrl, buildRelativeUploadPath, deleteManagedFiles, parsePathCollection } = require('../services/uploadstorage.service');
 const productCardImage = require('../services/product-card-image.service');
+const heroImage = require('../services/hero-image.service');
 
 function serializeUploadedFile(file, bucket) {
     const relativePath = buildRelativeUploadPath(bucket.key, file.filename);
     const publicUrl = buildPublicUploadUrl(bucket.key, file.filename);
     let thumbnailUrl = publicUrl;
-    if (String(bucket.key || '').toLowerCase() === 'products') {
+    const bucketKey = String(bucket.key || '').toLowerCase();
+    if (bucketKey === 'products') {
         productCardImage.ensureCardImage(relativePath);
         thumbnailUrl = productCardImage.resolveCardPublicUrl(relativePath) || publicUrl;
+    } else if (bucketKey === 'hero') {
+        heroImage.ensureOptimizedHeroImage(relativePath);
+        thumbnailUrl = heroImage.resolveOptimizedPublicUrl(relativePath) || publicUrl;
     }
 
     return {

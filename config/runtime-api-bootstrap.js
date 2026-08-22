@@ -72,6 +72,24 @@
   var apiBase = normalizeApiBase(global.BYOSE_API_BASE_URL || resolvedApiBase);
   var pathName = String(global.location && global.location.pathname || "");
   var isProductDetails = /product-details/i.test(pathName);
+  var isHomePage = !isProductDetails && (
+    pathName === "/"
+    || /\/index\.html$/i.test(pathName)
+    || /\/$/.test(pathName)
+  );
+
+  if (isHomePage && !global.__BYOSE_HERO_PREFETCH__ && typeof global.fetch === "function") {
+    try {
+      global.__BYOSE_HERO_PREFETCH__ = global.fetch(apiBase + "/hero-slides", {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+        cache: "default"
+      });
+    } catch (_heroPrefetchError) {
+      global.__BYOSE_HERO_PREFETCH__ = null;
+    }
+  }
 
   // Product Details: prefetch the opened product, not the full catalog.
   // Catalog prefetch on this page competes with the main product image.
@@ -122,7 +140,7 @@
     // Start the public catalog request in <head> so Home/Shop do not wait for
     // the ES-module waterfall before products can render.
     try {
-      var catalogUrl = apiBase + "/products?limit=120&fields=card";
+      var catalogUrl = apiBase + "/products?limit=500&fields=card";
       global.__BYOSE_CATALOG_PREFETCH__ = global.fetch(catalogUrl, {
         method: "GET",
         headers: { Accept: "application/json" },

@@ -21,7 +21,7 @@ const STALE_THRESHOLD_MS = 120000;
 const DEFAULT_RETRY_COUNT = 1;
 const DEFAULT_TIMEOUT_MS = 8000;
 const LIVE_SYNC_INTERVAL_MS = 90000;
-const STOREFRONT_CATALOG_QUERY = "products?limit=120&fields=card";
+const STOREFRONT_CATALOG_QUERY = "products?limit=500&fields=card";
 
 let cachedProducts = [];
 let lastSnapshotAt = 0;

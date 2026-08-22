@@ -176,7 +176,39 @@ export function publishHeroSlidesBump(source = "admin") {
   }));
 }
 
+async function consumeHeroPrefetch() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const pending = window.__BYOSE_HERO_PREFETCH__;
+  window.__BYOSE_HERO_PREFETCH__ = null;
+  if (!pending || typeof pending.then !== "function") {
+    return null;
+  }
+
+  try {
+    const response = await pending;
+    if (!response || !response.ok) {
+      return null;
+    }
+
+    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+    const payload = contentType.includes("application/json")
+      ? await response.json().catch(() => ({}))
+      : {};
+    return normalizeHeroSlides(payload?.slides);
+  } catch (_error) {
+    return null;
+  }
+}
+
 async function requestActiveHeroSlides(timeoutMs = DEFAULT_TIMEOUT_MS) {
+  const prefetched = await consumeHeroPrefetch();
+  if (prefetched) {
+    return prefetched;
+  }
+
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timerId = controller
     ? window.setTimeout(() => controller.abort(), timeoutMs)
@@ -185,10 +217,9 @@ async function requestActiveHeroSlides(timeoutMs = DEFAULT_TIMEOUT_MS) {
   try {
     const response = await fetch(buildApiUrl("hero-slides"), {
       method: "GET",
-      cache: "no-store",
+      cache: "default",
       headers: {
-        Accept: "application/json",
-        "Cache-Control": "no-cache"
+        Accept: "application/json"
       },
       signal: controller?.signal
     });
