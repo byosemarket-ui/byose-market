@@ -25,8 +25,14 @@ html {
   scroll-behavior: smooth;
 }
 
-body.account-page.notification-open {
+body.account-page.notification-open,
+html.account-page.notification-open {
   overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body.account-page.notification-open {
+  touch-action: none;
 }
 
 img {
@@ -91,27 +97,23 @@ a {
   position: fixed;
   inset: 0;
   z-index: 10050;
-  display: grid;
-  place-items: start center;
-  padding: 72px 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding:
+    max(16px, env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
   background: rgba(17, 35, 29, 0.42);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
-  overflow-y: auto;
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 .notification-overlay[hidden] {
   display: none;
-}
-
-.notification-panel--modal {
-  position: relative;
-  top: auto;
-  right: auto;
-  width: min(100%, 420px);
-  max-height: min(calc(100vh - 96px), 560px);
-  margin: 0 auto;
-  animation: notification-panel-in 0.24s ease;
 }
 
 .notification-panel--modal::before {
@@ -119,10 +121,29 @@ a {
 }
 
 .notification-panel-view {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
   min-height: 0;
-  max-height: inherit;
+  overflow: hidden;
+}
+
+.notification-panel-view[hidden] {
+  display: none !important;
+}
+
+.notification-panel-header--sticky {
+  flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.notification-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
 }
 
 .notification-panel-actions {
@@ -173,8 +194,13 @@ a {
 }
 
 .notification-detail-body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 18px;
+  padding-bottom: max(18px, env(safe-area-inset-bottom));
 }
 
 .notification-detail-meta {
@@ -353,6 +379,21 @@ a {
   transform-origin: top right;
 }
 
+.notification-panel.notification-panel--modal {
+  position: relative;
+  top: auto;
+  right: auto;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 420px);
+  max-height: min(85dvh, 85vh, 560px);
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+  transform-origin: center center;
+  animation: notification-panel-in 0.24s ease;
+}
+
 .notification-panel[hidden] {
   display: none;
 }
@@ -417,7 +458,7 @@ a {
 }
 
 .notification-list {
-  overflow-y: auto;
+  overflow: visible;
   padding: 10px;
 }
 
@@ -1223,18 +1264,22 @@ a {
   }
 
   .notification-overlay {
-    padding: 16px;
-    place-items: center;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 0;
   }
 
+  .notification-panel.notification-panel--modal,
   .notification-panel--modal {
-    width: min(100%, 360px);
-    max-height: min(calc(100vh - 32px), 520px);
+    width: 100%;
+    max-width: none;
+    max-height: min(88dvh, 88vh, 640px);
+    border-radius: 24px 24px 0 0;
   }
 
   .notification-panel {
-    right: -2px;
-    width: min(calc(100vw - 28px), 360px);
+    right: auto;
+    width: 100%;
   }
 
   .notification-panel-header {

@@ -30,6 +30,7 @@ function checkSourceGuards() {
   const repo = read('server/repositories/sqlite/customer-notification.repository.js');
 
   assert(accountHtml.includes('notificationOverlay'), 'account page uses notification overlay');
+  assert(accountHtml.includes('notification-panel-body'), 'notification list scroll area is isolated from header');
   assert(accountHtml.includes('notificationDetailView'), 'account page includes notification detail view');
   assert(!accountHtml.includes('id="notificationPanel" class="notification-panel" aria-label="Notifications" hidden>'), 'notification panel must not stay inside header dropdown');
 
@@ -39,10 +40,11 @@ function checkSourceGuards() {
   assert(dashboardJs.includes('updateNotificationBadge'), 'dashboard updates unread badge from server count');
   assert(dashboardJs.includes('buildAccountTips'), 'account tips are separate from unread badge count');
   assert(dashboardJs.includes('notificationOverlay'), 'dashboard binds overlay close behavior');
-  assert(dashboardJs.includes('syncNotifications'), 'dashboard uses centralized notification sync');
-  assert(dashboardJs.includes('startNotificationPolling'), 'dashboard refreshes notifications automatically');
+  assert(dashboardJs.includes('lockPageScroll'), 'dashboard locks page scroll when notification panel is open');
 
   assert(css.includes('.notification-overlay'), 'notification overlay styles exist');
+  assert(css.includes('overflow: hidden'), 'notification overlay must not scroll as a whole');
+  assert(css.includes('.notification-panel-body'), 'notification panel body scroll region exists');
   assert(css.includes('z-index: 10050'), 'notification overlay sits above account content');
 
   assert(routes.includes('authMiddleware'), 'customer notification routes require auth');

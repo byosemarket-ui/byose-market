@@ -40,7 +40,10 @@ function checkSourceGuards() {
 
   assert(accountHtml.includes('notificationStatus'), 'account page includes notification status element');
   assert(accountHtml.includes('loadMoreNotifications'), 'account page includes load-more control');
-  assert(accountHtml.includes('notificationDetailUnavailable'), 'account page includes unavailable fallback');
+  assert(accountHtml.includes('notification-panel-body'), 'notification list scroll area is isolated from header');
+  assert(dashboard.includes('lockPageScroll'), 'dashboard locks page scroll when notification panel is open');
+  assert(css.includes('.notification-panel-body'), 'notification panel body scroll region exists');
+  assert(css.includes('overflow: hidden'), 'notification overlay must not scroll as a whole');
 
   assert(css.includes('.notification-status'), 'notification status styles exist');
   assert(css.includes('z-index: 10050'), 'notification overlay remains above account content');

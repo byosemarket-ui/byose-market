@@ -527,6 +527,30 @@
     }
   }
 
+  let notificationScrollLockY = 0;
+
+  function lockPageScroll() {
+    notificationScrollLockY = window.scrollY || document.documentElement.scrollTop || 0;
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${notificationScrollLockY}px`;
+    document.body.style.left = '0';
+    document.body.style.right = '0';
+    document.body.style.width = '100%';
+    document.body.classList.add('notification-open');
+    document.documentElement.classList.add('notification-open');
+  }
+
+  function unlockPageScroll() {
+    document.body.classList.remove('notification-open');
+    document.documentElement.classList.remove('notification-open');
+    document.body.style.position = '';
+    document.body.style.top = '';
+    document.body.style.left = '';
+    document.body.style.right = '';
+    document.body.style.width = '';
+    window.scrollTo(0, notificationScrollLockY);
+  }
+
   function openNotificationPanel() {
     const overlay = $('#notificationOverlay');
     const panel = $('#notificationPanel');
@@ -537,7 +561,7 @@
     panel.hidden = false;
     toggle.setAttribute('aria-expanded', 'true');
     toggle.classList.add('is-open');
-    document.body.classList.add('notification-open');
+    lockPageScroll();
     syncNotifications({ silent: notificationCenter.items.length > 0 }).catch(() => {});
   }
 
@@ -550,7 +574,7 @@
     panel.hidden = true;
     toggle.setAttribute('aria-expanded', 'false');
     toggle.classList.remove('is-open');
-    document.body.classList.remove('notification-open');
+    unlockPageScroll();
     showNotificationListView();
   }
 
@@ -732,7 +756,12 @@
     const user = window.authService?.getCurrentUser?.();
     if (!user) return;
 
-    window.addEventListener('beforeunload', stopNotificationPolling);
+    window.addEventListener('beforeunload', () => {
+      stopNotificationPolling();
+      if (document.body.classList.contains('notification-open')) {
+        unlockPageScroll();
+      }
+    });
 
     const orders = window.orderService?.getOrders ? await window.orderService.getOrders(user.id) : [];
     const address = user.address || {};
