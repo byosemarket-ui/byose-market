@@ -12,9 +12,9 @@ exports.list = async (req, res) => {
     try {
         const user = await resolveUser(req);
         if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
-        const data = await customerNotificationDataService.listNotifications(user, {
-            limit: Number(req.query.limit || 30)
-        });
+        const limit = Math.min(50, Math.max(1, Number(req.query.limit || 30) || 30));
+        const offset = Math.max(0, Number(req.query.offset || 0) || 0);
+        const data = await customerNotificationDataService.listNotifications(user, { limit, offset });
         return res.json({ success: true, ...data });
     } catch (err) {
         logger.error('customer_notifications.list_failed', { error: err });

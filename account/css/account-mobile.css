@@ -219,6 +219,59 @@ a {
   text-align: center;
 }
 
+.notification-status {
+  margin: 0 0 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 12px;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.notification-status.is-loading {
+  color: var(--account-muted);
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.notification-status.is-error {
+  color: #991b1b;
+  background: rgba(254, 226, 226, 0.92);
+  border: 1px solid rgba(185, 28, 28, 0.18);
+}
+
+.notification-load-more {
+  display: block;
+  width: 100%;
+  margin-top: 0.75rem;
+  padding: 0.72rem 0.9rem;
+  border: 1px solid rgba(22, 50, 45, 0.12);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--account-text, #16322d);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.notification-load-more:hover,
+.notification-load-more:focus-visible {
+  background: rgba(0, 184, 148, 0.08);
+}
+
+.notification-detail-unavailable {
+  margin: 0 0 0.85rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.05);
+  color: var(--account-muted);
+  font-size: 0.88rem;
+}
+
+.notification-detail-action.is-disabled {
+  pointer-events: none;
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .account-notification {
   position: relative;
   width: 48px;

@@ -126,11 +126,21 @@
       .replace(/\/api$/i, '');
   }
 
+  const NOTIFICATION_PAGE_SIZE = 20;
+  const NOTIFICATION_POLL_MS = 45000;
+
   const notificationCenter = {
     items: [],
     tips: [],
     unreadCount: 0,
-    bound: false
+    total: 0,
+    hasMore: false,
+    offset: 0,
+    loading: false,
+    error: '',
+    bound: false,
+    pollTimer: null,
+    syncInFlight: false
   };
 
   function formatNotificationTime(value) {
@@ -181,32 +191,165 @@
     return tips;
   }
 
-  async function fetchServerNotifications() {
-    if (!window.authService?.authFetch || !window.authService.isLoggedIn?.()) {
-      return { items: [], unreadCount: 0 };
+  function formatNotificationTypeLabel(type) {
+    const key = String(type || 'SYSTEM').toUpperCase();
+    const labels = {
+      ORDER_UPDATE: 'Order update',
+      SHIPPING_UPDATE: 'Shipping update',
+      NEW_PRODUCT: 'New product',
+      SYSTEM: 'Account message',
+      COUPON_RECEIVED: 'Coupon',
+      COUPON_EXPIRING: 'Coupon',
+      WISHLIST_PRODUCT_PROMOTION: 'Wishlist',
+      FAVORITE_STORE_PROMOTION: 'Store offer',
+      FAVORITE_STORE_NEW_PRODUCT: 'Store product'
+    };
+    return labels[key] || 'Notification';
+  }
+
+  function mapNotificationItem(item) {
+    return {
+      id: item.id,
+      type: item.type || 'SYSTEM',
+      title: item.title || 'Account update',
+      body: item.body || '',
+      href: normalizeDeeplink(item.deeplink),
+      entityType: item.entityType || '',
+      entityId: item.entityId || '',
+      createdAt: item.createdAt || null,
+      unread: !item.isRead,
+      source: 'api'
+    };
+  }
+
+  function setNotificationStatus(message, tone = '') {
+    const status = $('#notificationStatus');
+    if (!status) return;
+    const text = String(message || '').trim();
+    if (!text) {
+      status.hidden = true;
+      status.textContent = '';
+      status.className = 'notification-status';
+      return;
+    }
+    status.hidden = false;
+    status.textContent = text;
+    status.className = `notification-status${tone ? ` is-${tone}` : ''}`;
+  }
+
+  async function resolveNotificationDestination(notification) {
+    const entityType = String(notification?.entityType || '').toLowerCase();
+    const entityId = String(notification?.entityId || '').trim();
+    const href = notification?.href || 'account.html';
+
+    if (entityType === 'product' && entityId) {
+      try {
+        const response = await fetch(`${resolveApiOrigin()}/api/products/${encodeURIComponent(entityId)}`, {
+          headers: { Accept: 'application/json' }
+        });
+        if (response.ok) {
+          return { href: normalizeDeeplink(`/details/product-details1.html?id=${encodeURIComponent(entityId)}`), unavailable: '' };
+        }
+        return { href: 'account.html', unavailable: 'This product is no longer available.' };
+      } catch (_error) {
+        return { href, unavailable: '' };
+      }
     }
 
-    const response = await window.authService.authFetch(`${resolveApiOrigin()}/api/customer-notifications?limit=20`, {
+    if (entityType === 'order' && entityId && window.authService?.authFetch) {
+      try {
+        const response = await window.authService.authFetch(`${resolveApiOrigin()}/api/orders`, {
+          headers: { Accept: 'application/json' }
+        });
+        const payload = await response.json().catch(() => null);
+        const orders = Array.isArray(payload?.orders) ? payload.orders : [];
+        const owned = orders.some((order) => String(order.orderId || order.id || '') === entityId);
+        if (owned) {
+          return { href: normalizeDeeplink(`/account/order-details.html?id=${encodeURIComponent(entityId)}`), unavailable: '' };
+        }
+        return { href: 'orders/all.html', unavailable: 'This order is no longer available in your account.' };
+      } catch (_error) {
+        return { href, unavailable: '' };
+      }
+    }
+
+    return { href, unavailable: '' };
+  }
+
+  async function fetchServerNotifications({ limit = NOTIFICATION_PAGE_SIZE, offset = 0 } = {}) {
+    if (!window.authService?.authFetch || !window.authService.isLoggedIn?.()) {
+      return { items: [], unreadCount: 0, total: 0, hasMore: false, offset: 0 };
+    }
+
+    const query = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset)
+    });
+    const response = await window.authService.authFetch(`${resolveApiOrigin()}/api/customer-notifications?${query.toString()}`, {
       headers: { Accept: 'application/json' }
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok || !Array.isArray(payload?.items)) {
-      return { items: [], unreadCount: 0 };
+      throw new Error(payload?.message || 'Unable to load notifications.');
     }
 
     return {
-      items: payload.items.map((item) => ({
-        id: item.id,
-        type: item.type || 'SYSTEM',
-        title: item.title || 'Account update',
-        body: item.body || '',
-        href: normalizeDeeplink(item.deeplink),
-        createdAt: item.createdAt || null,
-        unread: !item.isRead,
-        source: 'api'
-      })),
-      unreadCount: Math.max(0, Number(payload.unreadCount || 0))
+      items: payload.items.map(mapNotificationItem),
+      unreadCount: Math.max(0, Number(payload.unreadCount || 0)),
+      total: Math.max(0, Number(payload.total || payload.items.length || 0)),
+      hasMore: Boolean(payload.hasMore),
+      offset: Math.max(0, Number(payload.offset || offset))
     };
+  }
+
+  async function syncNotifications({ append = false, silent = false } = {}) {
+    if (notificationCenter.syncInFlight) return;
+    notificationCenter.syncInFlight = true;
+    if (!silent) {
+      notificationCenter.loading = true;
+      setNotificationStatus('Loading notifications…', 'loading');
+    }
+
+    try {
+      const offset = append ? notificationCenter.items.length : 0;
+      const server = await fetchServerNotifications({ offset });
+      notificationCenter.items = append
+        ? [...notificationCenter.items, ...server.items.filter((entry) => !notificationCenter.items.some((existing) => Number(existing.id) === Number(entry.id)))]
+        : server.items;
+      notificationCenter.unreadCount = server.unreadCount;
+      notificationCenter.total = server.total;
+      notificationCenter.hasMore = server.hasMore;
+      notificationCenter.offset = server.offset;
+      notificationCenter.error = '';
+      setNotificationStatus('');
+      renderNotificationList();
+      updateNotificationBadge(notificationCenter.unreadCount);
+    } catch (error) {
+      notificationCenter.error = error?.message || 'Unable to load notifications.';
+      if (!notificationCenter.items.length) {
+        setNotificationStatus(notificationCenter.error, 'error');
+      }
+    } finally {
+      notificationCenter.loading = false;
+      notificationCenter.syncInFlight = false;
+      renderNotificationList();
+    }
+  }
+
+  function stopNotificationPolling() {
+    if (notificationCenter.pollTimer) {
+      clearInterval(notificationCenter.pollTimer);
+      notificationCenter.pollTimer = null;
+    }
+  }
+
+  function startNotificationPolling() {
+    if (!window.authService?.isLoggedIn?.()) return;
+    stopNotificationPolling();
+    notificationCenter.pollTimer = setInterval(() => {
+      if (document.hidden) return;
+      syncNotifications({ silent: true }).catch(() => {});
+    }, NOTIFICATION_POLL_MS);
   }
 
   async function markNotificationRead(notificationId) {
@@ -257,24 +400,44 @@
     const meta = $('#notificationDetailMeta');
     const message = $('#notificationDetailMessage');
     const action = $('#notificationDetailAction');
+    const unavailable = $('#notificationDetailUnavailable');
     if (!detailView || !title || !meta || !message || !action) return;
 
     title.textContent = notification.title || 'Notification';
     meta.textContent = [
-      notification.type ? String(notification.type).replace(/_/g, ' ') : '',
+      formatNotificationTypeLabel(notification.type),
       formatNotificationTime(notification.createdAt)
     ].filter(Boolean).join(' · ');
     message.textContent = notification.body || notification.title || 'No additional details.';
-    action.href = notification.href || 'account.html';
     action.textContent = notification.source === 'api' ? 'Open related page' : 'Continue';
+    action.classList.remove('is-disabled');
+    action.href = notification.href || 'account.html';
+    if (unavailable) {
+      unavailable.hidden = true;
+      unavailable.textContent = '';
+    }
 
     if (listView) listView.hidden = true;
     detailView.hidden = false;
+
+    resolveNotificationDestination(notification).then((destination) => {
+      if (!destination) return;
+      if (destination.unavailable && unavailable) {
+        unavailable.hidden = false;
+        unavailable.textContent = destination.unavailable;
+        action.classList.add('is-disabled');
+        action.href = 'account.html';
+        action.textContent = 'Related page unavailable';
+        return;
+      }
+      action.href = destination.href || notification.href || 'account.html';
+    }).catch(() => {});
   }
 
   function renderNotificationList() {
     const list = $('#notificationList');
     const markAll = $('#markAllNotificationsRead');
+    const loadMore = $('#loadMoreNotifications');
     if (!list) return;
 
     list.replaceChildren();
@@ -353,8 +516,14 @@
     }
 
     if (markAll) {
-      markAll.disabled = notificationCenter.unreadCount <= 0;
+      markAll.disabled = notificationCenter.unreadCount <= 0 || notificationCenter.loading;
       markAll.hidden = notificationCenter.items.length === 0;
+    }
+
+    if (loadMore) {
+      loadMore.hidden = !notificationCenter.hasMore;
+      loadMore.disabled = notificationCenter.loading;
+      loadMore.textContent = notificationCenter.loading ? 'Loading…' : 'Load more notifications';
     }
   }
 
@@ -369,6 +538,7 @@
     toggle.setAttribute('aria-expanded', 'true');
     toggle.classList.add('is-open');
     document.body.classList.add('notification-open');
+    syncNotifications({ silent: notificationCenter.items.length > 0 }).catch(() => {});
   }
 
   function closeNotificationPanel() {
@@ -395,6 +565,7 @@
     const markAll = $('#markAllNotificationsRead');
     const detailBack = $('#notificationDetailBack');
     const list = $('#notificationList');
+    const loadMore = $('#loadMoreNotifications');
 
     toggle?.addEventListener('click', () => {
       if (overlay?.hidden) {
@@ -419,6 +590,20 @@
       }
     });
 
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        syncNotifications({ silent: true }).catch(() => {});
+      }
+    });
+
+    window.addEventListener('focus', () => {
+      syncNotifications({ silent: true }).catch(() => {});
+    });
+
+    loadMore?.addEventListener('click', () => {
+      syncNotifications({ append: true, silent: false }).catch(() => {});
+    });
+
     detailBack?.addEventListener('click', showNotificationListView);
 
     markAll?.addEventListener('click', async () => {
@@ -426,16 +611,7 @@
       markAll.disabled = true;
       try {
         const payload = await markAllNotificationsRead();
-        notificationCenter.items = (payload?.items || notificationCenter.items).map((item) => ({
-          id: item.id,
-          type: item.type || 'SYSTEM',
-          title: item.title || 'Account update',
-          body: item.body || '',
-          href: normalizeDeeplink(item.deeplink),
-          createdAt: item.createdAt || null,
-          unread: !item.isRead,
-          source: 'api'
-        }));
+        notificationCenter.items = (payload?.items || notificationCenter.items).map(mapNotificationItem);
         notificationCenter.unreadCount = Math.max(0, Number(payload?.unreadCount || 0));
         renderNotificationList();
         updateNotificationBadge(notificationCenter.unreadCount);
@@ -457,16 +633,7 @@
         try {
           const payload = await markNotificationRead(notification.id);
           notification.unread = false;
-          notificationCenter.items = (payload?.items || notificationCenter.items).map((item) => ({
-            id: item.id,
-            type: item.type || 'SYSTEM',
-            title: item.title || 'Account update',
-            body: item.body || '',
-            href: normalizeDeeplink(item.deeplink),
-            createdAt: item.createdAt || null,
-            unread: !item.isRead,
-            source: 'api'
-          }));
+          notificationCenter.items = (payload?.items || notificationCenter.items).map(mapNotificationItem);
           notificationCenter.unreadCount = Math.max(0, Number(payload?.unreadCount || 0));
           renderNotificationList();
           updateNotificationBadge(notificationCenter.unreadCount);
@@ -482,19 +649,11 @@
   async function renderNotifications(orders, user) {
     if (!$('#notificationList') || !$('#notificationBadge') || !$('#notificationToggle')) return;
 
-    try {
-      const server = await fetchServerNotifications();
-      notificationCenter.items = server.items;
-      notificationCenter.unreadCount = server.unreadCount;
-    } catch (_error) {
-      notificationCenter.items = [];
-      notificationCenter.unreadCount = 0;
-    }
-
+    await syncNotifications({ silent: false });
     notificationCenter.tips = buildAccountTips(orders, user);
     renderNotificationList();
-    updateNotificationBadge(notificationCenter.unreadCount);
     bindNotificationCenter();
+    startNotificationPolling();
   }
 
   async function loadFeatureSummaries() {
@@ -572,6 +731,8 @@
     }
     const user = window.authService?.getCurrentUser?.();
     if (!user) return;
+
+    window.addEventListener('beforeunload', stopNotificationPolling);
 
     const orders = window.orderService?.getOrders ? await window.orderService.getOrders(user.id) : [];
     const address = user.address || {};

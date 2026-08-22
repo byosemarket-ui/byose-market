@@ -37,11 +37,24 @@ async function updatePrefs(user, prefs) {
     return customerNotifications.upsertPrefs(user.recordId, prefs || {});
 }
 
-async function listNotifications(user, { limit = 30 } = {}) {
+async function listNotifications(user, { limit = 30, offset = 0 } = {}) {
     const { customerNotifications } = getRepos();
-    const items = await customerNotifications.listForUser(user.recordId, { limit });
-    const unreadCount = await customerNotifications.countUnread(user.recordId);
-    return { items, unreadCount, count: items.length };
+    const safeLimit = Math.min(50, Math.max(1, Number(limit) || 30));
+    const safeOffset = Math.max(0, Number(offset) || 0);
+    const [items, unreadCount, total] = await Promise.all([
+        customerNotifications.listForUser(user.recordId, { limit: safeLimit, offset: safeOffset }),
+        customerNotifications.countUnread(user.recordId),
+        customerNotifications.countForUser(user.recordId)
+    ]);
+    return {
+        items,
+        unreadCount,
+        count: items.length,
+        total,
+        limit: safeLimit,
+        offset: safeOffset,
+        hasMore: safeOffset + items.length < total
+    };
 }
 
 async function markRead(user, notificationId) {

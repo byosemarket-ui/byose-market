@@ -39,6 +39,8 @@ function checkSourceGuards() {
   assert(dashboardJs.includes('updateNotificationBadge'), 'dashboard updates unread badge from server count');
   assert(dashboardJs.includes('buildAccountTips'), 'account tips are separate from unread badge count');
   assert(dashboardJs.includes('notificationOverlay'), 'dashboard binds overlay close behavior');
+  assert(dashboardJs.includes('syncNotifications'), 'dashboard uses centralized notification sync');
+  assert(dashboardJs.includes('startNotificationPolling'), 'dashboard refreshes notifications automatically');
 
   assert(css.includes('.notification-overlay'), 'notification overlay styles exist');
   assert(css.includes('z-index: 10050'), 'notification overlay sits above account content');

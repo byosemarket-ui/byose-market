@@ -138,14 +138,31 @@ class SQLiteCustomerNotificationRepository extends SQLiteBaseRepository {
         }
     }
 
-    async listForUser(userId, { limit = 30 } = {}) {
+    async listForUser(userId, { limit = 30, offset = 0 } = {}) {
         const safeLimit = Math.min(50, Math.max(1, Number(limit) || 30));
+        const safeOffset = Math.max(0, Number(offset) || 0);
         return this.db.prepare(`
             SELECT * FROM customer_notifications
             WHERE user_id = ?
             ORDER BY created_at DESC, id DESC
-            LIMIT ?
-        `).all(Number(userId), safeLimit).map((row) => this.mapNotification(row));
+            LIMIT ? OFFSET ?
+        `).all(Number(userId), safeLimit, safeOffset).map((row) => this.mapNotification(row));
+    }
+
+    async countForUser(userId) {
+        const row = this.db.prepare(`
+            SELECT COUNT(*) AS total FROM customer_notifications
+            WHERE user_id = ?
+        `).get(Number(userId));
+        return Number(row?.total || 0);
+    }
+
+    async findForUser(userId, notificationId) {
+        return this.mapNotification(this.db.prepare(`
+            SELECT * FROM customer_notifications
+            WHERE user_id = ? AND id = ?
+            LIMIT 1
+        `).get(Number(userId), Number(notificationId)));
     }
 
     async countUnread(userId) {
