@@ -18,6 +18,7 @@ import {
   writeStorage
 } from '../utils.js';
 import { COD_FEE, DELIVERY_FEE, PAYMENT_METHODS, STEPS, DEFAULT_PAYMENT_METHOD, isCodPaymentMethod, isGatewayPaymentMethod, normalizeCheckoutPaymentMethod } from './constants.js';
+import { isKigaliDeliveryLocation } from './location.js';
 import { validateProducts, validateShipping } from './validation.js';
 import {
   intentMatchesProducts,
@@ -1250,8 +1251,7 @@ export function setPaymentPhone(phone) {
 }
 
 export function isCodAvailable() {
-  const city = String(state.shipping.provinceCity || '').toLowerCase();
-  return city.includes('kigali');
+  return isKigaliDeliveryLocation(state.shipping);
 }
 
 export async function loadGatewayPaymentConfig() {

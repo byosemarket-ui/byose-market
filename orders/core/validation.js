@@ -1,4 +1,5 @@
 import { REQUIRED_SHIPPING_FIELDS, FIELD_LABELS, isCodPaymentMethod, isGatewayPaymentMethod } from './constants.js';
+import { isKigaliDeliveryLocation } from './location.js';
 import { isValidPhone, normalizePhone } from '../utils.js';
 
 export function validateShipping(address = {}) {
@@ -36,8 +37,7 @@ export function validatePayment(payment = {}, shippingAddress = {}) {
   }
 
   if (isCodPaymentMethod(method)) {
-    const city = String(shippingAddress.provinceCity || shippingAddress.city || '').toLowerCase();
-    if (!city.includes('kigali')) {
+    if (!isKigaliDeliveryLocation(shippingAddress)) {
       errors.method = 'Cash on Delivery is only available in Kigali.';
     }
     return { valid: Object.keys(errors).length === 0, errors };

@@ -16,6 +16,7 @@ import {
   renderDeliveryInfo, renderProgress, renderProductList, renderShippingSummary, renderSidebar,
   renderStickyBar, renderTotals, showMessage
 } from './ui/layout.js';
+import { COD_RESTRICTION_RW } from './core/location.js';
 import { validateProducts, validateShipping } from './core/validation.js';
 import {
   readAwaitingGatewayOrderId,
@@ -43,6 +44,16 @@ function rememberGatewayOrder(orderId) {
   if (createdGatewayOrderId) writeAwaitingGatewayOrderId(createdGatewayOrderId);
 }
 
+function setCodButtonLabel(btn, label) {
+  if (!btn) return;
+  const labelEl = btn.querySelector('.ck-pay-btn__label');
+  if (labelEl) {
+    labelEl.textContent = label;
+    return;
+  }
+  btn.textContent = label;
+}
+
 function applyBusyState() {
   const onlineLabel = busyKind === 'online' ? 'Connecting to secure payment...' : 'Online Payment';
   const codLabel = busyKind === 'cod' ? 'Placing order...' : 'Cash on Delivery';
@@ -51,9 +62,19 @@ function applyBusyState() {
     const btn = document.getElementById(id);
     if (!btn) return;
     const isOnline = id === 'onlinePayBtn' || id === 'stickyOnlineBtn';
-    btn.textContent = isOnline ? onlineLabel : codLabel;
+    if (isOnline) {
+      btn.textContent = onlineLabel;
+    } else {
+      setCodButtonLabel(btn, codLabel);
+    }
   });
   syncActionAvailability();
+}
+
+function syncCodRestrictionNote() {
+  const note = document.getElementById('codRestrictionNote');
+  if (!note) return;
+  note.hidden = isCodAvailable();
 }
 
 function syncActionAvailability() {
@@ -62,8 +83,8 @@ function syncActionAvailability() {
   const codOk = isCodAvailable();
   const onlineOk = !state.gateway?.loaded || Boolean(state.gateway?.dpoEnabled);
   [
-    ['codPayBtn', !codOk, 'Cash on Delivery is only available in Kigali.'],
-    ['stickyCodBtn', !codOk, 'Cash on Delivery is only available in Kigali.'],
+    ['codPayBtn', !codOk, COD_RESTRICTION_RW],
+    ['stickyCodBtn', !codOk, COD_RESTRICTION_RW],
     ['onlinePayBtn', !onlineOk, 'Online payment is not available right now.'],
     ['stickyOnlineBtn', !onlineOk, 'Online payment is not available right now.']
   ].forEach(([id, blocked, title]) => {
@@ -76,6 +97,7 @@ function syncActionAvailability() {
     btn.disabled = blocked;
     btn.title = blocked ? title : '';
   });
+  syncCodRestrictionNote();
 }
 
 function render() {
@@ -88,7 +110,7 @@ function render() {
   sidebarEl.innerHTML = renderSidebar(state.products, state.totals);
   stickyEl.innerHTML = renderStickyBar('', 'reviewContinueBtn', {
     actions: [
-      { id: 'stickyCodBtn', label: 'Cash on Delivery', className: 'ck-btn ck-btn--cod' },
+      { id: 'stickyCodBtn', kind: 'cod' },
       { id: 'stickyOnlineBtn', label: 'Online Payment', className: 'ck-btn ck-btn--primary ck-btn--online' }
     ]
   });
@@ -145,7 +167,7 @@ async function handleCashOnDelivery(event) {
   event?.preventDefault?.();
   if (!checkoutReady()) return;
   if (!isCodAvailable()) {
-    showMessage(messageEl, 'Cash on Delivery is only available in Kigali.');
+    showMessage(messageEl, COD_RESTRICTION_RW);
     return;
   }
   if (createdGatewayOrderId) {

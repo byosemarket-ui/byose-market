@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="checkout.css?v=20260822-review-pay-buttons">
+  <link rel="stylesheet" href="checkout.css?v=20260822-cod-payment-buttons">
 </head>
 <body>
   <div class="ck-shell">
@@ -29,9 +29,13 @@
             <div class="ck-actions ck-actions--review-pay">
               <a class="ck-btn ck-btn--ghost" href="shipping.html">Back</a>
               <div class="ck-payment-actions">
-                <button type="button" class="ck-btn ck-btn--cod" id="codPayBtn">Cash on Delivery</button>
+                <button type="button" class="ck-btn ck-btn--cod ck-btn--stacked" id="codPayBtn">
+                  <span class="ck-pay-btn__label">Cash on Delivery</span>
+                  <span class="ck-pay-btn__hint">Kwishyura inkweto zikugezeho</span>
+                </button>
                 <button type="button" class="ck-btn ck-btn--primary ck-btn--online" id="onlinePayBtn">Online Payment</button>
               </div>
+              <p class="ck-cod-restriction" id="codRestrictionNote" hidden>Kwishyura ugezwaho biboneka i Kigali gusa.</p>
             </div>
           </form>
         </article>

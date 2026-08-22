@@ -1,6 +1,7 @@
 import { escapeHtml, formatCurrency, resolveCheckoutAsset, resolveOrderItemImage } from '../utils.js';
 import { CHECKOUT_PROGRESS_STEPS, DELIVERY_FEE } from '../core/constants.js';
-import { getState } from '../core/state.js';
+import { COD_PAYMENT_HINT_RW, COD_RESTRICTION_RW } from '../core/location.js';
+import { getState, isCodAvailable } from '../core/state.js';
 
 export function renderProgress(currentStepId) {
   const currentIndex = CHECKOUT_PROGRESS_STEPS.findIndex((step) => step.id === currentStepId);
@@ -161,6 +162,10 @@ export function renderSidebar(products, totals) {
   `;
 }
 
+export function renderCodPaymentButton(id, { disabled = false } = {}) {
+  return `<button type="button" class="ck-btn ck-btn--cod ck-btn--stacked" id="${escapeHtml(id)}"${disabled ? ' disabled' : ''}><span class="ck-pay-btn__label">Cash on Delivery</span><span class="ck-pay-btn__hint">${escapeHtml(COD_PAYMENT_HINT_RW)}</span></button>`;
+}
+
 export function renderStickyBar(label, buttonId, options = {}) {
   const state = getState();
   const disabled = Boolean(options.disabled || state.isSubmitting);
@@ -168,16 +173,23 @@ export function renderStickyBar(label, buttonId, options = {}) {
   const actions = Array.isArray(options.actions) ? options.actions : [];
   const actionHtml = actions.length
     ? `<div class="ck-sticky-actions">${actions.map((action) => {
+        if (action.kind === 'cod') {
+          return renderCodPaymentButton(action.id, { disabled });
+        }
         const className = escapeHtml(action.className || 'ck-btn ck-btn--primary');
         return `<button type="button" class="${className}" id="${escapeHtml(action.id)}" ${disabled ? 'disabled' : ''}>${escapeHtml(action.label)}</button>`;
       }).join('')}</div>`
     : (hideAction
       ? ''
       : `<button type="button" class="ck-btn ck-btn--primary" id="stickyContinueBtn" ${disabled ? 'disabled' : ''}>${escapeHtml(label)}</button>`);
+  const codRestriction = actions.length && !isCodAvailable()
+    ? `<p class="ck-cod-restriction ck-cod-restriction--sticky">${escapeHtml(COD_RESTRICTION_RW)}</p>`
+    : '';
   const stickyClass = [
     'ck-sticky',
     hideAction && !actions.length ? 'ck-sticky--total-only' : '',
-    actions.length ? 'ck-sticky--review-pay' : ''
+    actions.length ? 'ck-sticky--review-pay' : '',
+    codRestriction ? 'ck-sticky--has-cod-note' : ''
   ].filter(Boolean).join(' ');
   return `
     <div class="${stickyClass}">
@@ -186,6 +198,7 @@ export function renderStickyBar(label, buttonId, options = {}) {
         <strong>${formatCurrency(state.totals.total)}</strong>
       </div>
       ${actionHtml}
+      ${codRestriction}
     </div>
   `;
 }
