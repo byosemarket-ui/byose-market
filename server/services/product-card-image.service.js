@@ -49,20 +49,31 @@ function cardExists(originalValue) {
     }
 
     const cached = existenceCache.get(cardPath);
-    if (cached !== undefined) {
-        return cached;
+    // Only trust positive cache entries. Negative results must be re-checked so a
+    // card generated moments later (upload → ensure → create) is discovered.
+    if (cached === true) {
+        return true;
     }
 
     const absolutePath = resolveManagedAbsolutePath(cardPath);
     const exists = Boolean(absolutePath && fs.existsSync(absolutePath) && fs.statSync(absolutePath).size > 0);
-    existenceCache.set(cardPath, exists);
+    if (exists) {
+        existenceCache.set(cardPath, true);
+    } else {
+        existenceCache.delete(cardPath);
+    }
     return exists;
 }
 
 function rememberCardExists(cardManagedPath, exists) {
-    if (cardManagedPath) {
-        existenceCache.set(cardManagedPath, Boolean(exists));
+    if (!cardManagedPath) {
+        return;
     }
+    if (exists) {
+        existenceCache.set(cardManagedPath, true);
+        return;
+    }
+    existenceCache.delete(cardManagedPath);
 }
 
 function commandSucceeds(command, args) {

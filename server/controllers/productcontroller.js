@@ -43,6 +43,63 @@ function managedUploadExists(value) {
     }
 }
 
+function collectProductImagePathsForOptimization(product = {}) {
+    const values = [
+        product.originalImage,
+        product.mainImage,
+        product.image,
+        ...(Array.isArray(product.gallery) ? product.gallery : []),
+        ...(Array.isArray(product.galleryStoragePaths) ? product.galleryStoragePaths : []),
+        product.mainImageStoragePath,
+        product.imageStoragePath
+    ];
+    const paths = [];
+    const seen = new Set();
+
+    values.forEach((entry) => {
+        if (!hasUsableProductImageValue(entry) || isProductCardImagePath(entry)) {
+            return;
+        }
+        const managedPath = normalizeManagedPath(entry);
+        if (!managedPath || seen.has(managedPath)) {
+            return;
+        }
+        seen.add(managedPath);
+        paths.push(managedPath);
+    });
+
+    return paths;
+}
+
+/**
+ * Ensure card WebP derivatives exist before catalog serialization / realtime broadcast.
+ * Returns true when every available original has a usable card (or there are no images).
+ */
+function ensureProductCardImagesReady(product = {}, logger = null) {
+    const paths = collectProductImagePathsForOptimization(product);
+    if (!paths.length) {
+        return true;
+    }
+
+    let readyCount = 0;
+    paths.forEach((managedPath) => {
+        if (!managedUploadExists(managedPath)) {
+            return;
+        }
+        const cardPath = productCardImage.ensureCardImage(managedPath);
+        if (cardPath) {
+            readyCount += 1;
+            return;
+        }
+        if (logger && typeof logger.warn === 'function') {
+            logger.warn('inventory.product_card_optimize_failed', { managedPath });
+        }
+    });
+
+    const availableOriginals = paths.filter((managedPath) => managedUploadExists(managedPath));
+    return availableOriginals.length === 0 || readyCount >= availableOriginals.length;
+}
+
 function resolveStorefrontCardUrl(rawMainImage) {
     const cardUrl = productCardImage.resolveCardPublicUrl(rawMainImage);
     if (cardUrl) {
@@ -1024,13 +1081,24 @@ exports.createProduct = async (req, res) => {
             url: buildProductUrl(catalogId)
         }), { slowThresholdMs: 700 });
 
-        logger.info('inventory.product_created', { adminId: req.admin?.id || '', catalogId, productName: normalized.name, stock: normalized.stock, price: normalized.price });
+        // Optimize images BEFORE broadcasting so customers receive product + card WebP together.
+        const cardsReady = ensureProductCardImagesReady(product, logger);
+        logger.info('inventory.product_created', {
+            adminId: req.admin?.id || '',
+            catalogId,
+            productName: normalized.name,
+            stock: normalized.stock,
+            price: normalized.price,
+            cardsReady
+        });
+
+        const serializedProduct = serializeProduct(product);
 
         try {
             const realtimeService = getRealtimeEventService();
-            // Emit only after DB create succeeded — storefront catalog SSE depends on this.
-            realtimeService.emitProductCreated(product._id || product.id, serializeProduct(product));
-            realtimeService.emitProductUpdated(product._id || product.id, serializeProduct(product));
+            // Emit only after DB create + card optimization — storefront catalog SSE depends on this.
+            realtimeService.emitProductCreated(product._id || product.id, serializedProduct);
+            realtimeService.emitProductUpdated(product._id || product.id, serializedProduct);
             realtimeService.emitProductStockChanged(product._id || product.id, 0, Number(product.stock || 0));
             realtimeService.emitAnalyticsUpdated({ source: 'products', action: 'created' });
         } catch (eventError) {
@@ -1043,7 +1111,7 @@ exports.createProduct = async (req, res) => {
 
         queueNewProductCustomerNotifications(product, null, logger);
 
-        return res.status(201).json({ success: true, product: serializeProduct(product) });
+        return res.status(201).json({ success: true, product: serializedProduct });
     } catch (error) {
         logger.error('inventory.product_create_failed', { error: String(error?.message || error), stack: error?.stack });
         const payload = { success: false, message: 'Server error' };
@@ -1331,18 +1399,24 @@ exports.updateProduct = async (req, res) => {
 
         product = reloaded;
 
+        // Re-ensure card derivatives when images change so realtime clients get optimized URLs.
+        const cardsReady = ensureProductCardImagesReady(product, logger);
+
         logger.info('inventory.product_updated', {
             adminId: req.admin?.id || '',
             catalogId: product.catalogId,
             productName: normalized.name,
             previousStock,
             nextStock: Number(product.stock || 0),
-            price: Number(product.price || 0)
+            price: Number(product.price || 0),
+            cardsReady
         });
+
+        const serializedProduct = serializeProduct(product);
 
         try {
             const realtimeService = getRealtimeEventService();
-            realtimeService.emitProductUpdated(product._id || product.id, serializeProduct(product));
+            realtimeService.emitProductUpdated(product._id || product.id, serializedProduct);
             if (previousStock !== Number(product.stock || 0)) {
                 realtimeService.emitProductStockChanged(product._id || product.id, previousStock, Number(product.stock || 0));
             }
@@ -1361,7 +1435,7 @@ exports.updateProduct = async (req, res) => {
         queueNewProductCustomerNotifications(product, existingProduct, logger);
 
         res.setHeader('Cache-Control', 'no-store');
-        return res.json({ success: true, product: serializeProduct(product) });
+        return res.json({ success: true, product: serializedProduct });
     } catch (error) {
         logger.error('inventory.product_update_failed', { error, requestedProductId: req.params.id });
         return res.status(500).json({ success: false, message: 'Server error' });
