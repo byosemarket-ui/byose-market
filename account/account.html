@@ -39,20 +39,8 @@
         aria-controls="notificationPanel"
       >
         <i class="fa-regular fa-bell" aria-hidden="true"></i>
-        <span id="notificationBadge" class="notification-badge" aria-live="polite">0</span>
+        <span id="notificationBadge" class="notification-badge is-empty" aria-live="polite">0</span>
       </button>
-
-      <section id="notificationPanel" class="notification-panel" aria-label="Notifications" hidden>
-        <div class="notification-panel-header">
-          <div>
-            <p class="notification-panel-kicker">Updates</p>
-            <h2>Notifications</h2>
-          </div>
-          <button id="markAllNotificationsRead" class="notification-panel-action" type="button">Mark all read</button>
-        </div>
-
-        <div id="notificationList" class="notification-list" role="list"></div>
-      </section>
     </div>
 
     <div class="profile-cluster">
@@ -260,6 +248,50 @@
   </section>
 
 </main>
+
+<div id="notificationOverlay" class="notification-overlay" hidden>
+  <section
+    id="notificationPanel"
+    class="notification-panel notification-panel--modal"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Notifications"
+    hidden
+  >
+    <div id="notificationListView" class="notification-panel-view">
+      <div class="notification-panel-header">
+        <div>
+          <p class="notification-panel-kicker">Updates</p>
+          <h2>Notifications</h2>
+        </div>
+        <div class="notification-panel-actions">
+          <button id="markAllNotificationsRead" class="notification-panel-action" type="button">Mark all read</button>
+          <button id="notificationCloseBtn" class="notification-panel-close" type="button" aria-label="Close notifications">
+            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+          </button>
+        </div>
+      </div>
+      <div id="notificationList" class="notification-list" role="list"></div>
+    </div>
+
+    <div id="notificationDetailView" class="notification-panel-view" hidden>
+      <div class="notification-panel-header">
+        <div>
+          <p class="notification-panel-kicker">Notification</p>
+          <h2 id="notificationDetailTitle">Details</h2>
+        </div>
+        <button id="notificationDetailBack" class="notification-panel-close" type="button" aria-label="Back to notifications">
+          <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="notification-detail-body">
+        <p id="notificationDetailMeta" class="notification-detail-meta"></p>
+        <p id="notificationDetailMessage" class="notification-detail-message"></p>
+        <a id="notificationDetailAction" class="notification-detail-action" href="account.html">Open</a>
+      </div>
+    </div>
+  </section>
+</div>
 
 <!-- JS -->
 <script src="../services/wishlist-client.js"></script>

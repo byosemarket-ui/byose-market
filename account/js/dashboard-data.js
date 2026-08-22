@@ -120,133 +120,381 @@
     }
   }
 
-  async function renderNotifications(orders, user) {
-    const list = $('#notificationList');
-    const badge = $('#notificationBadge');
-    const toggle = $('#notificationToggle');
-    const panel = $('#notificationPanel');
-    const markAll = $('#markAllNotificationsRead');
-    if (!list || !badge || !toggle || !panel) return;
+  function resolveApiOrigin() {
+    return String(window.__BYOSE_API_BASE__ || window.BYOSE_API_BASE_URL || window.location.origin || '')
+      .replace(/\/+$/, '')
+      .replace(/\/api$/i, '');
+  }
 
-    const notifications = [];
+  const notificationCenter = {
+    items: [],
+    tips: [],
+    unreadCount: 0,
+    bound: false
+  };
 
-    try {
-      if (window.authService?.authFetch && window.authService.isLoggedIn?.()) {
-        const origin = String(window.__BYOSE_API_BASE__ || window.BYOSE_API_BASE_URL || window.location.origin || '')
-          .replace(/\/+$/, '')
-          .replace(/\/api$/i, '');
-        const response = await window.authService.authFetch(`${origin}/api/customer-notifications?limit=8`, {
-          headers: { Accept: 'application/json' }
-        });
-        const payload = await response.json().catch(() => null);
-        if (response.ok && Array.isArray(payload?.items)) {
-          payload.items.forEach((item) => {
-            notifications.push({
-              id: item.id,
-              message: item.title || item.body || 'Account update',
-              detail: item.body || '',
-              time: item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'Now',
-              href: item.deeplink || 'account.html',
-              unread: !item.isRead,
-              source: 'api'
-            });
-          });
-        }
-      }
-    } catch (_error) {}
+  function formatNotificationTime(value) {
+    if (!value) return 'Recently';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Recently';
+    return date.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  }
 
+  function normalizeDeeplink(href) {
+    const raw = String(href || '').trim();
+    if (!raw) return 'account.html';
+    if (/^https?:\/\//i.test(raw)) return raw;
+    if (raw.startsWith('/account/')) return raw.replace(/^\/account\//, '');
+    if (raw.startsWith('/')) return raw.slice(1);
+    return raw;
+  }
+
+  function buildAccountTips(orders, user) {
+    const tips = [];
     const pending = orders.filter((order) => !['delivered', 'returned', 'cancelled'].includes(String(order.orderStatus || '').toLowerCase()));
     if (pending.length) {
-      notifications.push({
-        message: `${pending.length} order${pending.length === 1 ? '' : 's'} need${pending.length === 1 ? 's' : ''} your attention.`,
-        time: 'Now',
+      tips.push({
+        id: 'tip-pending-orders',
+        title: `${pending.length} order${pending.length === 1 ? '' : 's'} need${pending.length === 1 ? 's' : ''} your attention`,
+        body: 'Review your active orders and keep track of delivery updates.',
         href: 'orders/all.html',
-        unread: true,
-        source: 'orders'
+        kind: 'orders'
       });
     }
-    if (!user.address?.city && !user.address?.street && !user.address?.line1) {
-      notifications.push({
-        message: 'Add a delivery address for faster checkout.',
-        time: 'Account',
+
+    const address = user?.address || {};
+    if (!address.city && !address.street && !address.line1 && !address.provinceCity) {
+      tips.push({
+        id: 'tip-delivery-address',
+        title: 'Add a delivery address',
+        body: 'Save a delivery address for faster checkout next time.',
         href: 'settings/address.html',
-        unread: true,
-        source: 'account'
+        kind: 'account'
       });
     }
-    if (!notifications.length) {
-      notifications.push({
-        message: 'Your account is up to date.',
-        time: 'Account',
-        href: 'account.html',
-        unread: false,
-        source: 'system'
-      });
+
+    return tips;
+  }
+
+  async function fetchServerNotifications() {
+    if (!window.authService?.authFetch || !window.authService.isLoggedIn?.()) {
+      return { items: [], unreadCount: 0 };
     }
+
+    const response = await window.authService.authFetch(`${resolveApiOrigin()}/api/customer-notifications?limit=20`, {
+      headers: { Accept: 'application/json' }
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !Array.isArray(payload?.items)) {
+      return { items: [], unreadCount: 0 };
+    }
+
+    return {
+      items: payload.items.map((item) => ({
+        id: item.id,
+        type: item.type || 'SYSTEM',
+        title: item.title || 'Account update',
+        body: item.body || '',
+        href: normalizeDeeplink(item.deeplink),
+        createdAt: item.createdAt || null,
+        unread: !item.isRead,
+        source: 'api'
+      })),
+      unreadCount: Math.max(0, Number(payload.unreadCount || 0))
+    };
+  }
+
+  async function markNotificationRead(notificationId) {
+    if (!notificationId || !window.authService?.authFetch) return null;
+    const response = await window.authService.authFetch(
+      `${resolveApiOrigin()}/api/customer-notifications/${encodeURIComponent(notificationId)}/read`,
+      { method: 'POST', headers: { Accept: 'application/json' } }
+    );
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.success) {
+      throw new Error(payload?.message || 'Unable to mark notification as read.');
+    }
+    return payload;
+  }
+
+  async function markAllNotificationsRead() {
+    if (!window.authService?.authFetch) return null;
+    const response = await window.authService.authFetch(`${resolveApiOrigin()}/api/customer-notifications/read-all`, {
+      method: 'POST',
+      headers: { Accept: 'application/json' }
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.success) {
+      throw new Error(payload?.message || 'Unable to mark notifications as read.');
+    }
+    return payload;
+  }
+
+  function updateNotificationBadge(count) {
+    const badge = $('#notificationBadge');
+    if (!badge) return;
+    const safeCount = Math.max(0, Number(count) || 0);
+    badge.textContent = String(safeCount);
+    badge.classList.toggle('is-empty', safeCount === 0);
+  }
+
+  function showNotificationListView() {
+    const listView = $('#notificationListView');
+    const detailView = $('#notificationDetailView');
+    if (listView) listView.hidden = false;
+    if (detailView) detailView.hidden = true;
+  }
+
+  function showNotificationDetailView(notification) {
+    const listView = $('#notificationListView');
+    const detailView = $('#notificationDetailView');
+    const title = $('#notificationDetailTitle');
+    const meta = $('#notificationDetailMeta');
+    const message = $('#notificationDetailMessage');
+    const action = $('#notificationDetailAction');
+    if (!detailView || !title || !meta || !message || !action) return;
+
+    title.textContent = notification.title || 'Notification';
+    meta.textContent = [
+      notification.type ? String(notification.type).replace(/_/g, ' ') : '',
+      formatNotificationTime(notification.createdAt)
+    ].filter(Boolean).join(' · ');
+    message.textContent = notification.body || notification.title || 'No additional details.';
+    action.href = notification.href || 'account.html';
+    action.textContent = notification.source === 'api' ? 'Open related page' : 'Continue';
+
+    if (listView) listView.hidden = true;
+    detailView.hidden = false;
+  }
+
+  function renderNotificationList() {
+    const list = $('#notificationList');
+    const markAll = $('#markAllNotificationsRead');
+    if (!list) return;
 
     list.replaceChildren();
-    notifications.forEach((notification) => {
-      const item = document.createElement('a');
-      item.className = `notification-item${notification.unread ? ' is-unread' : ''}`;
-      item.href = notification.href || 'account.html';
-      const icon = document.createElement('span');
-      icon.className = 'notification-item-icon';
-      icon.innerHTML = '<i class="fa-solid fa-bell" aria-hidden="true"></i>';
-      const body = document.createElement('span');
-      body.className = 'notification-item-body';
-      const message = document.createElement('span');
-      message.className = 'notification-item-message';
-      message.textContent = notification.message;
-      const meta = document.createElement('span');
-      meta.className = 'notification-item-meta';
-      meta.textContent = notification.detail || notification.time;
-      body.append(message, meta);
-      item.append(icon, body);
-      list.append(item);
+
+    if (!notificationCenter.items.length && !notificationCenter.tips.length) {
+      const empty = document.createElement('p');
+      empty.className = 'notification-empty-inline';
+      empty.textContent = 'You are all caught up. New account updates will appear here.';
+      list.append(empty);
+    } else {
+      if (notificationCenter.items.length) {
+        const label = document.createElement('p');
+        label.className = 'notification-section-label';
+        label.textContent = 'Your notifications';
+        list.append(label);
+
+        notificationCenter.items.forEach((notification) => {
+          const item = document.createElement('button');
+          item.type = 'button';
+          item.className = `notification-item${notification.unread ? ' is-unread' : ''}`;
+          item.dataset.notificationId = String(notification.id || '');
+          item.dataset.source = notification.source || 'api';
+
+          const icon = document.createElement('span');
+          icon.className = 'notification-item-icon';
+          icon.innerHTML = '<i class="fa-solid fa-bell" aria-hidden="true"></i>';
+
+          const body = document.createElement('span');
+          body.className = 'notification-item-body';
+
+          const message = document.createElement('span');
+          message.className = 'notification-item-message';
+          message.textContent = notification.title;
+
+          const meta = document.createElement('span');
+          meta.className = 'notification-item-meta';
+          meta.innerHTML = `<span class="notification-item-status" aria-hidden="true"></span>${formatNotificationTime(notification.createdAt)}`;
+
+          body.append(message, meta);
+          item.append(icon, body);
+          list.append(item);
+        });
+      }
+
+      if (notificationCenter.tips.length) {
+        const label = document.createElement('p');
+        label.className = 'notification-section-label';
+        label.textContent = 'Account tips';
+        list.append(label);
+
+        notificationCenter.tips.forEach((tip) => {
+          const item = document.createElement('a');
+          item.className = 'notification-item is-tip';
+          item.href = tip.href;
+
+          const icon = document.createElement('span');
+          icon.className = 'notification-item-icon';
+          icon.innerHTML = '<i class="fa-solid fa-lightbulb" aria-hidden="true"></i>';
+
+          const body = document.createElement('span');
+          body.className = 'notification-item-body';
+
+          const message = document.createElement('span');
+          message.className = 'notification-item-message';
+          message.textContent = tip.title;
+
+          const meta = document.createElement('span');
+          meta.className = 'notification-item-meta';
+          meta.textContent = tip.body;
+
+          body.append(message, meta);
+          item.append(icon, body);
+          list.append(item);
+        });
+      }
+    }
+
+    if (markAll) {
+      markAll.disabled = notificationCenter.unreadCount <= 0;
+      markAll.hidden = notificationCenter.items.length === 0;
+    }
+  }
+
+  function openNotificationPanel() {
+    const overlay = $('#notificationOverlay');
+    const panel = $('#notificationPanel');
+    const toggle = $('#notificationToggle');
+    if (!overlay || !panel || !toggle) return;
+    showNotificationListView();
+    overlay.hidden = false;
+    panel.hidden = false;
+    toggle.setAttribute('aria-expanded', 'true');
+    toggle.classList.add('is-open');
+    document.body.classList.add('notification-open');
+  }
+
+  function closeNotificationPanel() {
+    const overlay = $('#notificationOverlay');
+    const panel = $('#notificationPanel');
+    const toggle = $('#notificationToggle');
+    if (!overlay || !panel || !toggle) return;
+    overlay.hidden = true;
+    panel.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.classList.remove('is-open');
+    document.body.classList.remove('notification-open');
+    showNotificationListView();
+  }
+
+  function bindNotificationCenter() {
+    if (notificationCenter.bound) return;
+    notificationCenter.bound = true;
+
+    const toggle = $('#notificationToggle');
+    const overlay = $('#notificationOverlay');
+    const panel = $('#notificationPanel');
+    const closeBtn = $('#notificationCloseBtn');
+    const markAll = $('#markAllNotificationsRead');
+    const detailBack = $('#notificationDetailBack');
+    const list = $('#notificationList');
+
+    toggle?.addEventListener('click', () => {
+      if (overlay?.hidden) {
+        openNotificationPanel();
+      } else {
+        closeNotificationPanel();
+      }
     });
 
-    const closePanel = () => {
-      panel.hidden = true;
-      toggle.setAttribute('aria-expanded', 'false');
-      toggle.classList.remove('is-open');
-    };
-    const updateBadge = (count) => {
-      badge.textContent = String(count);
-      badge.classList.toggle('is-empty', count === 0);
-    };
-    const unreadCount = notifications.filter((entry) => entry.unread).length;
-    updateBadge(unreadCount);
+    closeBtn?.addEventListener('click', closeNotificationPanel);
+    overlay?.addEventListener('click', (event) => {
+      if (event.target === overlay) closeNotificationPanel();
+    });
 
-    // Avoid stacking duplicate listeners on re-render.
-    if (toggle.dataset.bound !== 'true') {
-      toggle.dataset.bound = 'true';
-      toggle.addEventListener('click', () => {
-        const opening = panel.hidden;
-        panel.hidden = !opening;
-        toggle.setAttribute('aria-expanded', String(opening));
-        toggle.classList.toggle('is-open', opening);
-      });
-      document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape') closePanel();
-      });
-    }
+    panel?.addEventListener('click', (event) => {
+      event.stopPropagation();
+    });
 
-    if (markAll && markAll.dataset.bound !== 'true') {
-      markAll.dataset.bound = 'true';
-      markAll.addEventListener('click', async () => {
-        list.querySelectorAll('.is-unread').forEach((node) => node.classList.remove('is-unread'));
-        updateBadge(0);
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && overlay && !overlay.hidden) {
+        closeNotificationPanel();
+      }
+    });
+
+    detailBack?.addEventListener('click', showNotificationListView);
+
+    markAll?.addEventListener('click', async () => {
+      if (notificationCenter.unreadCount <= 0) return;
+      markAll.disabled = true;
+      try {
+        const payload = await markAllNotificationsRead();
+        notificationCenter.items = (payload?.items || notificationCenter.items).map((item) => ({
+          id: item.id,
+          type: item.type || 'SYSTEM',
+          title: item.title || 'Account update',
+          body: item.body || '',
+          href: normalizeDeeplink(item.deeplink),
+          createdAt: item.createdAt || null,
+          unread: !item.isRead,
+          source: 'api'
+        }));
+        notificationCenter.unreadCount = Math.max(0, Number(payload?.unreadCount || 0));
+        renderNotificationList();
+        updateNotificationBadge(notificationCenter.unreadCount);
+      } catch (_error) {
+        markAll.disabled = notificationCenter.unreadCount <= 0;
+      }
+    });
+
+    list?.addEventListener('click', async (event) => {
+      const button = event.target?.closest?.('.notification-item[data-notification-id]');
+      if (!button) return;
+      event.preventDefault();
+
+      const notificationId = Number(button.dataset.notificationId);
+      const notification = notificationCenter.items.find((entry) => Number(entry.id) === notificationId);
+      if (!notification) return;
+
+      if (notification.unread) {
         try {
-          const origin = String(window.__BYOSE_API_BASE__ || window.BYOSE_API_BASE_URL || window.location.origin || '')
-            .replace(/\/+$/, '')
-            .replace(/\/api$/i, '');
-          await window.authService?.authFetch?.(`${origin}/api/customer-notifications/read-all`, {
-            method: 'POST',
-            headers: { Accept: 'application/json' }
-          });
-        } catch (_error) {}
-      });
+          const payload = await markNotificationRead(notification.id);
+          notification.unread = false;
+          notificationCenter.items = (payload?.items || notificationCenter.items).map((item) => ({
+            id: item.id,
+            type: item.type || 'SYSTEM',
+            title: item.title || 'Account update',
+            body: item.body || '',
+            href: normalizeDeeplink(item.deeplink),
+            createdAt: item.createdAt || null,
+            unread: !item.isRead,
+            source: 'api'
+          }));
+          notificationCenter.unreadCount = Math.max(0, Number(payload?.unreadCount || 0));
+          renderNotificationList();
+          updateNotificationBadge(notificationCenter.unreadCount);
+        } catch (_error) {
+          return;
+        }
+      }
+
+      showNotificationDetailView(notification);
+    });
+  }
+
+  async function renderNotifications(orders, user) {
+    if (!$('#notificationList') || !$('#notificationBadge') || !$('#notificationToggle')) return;
+
+    try {
+      const server = await fetchServerNotifications();
+      notificationCenter.items = server.items;
+      notificationCenter.unreadCount = server.unreadCount;
+    } catch (_error) {
+      notificationCenter.items = [];
+      notificationCenter.unreadCount = 0;
     }
+
+    notificationCenter.tips = buildAccountTips(orders, user);
+    renderNotificationList();
+    updateNotificationBadge(notificationCenter.unreadCount);
+    bindNotificationCenter();
   }
 
   async function loadFeatureSummaries() {
