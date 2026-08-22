@@ -259,6 +259,77 @@ async function resolveCustomerRecordIdForOrder(order) {
  * Create a customer inbox notification after a meaningful order-status transition.
  * Skips guests, unchanged statuses, and duplicate status keys (dedupeKey).
  */
+const ADMIN_CATEGORY_TYPES = {
+    general: 'SYSTEM',
+    important: 'SYSTEM',
+    promotion: 'SYSTEM',
+    order: 'ORDER_UPDATE',
+    account: 'SYSTEM',
+    product: 'SYSTEM'
+};
+
+function resolveAdminNotificationType(category, { orderId = '', productId = '' } = {}) {
+    const key = String(category || 'general').toLowerCase();
+    if (key === 'order' && !orderId) return 'SYSTEM';
+    if (key === 'product' && !productId) return 'SYSTEM';
+    return ADMIN_CATEGORY_TYPES[key] || 'SYSTEM';
+}
+
+/**
+ * Admin-composed customer inbox notification. Bypasses customer prefs so manual
+ * admin messages always reach the selected customer inbox.
+ */
+async function sendAdminCustomerNotification({
+    userId,
+    category = 'general',
+    title,
+    body = '',
+    orderId = '',
+    productId = '',
+    idempotencyKey = ''
+} = {}) {
+    if (!userId || !title || !String(body || '').trim()) {
+        return null;
+    }
+
+    const normalizedOrderId = String(orderId || '').trim();
+    const normalizedProductId = String(productId || '').trim();
+    const type = resolveAdminNotificationType(category, {
+        orderId: normalizedOrderId,
+        productId: normalizedProductId
+    });
+
+    let deeplink = '';
+    let entityType = '';
+    let entityId = '';
+
+    if (normalizedOrderId) {
+        deeplink = `/account/order-details.html?id=${encodeURIComponent(normalizedOrderId)}`;
+        entityType = 'order';
+        entityId = normalizedOrderId;
+    } else if (normalizedProductId) {
+        deeplink = `/details/product-details1.html?id=${encodeURIComponent(normalizedProductId)}`;
+        entityType = 'product';
+        entityId = normalizedProductId;
+    }
+
+    const dedupeKey = idempotencyKey
+        ? `ADMIN_MSG:${userId}:${String(idempotencyKey).trim()}`
+        : '';
+
+    const { customerNotifications } = getRepos();
+    return customerNotifications.create({
+        userId,
+        type,
+        title,
+        body,
+        deeplink,
+        entityType,
+        entityId,
+        dedupeKey
+    });
+}
+
 async function notifyOrderStatusUpdate({ order, previousStatus, nextStatus } = {}) {
     if (!order) return null;
 
@@ -299,6 +370,8 @@ module.exports = {
     notifyFavoriteStorePromotion,
     notifyWishlistProductPromotion,
     notifyOrderStatusUpdate,
+    sendAdminCustomerNotification,
+    resolveAdminNotificationType,
     buildOrderStatusNotificationCopy,
     resolveCustomerRecordIdForOrder,
     PREF_GATES

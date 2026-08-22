@@ -1089,6 +1089,28 @@ export async function getCustomers(options = {}) {
   return promise;
 }
 
+export async function searchCustomers(query = "", options = {}) {
+  const normalized = String(query || "").trim();
+  const params = new URLSearchParams();
+  if (normalized) params.set("q", normalized);
+  if (options?.status) params.set("status", String(options.status));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const payload = await withRetry("admin/customers/search", () => api.get(`admin/customers${suffix}`));
+  return capArray(asArray(payload?.customers || payload?.data || payload).map(normalizeCustomer), options?.maxItems || 25);
+}
+
+export async function getCustomerDetail(customerId) {
+  const id = String(customerId || "").trim();
+  if (!id) return null;
+  const payload = await withRetry("admin/customers/detail", () => api.get(`admin/customers/${encodeURIComponent(id)}`));
+  const customer = payload?.customer || payload?.data || payload;
+  return customer ? normalizeCustomer(customer) : null;
+}
+
+export async function sendCustomerNotification(payload = {}) {
+  return api.post("admin/customer-notifications", payload);
+}
+
 export async function getProductById(productId) {
   const id = String(productId || "").trim();
   if (!id) {

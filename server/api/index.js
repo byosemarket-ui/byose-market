@@ -13,6 +13,7 @@ const adminDeliveryRoutes = require('../routes/admindelivery');
 const adminPaymentRoutes = require('../routes/adminpayment');
 const adminSeoRoutes = require('../routes/adminseo');
 const adminNotificationRoutes = require('../routes/adminnotifications');
+const adminCustomerNotificationRoutes = require('../routes/admincustomernotifications');
 const adminMessageRoutes = require('../routes/adminmessages');
 const adminOrderRoutes = require('../routes/adminorders');
 const adminActivityRoutes = require('../routes/adminactivity');
@@ -72,6 +73,7 @@ function createApiRouter() {
     router.use('/admin/payment', requireDatabase, adminPaymentRoutes);
     router.use('/admin/seo', requireDatabase, adminSeoRoutes);
     router.use('/admin/notifications', requireDatabase, adminNotificationRoutes);
+    router.use('/admin/customer-notifications', requireDatabase, adminCustomerNotificationRoutes);
     router.use('/admin/messages', requireDatabase, adminMessageRoutes);
     router.use('/admin/orders', requireDatabase, adminOrderRoutes);
     router.use('/admin/activity', requireDatabase, adminActivityRoutes);

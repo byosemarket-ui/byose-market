@@ -156,6 +156,7 @@ export const ADMIN_NAVIGATION = [
         children: [
           externalLink("messages-customer", "Customer Messages", "messages/index.html", { description: "Inbox and customer message list." }),
           externalLink("messages-contact", "Contact Requests", "messages/details.html", { description: "Detected message detail/contact workflow." }),
+          routeLink("messages-customer-notifications", "Customer Notifications", "customernotifications", { description: "Send a manual notification to one specific customer inbox." }),
           routeLink("messages-notifications", "Notification History", "notifications", { description: "Search, filter, and manage the full notification history." }),
           routeLink("messages-notification-monitoring", "Notification Monitoring", "notificationmonitoring", { description: "Health, delivery metrics, recovery, and operations logs for the notification system." }),
           routeLink("messages-notification-analytics", "Analytics & Reports", "notificationanalytics", { description: "Notification volume, delivery performance, and exportable reports." }),

@@ -15,6 +15,7 @@ import { renderActivity } from "./pages/activity.js";
 import { renderNotifications } from "./pages/notifications.js";
 import { renderNotificationMonitoring } from "./pages/notifications-monitoring.js";
 import { renderNotificationAnalytics } from "./pages/notifications-analytics.js";
+import { renderCustomerNotificationsSend } from "./pages/customer-notifications-send.js";
 import { renderSettings } from "./pages/settings.js";
 import { renderHeroSlider } from "./pages/hero-slider/index.js";
 import { ADMIN_SYNC_EVENT, getAdminBranding, startRealtimeAnalyticsSync, stopRealtimeAnalyticsSync } from "./services/admin-data.service.js";
@@ -32,6 +33,7 @@ const pageMap = {
   notifications: renderNotifications,
   notificationmonitoring: renderNotificationMonitoring,
   notificationanalytics: renderNotificationAnalytics,
+  customernotifications: renderCustomerNotificationsSend,
   settings: renderSettings,
   heroslider: renderHeroSlider
 };
@@ -44,7 +46,7 @@ let inAppSyncRefreshTimer = null;
 let stopRealtimeSync = null;
 let bootstrapFailureHandled = false;
 
-const REFRESHABLE_ROUTES = new Set(["dashboard", "enterprise", "orders", "customers", "products", "analytics", "inventory", "activity", "notifications", "notificationmonitoring", "notificationanalytics", "heroslider"]);
+const REFRESHABLE_ROUTES = new Set(["dashboard", "enterprise", "orders", "customers", "products", "analytics", "inventory", "activity", "notifications", "notificationmonitoring", "notificationanalytics", "customernotifications", "heroslider"]);
 const ROUTE_SCOPE_MAP = {
   dashboard: new Set(["dashboard", "orders", "customers", "products", "activity", "messages", "analytics", "inventory", "carts", "intelligence", "notifications"]),
   enterprise: new Set(["dashboard", "orders", "customers", "products", "activity", "messages", "analytics", "inventory", "carts", "intelligence", "notifications"]),
@@ -58,6 +60,7 @@ const ROUTE_SCOPE_MAP = {
   notifications: new Set(["notifications"]),
   notificationmonitoring: new Set(["notifications"]),
   notificationanalytics: new Set(["notifications"]),
+  customernotifications: new Set(["notifications", "customers"]),
   heroslider: new Set(["heroslider"])
 };
 
