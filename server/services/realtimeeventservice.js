@@ -104,6 +104,18 @@ class RealtimeEventService extends EventEmitter {
   /**
    * Emit product-related events
    */
+  emitProductCreated(productId, product) {
+    return this.broadcast({
+      type: 'product:created',
+      scope: 'products',
+      payload: {
+        productId,
+        product,
+        action: 'created'
+      }
+    });
+  }
+
   emitProductUpdated(productId, updates) {
     return this.broadcast({
       type: 'product:updated',
@@ -112,6 +124,18 @@ class RealtimeEventService extends EventEmitter {
         productId,
         updates,
         action: 'updated'
+      }
+    });
+  }
+
+  emitProductDeleted(productId, meta = {}) {
+    return this.broadcast({
+      type: 'product:deleted',
+      scope: 'products',
+      payload: {
+        productId,
+        catalogId: meta.catalogId || null,
+        action: 'deleted'
       }
     });
   }

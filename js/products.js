@@ -169,6 +169,12 @@
 		const isProductDetails = /product-details/i.test(String(window.location && window.location.pathname || ''))
 			|| Boolean(document.body && document.body.classList.contains('details-page'));
 
+		void loadService().then((service) => {
+			if (service && typeof service.ensureProductLiveSync === 'function') {
+				service.ensureProductLiveSync();
+			}
+		}).catch(() => {});
+
 		if (!isProductDetails) {
 			void syncProducts({ force: false });
 			return;
@@ -190,7 +196,16 @@
 	});
 	window.addEventListener('byose:products-changed', (event) => {
 		const source = String(event?.detail?.source || '');
-		if (source === 'api-create' || source === 'api-update' || source === 'api-delete' || source === 'admin' || source === 'admin-update') {
+		if (
+			source === 'api-create'
+			|| source === 'api-update'
+			|| source === 'api-delete'
+			|| source === 'admin'
+			|| source === 'admin-update'
+			|| source === 'realtime-create'
+			|| source === 'realtime-update'
+			|| source === 'realtime-delete'
+		) {
 			void syncProducts({ force: true });
 			return;
 		}

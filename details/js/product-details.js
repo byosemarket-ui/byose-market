@@ -499,23 +499,48 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     let syncTimer = 0;
-    const syncOpenProduct = () => {
+    const syncOpenProduct = (event) => {
       window.clearTimeout(syncTimer);
       syncTimer = window.setTimeout(() => {
-        void loadProductData().then((nextProduct) => {
-          if (!nextProduct) {
+        const source = String(event?.detail?.source || '');
+        const catalogProducts = Array.isArray(event?.detail?.products) ? event.detail.products : null;
+        const currentId = String(product.id || product.catalogId || '').trim();
+
+        // Fast path: if realtime/admin sync payload no longer includes this product, show not-found.
+        if (catalogProducts && currentId && (source === 'api-delete' || source === 'realtime-delete' || source === 'admin')) {
+          const stillPresent = catalogProducts.some((entry) => {
+            const id = String(entry?.id || entry?.catalogId || '').trim();
+            return id && id === currentId;
+          });
+          if (!stillPresent) {
+            showNotFound();
             return;
           }
-          const currentId = String(product.id || product.catalogId || '');
+        }
+
+        void loadProductData().then((nextProduct) => {
+          if (!nextProduct) {
+            showNotFound();
+            return;
+          }
           const nextId = String(nextProduct.id || nextProduct.catalogId || '');
           if (currentId && nextId && currentId !== nextId) {
             return;
           }
           applyMeta(nextProduct);
           populateProduct(nextProduct);
-        }).catch(() => {});
+        }).catch(() => {
+          showNotFound();
+        });
       }, 300);
     };
+
+    void import('../../services/centralized-products.service.js').then((module) => {
+      const service = module.default || module;
+      if (typeof service.ensureProductLiveSync === 'function') {
+        service.ensureProductLiveSync();
+      }
+    }).catch(() => {});
 
     window.addEventListener('byose:products-synchronized', syncOpenProduct);
     window.addEventListener('byose:products-changed', syncOpenProduct);

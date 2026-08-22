@@ -21,7 +21,16 @@ const STALE_THRESHOLD_MS = 120000;
 const DEFAULT_RETRY_COUNT = 1;
 const DEFAULT_TIMEOUT_MS = 8000;
 const LIVE_SYNC_INTERVAL_MS = 90000;
+const CATALOG_POLL_INTERVAL_MS = 12000;
+const CATALOG_SSE_RECONNECT_BASE_MS = 1000;
+const CATALOG_SSE_RECONNECT_MAX_MS = 30000;
 const STOREFRONT_CATALOG_QUERY = "products?limit=500&fields=card";
+const PRODUCT_CATALOG_EVENT_TYPES = new Set([
+  "product:created",
+  "product:updated",
+  "product:deleted",
+  "product:stock-changed"
+]);
 
 let cachedProducts = [];
 let lastSnapshotAt = 0;
@@ -32,6 +41,14 @@ let liveSyncAbortController = null;
 let detachLiveSyncListeners = null;
 let catalogFetchInFlight = null;
 let lastStoredFingerprint = "";
+let catalogSse = null;
+let catalogSseReconnectTimer = null;
+let catalogSseBackoffMs = CATALOG_SSE_RECONNECT_BASE_MS;
+let catalogPollTimerId = null;
+let catalogPollInFlight = false;
+let lastCatalogEventTimestamp = 0;
+let catalogRefreshDebounceTimer = null;
+let lastRealtimeRefreshAt = 0;
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -599,8 +616,18 @@ function publishProducts(products, source = "api") {
       }
     }));
 
-    // Only notify "changed" for real mutations so pages do not refetch the same catalog.
-    const mutationSources = new Set(["api-create", "api-update", "api-delete", "admin", "admin-update"]);
+    // Notify "changed" for real mutations + realtime catalog sync so pages
+    // can force-refresh when needed (notification alone is not enough).
+    const mutationSources = new Set([
+      "api-create",
+      "api-update",
+      "api-delete",
+      "admin",
+      "admin-update",
+      "realtime-create",
+      "realtime-update",
+      "realtime-delete"
+    ]);
     if (mutationSources.has(String(source || ""))) {
       window.dispatchEvent(new CustomEvent(PRODUCT_CHANGED_EVENT, {
         detail: {
@@ -965,13 +992,21 @@ async function consumeProductPrefetch(productId) {
   return null;
 }
 
-async function fetchCatalogSnapshot(signal) {
+async function fetchCatalogSnapshot(signal, options = {}) {
   traceStorefrontStage("api-request", { path: STOREFRONT_CATALOG_QUERY });
-  const prefetched = await consumeCatalogPrefetch();
+  // Prefetch is only safe for the first paint. Mutation/realtime refreshes must
+  // bypass HTTP caches so Admin add/delete is never overwritten by stale JSON.
+  const allowPrefetch = options.allowPrefetch !== false && options.cache !== "no-store";
+  const prefetched = allowPrefetch ? await consumeCatalogPrefetch() : null;
   const response = prefetched || await apiRequest(STOREFRONT_CATALOG_QUERY, {
     method: "GET",
     timeoutMs: DEFAULT_TIMEOUT_MS,
-    signal
+    signal,
+    cache: options.cache || "no-store",
+    headers: {
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache"
+    }
   });
   const products = asArray(response?.products);
   traceStorefrontStage("api-response", {
@@ -981,7 +1016,7 @@ async function fetchCatalogSnapshot(signal) {
     prefetched: Boolean(prefetched)
   });
 
-  return publishProducts(products, "api-refresh");
+  return publishProducts(products, options.source || "api-refresh");
 }
 
 function hydrateFromStorage() {
@@ -1091,7 +1126,11 @@ export async function forceRefreshProducts(options = {}) {
 
   catalogFetchInFlight = (async () => {
     try {
-      return await fetchCatalogSnapshot(liveSyncAbortController?.signal);
+      return await fetchCatalogSnapshot(liveSyncAbortController?.signal, {
+        cache: "no-store",
+        allowPrefetch: false,
+        source: options.source || "api-refresh"
+      });
     } catch (error) {
       if (!options?.silent) {
         throw mapApiError(error, "Unable to refresh the product catalog from the backend.");
@@ -1203,6 +1242,185 @@ export function isCacheStale() {
   return !lastSnapshotAt || Date.now() - lastSnapshotAt > STALE_THRESHOLD_MS;
 }
 
+function isProductCatalogEvent(event) {
+  if (!event || typeof event !== "object") {
+    return false;
+  }
+  if (String(event.scope || "").toLowerCase() === "products") {
+    return true;
+  }
+  return PRODUCT_CATALOG_EVENT_TYPES.has(String(event.type || "").toLowerCase());
+}
+
+function scheduleCatalogRefreshFromRealtime(reason = "realtime") {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (catalogRefreshDebounceTimer) {
+    window.clearTimeout(catalogRefreshDebounceTimer);
+  }
+
+  catalogRefreshDebounceTimer = window.setTimeout(() => {
+    catalogRefreshDebounceTimer = null;
+    const now = Date.now();
+    // Coalesce bursty Admin operations (create + stock + analytics).
+    if (now - lastRealtimeRefreshAt < 250) {
+      return;
+    }
+    lastRealtimeRefreshAt = now;
+    void forceRefreshProducts({ silent: true, source: reason }).catch((error) => {
+      console.error("[Product Service] Realtime catalog refresh failed:", error);
+    });
+  }, 150);
+}
+
+function handleCatalogRealtimeEvent(event) {
+  if (!isProductCatalogEvent(event)) {
+    return;
+  }
+
+  const eventAt = Number(event.timestamp || event.sourcedAt || Date.now()) || Date.now();
+  if (eventAt > lastCatalogEventTimestamp) {
+    lastCatalogEventTimestamp = eventAt;
+  }
+
+  const eventType = String(event.type || "").toLowerCase();
+  const reason = eventType.includes("deleted")
+    ? "realtime-delete"
+    : (eventType.includes("created") ? "realtime-create" : "realtime-update");
+
+  scheduleCatalogRefreshFromRealtime(reason);
+}
+
+function stopCatalogPolling() {
+  if (catalogPollTimerId && typeof window !== "undefined") {
+    window.clearInterval(catalogPollTimerId);
+  }
+  catalogPollTimerId = null;
+  catalogPollInFlight = false;
+}
+
+function startCatalogPolling() {
+  if (typeof window === "undefined" || catalogPollTimerId) {
+    return;
+  }
+
+  const poll = async () => {
+    if (catalogPollInFlight || document.visibilityState === "hidden") {
+      return;
+    }
+
+    catalogPollInFlight = true;
+    try {
+      const since = Math.max(0, lastCatalogEventTimestamp - 1000);
+      const response = await apiRequest(`realtime/catalog-events?since=${encodeURIComponent(String(since))}&limit=50`, {
+        method: "GET",
+        timeoutMs: 8000,
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache"
+        }
+      });
+
+      const events = asArray(response?.events);
+      events.forEach((event) => handleCatalogRealtimeEvent(event));
+      if (Number(response?.timestamp) > lastCatalogEventTimestamp) {
+        lastCatalogEventTimestamp = Number(response.timestamp);
+      }
+    } catch (error) {
+      console.warn("[Product Service] Catalog event poll failed:", error?.message || error);
+    } finally {
+      catalogPollInFlight = false;
+    }
+  };
+
+  // Immediate catch-up after connect/reconnect, then conservative polling.
+  void poll();
+  catalogPollTimerId = window.setInterval(() => {
+    void poll();
+  }, CATALOG_POLL_INTERVAL_MS);
+}
+
+function stopCatalogSse() {
+  if (catalogSseReconnectTimer && typeof window !== "undefined") {
+    window.clearTimeout(catalogSseReconnectTimer);
+  }
+  catalogSseReconnectTimer = null;
+
+  if (catalogSse) {
+    try {
+      catalogSse.close();
+    } catch (_error) {
+      // Ignore close failures.
+    }
+  }
+  catalogSse = null;
+}
+
+function scheduleCatalogSseReconnect() {
+  if (typeof window === "undefined" || !liveSyncStarted) {
+    return;
+  }
+
+  if (catalogSseReconnectTimer) {
+    window.clearTimeout(catalogSseReconnectTimer);
+  }
+
+  const delay = catalogSseBackoffMs;
+  catalogSseBackoffMs = Math.min(CATALOG_SSE_RECONNECT_MAX_MS, Math.floor(catalogSseBackoffMs * 1.8));
+  catalogSseReconnectTimer = window.setTimeout(() => {
+    catalogSseReconnectTimer = null;
+    startCatalogSse();
+  }, delay);
+}
+
+function startCatalogSse() {
+  if (typeof window === "undefined" || typeof window.EventSource !== "function") {
+    startCatalogPolling();
+    return;
+  }
+
+  stopCatalogSse();
+
+  let streamUrl = "";
+  try {
+    streamUrl = buildApiUrl("realtime/catalog");
+  } catch (_error) {
+    startCatalogPolling();
+    return;
+  }
+
+  try {
+    catalogSse = new EventSource(streamUrl);
+  } catch (_error) {
+    startCatalogPolling();
+    return;
+  }
+
+  catalogSse.onopen = () => {
+    catalogSseBackoffMs = CATALOG_SSE_RECONNECT_BASE_MS;
+    // Keep a light poll as catch-up for any missed events during reconnect gaps.
+    startCatalogPolling();
+  };
+
+  catalogSse.onmessage = (message) => {
+    try {
+      const event = JSON.parse(String(message?.data || "{}"));
+      handleCatalogRealtimeEvent(event);
+    } catch (_error) {
+      // Ignore malformed SSE payloads.
+    }
+  };
+
+  catalogSse.onerror = () => {
+    stopCatalogSse();
+    startCatalogPolling();
+    scheduleCatalogSseReconnect();
+  };
+}
+
 export function subscribeToProducts(onProducts, onError) {
   ensureProductLiveSync();
 
@@ -1242,8 +1460,18 @@ export function ensureProductLiveSync() {
   }
 
   liveSyncStarted = true;
+  lastCatalogEventTimestamp = Date.now();
   scheduleLiveSync();
   attachLiveSyncListeners();
+  startCatalogSse();
+
+  // Reconcile once after listeners attach so long-lived tabs catch Admin
+  // mutations that happened while the page was idle/offline.
+  if (typeof window !== "undefined") {
+    window.setTimeout(() => {
+      void forceRefreshProducts({ silent: true, source: "live-sync-bootstrap" }).catch(() => {});
+    }, 400);
+  }
 
   return Promise.resolve(() => stopProductLiveSync());
 }
@@ -1260,6 +1488,14 @@ export function stopProductLiveSync() {
   if (typeof detachLiveSyncListeners === "function") {
     detachLiveSyncListeners();
   }
+
+  stopCatalogSse();
+  stopCatalogPolling();
+
+  if (catalogRefreshDebounceTimer && typeof window !== "undefined") {
+    window.clearTimeout(catalogRefreshDebounceTimer);
+  }
+  catalogRefreshDebounceTimer = null;
 
   if (liveSyncAbortController) {
     liveSyncAbortController.abort();
@@ -1372,7 +1608,12 @@ export async function deleteProduct(productId, options = {}) {
 
   const products = cachedProducts.filter((product) => Number(product.id) !== catalogId && Number(product.catalogId) !== catalogId);
   publishProducts(products, "api-delete");
-  return { id: catalogId, products };
+  try {
+    await forceRefreshProducts({ silent: true, source: "api-delete" });
+  } catch (_error) {
+    // Keep the optimistic local removal if background refresh fails.
+  }
+  return { id: catalogId, products: getCachedProducts() };
 }
 
 export async function handleAdminProductUpdate() {

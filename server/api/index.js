@@ -52,7 +52,7 @@ const adminRateLimiter = createRateLimiter({
 
 const realtimeRateLimiter = createRateLimiter({
     windowMs: 60 * 1000,
-    max: 120,
+    max: 300,
     code: 'REALTIME_RATE_LIMITED',
     message: 'Too many realtime requests. Please retry shortly.'
 });

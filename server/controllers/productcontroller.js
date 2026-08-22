@@ -1028,6 +1028,8 @@ exports.createProduct = async (req, res) => {
 
         try {
             const realtimeService = getRealtimeEventService();
+            // Emit only after DB create succeeded — storefront catalog SSE depends on this.
+            realtimeService.emitProductCreated(product._id || product.id, serializeProduct(product));
             realtimeService.emitProductUpdated(product._id || product.id, serializeProduct(product));
             realtimeService.emitProductStockChanged(product._id || product.id, 0, Number(product.stock || 0));
             realtimeService.emitAnalyticsUpdated({ source: 'products', action: 'created' });
@@ -1085,10 +1087,11 @@ exports.getAllProducts = async (req, res) => {
         const payload = { success: true, products: serialized, view: serializeMode };
 
         if (forPublic) {
-            // Short browser cache + SWR keeps homepage fast while admin edits propagate quickly.
+            // Short browser cache for normal browsing. Mutation clients always
+            // refetch with cache:no-store after product:created/deleted events.
             const cacheControl = serializeMode === 'card'
-                ? 'public, max-age=60, stale-while-revalidate=300'
-                : 'public, max-age=30, stale-while-revalidate=120';
+                ? 'public, max-age=15, stale-while-revalidate=60'
+                : 'public, max-age=10, stale-while-revalidate=30';
             res.setHeader('Cache-Control', cacheControl);
             res.setHeader('Vary', 'Accept-Encoding, Authorization');
             res.setHeader('X-Byose-Catalog-Generation', String(queryCache.getGeneration()));
@@ -1378,15 +1381,22 @@ exports.deleteProduct = async (req, res) => {
 
         try {
             const realtimeService = getRealtimeEventService();
-            realtimeService.broadcast({
-                type: 'product:deleted',
-                scope: 'products',
-                payload: {
-                    productId: product._id || product.id,
-                    catalogId: product.catalogId,
-                    action: 'deleted'
-                }
-            });
+            // Emit only after DB delete succeeded — storefront removes the product from UI.
+            if (typeof realtimeService.emitProductDeleted === 'function') {
+                realtimeService.emitProductDeleted(product._id || product.id, {
+                    catalogId: product.catalogId
+                });
+            } else {
+                realtimeService.broadcast({
+                    type: 'product:deleted',
+                    scope: 'products',
+                    payload: {
+                        productId: product._id || product.id,
+                        catalogId: product.catalogId,
+                        action: 'deleted'
+                    }
+                });
+            }
             realtimeService.emitAnalyticsUpdated({ source: 'products', action: 'deleted' });
         } catch (eventError) {
             logger.warn('realtime.event_emit_failed', { error: eventError, scope: 'product.deleted' });

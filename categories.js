@@ -205,6 +205,9 @@ async function syncCategories() {
 	}
 
 	if (typeof window !== 'undefined' && service.GLOBAL_SYNC_EVENT) {
+		if (typeof service.ensureProductLiveSync === 'function') {
+			service.ensureProductLiveSync();
+		}
 		window.addEventListener(service.GLOBAL_SYNC_EVENT, (event) => {
 			categories = buildLiveCategories(event?.detail?.products || []);
 			render(filterCategories(searchInput?.value || ''));

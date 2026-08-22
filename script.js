@@ -69,6 +69,10 @@ if (document.readyState === 'loading') {
 
 function initializeHomePage() {
   paintCachedCatalog();
+  // Keep storefront catalog live so Admin add/delete updates this tab without refresh.
+  if (typeof productService.ensureProductLiveSync === 'function') {
+    productService.ensureProductLiveSync();
+  }
   syncCatalog();
   setupFilterControls();
   heroSlidesService.ensureHeroSlidesLiveSync();

@@ -465,6 +465,10 @@
 
     // Re-render from sync payload — do not refetch the catalog.
     productService().then(service => {
+      if (typeof service.ensureProductLiveSync === "function") {
+        service.ensureProductLiveSync();
+      }
+
       window.addEventListener(service.GLOBAL_SYNC_EVENT, (event) => {
         const products = event?.detail?.products;
         if (!Array.isArray(products)) {
