@@ -7,6 +7,7 @@ const PREF_GATES = {
     FAVORITE_STORE_PROMOTION: 'promo',
     FAVORITE_STORE_NEW_PRODUCT: 'promo',
     WISHLIST_PRODUCT_PROMOTION: 'promo',
+    NEW_PRODUCT: 'promo',
     ORDER_UPDATE: 'orders',
     SHIPPING_UPDATE: 'shipping',
     SYSTEM: 'system'
@@ -279,6 +280,73 @@ function resolveAdminNotificationType(category, { orderId = '', productId = '' }
  * Admin-composed customer inbox notification. Bypasses customer prefs so manual
  * admin messages always reach the selected customer inbox.
  */
+async function notifyNewProductPublished(userId, product) {
+    if (!userId || !product) return null;
+
+    const catalogId = String(product.catalogId || product.id || '').trim();
+    if (!catalogId) return null;
+
+    const productName = String(product.name || product.title || 'New product').trim();
+    const body = productName
+        ? `New product available: ${productName}.`
+        : 'A new product has just been added to BYOSE Market.';
+
+    return enqueueEventSafe({
+        userId,
+        type: 'NEW_PRODUCT',
+        title: 'New Product Available',
+        body,
+        deeplink: `/details/product-details1.html?id=${encodeURIComponent(catalogId)}`,
+        entityType: 'product',
+        entityId: catalogId,
+        dedupeKey: `NEW_PRODUCT:${userId}:${catalogId}`
+    });
+}
+
+/**
+ * Notify all eligible registered customers about a newly published product.
+ * Uses per-customer dedupe keys so retries and duplicate publish requests are safe.
+ */
+async function broadcastNewProductPublished(product) {
+    if (!product || !isProductPublished(product)) {
+        return { sent: 0, skipped: 0 };
+    }
+
+    const userDataService = require('./userdataservice');
+    const customers = await userDataService.listCustomers();
+    let sent = 0;
+    let skipped = 0;
+
+    for (const customer of customers) {
+        if (!customer?.recordId) {
+            skipped += 1;
+            continue;
+        }
+        if (String(customer.role || '').toLowerCase() === 'admin') {
+            skipped += 1;
+            continue;
+        }
+        if (String(customer.status || 'active').toLowerCase() === 'blocked') {
+            skipped += 1;
+            continue;
+        }
+
+        const created = await notifyNewProductPublished(Number(customer.recordId), product);
+        if (created) {
+            sent += 1;
+        } else {
+            skipped += 1;
+        }
+    }
+
+    return { sent, skipped };
+}
+
+function isProductPublished(product) {
+    const { isProductPublished: checkPublished } = require('../utils/product-visibility');
+    return checkPublished(product);
+}
+
 async function sendAdminCustomerNotification({
     userId,
     category = 'general',
@@ -370,6 +438,8 @@ module.exports = {
     notifyFavoriteStorePromotion,
     notifyWishlistProductPromotion,
     notifyOrderStatusUpdate,
+    notifyNewProductPublished,
+    broadcastNewProductPublished,
     sendAdminCustomerNotification,
     resolveAdminNotificationType,
     buildOrderStatusNotificationCopy,

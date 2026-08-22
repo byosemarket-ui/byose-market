@@ -3,6 +3,7 @@ const config = require('../config/env');
 const productDataService = require('../services/productdataservice');
 const getRealtimeEventService = require('../services/realtimeeventservice');
 const notificationEngine = require('../services/notification-engine.service');
+const customerNotificationDataService = require('../services/customernotificationdataservice');
 const { queryCache } = require('../services/querycache.service');
 const {
     detectStorefrontVisibilityIssues,
@@ -907,6 +908,29 @@ async function buildCatalogIdFromPayload(payload, fallbackValue) {
     return fallbackValue || getNextCatalogId();
 }
 
+function queueNewProductCustomerNotifications(product, previousProduct, logger) {
+    const wasPublished = previousProduct ? isProductPublished(previousProduct) : false;
+    const isNowPublished = isProductPublished(product);
+    if (!isNowPublished || wasPublished) {
+        return;
+    }
+
+    void customerNotificationDataService.broadcastNewProductPublished(product)
+        .then((result) => {
+            logger.info('customer_notifications.new_product_broadcast', {
+                catalogId: product.catalogId || product.id,
+                sent: result?.sent || 0,
+                skipped: result?.skipped || 0
+            });
+        })
+        .catch((error) => {
+            logger.warn('customer_notifications.new_product_broadcast_failed', {
+                error,
+                catalogId: product.catalogId || product.id
+            });
+        });
+}
+
 function buildSort() {
     return {
         priority: -1,
@@ -980,6 +1004,8 @@ exports.createProduct = async (req, res) => {
         void notificationEngine.notifyProductLifecycle(null, product).catch((engineError) => {
             logger.warn('notification.engine.product_lifecycle_failed', { error: engineError, catalogId });
         });
+
+        queueNewProductCustomerNotifications(product, null, logger);
 
         return res.status(201).json({ success: true, product: serializeProduct(product) });
     } catch (error) {
@@ -1294,6 +1320,8 @@ exports.updateProduct = async (req, res) => {
                 catalogId: product.catalogId
             });
         });
+
+        queueNewProductCustomerNotifications(product, existingProduct, logger);
 
         res.setHeader('Cache-Control', 'no-store');
         return res.json({ success: true, product: serializeProduct(product) });
