@@ -1269,8 +1269,6 @@ export async function getAnalytics(options = {}) {
   }
 }
 
-}
-
 function expandInventoryEntries(product) {
   const variants = asObject(product?.variants);
   const metadata = asObject(product?.metadata);

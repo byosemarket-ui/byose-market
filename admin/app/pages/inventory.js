@@ -22,7 +22,7 @@ export async function renderInventory(container) {
   }
 
   const rows = entries.slice(0, 200).map((entry) => {
-    const available = Number(entry?.availableStock ?? entry?.stock || 0);
+    const available = Number(entry?.availableStock ?? entry?.stock ?? 0);
     const reserved = Number(entry?.reservedStock || 0);
     const physical = Number(entry?.physicalStock || (available + reserved));
     const sold = Number(entry?.soldStock || 0);
